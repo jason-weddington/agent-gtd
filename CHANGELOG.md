@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.2.0 (2026-02-28)
+
+### Features
+
+- Wire up MCP server for Claude Code dogfooding
+  ([`abc65a0`](https://github.com/home/jason/git/agent_gtd/commit/abc65a08d7826777f357905ca3520860a91e87d1))
+
+
 ## v1.1.0 (2026-02-28)
 
 ### Chores
