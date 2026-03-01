@@ -14,12 +14,6 @@ repos:
     hooks:
       - id: gitleaks
 
-  - repo: https://github.com/compilerla/conventional-pre-commit
-    rev: v4.4.0
-    hooks:
-      - id: conventional-pre-commit
-        stages: [commit-msg]
-
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.7
     hooks:
@@ -50,6 +44,13 @@ repos:
         language: system
         pass_filenames: false
         files: '^frontend/.*\.(ts|tsx)$'
+
+      - id: conventional-commit
+        name: Conventional Commit (main only)
+        entry: scripts/check-conventional-commit.sh
+        language: script
+        stages: [commit-msg]
+        always_run: true
 
       - id: semantic-release
         name: semantic-release
