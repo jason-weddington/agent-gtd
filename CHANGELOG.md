@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.0 (2026-02-28)
+
+### Features
+
+- Migrate from SQLite to PostgreSQL
+  ([`8488a86`](https://github.com/home/jason/git/agent_gtd/commit/8488a86a7457d1c917870ea8a10558e71f07c788))
+
+
 ## v1.2.0 (2026-02-28)
 
 ### Features
