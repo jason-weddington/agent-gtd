@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-import aiosqlite
+import asyncpg
 
 from agent_gtd.database import decode_json_list, encode_json_list, row_to_dict
 from agent_gtd.exceptions import (
@@ -17,7 +17,7 @@ from agent_gtd.services.project_service import verify_project_ownership
 
 
 async def list_items(
-    db: aiosqlite.Connection,
+    db: asyncpg.Pool,
     user_id: str,
     *,
     status: str | None = None,
@@ -26,33 +26,32 @@ async def list_items(
     assigned_to: str | None = None,
 ) -> list[dict[str, Any]]:
     """List items for a user, with optional filters."""
-    clauses = ["user_id = ?"]
+    clauses = ["user_id = $1"]
     params: list[object] = [user_id]
 
     if status is not None:
-        clauses.append("status = ?")
         params.append(status)
+        clauses.append(f"status = ${len(params)}")
     if project_id is not None:
-        clauses.append("project_id = ?")
         params.append(project_id)
+        clauses.append(f"project_id = ${len(params)}")
     if priority is not None:
-        clauses.append("priority = ?")
         params.append(priority)
+        clauses.append(f"priority = ${len(params)}")
     if assigned_to is not None:
-        clauses.append("assigned_to = ?")
         params.append(assigned_to)
+        clauses.append(f"assigned_to = ${len(params)}")
 
     where = " AND ".join(clauses)
-    cursor = await db.execute(
+    rows = await db.fetch(
         f"SELECT * FROM items WHERE {where} ORDER BY sort_order, created_at DESC",  # noqa: S608
-        tuple(params),
+        *params,
     )
-    rows = await cursor.fetchall()
     return [row_to_dict(r) for r in rows]
 
 
 async def create_item(
-    db: aiosqlite.Connection,
+    db: asyncpg.Pool,
     user_id: str,
     *,
     title: str,
@@ -83,53 +82,47 @@ async def create_item(
         "(id, project_id, user_id, title, description, status, priority, "
         "due_date, created_by, assigned_to, waiting_on, sort_order, labels, "
         "created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            item_id,
-            project_id,
-            user_id,
-            title,
-            description,
-            status,
-            priority,
-            due_date,
-            created_by,
-            assigned_to,
-            waiting_on,
-            sort_order,
-            encode_json_list(labels or []),
-            now,
-            now,
-        ),
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+        item_id,
+        project_id,
+        user_id,
+        title,
+        description,
+        status,
+        priority,
+        due_date,
+        created_by,
+        assigned_to,
+        waiting_on,
+        sort_order,
+        encode_json_list(labels or []),
+        now,
+        now,
     )
-    await db.commit()
 
-    cursor = await db.execute("SELECT * FROM items WHERE id = ?", (item_id,))
-    row = await cursor.fetchone()
+    row = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
     assert row is not None  # noqa: S101
     return row_to_dict(row)
 
 
-async def get_item(
-    db: aiosqlite.Connection, user_id: str, item_id: str
-) -> dict[str, Any]:
+async def get_item(db: asyncpg.Pool, user_id: str, item_id: str) -> dict[str, Any]:
     """Get a single item by ID.
 
     Raises:
         NotFoundError: If the item doesn't exist or isn't owned by user.
     """
-    cursor = await db.execute(
-        "SELECT * FROM items WHERE id = ? AND user_id = ?",
-        (item_id, user_id),
+    row = await db.fetchrow(
+        "SELECT * FROM items WHERE id = $1 AND user_id = $2",
+        item_id,
+        user_id,
     )
-    row = await cursor.fetchone()
     if row is None:
         raise NotFoundError("Item", item_id)
     return row_to_dict(row)
 
 
 async def update_item(
-    db: aiosqlite.Connection,
+    db: asyncpg.Pool,
     user_id: str,
     item_id: str,
     *,
@@ -150,7 +143,7 @@ async def update_item(
     """Update an item. Only non-None fields are changed.
 
     Args:
-        db: Database connection.
+        db: Database pool.
         user_id: Owner user ID.
         item_id: ID of the item to update.
         title: New title (None = unchanged).
@@ -184,81 +177,78 @@ async def update_item(
     params: list[object] = []
 
     if title is not None:
-        updates.append("title = ?")
         params.append(title)
+        updates.append(f"title = ${len(params)}")
     if description is not None:
-        updates.append("description = ?")
         params.append(description)
+        updates.append(f"description = ${len(params)}")
 
     if project_id_set:
         if project_id is not None:
             await verify_project_ownership(db, str(project_id), user_id)
-        updates.append("project_id = ?")
         params.append(project_id)
+        updates.append(f"project_id = ${len(params)}")
 
     if status is not None:
-        updates.append("status = ?")
         params.append(status)
+        updates.append(f"status = ${len(params)}")
 
         # Auto-set completed_at when transitioning to done
         old_status = str(existing["status"])
         if status == ItemStatus.DONE and old_status != ItemStatus.DONE:
-            updates.append("completed_at = ?")
             params.append(datetime.now(UTC).isoformat())
+            updates.append(f"completed_at = ${len(params)}")
         elif status != ItemStatus.DONE and old_status == ItemStatus.DONE:
-            updates.append("completed_at = ?")
             params.append(None)
+            updates.append(f"completed_at = ${len(params)}")
 
     if priority is not None:
-        updates.append("priority = ?")
         params.append(priority)
+        updates.append(f"priority = ${len(params)}")
 
     if due_date_set:
-        updates.append("due_date = ?")
         params.append(due_date)
+        updates.append(f"due_date = ${len(params)}")
 
     if assigned_to is not None:
-        updates.append("assigned_to = ?")
         params.append(assigned_to)
+        updates.append(f"assigned_to = ${len(params)}")
     if waiting_on is not None:
-        updates.append("waiting_on = ?")
         params.append(waiting_on)
+        updates.append(f"waiting_on = ${len(params)}")
     if sort_order is not None:
-        updates.append("sort_order = ?")
         params.append(sort_order)
+        updates.append(f"sort_order = ${len(params)}")
     if labels is not None:
-        updates.append("labels = ?")
         params.append(encode_json_list(labels))
+        updates.append(f"labels = ${len(params)}")
 
     if updates:
         updates.append("version = version + 1")
-        updates.append("updated_at = ?")
         params.append(datetime.now(UTC).isoformat())
+        updates.append(f"updated_at = ${len(params)}")
         params.append(item_id)
 
-        sql = f"UPDATE items SET {', '.join(updates)} WHERE id = ?"  # noqa: S608
-        await db.execute(sql, tuple(params))
-        await db.commit()
+        sql = f"UPDATE items SET {', '.join(updates)} WHERE id = ${len(params)}"  # noqa: S608
+        await db.execute(sql, *params)
 
-    cursor = await db.execute("SELECT * FROM items WHERE id = ?", (item_id,))
-    row = await cursor.fetchone()
+    row = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
     assert row is not None  # noqa: S101
     return row_to_dict(row)
 
 
-async def delete_item(db: aiosqlite.Connection, user_id: str, item_id: str) -> None:
+async def delete_item(db: asyncpg.Pool, user_id: str, item_id: str) -> None:
     """Delete an item.
 
     Raises:
         NotFoundError: If the item doesn't exist or isn't owned by user.
     """
     await get_item(db, user_id, item_id)  # verifies ownership
-    await db.execute("DELETE FROM items WHERE id = ?", (item_id,))
-    await db.commit()
+    await db.execute("DELETE FROM items WHERE id = $1", item_id)
 
 
 async def inbox_capture(
-    db: aiosqlite.Connection,
+    db: asyncpg.Pool,
     user_id: str,
     title: str,
     *,
@@ -281,14 +271,12 @@ async def inbox_capture(
     )
 
 
-async def list_inbox(db: aiosqlite.Connection, user_id: str) -> list[dict[str, Any]]:
+async def list_inbox(db: asyncpg.Pool, user_id: str) -> list[dict[str, Any]]:
     """List inbox items (status=inbox)."""
     return await list_items(db, user_id, status=ItemStatus.INBOX.value)
 
 
-async def complete_item(
-    db: aiosqlite.Connection, user_id: str, item_id: str
-) -> dict[str, Any]:
+async def complete_item(db: asyncpg.Pool, user_id: str, item_id: str) -> dict[str, Any]:
     """Set item status to done and auto-set completed_at.
 
     Raises:
@@ -298,7 +286,7 @@ async def complete_item(
 
 
 async def claim_item(
-    db: aiosqlite.Connection,
+    db: asyncpg.Pool,
     user_id: str,
     item_id: str,
     agent_name: str,
@@ -325,9 +313,7 @@ async def claim_item(
     return await update_item(db, user_id, item_id, assigned_to=agent_name)
 
 
-async def release_item(
-    db: aiosqlite.Connection, user_id: str, item_id: str
-) -> dict[str, Any]:
+async def release_item(db: asyncpg.Pool, user_id: str, item_id: str) -> dict[str, Any]:
     """Release an item (clear assigned_to).
 
     Raises:
@@ -337,7 +323,7 @@ async def release_item(
 
 
 async def list_project_items(
-    db: aiosqlite.Connection, user_id: str, project_id: str
+    db: asyncpg.Pool, user_id: str, project_id: str
 ) -> list[dict[str, Any]]:
     """List items for a specific project.
 
@@ -349,7 +335,7 @@ async def list_project_items(
 
 
 async def create_project_item(
-    db: aiosqlite.Connection,
+    db: asyncpg.Pool,
     user_id: str,
     project_id: str,
     *,

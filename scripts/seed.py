@@ -20,41 +20,37 @@ async def main() -> None:
     db = await get_db()
 
     # Ensure user exists
-    cursor = await db.execute(
-        "SELECT id FROM users WHERE email = ?", (SEED_EMAIL,)
+    row = await db.fetchrow(
+        "SELECT id FROM users WHERE email = $1", SEED_EMAIL
     )
-    row = await cursor.fetchone()
     if row:
-        user_id = row[0]
+        user_id = row["id"]
         print(f"User already exists: {user_id}")
     else:
         user_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
         await db.execute(
-            "INSERT INTO users (id, email, hashed_password, created_at) VALUES (?, ?, ?, ?)",
-            (user_id, SEED_EMAIL, hash_password(SEED_PASSWORD), now),
+            "INSERT INTO users (id, email, hashed_password, created_at) VALUES ($1, $2, $3, $4)",
+            user_id, SEED_EMAIL, hash_password(SEED_PASSWORD), now,
         )
-        await db.commit()
         print(f"Created user: {user_id}")
 
     # Ensure project exists
-    cursor = await db.execute(
-        "SELECT id FROM projects WHERE user_id = ? AND name = ?",
-        (user_id, SEED_PROJECT_NAME),
+    row = await db.fetchrow(
+        "SELECT id FROM projects WHERE user_id = $1 AND name = $2",
+        user_id, SEED_PROJECT_NAME,
     )
-    row = await cursor.fetchone()
     if row:
-        project_id = row[0]
+        project_id = row["id"]
         print(f"Project already exists: {project_id}")
     else:
         project_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
         await db.execute(
             "INSERT INTO projects (id, user_id, name, description, status, area, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (project_id, user_id, SEED_PROJECT_NAME, "", "active", "", now, now),
+            " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            project_id, user_id, SEED_PROJECT_NAME, "", "active", "", now, now,
         )
-        await db.commit()
         print(f"Created project: {project_id}")
 
     # Write seed.json

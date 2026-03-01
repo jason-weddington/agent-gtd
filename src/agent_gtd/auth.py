@@ -73,8 +73,7 @@ async def get_current_user(
     """FastAPI dependency that extracts and validates the current user."""
     user_id = decode_token(credentials.credentials)
     db = await get_db()
-    cursor = await db.execute("SELECT * FROM users WHERE id = ?", (user_id,))
-    row = await cursor.fetchone()
+    row = await db.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -91,8 +90,8 @@ async def register_user(email: str, password: str) -> User:
     """
     db = await get_db()
 
-    cursor = await db.execute("SELECT id FROM users WHERE email = ?", (email,))
-    if await cursor.fetchone():
+    row = await db.fetchrow("SELECT id FROM users WHERE email = $1", email)
+    if row:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Email already registered",
@@ -106,18 +105,16 @@ async def register_user(email: str, password: str) -> User:
     )
 
     sql = (
-        "INSERT INTO users (id, email, hashed_password, created_at) VALUES (?, ?, ?, ?)"
+        "INSERT INTO users (id, email, hashed_password, created_at)"
+        " VALUES ($1, $2, $3, $4)"
     )
     await db.execute(
         sql,
-        (
-            user.id,
-            user.email,
-            user.hashed_password,
-            user.created_at.isoformat(),
-        ),
+        user.id,
+        user.email,
+        user.hashed_password,
+        user.created_at.isoformat(),
     )
-    await db.commit()
 
     return user
 
@@ -129,8 +126,7 @@ async def authenticate_user(email: str, password: str) -> User:
         HTTPException: If credentials are invalid.
     """
     db = await get_db()
-    cursor = await db.execute("SELECT * FROM users WHERE email = ?", (email,))
-    row = await cursor.fetchone()
+    row = await db.fetchrow("SELECT * FROM users WHERE email = $1", email)
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

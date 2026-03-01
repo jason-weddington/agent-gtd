@@ -4,7 +4,7 @@ version = "1.2.0"
 description = "Agent Gtd"
 requires-python = ">=3.13"
 dependencies = [
-    "aiosqlite>=0.20",
+    "asyncpg>=0.30",
     "bcrypt>=4.0",
     "fastapi>=0.115",
     "fastmcp>=2.0",
@@ -66,7 +66,7 @@ module = "tests.*"
 disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
-module = "aiosqlite.*"
+module = "asyncpg.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

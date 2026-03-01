@@ -4,57 +4,57 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-import aiosqlite
+import asyncpg
 
 from agent_gtd.database import row_to_dict
 from agent_gtd.exceptions import NotFoundError
 
 
 async def verify_project_ownership(
-    db: aiosqlite.Connection, project_id: str, user_id: str
+    db: asyncpg.Pool, project_id: str, user_id: str
 ) -> None:
     """Verify that a project exists and belongs to the user.
 
     Raises:
         NotFoundError: If the project doesn't exist or isn't owned by user.
     """
-    cursor = await db.execute(
-        "SELECT id FROM projects WHERE id = ? AND user_id = ?",
-        (project_id, user_id),
+    row = await db.fetchrow(
+        "SELECT id FROM projects WHERE id = $1 AND user_id = $2",
+        project_id,
+        user_id,
     )
-    if await cursor.fetchone() is None:
+    if row is None:
         raise NotFoundError("Project", project_id)
 
 
 async def list_projects(
-    db: aiosqlite.Connection,
+    db: asyncpg.Pool,
     user_id: str,
     *,
     status: str | None = None,
     area: str | None = None,
 ) -> list[dict[str, Any]]:
     """List projects for a user, with optional filters."""
-    clauses = ["user_id = ?"]
+    clauses = ["user_id = $1"]
     params: list[object] = [user_id]
 
     if status is not None:
-        clauses.append("status = ?")
+        clauses.append(f"status = ${len(params) + 1}")
         params.append(status)
     if area is not None:
-        clauses.append("area = ?")
+        clauses.append(f"area = ${len(params) + 1}")
         params.append(area)
 
     where = " AND ".join(clauses)
-    cursor = await db.execute(
+    rows = await db.fetch(
         f"SELECT * FROM projects WHERE {where} ORDER BY created_at DESC",  # noqa: S608
-        tuple(params),
+        *params,
     )
-    rows = await cursor.fetchall()
     return [row_to_dict(r) for r in rows]
 
 
 async def create_project(
-    db: aiosqlite.Connection,
+    db: asyncpg.Pool,
     user_id: str,
     *,
     name: str,
@@ -69,37 +69,42 @@ async def create_project(
     await db.execute(
         "INSERT INTO projects "
         "(id, user_id, name, description, status, area, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (project_id, user_id, name, description, status, area, now, now),
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        project_id,
+        user_id,
+        name,
+        description,
+        status,
+        area,
+        now,
+        now,
     )
-    await db.commit()
 
-    cursor = await db.execute("SELECT * FROM projects WHERE id = ?", (project_id,))
-    row = await cursor.fetchone()
+    row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     assert row is not None  # noqa: S101
     return row_to_dict(row)
 
 
 async def get_project(
-    db: aiosqlite.Connection, user_id: str, project_id: str
+    db: asyncpg.Pool, user_id: str, project_id: str
 ) -> dict[str, Any]:
     """Get a single project by ID.
 
     Raises:
         NotFoundError: If the project doesn't exist or isn't owned by user.
     """
-    cursor = await db.execute(
-        "SELECT * FROM projects WHERE id = ? AND user_id = ?",
-        (project_id, user_id),
+    row = await db.fetchrow(
+        "SELECT * FROM projects WHERE id = $1 AND user_id = $2",
+        project_id,
+        user_id,
     )
-    row = await cursor.fetchone()
     if row is None:
         raise NotFoundError("Project", project_id)
     return row_to_dict(row)
 
 
 async def update_project(
-    db: aiosqlite.Connection,
+    db: asyncpg.Pool,
     user_id: str,
     project_id: str,
     *,
@@ -119,41 +124,36 @@ async def update_project(
     params: list[object] = []
 
     if name is not None:
-        updates.append("name = ?")
         params.append(name)
+        updates.append(f"name = ${len(params)}")
     if description is not None:
-        updates.append("description = ?")
         params.append(description)
+        updates.append(f"description = ${len(params)}")
     if status is not None:
-        updates.append("status = ?")
         params.append(status)
+        updates.append(f"status = ${len(params)}")
     if area is not None:
-        updates.append("area = ?")
         params.append(area)
+        updates.append(f"area = ${len(params)}")
 
     if updates:
-        updates.append("updated_at = ?")
         params.append(datetime.now(UTC).isoformat())
+        updates.append(f"updated_at = ${len(params)}")
         params.append(project_id)
 
-        sql = f"UPDATE projects SET {', '.join(updates)} WHERE id = ?"  # noqa: S608
-        await db.execute(sql, tuple(params))
-        await db.commit()
+        sql = f"UPDATE projects SET {', '.join(updates)} WHERE id = ${len(params)}"  # noqa: S608
+        await db.execute(sql, *params)
 
-    cursor = await db.execute("SELECT * FROM projects WHERE id = ?", (project_id,))
-    row = await cursor.fetchone()
+    row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     assert row is not None  # noqa: S101
     return row_to_dict(row)
 
 
-async def delete_project(
-    db: aiosqlite.Connection, user_id: str, project_id: str
-) -> None:
+async def delete_project(db: asyncpg.Pool, user_id: str, project_id: str) -> None:
     """Delete a project and cascade to items and notes.
 
     Raises:
         NotFoundError: If the project doesn't exist or isn't owned by user.
     """
     await verify_project_ownership(db, project_id, user_id)
-    await db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-    await db.commit()
+    await db.execute("DELETE FROM projects WHERE id = $1", project_id)

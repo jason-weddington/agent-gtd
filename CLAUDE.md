@@ -25,7 +25,7 @@ agent_gtd/
 ├── src/agent_gtd/              # Python backend (FastAPI)
 │   ├── main.py                # App entry, lifespan (init/close DB), CORS, router mounts
 │   ├── auth.py                # JWT (HS256, 72h) + bcrypt, get_current_user dependency
-│   ├── database.py            # Async SQLite (aiosqlite, WAL mode), singleton connection
+│   ├── database.py            # Async PostgreSQL (asyncpg), connection pool
 │   ├── models.py              # Pydantic v2 domain models + API request/response schemas
 │   └── routes/
 │       ├── auth_routes.py     # POST register, login, logout; GET me
@@ -63,7 +63,7 @@ agent_gtd/
 │   ├── templates/             # feature.md template
 │   └── <branch-name>/        # Per-branch planning (mirrors git branch)
 │       └── feature.md         # Feature requirements and design
-├── .env.example               # Environment variables template (JWT_SECRET, etc.)
+├── .env.example               # Environment variables template (JWT_SECRET, DATABASE_URL, etc.)
 ├── .pre-commit-config.yaml    # Git hooks config (ruff, mypy, eslint, tsc, gitleaks, etc.)
 ├── pyproject.toml             # Python config (deps, ruff, mypy, pytest, semantic-release)
 └── start.sh                   # Dev server launcher (backend + frontend)
@@ -76,7 +76,7 @@ This project ships with a **working app** — not just boilerplate. Before writi
 **Backend (fully functional):**
 - User registration and login with JWT auth (bcrypt passwords, 72h token expiry)
 - `get_current_user` FastAPI dependency — add it to any route that needs auth
-- Async SQLite database with WAL mode, schema auto-creation on startup
+- Async PostgreSQL database (asyncpg pool), schema auto-creation on startup
 - Notes CRUD API as a reference implementation (list, create, get, update, delete)
 - Health check endpoint at `/api/health`
 
@@ -95,7 +95,7 @@ This project ships with a **working app** — not just boilerplate. Before writi
 |---|---|
 | New API resource (e.g., photos, tasks) | `src/agent_gtd/routes/new_routes.py` — copy `note_routes.py` as a starting point, mount in `main.py` |
 | New domain/API models | `src/agent_gtd/models.py` — domain models at top, request/response schemas below |
-| New database tables | `src/agent_gtd/database.py` — add to `SCHEMA` string, tables auto-create on startup |
+| New database tables | `src/agent_gtd/database.py` — add to `_SCHEMA_STATEMENTS` list, tables auto-create on startup |
 | New service/business logic | `src/agent_gtd/services/` — create this directory for non-trivial logic that doesn't belong in routes |
 | New frontend page | `frontend/src/pages/NewPage.tsx` — add route in `App.tsx`, add nav link in `Sidebar.tsx` |
 | New frontend component | `frontend/src/components/` — shared/reusable UI components |
@@ -151,7 +151,7 @@ Tests must be written alongside the code they cover, not bolted on after the fac
 The notes app (`note_routes.py`, `Dashboard.tsx`, etc.) is example scaffolding that demonstrates the project's patterns. Replace it with your actual domain — don't build alongside it.
 
 - **Backend CRUD**: See `note_routes.py` — ownership checks via `user_id`, PATCH with partial updates (`None` = unchanged), 204 on DELETE, prefix-based router (`/api/notes`)
-- **Database**: See `database.py` — `SCHEMA` string for table definitions, `get_db()` for connection, `row_to_dict()` for Row→dict, `encode_tags()`/`decode_tags()` for JSON list columns
+- **Database**: See `database.py` — `_SCHEMA_STATEMENTS` list for table definitions, `get_db()` for pool, `row_to_dict()` for Record→dict, `encode_json_list()`/`decode_json_list()` for JSON list columns. Uses `$1, $2, ...` placeholders (asyncpg/PostgreSQL), not `?`
 - **Models**: See `models.py` — domain models (internal, includes `hashed_password`) separate from response schemas (public, no secrets). Create/Update request models separate from response models.
 - **API client**: See `api.ts` — namespaced methods (`api.notes.list()`), automatic snake_case/camelCase conversion on all request/response payloads, 401 auto-redirect to login
 - **Dialogs**: See `Dashboard.tsx` — shared create/edit dialog distinguished by null/non-null `editing` state, delete confirmation dialog
@@ -163,6 +163,8 @@ The notes app (`note_routes.py`, `Dashboard.tsx`, etc.) is example scaffolding t
 ## MCP Dogfooding
 
 An MCP server (`agent-gtd`) is configured in `.mcp.json` for Claude Code. It exposes 16 GTD tools (items, notes, projects) via stdio.
+
+**Prerequisites:** PostgreSQL with `agent_gtd` and `agent_gtd_test` databases. Connection strings in `.env` (`DATABASE_URL` and `TEST_DATABASE_URL`).
 
 **First-time setup:**
 ```bash

@@ -11,7 +11,23 @@
         "-t",
         "stdio"
       ],
-      "env": {}
+      "env": {
+        "DATABASE_URL": "postgresql://agent_gtd_user:R9dXFJnFhvd8NY331wslTSU@192.168.1.56:5432/agent_gtd"
+      }
+    },
+    "personal-kb": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--refresh",
+        "--directory",
+        "/Users/jason/git/personal_kb",
+        "personal-kb"
+      ],
+      "env": {
+        "KB_DB_PATH": "/Users/jason/.local/share/personal_kb/knowledge.db"
+      }
     }
   }
 }

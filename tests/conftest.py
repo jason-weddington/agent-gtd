@@ -1,21 +1,40 @@
 """Shared test fixtures for Agent GTD."""
 
+import os
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from agent_gtd.database import close_db, init_db
+from agent_gtd.database import close_db, get_db, init_db
 from agent_gtd.main import app
 
 
 @pytest.fixture(autouse=True)
-async def _setup_db(tmp_path, monkeypatch):
+async def _setup_db(monkeypatch):
     """Init a fresh test database for each test."""
     import agent_gtd.database as db_mod
 
-    monkeypatch.setattr(db_mod, "_DB_PATH", tmp_path / "test.db")
-    monkeypatch.setattr(db_mod, "_db", None)
+    # Point at the test database
+    test_url = os.environ.get("TEST_DATABASE_URL")
+    if not test_url:
+        pytest.skip("TEST_DATABASE_URL not set")
+
+    monkeypatch.setenv("DATABASE_URL", test_url)
+    monkeypatch.setattr(db_mod, "_pool", None)
+
     await init_db()
+
     yield
+
+    # Truncate all tables in dependency order.
+    # The pool may already be closed (e.g. MCP lifespan teardown),
+    # so reconnect if needed.
+    pool = db_mod._pool
+    if pool is None or pool._closed:
+        db_mod._pool = None
+        pool = await get_db()
+    async with pool.acquire() as conn:
+        await conn.execute("TRUNCATE notes, items, projects, users CASCADE")
     await close_db()
 
 

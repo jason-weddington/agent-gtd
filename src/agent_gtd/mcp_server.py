@@ -96,8 +96,8 @@ async def register_agent(
     db = await get_db()
 
     # Validate user exists
-    cursor = await db.execute("SELECT id FROM users WHERE id = ?", (user_id,))
-    if await cursor.fetchone() is None:
+    row = await db.fetchrow("SELECT id FROM users WHERE id = $1", user_id)
+    if row is None:
         raise ToolError(f"User not found: {user_id}")
 
     # Validate project exists and belongs to user
