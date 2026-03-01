@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.1 (2026-03-01)
+
+### Bug Fixes
+
+- Prevent semantic-release from auto-pushing on version bump
+  ([`d151f4d`](https://github.com/home/jason/git/agent_gtd/commit/d151f4d229e97d3e0c5eeca4e358f545da44c191))
+
+
 ## v1.4.0 (2026-03-01)
 
 ### Documentation
