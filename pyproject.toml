@@ -89,7 +89,6 @@ commit_parser = "conventional"
 changelog_file = "CHANGELOG.md"
 commit_message = "chore(release): {version}"
 build_command = "uv lock && git add uv.lock && uv build"
-push = false
 
 [tool.semantic_release.publish]
 upload_to_vcs_release = false
