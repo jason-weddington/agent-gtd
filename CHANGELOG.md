@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.5.0 (2026-03-01)
+
+### Documentation
+
+- Update roadmap for post-Phase 4 partial status
+  ([`f644928`](https://github.com/home/jason/git/agent_gtd/commit/f644928e3413cfa8a8f7a6b164dcfaaacdb7ee25))
+
+### Features
+
+- Add real-time SSE sync for browser updates
+  ([`77203ca`](https://github.com/home/jason/git/agent_gtd/commit/77203ca07027f60d41afcbfdfa988aa0deaeb3c0))
+
+
 ## v1.4.1 (2026-03-01)
 
 ### Bug Fixes
