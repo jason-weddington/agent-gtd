@@ -47,11 +47,17 @@ agent_gtd/
 │   │   │   └── ThemeContext.tsx# Dark/light toggle, persisted in localStorage
 │   │   ├── components/
 │   │   │   ├── Layout.tsx     # App shell: header, sidebar, content area
-│   │   │   ├── Sidebar.tsx    # Navigation drawer
+│   │   │   ├── Sidebar.tsx    # Navigation drawer (GTD sections: Collect/Lists/Organize)
+│   │   │   ├── GtdItemList.tsx # Shared GTD status list (fetch, edit, done, delete)
 │   │   │   └── ProtectedRoute.tsx  # Redirects to /login if not authenticated
 │   │   ├── pages/
 │   │   │   ├── Login.tsx      # Login + registration form
-│   │   │   ├── Dashboard.tsx  # Notes CRUD — example page, replace with your domain
+│   │   │   ├── Inbox.tsx      # Quick capture + inbox item list with triage
+│   │   │   ├── NextActions.tsx # Cross-project next actions list
+│   │   │   ├── WaitingFor.tsx  # Cross-project waiting-for list
+│   │   │   ├── SomedayMaybe.tsx # Cross-project someday/maybe list
+│   │   │   ├── Projects.tsx   # Project list with create/edit
+│   │   │   ├── ProjectDetail.tsx # Project items + notes with tabs
 │   │   │   └── Settings.tsx   # User settings (theme toggle, etc.)
 │   │   └── __tests__/
 │   │       └── utils.test.ts  # Tests for pure utility functions
@@ -82,12 +88,13 @@ This project ships with a **working app** — not just boilerplate. Before writi
 
 **Frontend (fully functional):**
 - Login page with registration flow
-- Dashboard with Notes CRUD UI (cards, create/edit dialog, delete confirmation)
+- Inbox with quick capture and triage dialog
+- GTD list views: Next Actions, Waiting For, Someday/Maybe (cross-project, shared `GtdItemList` component)
+- Projects list with create/edit, project detail with items + notes tabs
 - Settings page with theme toggle
+- Sidebar organized into GTD sections (Collect / Lists / Organize)
 - App shell with sidebar navigation, header, and content area
 - API client (`api.ts`) that handles auth tokens and snake/camelCase conversion automatically
-
-**The notes app is example scaffolding.** It demonstrates the project's patterns for CRUD, dialogs, API calls, auth, etc. Replace it with your actual domain — don't build alongside it.
 
 ## Where to Put New Code
 
@@ -148,13 +155,13 @@ Tests must be written alongside the code they cover, not bolted on after the fac
 - **Human verification for critical paths** — AI-generated code that handles privacy or security must produce outputs a human can independently verify. Write scripts, tests, or tooling that make verification easy. "The AI wrote it" is not a defense — the human is accountable, so make accountability painless.
 
 ## Patterns to Follow
-The notes app (`note_routes.py`, `Dashboard.tsx`, etc.) is example scaffolding that demonstrates the project's patterns. Replace it with your actual domain — don't build alongside it.
+The existing pages (`Inbox.tsx`, `ProjectDetail.tsx`, `GtdItemList.tsx`, etc.) demonstrate the project's patterns for CRUD, dialogs, API calls, and auth.
 
 - **Backend CRUD**: See `note_routes.py` — ownership checks via `user_id`, PATCH with partial updates (`None` = unchanged), 204 on DELETE, prefix-based router (`/api/notes`)
 - **Database**: See `database.py` — `_SCHEMA_STATEMENTS` list for table definitions, `get_db()` for pool, `row_to_dict()` for Record→dict, `encode_json_list()`/`decode_json_list()` for JSON list columns. Uses `$1, $2, ...` placeholders (asyncpg/PostgreSQL), not `?`
 - **Models**: See `models.py` — domain models (internal, includes `hashed_password`) separate from response schemas (public, no secrets). Create/Update request models separate from response models.
 - **API client**: See `api.ts` — namespaced methods (`api.notes.list()`), automatic snake_case/camelCase conversion on all request/response payloads, 401 auto-redirect to login
-- **Dialogs**: See `Dashboard.tsx` — shared create/edit dialog distinguished by null/non-null `editing` state, delete confirmation dialog
+- **Dialogs**: See `ProjectDetail.tsx` — shared create/edit dialog distinguished by null/non-null `editing` state, delete confirmation dialog
 - **State management**: `useState` + `useEffect` for API data, `useCallback` for stable fetch functions, loading/error/saving states
 - **Auth flow**: JWT tokens stored in localStorage (`agent_gtd-token`), `AuthContext` provides login/register/logout, `ProtectedRoute` wraps authenticated pages
 - **Theme**: Dark/light toggle via `ThemeContext`, persisted in localStorage
