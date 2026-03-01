@@ -317,8 +317,8 @@ GET    /api/health
         │              │
         ▼              ▼
 ┌────────────┐  ┌──────────────┐
-│  SQLite DB  │  │  Event Bus   │
-│  (WAL mode) │  │  (asyncio)   │
+│ PostgreSQL  │  │  Event Bus   │
+│  (asyncpg)  │  │  (asyncio)   │
 └────────────┘  └──────┬───────┘
                        │
                        ▼

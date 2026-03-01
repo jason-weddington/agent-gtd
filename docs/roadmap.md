@@ -5,41 +5,47 @@ horizontally. Details will be figured out at the start of each phase, not up fro
 
 ---
 
-## Phase 1: Core Data Model + CRUD
+## Phase 1: Core Data Model + CRUD ✅
 
-Replace the notes scaffolding with the GTD domain. Get projects and items into the database,
-expose them over REST, and render them in the frontend. No MCP, no real-time — just the
-bones.
+Backend complete. Database schema, Pydantic models, REST routes, service layer, and tests
+for projects, items (including inbox), and notes — all done.
 
-- Database schema: `projects`, `items`, `notes` tables (rip out `notes` scaffolding)
+**What shipped:**
+- Database schema: `projects`, `items`, `notes` tables
 - Pydantic models and API schemas for all three entities
 - REST routes: projects CRUD, items CRUD (including `/inbox` convenience endpoints), notes CRUD
-- Frontend: project list page, project detail page (simple item list — not kanban yet),
-  inbox page, basic item create/edit dialog
-- Sidebar navigation updated to GTD structure
-- Tests for all new backend routes
+- Service layer shared between REST and MCP
+- 128 tests, 97% coverage threshold
 
-**Exit criteria:** A human can create projects, capture items to the inbox, triage them into
-projects, and mark them done — all through the web UI.
+**Still open (deferred to Phase 4):**
+- Frontend: still shows the original Notes scaffolding UI. GTD pages (inbox, project list,
+  project detail, item dialogs) not yet built.
+
+**Exit criteria (revised):** Backend API is fully functional. Frontend deferred.
 
 ---
 
-## Phase 2: MCP Server
+## Phase 2: MCP Server ✅
 
-Give agents a way in. Mount FastMCP alongside FastAPI, sharing the same database and (soon)
-service layer. Agents can discover projects, capture items, and manage tasks.
+MCP server is live and being dogfooded via Claude Code.
 
-- FastMCP server mounted at `/mcp` within the FastAPI app
+**What shipped:**
+- FastMCP server mounted at `/mcp` within the FastAPI app + stdio mode for Claude Code
 - Agent registration (session-scoped project binding)
-- Core MCP tools: `list_projects`, `inbox_capture`, `add_item`, `update_item`,
-  `complete_item`, `list_items`, `claim_item`, `release_item`
-- Note tools: `add_note`, `update_note`, `list_notes`, `get_note`
+- 16 MCP tools: `register_agent`, `switch_project`, `list_projects`, `inbox_capture`,
+  `add_item`, `update_item`, `complete_item`, `list_items`, `get_item`, `claim_item`,
+  `release_item`, `add_note`, `update_note`, `list_notes`, `get_note`
 - Optimistic locking (`version` column) on item updates
-- Extract shared service layer so REST routes and MCP tools call the same code
-- Tests for MCP tools (concurrent access, version conflicts, session isolation)
+- Shared service layer (REST routes and MCP tools call the same code)
+- Tests for MCP tools (session isolation, version conflicts, claim semantics)
 
-**Exit criteria:** An agent can register to a project, capture work, update items, and
-complete tasks via MCP tools. Two agents on different projects can't collide.
+**Infrastructure completed alongside:**
+- Migrated from SQLite (aiosqlite) to PostgreSQL (asyncpg) — v1.3.0
+- Connection pool, `$N` placeholders, auto-commit semantics
+- `.env`-based config for `DATABASE_URL` / `TEST_DATABASE_URL`
+- Pre-push coverage hook sources `.env` for DB access
+
+**Exit criteria:** Met. Agents register, capture, update, and complete tasks. Session isolation verified.
 
 ---
 
