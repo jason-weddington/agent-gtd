@@ -2,7 +2,9 @@ import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
+import Inbox from './pages/Inbox'
+import Projects from './pages/Projects'
+import ProjectDetail from './pages/ProjectDetail'
 import Settings from './pages/Settings'
 
 export default function App() {
@@ -16,7 +18,9 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route path="/" element={<Dashboard />} />
+        <Route path="/" element={<Inbox />} />
+        <Route path="/projects" element={<Projects />} />
+        <Route path="/projects/:projectId" element={<ProjectDetail />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
     </Routes>

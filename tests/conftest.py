@@ -1,4 +1,4 @@
-"""Shared test fixtures for Agent Gtd."""
+"""Shared test fixtures for Agent GTD."""
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -36,3 +36,14 @@ async def auth_headers(client: AsyncClient) -> dict[str, str]:
     )
     token = res.json()["token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+async def project_id(client: AsyncClient, auth_headers: dict[str, str]) -> str:
+    """Create a test project and return its ID."""
+    res = await client.post(
+        "/api/projects",
+        json={"name": "Test Project", "description": "A test project"},
+        headers=auth_headers,
+    )
+    return res.json()["id"]

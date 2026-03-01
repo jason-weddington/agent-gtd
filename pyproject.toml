@@ -80,7 +80,7 @@ filterwarnings = [
 source = ["agent_gtd"]
 
 [tool.coverage.report]
-fail_under = 50
+fail_under = 95
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]

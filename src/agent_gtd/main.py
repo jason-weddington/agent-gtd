@@ -1,4 +1,4 @@
-"""Agent Gtd FastAPI application."""
+"""Agent GTD FastAPI application."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -8,7 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from agent_gtd.database import close_db, init_db
 from agent_gtd.routes.auth_routes import router as auth_router
+from agent_gtd.routes.item_routes import router as item_router
 from agent_gtd.routes.note_routes import router as note_router
+from agent_gtd.routes.project_routes import router as project_router
 
 
 @asynccontextmanager
@@ -19,7 +21,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await close_db()
 
 
-app = FastAPI(title="Agent Gtd", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Agent GTD", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,6 +32,8 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(project_router)
+app.include_router(item_router)
 app.include_router(note_router)
 
 

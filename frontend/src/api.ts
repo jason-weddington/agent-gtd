@@ -1,4 +1,4 @@
-import type { AuthResponse, Note, UserResponse } from './types'
+import type { AuthResponse, Item, Note, Project, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -70,12 +70,50 @@ export const api = {
     me: () => request<UserResponse>('GET', '/auth/me'),
   },
 
+  projects: {
+    list: (params?: { status?: string; area?: string }) => {
+      const query = new URLSearchParams()
+      if (params?.status) query.set('status', params.status)
+      if (params?.area) query.set('area', params.area)
+      const qs = query.toString()
+      return request<Project[]>('GET', `/projects${qs ? `?${qs}` : ''}`)
+    },
+    create: (data: { name: string; description?: string; status?: string; area?: string }) =>
+      request<Project>('POST', '/projects', data),
+    get: (id: string) => request<Project>('GET', `/projects/${id}`),
+    update: (id: string, data: Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>) =>
+      request<Project>('PATCH', `/projects/${id}`, data),
+    delete: (id: string) => request<void>('DELETE', `/projects/${id}`),
+    items: (id: string) => request<Item[]>('GET', `/projects/${id}/items`),
+    createItem: (id: string, data: { title: string; description?: string; status?: string; priority?: string }) =>
+      request<Item>('POST', `/projects/${id}/items`, data),
+    notes: (id: string) => request<Note[]>('GET', `/projects/${id}/notes`),
+    createNote: (id: string, data: { title?: string; contentMarkdown?: string; labels?: string[] }) =>
+      request<Note>('POST', `/projects/${id}/notes`, data),
+  },
+
+  items: {
+    list: (params?: { status?: string; projectId?: string; priority?: string }) => {
+      const query = new URLSearchParams()
+      if (params?.status) query.set('status', params.status)
+      if (params?.projectId) query.set('project_id', params.projectId)
+      if (params?.priority) query.set('priority', params.priority)
+      const qs = query.toString()
+      return request<Item[]>('GET', `/items${qs ? `?${qs}` : ''}`)
+    },
+    inbox: () => request<Item[]>('GET', '/inbox'),
+    capture: (title: string) => request<Item>('POST', '/inbox', { title }),
+    create: (data: { title: string; description?: string; projectId?: string; status?: string; priority?: string }) =>
+      request<Item>('POST', '/items', data),
+    get: (id: string) => request<Item>('GET', `/items/${id}`),
+    update: (id: string, data: Record<string, unknown>) =>
+      request<Item>('PATCH', `/items/${id}`, data),
+    delete: (id: string) => request<void>('DELETE', `/items/${id}`),
+  },
+
   notes: {
-    list: () => request<Note[]>('GET', '/notes'),
-    create: (data: { title?: string; content?: string; tags?: string[] }) =>
-      request<Note>('POST', '/notes', data),
     get: (id: string) => request<Note>('GET', `/notes/${id}`),
-    update: (id: string, data: { title?: string; content?: string; tags?: string[] }) =>
+    update: (id: string, data: { title?: string; contentMarkdown?: string; labels?: string[] }) =>
       request<Note>('PATCH', `/notes/${id}`, data),
     delete: (id: string) => request<void>('DELETE', `/notes/${id}`),
   },

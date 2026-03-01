@@ -1,4 +1,4 @@
-"""Smoke tests for Agent Gtd API."""
+"""Smoke tests for Agent GTD API."""
 
 from httpx import AsyncClient
 
@@ -29,37 +29,134 @@ async def test_register_and_login(client: AsyncClient):
     assert "token" in res.json()
 
 
-async def test_notes_crud(client: AsyncClient, auth_headers: dict[str, str]):
-    # Create a note
+async def test_projects_crud(client: AsyncClient, auth_headers: dict[str, str]):
+    # Create a project
     res = await client.post(
-        "/api/notes",
-        json={"title": "Test Note", "content": "Hello world", "tags": ["test"]},
+        "/api/projects",
+        json={"name": "My Project", "description": "Test project"},
         headers=auth_headers,
     )
     assert res.status_code == 201
-    note = res.json()
-    assert note["title"] == "Test Note"
-    note_id = note["id"]
+    project = res.json()
+    assert project["name"] == "My Project"
+    project_id = project["id"]
 
-    # List notes
-    res = await client.get("/api/notes", headers=auth_headers)
+    # List projects
+    res = await client.get("/api/projects", headers=auth_headers)
     assert res.status_code == 200
     assert len(res.json()) == 1
 
-    # Update the note
+    # Update the project
     res = await client.patch(
-        f"/api/notes/{note_id}",
-        json={"title": "Updated Note"},
+        f"/api/projects/{project_id}",
+        json={"name": "Updated Project"},
         headers=auth_headers,
     )
     assert res.status_code == 200
-    assert res.json()["title"] == "Updated Note"
+    assert res.json()["name"] == "Updated Project"
 
-    # Delete the note
-    res = await client.delete(f"/api/notes/{note_id}", headers=auth_headers)
+    # Delete the project
+    res = await client.delete(f"/api/projects/{project_id}", headers=auth_headers)
     assert res.status_code == 204
 
     # Verify deletion
-    res = await client.get("/api/notes", headers=auth_headers)
+    res = await client.get("/api/projects", headers=auth_headers)
     assert res.status_code == 200
     assert len(res.json()) == 0
+
+
+async def test_items_inbox_and_triage(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    # Create a project for triage
+    res = await client.post(
+        "/api/projects",
+        json={"name": "Triage Target"},
+        headers=auth_headers,
+    )
+    project_id = res.json()["id"]
+
+    # Quick capture to inbox
+    res = await client.post(
+        "/api/inbox",
+        json={"title": "Buy groceries"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    item = res.json()
+    assert item["status"] == "inbox"
+    assert item["created_by"] == "human"
+    item_id = item["id"]
+
+    # Verify inbox listing
+    res = await client.get("/api/inbox", headers=auth_headers)
+    assert res.status_code == 200
+    assert len(res.json()) == 1
+
+    # Triage: assign to project and set status
+    res = await client.patch(
+        f"/api/items/{item_id}",
+        json={
+            "project_id": project_id,
+            "status": "next_action",
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["project_id"] == project_id
+    assert res.json()["status"] == "next_action"
+    assert res.json()["version"] == 2
+
+    # Inbox should be empty now
+    res = await client.get("/api/inbox", headers=auth_headers)
+    assert res.status_code == 200
+    assert len(res.json()) == 0
+
+    # Mark as done — should set completed_at
+    res = await client.patch(
+        f"/api/items/{item_id}",
+        json={"status": "done"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["completed_at"] is not None
+    assert res.json()["version"] == 3
+
+
+async def test_project_cascade_delete(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    # Create project
+    res = await client.post(
+        "/api/projects",
+        json={"name": "Cascade Test"},
+        headers=auth_headers,
+    )
+    project_id = res.json()["id"]
+
+    # Add an item to the project
+    res = await client.post(
+        f"/api/projects/{project_id}/items",
+        json={"title": "Task in project"},
+        headers=auth_headers,
+    )
+    item_id = res.json()["id"]
+
+    # Add a note to the project
+    res = await client.post(
+        f"/api/projects/{project_id}/notes",
+        json={"title": "Note in project", "content_markdown": "Some content"},
+        headers=auth_headers,
+    )
+    note_id = res.json()["id"]
+
+    # Delete the project
+    res = await client.delete(f"/api/projects/{project_id}", headers=auth_headers)
+    assert res.status_code == 204
+
+    # Item and note should be gone
+    res = await client.get(f"/api/items/{item_id}", headers=auth_headers)
+    assert res.status_code == 404
+
+    res = await client.get(f"/api/notes/{note_id}", headers=auth_headers)
+    assert res.status_code == 404

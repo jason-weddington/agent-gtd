@@ -1,13 +1,14 @@
-"""Notes CRUD API routes."""
+"""Project notes CRUD API routes."""
 
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
+import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from agent_gtd.auth import get_current_user
-from agent_gtd.database import decode_tags, encode_tags, get_db, row_to_dict
+from agent_gtd.database import decode_json_list, encode_json_list, get_db, row_to_dict
 from agent_gtd.models import (
     CreateNoteRequest,
     NoteResponse,
@@ -15,54 +16,86 @@ from agent_gtd.models import (
     User,
 )
 
-router = APIRouter(prefix="/api/notes", tags=["notes"])
+router = APIRouter(prefix="/api", tags=["notes"])
 
 
 def _note_response(row: dict[str, object]) -> NoteResponse:
     return NoteResponse(
         id=str(row["id"]),
+        project_id=str(row["project_id"]),
         title=str(row["title"]),
-        content=str(row["content"]),
-        tags=decode_tags(str(row["tags"])),
+        content_markdown=str(row["content_markdown"]),
+        labels=decode_json_list(str(row["labels"])),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
     )
 
 
-@router.get("", response_model=list[NoteResponse])
-async def list_notes(
+async def _verify_project_ownership(
+    db: aiosqlite.Connection, project_id: str, user_id: str
+) -> None:
+    """Verify that a project exists and belongs to the user."""
+    cursor = await db.execute(
+        "SELECT id FROM projects WHERE id = ? AND user_id = ?",
+        (project_id, user_id),
+    )
+    if await cursor.fetchone() is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+
+# --- Project-scoped endpoints ---
+
+
+@router.get("/projects/{project_id}/notes", response_model=list[NoteResponse])
+async def list_project_notes(
+    project_id: str,
     user: Annotated[User, Depends(get_current_user)],
 ) -> list[NoteResponse]:
-    """List all notes for the current user."""
+    """List notes for a specific project."""
     db = await get_db()
+    await _verify_project_ownership(db, project_id, user.id)
+
     cursor = await db.execute(
-        "SELECT * FROM notes WHERE user_id = ? ORDER BY updated_at DESC",
-        (user.id,),
+        "SELECT * FROM notes WHERE project_id = ? AND user_id = ? "
+        "ORDER BY updated_at DESC",
+        (project_id, user.id),
     )
     rows = await cursor.fetchall()
     return [_note_response(row_to_dict(r)) for r in rows]
 
 
-@router.post("", response_model=NoteResponse, status_code=201)
-async def create_note(
+@router.post(
+    "/projects/{project_id}/notes",
+    response_model=NoteResponse,
+    status_code=201,
+)
+async def create_project_note(
+    project_id: str,
     body: CreateNoteRequest,
     user: Annotated[User, Depends(get_current_user)],
 ) -> NoteResponse:
-    """Create a new note."""
+    """Create a note in a project."""
+    db = await get_db()
+    await _verify_project_ownership(db, project_id, user.id)
+
     now = datetime.now(UTC).isoformat()
     note_id = str(uuid.uuid4())
 
-    db = await get_db()
     await db.execute(
         "INSERT INTO notes "
-        "(id, user_id, title, content, tags, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "(id, project_id, user_id, title, content_markdown, labels, "
+        "created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (
             note_id,
+            project_id,
             user.id,
             body.title,
-            body.content,
-            encode_tags(body.tags),
+            body.content_markdown,
+            encode_json_list(body.labels),
             now,
             now,
         ),
@@ -76,7 +109,10 @@ async def create_note(
     return _note_response(row_to_dict(row))
 
 
-@router.get("/{note_id}", response_model=NoteResponse)
+# --- Direct note endpoints ---
+
+
+@router.get("/notes/{note_id}", response_model=NoteResponse)
 async def get_note(
     note_id: str,
     user: Annotated[User, Depends(get_current_user)],
@@ -96,7 +132,7 @@ async def get_note(
     return _note_response(row_to_dict(row))
 
 
-@router.patch("/{note_id}", response_model=NoteResponse)
+@router.patch("/notes/{note_id}", response_model=NoteResponse)
 async def update_note(
     note_id: str,
     body: UpdateNoteRequest,
@@ -105,7 +141,6 @@ async def update_note(
     """Update an existing note."""
     db = await get_db()
 
-    # Verify ownership
     cursor = await db.execute(
         "SELECT * FROM notes WHERE id = ? AND user_id = ?",
         (note_id, user.id),
@@ -122,12 +157,12 @@ async def update_note(
     if body.title is not None:
         updates.append("title = ?")
         params.append(body.title)
-    if body.content is not None:
-        updates.append("content = ?")
-        params.append(body.content)
-    if body.tags is not None:
-        updates.append("tags = ?")
-        params.append(encode_tags(body.tags))
+    if body.content_markdown is not None:
+        updates.append("content_markdown = ?")
+        params.append(body.content_markdown)
+    if body.labels is not None:
+        updates.append("labels = ?")
+        params.append(encode_json_list(body.labels))
 
     if updates:
         updates.append("updated_at = ?")
@@ -145,7 +180,7 @@ async def update_note(
     return _note_response(row_to_dict(row))
 
 
-@router.delete("/{note_id}", status_code=204)
+@router.delete("/notes/{note_id}", status_code=204)
 async def delete_note(
     note_id: str,
     user: Annotated[User, Depends(get_current_user)],

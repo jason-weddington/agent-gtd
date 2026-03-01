@@ -9,7 +9,8 @@ import {
   Typography,
   Box,
 } from '@mui/material'
-import NotesIcon from '@mui/icons-material/StickyNote2'
+import InboxIcon from '@mui/icons-material/Inbox'
+import FolderIcon from '@mui/icons-material/Folder'
 import SettingsIcon from '@mui/icons-material/Settings'
 
 const DRAWER_WIDTH = 240
@@ -55,9 +56,19 @@ export default function Sidebar({ open }: SidebarProps) {
       <List dense sx={{ px: 0 }}>
         <ListItemButton selected={isSelected('/')} onClick={() => navigate('/')}>
           <ListItemIcon sx={{ minWidth: 36 }}>
-            <NotesIcon fontSize="small" />
+            <InboxIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText primary="Notes" />
+          <ListItemText primary="Inbox" />
+        </ListItemButton>
+
+        <ListItemButton
+          selected={isSelected('/projects')}
+          onClick={() => navigate('/projects')}
+        >
+          <ListItemIcon sx={{ minWidth: 36 }}>
+            <FolderIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Projects" />
         </ListItemButton>
       </List>
 
