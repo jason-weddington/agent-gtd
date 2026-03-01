@@ -7,8 +7,7 @@ horizontally. Details will be figured out at the start of each phase, not up fro
 
 ## Phase 1: Core Data Model + CRUD ✅
 
-Backend complete. Database schema, Pydantic models, REST routes, service layer, and tests
-for projects, items (including inbox), and notes — all done.
+Backend and frontend complete. Full-stack GTD app with working UI.
 
 **What shipped:**
 - Database schema: `projects`, `items`, `notes` tables
@@ -16,12 +15,10 @@ for projects, items (including inbox), and notes — all done.
 - REST routes: projects CRUD, items CRUD (including `/inbox` convenience endpoints), notes CRUD
 - Service layer shared between REST and MCP
 - 128 tests, 97% coverage threshold
+- Frontend: login/register, inbox with quick capture + triage, projects list + detail (items
+  and notes tabs), settings with theme toggle
 
-**Still open (deferred to Phase 4):**
-- Frontend: still shows the original Notes scaffolding UI. GTD pages (inbox, project list,
-  project detail, item dialogs) not yet built.
-
-**Exit criteria (revised):** Backend API is fully functional. Frontend deferred.
+**Exit criteria:** Met. Backend API and frontend UI are fully functional.
 
 ---
 
@@ -68,17 +65,22 @@ real time without refreshing.
 
 ---
 
-## Phase 4: GTD Workflows + Rich UI
+## Phase 4: GTD Workflows + Rich UI (in progress)
 
 Make it feel like GTD, not just a task list. This is where the methodology comes alive in
 the UI.
 
+**Done:**
+- **GTD list views** — Next Actions, Waiting For, Someday/Maybe as cross-project pages with
+  edit, done, delete actions and project/priority/due-date chips (v1.4.0)
+- **Quick capture** — text field on Inbox page, submit on Enter
+- **Sidebar restructured** into GTD sections: Collect / Lists / Organize
+
+**Remaining:**
 - **Inbox processor** — sequential triage view (one item at a time, quick-action buttons)
 - **Kanban board** — project detail view with drag-and-drop columns mapped to item statuses
-- **GTD list views** — next actions, waiting for, someday/maybe as dedicated pages with
-  appropriate grouping and filtering
 - **Weekly review dashboard** — Get Clear / Get Current / Get Creative phases
-- **Quick capture** — global keyboard shortcut or floating input, available on every page
+- **Global quick capture** — keyboard shortcut or floating input, available on every page
 - **Note editor** — TipTap integration for rich markdown editing on project notes
 - Bulk operations (move multiple inbox items, batch status changes during review)
 
