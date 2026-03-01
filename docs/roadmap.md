@@ -39,7 +39,7 @@ MCP server is live and being dogfooded via Claude Code.
 **Infrastructure completed alongside:**
 - Migrated from SQLite (aiosqlite) to PostgreSQL (asyncpg) — v1.3.0
 - Connection pool, `$N` placeholders, auto-commit semantics
-- `.env`-based config for `DATABASE_URL` / `TEST_DATABASE_URL`
+- `.env`-based config for `AGENT_GTD_DATABASE_URL` / `AGENT_GTD_TEST_DATABASE_URL`
 - Pre-push coverage hook sources `.env` for DB access
 
 **Exit criteria:** Met. Agents register, capture, update, and complete tasks. Session isolation verified.

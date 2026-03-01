@@ -71,7 +71,19 @@ async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
 ) -> User:
     """FastAPI dependency that extracts and validates the current user."""
-    user_id = decode_token(credentials.credentials)
+    return await get_current_user_from_token(credentials.credentials)
+
+
+async def get_current_user_from_token(token: str) -> User:
+    """Validate a JWT token string and return the user.
+
+    Reusable helper for contexts where Bearer auth is unavailable
+    (e.g. EventSource query params).
+
+    Raises:
+        HTTPException: If the token is invalid or user not found.
+    """
+    user_id = decode_token(token)
     db = await get_db()
     row = await db.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
     if row is None:

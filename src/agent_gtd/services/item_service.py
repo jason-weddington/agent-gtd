@@ -1,5 +1,6 @@
 """Item CRUD service functions."""
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -7,6 +8,7 @@ from typing import Any
 import asyncpg
 
 from agent_gtd.database import decode_json_list, encode_json_list, row_to_dict
+from agent_gtd.event_bus import get_event_bus
 from agent_gtd.exceptions import (
     AlreadyClaimedError,
     NotFoundError,
@@ -14,6 +16,8 @@ from agent_gtd.exceptions import (
 )
 from agent_gtd.models import ItemStatus, Priority
 from agent_gtd.services.project_service import verify_project_ownership
+
+logger = logging.getLogger(__name__)
 
 
 async def list_items(
@@ -102,7 +106,22 @@ async def create_item(
 
     row = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
     assert row is not None  # noqa: S101
-    return row_to_dict(row)
+    result = row_to_dict(row)
+
+    try:
+        await get_event_bus().publish(
+            db,
+            user_id=user_id,
+            event_type="item_created",
+            entity_type="item",
+            entity_id=item_id,
+            project_id=project_id,
+            payload=item_row_to_response_dict(result),
+        )
+    except Exception:
+        logger.exception("Failed to publish item_created event")
+
+    return result
 
 
 async def get_item(db: asyncpg.Pool, user_id: str, item_id: str) -> dict[str, Any]:
@@ -234,7 +253,22 @@ async def update_item(
 
     row = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
     assert row is not None  # noqa: S101
-    return row_to_dict(row)
+    result = row_to_dict(row)
+
+    try:
+        await get_event_bus().publish(
+            db,
+            user_id=user_id,
+            event_type="item_updated",
+            entity_type="item",
+            entity_id=item_id,
+            project_id=str(result["project_id"]) if result["project_id"] else None,
+            payload=item_row_to_response_dict(result),
+        )
+    except Exception:
+        logger.exception("Failed to publish item_updated event")
+
+    return result
 
 
 async def delete_item(db: asyncpg.Pool, user_id: str, item_id: str) -> None:
@@ -243,8 +277,22 @@ async def delete_item(db: asyncpg.Pool, user_id: str, item_id: str) -> None:
     Raises:
         NotFoundError: If the item doesn't exist or isn't owned by user.
     """
-    await get_item(db, user_id, item_id)  # verifies ownership
+    existing = await get_item(db, user_id, item_id)  # verifies ownership
+    project_id = str(existing["project_id"]) if existing["project_id"] else None
     await db.execute("DELETE FROM items WHERE id = $1", item_id)
+
+    try:
+        await get_event_bus().publish(
+            db,
+            user_id=user_id,
+            event_type="item_deleted",
+            entity_type="item",
+            entity_id=item_id,
+            project_id=project_id,
+            payload={"id": item_id},
+        )
+    except Exception:
+        logger.exception("Failed to publish item_deleted event")
 
 
 async def inbox_capture(

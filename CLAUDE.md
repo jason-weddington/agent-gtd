@@ -69,7 +69,7 @@ agent_gtd/
 │   ├── templates/             # feature.md template
 │   └── <branch-name>/        # Per-branch planning (mirrors git branch)
 │       └── feature.md         # Feature requirements and design
-├── .env.example               # Environment variables template (JWT_SECRET, DATABASE_URL, etc.)
+├── .env.example               # Environment variables template (JWT_SECRET, AGENT_GTD_DATABASE_URL, etc.)
 ├── .pre-commit-config.yaml    # Git hooks config (ruff, mypy, eslint, tsc, gitleaks, etc.)
 ├── pyproject.toml             # Python config (deps, ruff, mypy, pytest, semantic-release)
 └── start.sh                   # Dev server launcher (backend + frontend)
@@ -171,7 +171,7 @@ The existing pages (`Inbox.tsx`, `ProjectDetail.tsx`, `GtdItemList.tsx`, etc.) d
 
 An MCP server (`agent-gtd`) is configured in `.mcp.json` for Claude Code. It exposes 16 GTD tools (items, notes, projects) via stdio.
 
-**Prerequisites:** PostgreSQL with `agent_gtd` and `agent_gtd_test` databases. Connection strings in `.env` (`DATABASE_URL` and `TEST_DATABASE_URL`).
+**Prerequisites:** PostgreSQL with `agent_gtd` and `agent_gtd_test` databases. Connection strings in `.env` (`AGENT_GTD_DATABASE_URL` and `AGENT_GTD_TEST_DATABASE_URL`).
 
 **First-time setup:**
 ```bash

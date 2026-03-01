@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Box,
   Typography,
@@ -25,6 +25,7 @@ import DoneIcon from '@mui/icons-material/Done'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { api, ApiError } from '../api'
 import type { Item, Project, ItemStatus, Priority } from '../types'
+import { useEvents } from '../contexts/EventStreamContext'
 
 const ITEM_STATUS_LABELS: Record<ItemStatus, string> = {
   inbox: 'Inbox',
@@ -77,6 +78,9 @@ export default function GtdItemList({
   const [deleteTarget, setDeleteTarget] = useState<Item | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  const { onEvent } = useEvents()
+  const loadDataRef = useRef<() => Promise<void>>(undefined)
+
   const loadData = useCallback(async () => {
     try {
       const [filteredItems, projects] = await Promise.all([
@@ -97,9 +101,21 @@ export default function GtdItemList({
     }
   }, [statusFilter])
 
+  loadDataRef.current = loadData
+
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // Re-fetch when items change via SSE
+  useEffect(() => {
+    const unsubs = [
+      onEvent('item_created', () => { loadDataRef.current?.() }),
+      onEvent('item_updated', () => { loadDataRef.current?.() }),
+      onEvent('item_deleted', () => { loadDataRef.current?.() }),
+    ]
+    return () => { unsubs.forEach((u) => u()) }
+  }, [onEvent])
 
   const openEdit = (item: Item) => {
     setEditTarget(item)

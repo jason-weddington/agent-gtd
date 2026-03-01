@@ -15,11 +15,11 @@ async def _setup_db(monkeypatch):
     import agent_gtd.database as db_mod
 
     # Point at the test database
-    test_url = os.environ.get("TEST_DATABASE_URL")
+    test_url = os.environ.get("AGENT_GTD_TEST_DATABASE_URL")
     if not test_url:
-        pytest.skip("TEST_DATABASE_URL not set")
+        pytest.skip("AGENT_GTD_TEST_DATABASE_URL not set")
 
-    monkeypatch.setenv("DATABASE_URL", test_url)
+    monkeypatch.setenv("AGENT_GTD_DATABASE_URL", test_url)
     monkeypatch.setattr(db_mod, "_pool", None)
 
     await init_db()
@@ -34,7 +34,7 @@ async def _setup_db(monkeypatch):
         db_mod._pool = None
         pool = await get_db()
     async with pool.acquire() as conn:
-        await conn.execute("TRUNCATE notes, items, projects, users CASCADE")
+        await conn.execute("TRUNCATE events, notes, items, projects, users CASCADE")
     await close_db()
 
 

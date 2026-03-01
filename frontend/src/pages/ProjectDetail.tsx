@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box,
@@ -29,6 +29,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { api, ApiError } from '../api'
 import type { Project, Item, Note, ItemStatus, Priority, ProjectStatus } from '../types'
+import { useEvents } from '../contexts/EventStreamContext'
 
 const STATUS_COLORS: Record<ProjectStatus, 'success' | 'default' | 'warning' | 'error'> = {
   active: 'success',
@@ -104,6 +105,9 @@ export default function ProjectDetail() {
   const [deletingItem, setDeletingItem] = useState(false)
   const [deletingNote, setDeletingNote] = useState(false)
 
+  const { onEvent } = useEvents()
+  const loadDataRef = useRef<() => Promise<void>>(undefined)
+
   const loadData = useCallback(async () => {
     if (!projectId) return
     try {
@@ -127,9 +131,26 @@ export default function ProjectDetail() {
     }
   }, [projectId, navigate])
 
+  loadDataRef.current = loadData
+
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // Re-fetch when relevant entities change via SSE
+  useEffect(() => {
+    const unsubs = [
+      onEvent('item_created', () => { loadDataRef.current?.() }),
+      onEvent('item_updated', () => { loadDataRef.current?.() }),
+      onEvent('item_deleted', () => { loadDataRef.current?.() }),
+      onEvent('note_created', () => { loadDataRef.current?.() }),
+      onEvent('note_updated', () => { loadDataRef.current?.() }),
+      onEvent('note_deleted', () => { loadDataRef.current?.() }),
+      onEvent('project_updated', () => { loadDataRef.current?.() }),
+      onEvent('project_deleted', () => { loadDataRef.current?.() }),
+    ]
+    return () => { unsubs.forEach((u) => u()) }
+  }, [onEvent])
 
   // --- Project edit ---
   const openEditProject = () => {

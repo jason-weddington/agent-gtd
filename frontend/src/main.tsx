@@ -7,15 +7,18 @@ import '@fontsource/roboto/500.css'
 import '@fontsource/roboto/700.css'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { AuthProvider } from './contexts/AuthContext'
+import { EventStreamProvider } from './contexts/EventStreamContext'
 import App from './App'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <ThemeProvider>
-          <App />
-        </ThemeProvider>
+        <EventStreamProvider>
+          <ThemeProvider>
+            <App />
+          </ThemeProvider>
+        </EventStreamProvider>
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,

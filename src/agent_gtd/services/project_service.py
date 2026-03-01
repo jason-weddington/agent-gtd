@@ -1,5 +1,6 @@
 """Project CRUD service functions."""
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -7,7 +8,10 @@ from typing import Any
 import asyncpg
 
 from agent_gtd.database import row_to_dict
+from agent_gtd.event_bus import get_event_bus
 from agent_gtd.exceptions import NotFoundError
+
+logger = logging.getLogger(__name__)
 
 
 async def verify_project_ownership(
@@ -82,7 +86,22 @@ async def create_project(
 
     row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     assert row is not None  # noqa: S101
-    return row_to_dict(row)
+    result = row_to_dict(row)
+
+    try:
+        await get_event_bus().publish(
+            db,
+            user_id=user_id,
+            event_type="project_created",
+            entity_type="project",
+            entity_id=project_id,
+            project_id=project_id,
+            payload=result,
+        )
+    except Exception:
+        logger.exception("Failed to publish project_created event")
+
+    return result
 
 
 async def get_project(
@@ -146,7 +165,22 @@ async def update_project(
 
     row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     assert row is not None  # noqa: S101
-    return row_to_dict(row)
+    result = row_to_dict(row)
+
+    try:
+        await get_event_bus().publish(
+            db,
+            user_id=user_id,
+            event_type="project_updated",
+            entity_type="project",
+            entity_id=project_id,
+            project_id=project_id,
+            payload=result,
+        )
+    except Exception:
+        logger.exception("Failed to publish project_updated event")
+
+    return result
 
 
 async def delete_project(db: asyncpg.Pool, user_id: str, project_id: str) -> None:
@@ -157,3 +191,16 @@ async def delete_project(db: asyncpg.Pool, user_id: str, project_id: str) -> Non
     """
     await verify_project_ownership(db, project_id, user_id)
     await db.execute("DELETE FROM projects WHERE id = $1", project_id)
+
+    try:
+        await get_event_bus().publish(
+            db,
+            user_id=user_id,
+            event_type="project_deleted",
+            entity_type="project",
+            entity_id=project_id,
+            project_id=project_id,
+            payload={"id": project_id},
+        )
+    except Exception:
+        logger.exception("Failed to publish project_deleted event")

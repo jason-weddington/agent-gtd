@@ -70,6 +70,20 @@ _SCHEMA_STATEMENTS: list[str] = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_notes_user_id ON notes(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_notes_project_id ON notes(project_id)",
+    """
+    CREATE TABLE IF NOT EXISTS events (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        event_type TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        project_id TEXT,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """CREATE INDEX IF NOT EXISTS idx_events_user_created
+    ON events (user_id, created_at)""",
 ]
 
 
@@ -77,9 +91,9 @@ async def get_db() -> asyncpg.Pool:
     """Return the connection pool, creating it lazily if needed."""
     global _pool
     if _pool is None:
-        dsn = os.environ.get("DATABASE_URL")
+        dsn = os.environ.get("AGENT_GTD_DATABASE_URL")
         if not dsn:
-            msg = "DATABASE_URL environment variable is not set"
+            msg = "AGENT_GTD_DATABASE_URL environment variable is not set"
             raise RuntimeError(msg)
         _pool = await asyncpg.create_pool(dsn)
     return _pool

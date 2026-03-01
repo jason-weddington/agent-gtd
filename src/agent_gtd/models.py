@@ -99,6 +99,19 @@ class Note(BaseModel):
     updated_at: datetime
 
 
+class Event(BaseModel):
+    """A server-sent event record."""
+
+    id: str
+    user_id: str
+    event_type: str
+    entity_type: str
+    entity_id: str
+    project_id: str | None = None
+    payload: str
+    created_at: datetime
+
+
 # --- API Request/Response Schemas ---
 
 
