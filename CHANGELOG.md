@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.1 (2026-02-28)
+
+### Bug Fixes
+
+- Source .env in pre-push coverage hook for DATABASE_URL
+  ([`d2b5813`](https://github.com/home/jason/git/agent_gtd/commit/d2b5813ede57af26f7ea924ad4947f06efd8b591))
+
+
 ## v1.3.0 (2026-02-28)
 
 ### Features
