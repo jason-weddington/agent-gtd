@@ -62,7 +62,7 @@ repos:
 
       - id: coverage
         name: test coverage
-        entry: uv run --frozen pytest --cov --cov-report=term-missing
+        entry: bash -c 'set -a && source .env && set +a && uv run --frozen pytest --cov --cov-report=term-missing'
         language: system
         pass_filenames: false
         always_run: true
