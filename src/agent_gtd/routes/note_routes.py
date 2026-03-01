@@ -1,20 +1,20 @@
 """Project notes CRUD API routes."""
 
-import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated
 
-import aiosqlite
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 
 from agent_gtd.auth import get_current_user
-from agent_gtd.database import decode_json_list, encode_json_list, get_db, row_to_dict
+from agent_gtd.database import decode_json_list, get_db
+from agent_gtd.exceptions import NotFoundError
 from agent_gtd.models import (
     CreateNoteRequest,
     NoteResponse,
     UpdateNoteRequest,
     User,
 )
+from agent_gtd.services import note_service
 
 router = APIRouter(prefix="/api", tags=["notes"])
 
@@ -31,21 +31,6 @@ def _note_response(row: dict[str, object]) -> NoteResponse:
     )
 
 
-async def _verify_project_ownership(
-    db: aiosqlite.Connection, project_id: str, user_id: str
-) -> None:
-    """Verify that a project exists and belongs to the user."""
-    cursor = await db.execute(
-        "SELECT id FROM projects WHERE id = ? AND user_id = ?",
-        (project_id, user_id),
-    )
-    if await cursor.fetchone() is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
-        )
-
-
 # --- Project-scoped endpoints ---
 
 
@@ -56,15 +41,11 @@ async def list_project_notes(
 ) -> list[NoteResponse]:
     """List notes for a specific project."""
     db = await get_db()
-    await _verify_project_ownership(db, project_id, user.id)
-
-    cursor = await db.execute(
-        "SELECT * FROM notes WHERE project_id = ? AND user_id = ? "
-        "ORDER BY updated_at DESC",
-        (project_id, user.id),
-    )
-    rows = await cursor.fetchall()
-    return [_note_response(row_to_dict(r)) for r in rows]
+    try:
+        rows = await note_service.list_project_notes(db, user.id, project_id)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found") from None
+    return [_note_response(r) for r in rows]
 
 
 @router.post(
@@ -79,34 +60,18 @@ async def create_project_note(
 ) -> NoteResponse:
     """Create a note in a project."""
     db = await get_db()
-    await _verify_project_ownership(db, project_id, user.id)
-
-    now = datetime.now(UTC).isoformat()
-    note_id = str(uuid.uuid4())
-
-    await db.execute(
-        "INSERT INTO notes "
-        "(id, project_id, user_id, title, content_markdown, labels, "
-        "created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            note_id,
-            project_id,
+    try:
+        row = await note_service.create_note(
+            db,
             user.id,
-            body.title,
-            body.content_markdown,
-            encode_json_list(body.labels),
-            now,
-            now,
-        ),
-    )
-    await db.commit()
-
-    cursor = await db.execute("SELECT * FROM notes WHERE id = ?", (note_id,))
-    row = await cursor.fetchone()
-    if row is None:  # pragma: no cover
-        raise HTTPException(status_code=500, detail="Insert failed")
-    return _note_response(row_to_dict(row))
+            project_id,
+            title=body.title,
+            content_markdown=body.content_markdown,
+            labels=body.labels,
+        )
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found") from None
+    return _note_response(row)
 
 
 # --- Direct note endpoints ---
@@ -119,17 +84,11 @@ async def get_note(
 ) -> NoteResponse:
     """Get a single note by ID."""
     db = await get_db()
-    cursor = await db.execute(
-        "SELECT * FROM notes WHERE id = ? AND user_id = ?",
-        (note_id, user.id),
-    )
-    row = await cursor.fetchone()
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Note not found",
-        )
-    return _note_response(row_to_dict(row))
+    try:
+        row = await note_service.get_note(db, user.id, note_id)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Note not found") from None
+    return _note_response(row)
 
 
 @router.patch("/notes/{note_id}", response_model=NoteResponse)
@@ -140,44 +99,18 @@ async def update_note(
 ) -> NoteResponse:
     """Update an existing note."""
     db = await get_db()
-
-    cursor = await db.execute(
-        "SELECT * FROM notes WHERE id = ? AND user_id = ?",
-        (note_id, user.id),
-    )
-    if await cursor.fetchone() is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Note not found",
+    try:
+        row = await note_service.update_note(
+            db,
+            user.id,
+            note_id,
+            title=body.title,
+            content_markdown=body.content_markdown,
+            labels=body.labels,
         )
-
-    updates: list[str] = []
-    params: list[object] = []
-
-    if body.title is not None:
-        updates.append("title = ?")
-        params.append(body.title)
-    if body.content_markdown is not None:
-        updates.append("content_markdown = ?")
-        params.append(body.content_markdown)
-    if body.labels is not None:
-        updates.append("labels = ?")
-        params.append(encode_json_list(body.labels))
-
-    if updates:
-        updates.append("updated_at = ?")
-        params.append(datetime.now(UTC).isoformat())
-        params.append(note_id)
-
-        sql = f"UPDATE notes SET {', '.join(updates)} WHERE id = ?"  # noqa: S608
-        await db.execute(sql, tuple(params))
-        await db.commit()
-
-    cursor = await db.execute("SELECT * FROM notes WHERE id = ?", (note_id,))
-    row = await cursor.fetchone()
-    if row is None:  # pragma: no cover
-        raise HTTPException(status_code=500, detail="Update failed")
-    return _note_response(row_to_dict(row))
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Note not found") from None
+    return _note_response(row)
 
 
 @router.delete("/notes/{note_id}", status_code=204)
@@ -187,16 +120,7 @@ async def delete_note(
 ) -> None:
     """Delete a note."""
     db = await get_db()
-
-    cursor = await db.execute(
-        "SELECT id FROM notes WHERE id = ? AND user_id = ?",
-        (note_id, user.id),
-    )
-    if await cursor.fetchone() is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Note not found",
-        )
-
-    await db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
-    await db.commit()
+    try:
+        await note_service.delete_note(db, user.id, note_id)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Note not found") from None

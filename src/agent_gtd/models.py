@@ -195,6 +195,7 @@ class UpdateItemRequest(BaseModel):
     waiting_on: str | None = None
     sort_order: float | None = None
     labels: list[str] | None = None
+    version: int | None = None
 
 
 class InboxCaptureRequest(BaseModel):
