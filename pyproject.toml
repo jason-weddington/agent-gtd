@@ -30,7 +30,7 @@ dev = [
 target-version = "py313"
 line-length = 88
 src = ["src", "tests"]
-extend-exclude = ["planning/"]
+extend-exclude = ["planning/", "scripts/"]
 
 [tool.ruff.lint]
 select = [

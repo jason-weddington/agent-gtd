@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "agent-gtd": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "fastmcp",
+        "run",
+        "src/agent_gtd/mcp_server.py:mcp",
+        "-t",
+        "stdio"
+      ],
+      "env": {}
+    }
+  }
+}

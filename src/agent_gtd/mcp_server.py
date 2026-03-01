@@ -1,18 +1,29 @@
 """MCP server for Agent GTD — AI agent interface to the GTD system."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from agent_gtd.database import decode_json_list, get_db
+from agent_gtd.database import close_db, decode_json_list, get_db, init_db
 from agent_gtd.exceptions import (
     AlreadyClaimedError,
     NotFoundError,
     VersionConflictError,
 )
 from agent_gtd.services import item_service, note_service, project_service
+
+
+@asynccontextmanager
+async def mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
+    """Initialize and tear down the database for standalone MCP mode."""
+    await init_db()
+    yield
+    await close_db()
+
 
 mcp = FastMCP(
     name="Agent GTD",
@@ -21,6 +32,7 @@ mcp = FastMCP(
         "Call register_agent first with a valid user_id and project_id "
         "to start working. Then use item and note tools to manage work."
     ),
+    lifespan=mcp_lifespan,
 )
 
 

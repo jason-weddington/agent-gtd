@@ -159,3 +159,21 @@ The notes app (`note_routes.py`, `Dashboard.tsx`, etc.) is example scaffolding t
 - **Auth flow**: JWT tokens stored in localStorage (`agent_gtd-token`), `AuthContext` provides login/register/logout, `ProtectedRoute` wraps authenticated pages
 - **Theme**: Dark/light toggle via `ThemeContext`, persisted in localStorage
 - **Vite proxy**: Frontend dev server proxies `/api` requests to backend at `localhost:8000` — no CORS issues in dev
+
+## MCP Dogfooding
+
+An MCP server (`agent-gtd`) is configured in `.mcp.json` for Claude Code. It exposes 16 GTD tools (items, notes, projects) via stdio.
+
+**First-time setup:**
+```bash
+uv run python scripts/seed.py    # Creates seed user + project, writes data/seed.json
+```
+
+**Seed IDs** are stored in `data/seed.json` (`user_id` and `project_id`). The `data/` directory is gitignored.
+
+**Registration flow** — before using project-scoped tools, call:
+```
+register_agent(user_id=<from seed.json>, project_id=<from seed.json>, agent_name="claude-code")
+```
+
+Then use `inbox_capture`, `list_items`, `add_note`, etc. to manage work.
