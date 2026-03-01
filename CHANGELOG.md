@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.4.0 (2026-03-01)
+
+### Documentation
+
+- Update roadmap and domain for post-migration status
+  ([`3011b47`](https://github.com/home/jason/git/agent_gtd/commit/3011b475555f3906a7f1eef25f6e78024d5f0a76))
+
+### Features
+
+- Add GTD list views (Next Actions, Waiting For, Someday/Maybe)
+  ([`3205195`](https://github.com/home/jason/git/agent_gtd/commit/3205195311369ff2bf170d383d3b72483f0f9b12))
+
+
 ## v1.3.1 (2026-02-28)
 
 ### Bug Fixes
