@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.6.0 (2026-03-01)
+
+### Chores
+
+- Lower coverage threshold to 93% for SSE streaming
+  ([`32ce732`](https://github.com/home/jason/git/agent_gtd/commit/32ce73219c97833e37716e455875436a236bf9fd))
+
+### Features
+
+- Add global quick capture overlay and kanban board
+  ([`1de8754`](https://github.com/home/jason/git/agent_gtd/commit/1de87543523f46609ac8f3e7571cf466028de64e))
+
+
 ## v1.5.0 (2026-03-01)
 
 ### Documentation
