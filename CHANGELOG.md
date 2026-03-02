@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.8.0 (2026-03-02)
+
+### Features
+
+- Add weekly review page with guided three-section flow
+  ([`6a3e230`](https://github.com/home/jason/git/agent_gtd/commit/6a3e2301214b878871c98e5203c7b6d264136c7c))
+
+
 ## v1.7.0 (2026-03-02)
 
 ### Features
