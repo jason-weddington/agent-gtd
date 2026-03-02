@@ -15,6 +15,7 @@ import PlaylistPlayIcon from '@mui/icons-material/PlaylistPlay'
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
 import LightbulbIcon from '@mui/icons-material/Lightbulb'
 import FolderIcon from '@mui/icons-material/Folder'
+import EventRepeatIcon from '@mui/icons-material/EventRepeat'
 import SettingsIcon from '@mui/icons-material/Settings'
 
 const DRAWER_WIDTH = 240
@@ -113,6 +114,26 @@ export default function Sidebar({ open }: SidebarProps) {
             <LightbulbIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText primary="Someday / Maybe" />
+        </ListItemButton>
+      </List>
+
+      <Divider sx={{ my: 1 }} />
+
+      {/* Reflect */}
+      <Box sx={{ px: 2, pb: 1 }}>
+        <Typography
+          variant="overline"
+          sx={{ color: 'text.secondary', fontWeight: 600, letterSpacing: 1.2 }}
+        >
+          Reflect
+        </Typography>
+      </Box>
+      <List dense sx={{ px: 0 }}>
+        <ListItemButton selected={isSelected('/review')} onClick={() => navigate('/review')}>
+          <ListItemIcon sx={{ minWidth: 36 }}>
+            <EventRepeatIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Weekly Review" />
         </ListItemButton>
       </List>
 

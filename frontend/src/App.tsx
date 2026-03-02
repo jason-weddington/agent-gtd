@@ -10,6 +10,7 @@ import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
 import InboxProcessor from './pages/InboxProcessor'
 import Settings from './pages/Settings'
+import WeeklyReview from './pages/WeeklyReview'
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/someday-maybe" element={<SomedayMaybe />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/projects/:projectId" element={<ProjectDetail />} />
+        <Route path="/review" element={<WeeklyReview />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
     </Routes>
