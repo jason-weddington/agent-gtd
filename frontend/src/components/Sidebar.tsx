@@ -10,6 +10,7 @@ import {
   Box,
 } from '@mui/material'
 import InboxIcon from '@mui/icons-material/Inbox'
+import FilterListIcon from '@mui/icons-material/FilterList'
 import PlaylistPlayIcon from '@mui/icons-material/PlaylistPlay'
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
 import LightbulbIcon from '@mui/icons-material/Lightbulb'
@@ -62,6 +63,15 @@ export default function Sidebar({ open }: SidebarProps) {
             <InboxIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText primary="Inbox" />
+        </ListItemButton>
+        <ListItemButton
+          selected={isSelected('/inbox/process')}
+          onClick={() => navigate('/inbox/process')}
+        >
+          <ListItemIcon sx={{ minWidth: 36 }}>
+            <FilterListIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Process" />
         </ListItemButton>
       </List>
 

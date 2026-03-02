@@ -20,6 +20,7 @@ import {
   Select,
   MenuItem,
 } from '@mui/material'
+import { useNavigate } from 'react-router-dom'
 import DoneIcon from '@mui/icons-material/Done'
 import DeleteIcon from '@mui/icons-material/Delete'
 import DriveFileMoveIcon from '@mui/icons-material/DriveFileMove'
@@ -28,6 +29,7 @@ import type { Item, Project, ItemStatus, Priority } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
 
 export default function Inbox() {
+  const navigate = useNavigate()
   const [items, setItems] = useState<Item[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
@@ -157,9 +159,18 @@ export default function Inbox() {
 
   return (
     <Box>
-      <Typography variant="h5" sx={{ mb: 3 }}>
-        Inbox
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h5">Inbox</Typography>
+        {items.length > 0 && (
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => navigate('/inbox/process')}
+          >
+            Process Inbox
+          </Button>
+        )}
+      </Box>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>

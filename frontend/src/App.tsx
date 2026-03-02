@@ -8,6 +8,7 @@ import WaitingFor from './pages/WaitingFor'
 import SomedayMaybe from './pages/SomedayMaybe'
 import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
+import InboxProcessor from './pages/InboxProcessor'
 import Settings from './pages/Settings'
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
         }
       >
         <Route path="/" element={<Inbox />} />
+        <Route path="/inbox/process" element={<InboxProcessor />} />
         <Route path="/next-actions" element={<NextActions />} />
         <Route path="/waiting-for" element={<WaitingFor />} />
         <Route path="/someday-maybe" element={<SomedayMaybe />} />
