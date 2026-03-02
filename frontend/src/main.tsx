@@ -8,6 +8,7 @@ import '@fontsource/roboto/700.css'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { AuthProvider } from './contexts/AuthContext'
 import { EventStreamProvider } from './contexts/EventStreamContext'
+import { QuickCaptureProvider } from './contexts/QuickCaptureContext'
 import App from './App'
 
 createRoot(document.getElementById('root')!).render(
@@ -16,7 +17,9 @@ createRoot(document.getElementById('root')!).render(
       <AuthProvider>
         <EventStreamProvider>
           <ThemeProvider>
-            <App />
+            <QuickCaptureProvider>
+              <App />
+            </QuickCaptureProvider>
           </ThemeProvider>
         </EventStreamProvider>
       </AuthProvider>

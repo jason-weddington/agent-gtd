@@ -18,13 +18,16 @@ import LightModeIcon from '@mui/icons-material/LightMode'
 import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
 import AppsIcon from '@mui/icons-material/Apps'
+import BoltIcon from '@mui/icons-material/Bolt'
 import { useThemeMode } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
+import { useQuickCapture } from '../contexts/QuickCaptureContext'
 import Sidebar from './Sidebar'
 
 export default function Layout() {
   const { mode, toggleTheme } = useThemeMode()
   const { user, logout } = useAuth()
+  const { openCapture } = useQuickCapture()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
@@ -63,6 +66,12 @@ export default function Layout() {
               Agent Gtd
             </Typography>
           </Box>
+
+          <Tooltip title="Quick capture (Cmd+K)">
+            <IconButton color="inherit" onClick={openCapture} sx={{ mr: 1 }}>
+              <BoltIcon />
+            </IconButton>
+          </Tooltip>
 
           <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
             <IconButton color="inherit" onClick={toggleTheme} sx={{ mr: 1 }}>

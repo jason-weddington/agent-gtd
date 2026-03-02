@@ -22,14 +22,19 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  ToggleButtonGroup,
+  ToggleButton,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import ViewListIcon from '@mui/icons-material/ViewList'
+import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
 import { api, ApiError } from '../api'
 import type { Project, Item, Note, ItemStatus, Priority, ProjectStatus } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
+import KanbanBoard from '../components/KanbanBoard'
 
 const STATUS_COLORS: Record<ProjectStatus, 'success' | 'default' | 'warning' | 'error'> = {
   active: 'success',
@@ -99,6 +104,11 @@ export default function ProjectDetail() {
   const [noteContent, setNoteContent] = useState('')
   const [savingNote, setSavingNote] = useState(false)
 
+  // View toggle (list vs board)
+  const [itemView, setItemView] = useState<'list' | 'board'>(() => {
+    return (localStorage.getItem(`gtd_view_${projectId}`) as 'list' | 'board') || 'list'
+  })
+
   // Delete confirmation
   const [deleteItemTarget, setDeleteItemTarget] = useState<Item | null>(null)
   const [deleteNoteTarget, setDeleteNoteTarget] = useState<Note | null>(null)
@@ -151,6 +161,22 @@ export default function ProjectDetail() {
     ]
     return () => { unsubs.forEach((u) => u()) }
   }, [onEvent])
+
+  const handleViewChange = (_: unknown, newView: 'list' | 'board' | null) => {
+    if (!newView) return
+    setItemView(newView)
+    localStorage.setItem(`gtd_view_${projectId}`, newView)
+  }
+
+  const openCreateItemWithStatus = (status: ItemStatus) => {
+    setEditingItem(null)
+    setItemTitle('')
+    setItemDescription('')
+    setItemStatus(status)
+    setItemPriority('normal')
+    setItemDueDate('')
+    setItemDialogOpen(true)
+  }
 
   // --- Project edit ---
   const openEditProject = () => {
@@ -351,7 +377,20 @@ export default function ProjectDetail() {
       {/* Items Tab */}
       {tab === 0 && (
         <Box>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 1 }}>
+            <ToggleButtonGroup
+              size="small"
+              value={itemView}
+              exclusive
+              onChange={handleViewChange}
+            >
+              <ToggleButton value="list">
+                <ViewListIcon fontSize="small" />
+              </ToggleButton>
+              <ToggleButton value="board">
+                <ViewKanbanIcon fontSize="small" />
+              </ToggleButton>
+            </ToggleButtonGroup>
             <Button
               size="small"
               variant="outlined"
@@ -361,7 +400,16 @@ export default function ProjectDetail() {
               Add Item
             </Button>
           </Box>
-          {items.length === 0 ? (
+
+          {itemView === 'board' ? (
+            <KanbanBoard
+              items={items}
+              onRefresh={loadData}
+              onEditItem={openEditItem}
+              onDeleteItem={setDeleteItemTarget}
+              onAddItem={openCreateItemWithStatus}
+            />
+          ) : items.length === 0 ? (
             <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
               No items in this project yet.
             </Typography>
