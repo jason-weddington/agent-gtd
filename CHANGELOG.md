@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.0 (2026-03-02)
+
+### Features
+
+- Add inbox processor for sequential card-based triage
+  ([`9182f0e`](https://github.com/home/jason/git/agent_gtd/commit/9182f0e6a9f62c54a959709e86dce7c161cd0acf))
+
+
 ## v1.6.0 (2026-03-01)
 
 ### Chores
