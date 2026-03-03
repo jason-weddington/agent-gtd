@@ -45,3 +45,4 @@ frontend/dist/
 
 # Data
 data/
+.mcp.json
