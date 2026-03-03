@@ -1,13 +1,24 @@
+## Check the Knowledge Base First
+
+A personal-kb MCP server is available. **Before guessing, searching the filesystem, or asking the user**, search the KB for answers:
+```
+kb_search("agent-gtd deployment")    # deployment details, server info
+kb_search("agent-gtd database")      # connection strings, schema
+kb_ask("how do I bounce the server") # operational procedures
+```
+
+The KB contains deployment details, architectural decisions, debugging lessons, and operational procedures that have been verified and curated. If the KB has the answer, use it. Don't waste time rediscovering what's already captured.
+
 ## Deployment
 
-The app runs on `r7-research` as a **user-level** systemd service:
+The app runs on `r7-research` as a **user-level** systemd service (no sudo):
 ```bash
 ssh r7-research 'systemctl --user restart agent-gtd'   # Restart
 ssh r7-research 'systemctl --user status agent-gtd'     # Check status
 ssh r7-research 'journalctl --user -u agent-gtd -f'     # Tail logs
 ```
 
-The git remote `origin` points to `r7-research`. After `git push origin main --tags`, restart the service to pick up changes.
+The git remote `origin` points to `r7-research`. After `git push origin main --tags`, restart the service to pick up changes. See KB entries `kb-00306` and `kb-00307` for full deployment architecture and bounce guidelines.
 
 ## Build and Test Commands
 ```bash
