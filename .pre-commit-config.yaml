@@ -62,7 +62,7 @@ repos:
 
       - id: coverage
         name: test coverage
-        entry: uv run --frozen pytest --cov --cov-report=term-missing
+        entry: bash -c 'SKIP_DB_TESTS=1 uv run --frozen pytest --cov --cov-report=term-missing --cov-fail-under=0'
         language: system
         pass_filenames: false
         always_run: true

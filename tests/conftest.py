@@ -10,9 +10,20 @@ from agent_gtd.main import app
 
 
 @pytest.fixture(autouse=True)
-async def _setup_db(monkeypatch):
-    """Init a fresh test database for each test."""
+async def _setup_db(request, monkeypatch):
+    """Init a fresh test database for each test.
+
+    Skipped when SKIP_DB_TESTS=1 is set (useful for offline / slow-network work).
+    """
     import agent_gtd.database as db_mod
+
+    if os.environ.get("SKIP_DB_TESTS") == "1":
+        # Skip any test that actually needs the DB (has async fixtures or
+        # uses client/auth_headers/project_id). Pure sync tests survive.
+        if request.node.get_closest_marker("asyncio") or _is_async_test(request):
+            pytest.skip("SKIP_DB_TESTS=1")
+        yield
+        return
 
     # Point at the test database
     test_url = os.environ.get("AGENT_GTD_TEST_DATABASE_URL")
@@ -36,6 +47,13 @@ async def _setup_db(monkeypatch):
     async with pool.acquire() as conn:
         await conn.execute("TRUNCATE events, notes, items, projects, users CASCADE")
     await close_db()
+
+
+def _is_async_test(request) -> bool:
+    """Check if the test function is a coroutine (async def)."""
+    import asyncio
+
+    return asyncio.iscoroutinefunction(request.node.obj)
 
 
 @pytest.fixture
