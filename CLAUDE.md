@@ -167,11 +167,30 @@ The existing pages (`Inbox.tsx`, `ProjectDetail.tsx`, `GtdItemList.tsx`, etc.) d
 - **Theme**: Dark/light toggle via `ThemeContext`, persisted in localStorage
 - **Vite proxy**: Frontend dev server proxies `/api` requests to backend at `localhost:8000` — no CORS issues in dev
 
-## MCP Dogfooding
+## Agent GTD Is the Source of Truth
 
-An MCP server (`agent-gtd`) is configured in `.mcp.json` for Claude Code. It exposes 16 GTD tools (items, notes, projects) via stdio.
+**This project uses itself to manage its own development.** The Agent GTD MCP server (`agent-gtd`) is configured in `.mcp.json`. All work — features, bugs, ideas, someday/maybe items — lives in Agent GTD as items, not in markdown files, roadmap docs, or TODO comments.
 
-**Prerequisites:** PostgreSQL with `agent_gtd` and `agent_gtd_test` databases. Connection strings in `.env` (`AGENT_GTD_DATABASE_URL` and `AGENT_GTD_TEST_DATABASE_URL`).
+### MANDATORY: Work out of Agent GTD
+
+Every session that involves implementation work MUST follow this workflow:
+
+1. **Register immediately.** At the start of any session that will touch code or planning, register with the MCP server:
+   ```
+   register_agent(user_id=<from data/seed.json>, project_id=<from data/seed.json>, agent_name="claude-code")
+   ```
+2. **Check the backlog first.** Run `list_items` to see what's already tracked before starting work. The user may refer to items by title or description — find the matching item rather than starting from scratch.
+3. **Capture new work as items.** When the user asks for something new, `add_item` or `inbox_capture` it. Features go to `next_action` or `someday_maybe`. Bugs go to `next_action` with `high` priority. Vague ideas go to `inbox` for later triage.
+4. **Mark items done when complete.** After shipping a feature or fix, call `complete_item`. Don't leave stale open items.
+5. **Use notes for design decisions.** When making architectural choices during a feature, capture the rationale as a project note via `add_note`. This is especially valuable for decisions that future sessions will need to understand.
+
+### Never create roadmap or TODO files
+
+There is no `docs/roadmap.md`. There are no TODO lists in markdown. If something needs to be tracked, it goes into Agent GTD as an item. If you catch yourself writing "TODO" in a doc or creating a planning list outside the tool, stop and `add_item` instead. We use the tool to build the tool.
+
+### Prerequisites
+
+PostgreSQL with `agent_gtd` and `agent_gtd_test` databases. Connection strings in `.env` (`AGENT_GTD_DATABASE_URL` and `AGENT_GTD_TEST_DATABASE_URL`).
 
 **First-time setup:**
 ```bash
@@ -179,10 +198,3 @@ uv run python scripts/seed.py    # Creates seed user + project, writes data/seed
 ```
 
 **Seed IDs** are stored in `data/seed.json` (`user_id` and `project_id`). The `data/` directory is gitignored.
-
-**Registration flow** — before using project-scoped tools, call:
-```
-register_agent(user_id=<from seed.json>, project_id=<from seed.json>, agent_name="claude-code")
-```
-
-Then use `inbox_capture`, `list_items`, `add_note`, etc. to manage work.
