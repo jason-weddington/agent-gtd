@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.9.1 (2026-03-03)
+
+### Bug Fixes
+
+- QuickCapture Tab, NoteEditor min-height, global Esc hotkey
+  ([`c05e407`](https://github.com/home/jason/git/agent_gtd/commit/c05e407d23fb1003ba843b321c4501c31cdd9d6b))
+
+
 ## v1.9.0 (2026-03-02)
 
 ### Features
