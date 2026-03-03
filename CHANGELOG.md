@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.10.0 (2026-03-03)
+
+### Chores
+
+- Skip DB tests on push, add SKIP_DB_TESTS=1 env flag
+  ([`4b08423`](https://github.com/home/jason/git/agent_gtd/commit/4b08423787aa3cfa3b93de2da24648c2e270761c))
+
+### Features
+
+- In-memory SQLite test backend for fast offline testing
+  ([`7aff243`](https://github.com/home/jason/git/agent_gtd/commit/7aff2432c2e7ffa30fedcc5601985b5fd5c348d3))
+
+
 ## v1.9.2 (2026-03-03)
 
 ### Bug Fixes
