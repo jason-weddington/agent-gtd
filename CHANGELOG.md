@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.9.0 (2026-03-02)
+
+### Features
+
+- Add nginx + systemd deployment configs
+  ([`2595f04`](https://github.com/home/jason/git/agent_gtd/commit/2595f046460863a0a844eb7d8f0407e230b9dbd8))
+
+
 ## v1.8.1 (2026-03-02)
 
 ### Bug Fixes
