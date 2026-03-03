@@ -1,3 +1,14 @@
+## Deployment
+
+The app runs on `r7-research` as a **user-level** systemd service:
+```bash
+ssh r7-research 'systemctl --user restart agent-gtd'   # Restart
+ssh r7-research 'systemctl --user status agent-gtd'     # Check status
+ssh r7-research 'journalctl --user -u agent-gtd -f'     # Tail logs
+```
+
+The git remote `origin` points to `r7-research`. After `git push origin main --tags`, restart the service to pick up changes.
+
 ## Build and Test Commands
 ```bash
 uv sync                              # Install Python dependencies
