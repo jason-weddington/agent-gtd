@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.8.1 (2026-03-02)
+
+### Bug Fixes
+
+- Start.sh signal handling for clean systemd shutdown
+  ([`d8b6878`](https://github.com/home/jason/git/agent_gtd/commit/d8b68782796e42f98d844734979de5fd994ee0c0))
+
+### Chores
+
+- Remove .mcp.json from tracking (contains credentials)
+  ([`be49728`](https://github.com/home/jason/git/agent_gtd/commit/be49728612dafa7932fb6edc384f8c695178142e))
+
+
 ## v1.8.0 (2026-03-02)
 
 ### Features
