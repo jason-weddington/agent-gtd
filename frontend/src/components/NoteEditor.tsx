@@ -71,6 +71,15 @@ export default function NoteEditor({ content, onChange }: NoteEditorProps) {
   return (
     <RichTextEditorProvider editor={editor}>
       <RichTextField
+        sx={{
+          '& .MuiTiptap-RichTextContent-root': {
+            minHeight: 300,
+          },
+          '& .ProseMirror': {
+            minHeight: 300,
+            overflow: 'auto',
+          },
+        }}
         controls={
           <MenuControlsContainer>
             <MenuSelectHeading />

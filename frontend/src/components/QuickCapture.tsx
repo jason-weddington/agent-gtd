@@ -95,6 +95,7 @@ export default function QuickCapture({ open, onClose }: QuickCaptureProps) {
     }
     if (e.key === 'Tab' && !expanded && title.length > 0) {
       e.preventDefault()
+      e.stopPropagation()
       setExpanded(true)
     }
     if (e.key === 'Escape') {
@@ -129,14 +130,13 @@ export default function QuickCapture({ open, onClose }: QuickCaptureProps) {
           },
         }}
       >
-        <Box sx={{ p: 2 }}>
+        <Box sx={{ p: 2 }} onKeyDownCapture={handleKeyDown}>
           <TextField
             fullWidth
             autoFocus
             placeholder="Capture a thought..."
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={handleKeyDown}
             disabled={saving}
             variant="standard"
             slotProps={{

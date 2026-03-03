@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
+import { useHotkeys } from 'react-hotkeys-hook'
 import {
   AppBar,
   Toolbar,
@@ -31,6 +32,12 @@ export default function Layout() {
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+
+  useHotkeys('escape', () => {
+    // Don't navigate if a dialog is open
+    if (document.querySelector('[role="dialog"]')) return
+    navigate('/')
+  }, { enableOnFormTags: false, enableOnContentEditable: false })
 
   const displayName = user?.email ?? ''
 
