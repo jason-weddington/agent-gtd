@@ -13,7 +13,9 @@ from agent_gtd.main import app
 async def _setup_db(request, monkeypatch):
     """Init a fresh test database for each test.
 
-    Skipped when SKIP_DB_TESTS=1 is set (useful for offline / slow-network work).
+    - Default (no env vars): in-memory SQLite via SqlitePool (fast, offline).
+    - AGENT_GTD_TEST_DATABASE_URL set: PostgreSQL (CI regression).
+    - SKIP_DB_TESTS=1: skip async tests (pre-push hook).
     """
     import agent_gtd.database as db_mod
 
@@ -25,28 +27,37 @@ async def _setup_db(request, monkeypatch):
         yield
         return
 
-    # Point at the test database
     test_url = os.environ.get("AGENT_GTD_TEST_DATABASE_URL")
-    if not test_url:
-        pytest.skip("AGENT_GTD_TEST_DATABASE_URL not set")
 
-    monkeypatch.setenv("AGENT_GTD_DATABASE_URL", test_url)
-    monkeypatch.setattr(db_mod, "_pool", None)
+    if test_url:
+        # PostgreSQL path (CI / explicit)
+        monkeypatch.setenv("AGENT_GTD_DATABASE_URL", test_url)
+        monkeypatch.setattr(db_mod, "_pool", None)
 
-    await init_db()
+        await init_db()
 
-    yield
+        yield
 
-    # Truncate all tables in dependency order.
-    # The pool may already be closed (e.g. MCP lifespan teardown),
-    # so reconnect if needed.
-    pool = db_mod._pool
-    if pool is None or pool._closed:
-        db_mod._pool = None
-        pool = await get_db()
-    async with pool.acquire() as conn:
-        await conn.execute("TRUNCATE events, notes, items, projects, users CASCADE")
-    await close_db()
+        # Truncate all tables in dependency order.
+        pool = db_mod._pool
+        if pool is None or pool._closed:
+            db_mod._pool = None
+            pool = await get_db()
+        async with pool.acquire() as conn:
+            await conn.execute("TRUNCATE events, notes, items, projects, users CASCADE")
+        await close_db()
+    else:
+        # In-memory SQLite path (default, fast, offline)
+        from sqlite_pool import SqlitePool
+
+        sqlite_pool = SqlitePool()
+        monkeypatch.setattr(db_mod, "_pool", sqlite_pool)
+
+        await init_db()
+
+        yield
+
+        await sqlite_pool.close()
 
 
 def _is_async_test(request) -> bool:
