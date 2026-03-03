@@ -1,0 +1,20 @@
+[Unit]
+Description=Agent GTD (backend + frontend dev servers)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jason/hosting_root/agent_gtd
+ExecStart=/home/jason/hosting_root/agent_gtd/start.sh
+EnvironmentFile=/home/jason/hosting_root/agent_gtd/.env
+Restart=on-failure
+RestartSec=5
+
+# start.sh traps EXIT to kill children — systemd sends SIGTERM to the
+# process group, so child processes (uvicorn, vite) get cleaned up.
+KillMode=control-group
+
+Environment=PATH=/home/jason/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target
