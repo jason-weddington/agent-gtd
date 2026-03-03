@@ -192,7 +192,32 @@ async def test_inbox_capture(registered_client):
     data = _parse_result(result)
     assert data["title"] == "Quick thought"
     assert data["status"] == "inbox"
+    assert data["project_id"] is None
     assert data["created_by"] == "test-agent"
+
+
+async def test_inbox_capture_then_list(registered_client):
+    """Inbox items are project-less and visible via list_items(status='inbox')."""
+    await registered_client.call_tool("inbox_capture", {"title": "Idea A"})
+    await registered_client.call_tool("inbox_capture", {"title": "Idea B"})
+
+    result = await registered_client.call_tool("list_items", {"status": "inbox"})
+    data = _parse_result(result)
+    assert len(data) == 2
+    titles = {d["title"] for d in data}
+    assert titles == {"Idea A", "Idea B"}
+    assert all(d["project_id"] is None for d in data)
+
+
+async def test_add_item_inbox_is_projectless(registered_client):
+    """add_item with status='inbox' creates a project-less item."""
+    result = await registered_client.call_tool(
+        "add_item",
+        {"title": "Inbox via add_item", "status": "inbox"},
+    )
+    data = _parse_result(result)
+    assert data["project_id"] is None
+    assert data["status"] == "inbox"
 
 
 async def test_add_item(registered_client):
@@ -213,8 +238,12 @@ async def test_add_item(registered_client):
 
 
 async def test_list_items(registered_client):
-    await registered_client.call_tool("add_item", {"title": "Item 1"})
-    await registered_client.call_tool("add_item", {"title": "Item 2"})
+    await registered_client.call_tool(
+        "add_item", {"title": "Item 1", "status": "next_action"}
+    )
+    await registered_client.call_tool(
+        "add_item", {"title": "Item 2", "status": "next_action"}
+    )
 
     result = await registered_client.call_tool("list_items")
     data = _parse_result(result)
@@ -229,7 +258,13 @@ async def test_list_items_filter_status(registered_client):
             "status": "active",
         },
     )
-    await registered_client.call_tool("add_item", {"title": "Inbox"})
+    await registered_client.call_tool(
+        "add_item",
+        {
+            "title": "Next",
+            "status": "next_action",
+        },
+    )
 
     result = await registered_client.call_tool("list_items", {"status": "active"})
     data = _parse_result(result)
@@ -503,8 +538,12 @@ async def test_session_isolation(user_id):
             },
         )
 
-        await client1.call_tool("add_item", {"title": "P1 Item"})
-        await client2.call_tool("add_item", {"title": "P2 Item"})
+        await client1.call_tool(
+            "add_item", {"title": "P1 Item", "status": "next_action"}
+        )
+        await client2.call_tool(
+            "add_item", {"title": "P2 Item", "status": "next_action"}
+        )
 
         r1 = _parse_result(await client1.call_tool("list_items"))
         r2 = _parse_result(await client2.call_tool("list_items"))

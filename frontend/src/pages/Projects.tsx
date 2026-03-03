@@ -294,7 +294,7 @@ export default function Projects() {
       </Dialog>
 
       {/* Delete Confirmation */}
-      <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)}>
+      <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} fullWidth maxWidth="xs">
         <DialogTitle>Delete Project</DialogTitle>
         <DialogContent>
           <Typography>

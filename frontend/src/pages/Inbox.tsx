@@ -36,6 +36,7 @@ export default function Inbox() {
   const [error, setError] = useState<string | null>(null)
   const [captureText, setCaptureText] = useState('')
   const [capturing, setCapturing] = useState(false)
+  const captureInputRef = useRef<HTMLInputElement>(null)
 
   // Triage dialog
   const [triageTarget, setTriageTarget] = useState<Item | null>(null)
@@ -91,6 +92,7 @@ export default function Inbox() {
       await api.items.capture(title)
       setCaptureText('')
       await loadData()
+      captureInputRef.current?.focus()
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : 'Failed to capture item')
     } finally {
@@ -181,6 +183,8 @@ export default function Inbox() {
       {/* Quick capture */}
       <TextField
         fullWidth
+        autoFocus
+        inputRef={captureInputRef}
         placeholder="Capture a new item..."
         value={captureText}
         onChange={(e) => setCaptureText(e.target.value)}
@@ -306,7 +310,7 @@ export default function Inbox() {
       </Dialog>
 
       {/* Delete Confirmation */}
-      <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)}>
+      <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} fullWidth maxWidth="xs">
         <DialogTitle>Delete Item</DialogTitle>
         <DialogContent>
           <Typography>

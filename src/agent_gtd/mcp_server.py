@@ -194,32 +194,29 @@ async def list_projects(
 async def inbox_capture(
     title: str,
     ctx: Context,
-    project_id: str | None = None,
 ) -> dict[str, Any]:
     """Quick capture an item to the inbox.
 
-    Creates a new inbox item with the given title. The created_by field
-    is automatically set to the registered agent name.
+    Creates a new inbox item with the given title. Inbox items are always
+    project-less (project_id=None) — they land in the user's global inbox
+    before triage assigns them to a project.
 
     Args:
         title: Title of the item to capture.
         ctx: MCP context (injected automatically).
-        project_id: Optional project ID override.
-            If omitted, uses the registered project.
 
     Returns:
         The created item dict.
     """
     session = await _get_session(ctx)
     db = await get_db()
-    effective_project_id = project_id or session["project_id"]
 
     try:
         row = await item_service.inbox_capture(
             db,
             session["user_id"],
             title,
-            project_id=effective_project_id,
+            project_id=None,
             created_by=session["agent_name"],
         )
     except NotFoundError as e:
@@ -257,13 +254,16 @@ async def add_item(
     session = await _get_session(ctx)
     db = await get_db()
 
+    # Inbox items are project-less (global capture bucket).
+    effective_project_id = None if status == "inbox" else session["project_id"]
+
     try:
         row = await item_service.create_item(
             db,
             session["user_id"],
             title=title,
             description=description,
-            project_id=session["project_id"],
+            project_id=effective_project_id,
             status=status,
             priority=priority,
             created_by=session["agent_name"],
@@ -383,11 +383,14 @@ async def list_items(
     session = await _get_session(ctx)
     db = await get_db()
 
+    # Inbox items are project-less, so don't filter by project.
+    effective_project_id = None if status == "inbox" else session["project_id"]
+
     rows = await item_service.list_items(
         db,
         session["user_id"],
         status=status,
-        project_id=session["project_id"],
+        project_id=effective_project_id,
         priority=priority,
         assigned_to=assigned_to,
     )

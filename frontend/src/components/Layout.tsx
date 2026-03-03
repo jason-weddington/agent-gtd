@@ -70,7 +70,7 @@ export default function Layout() {
               component="div"
               sx={{ fontWeight: 700, letterSpacing: -0.5 }}
             >
-              Agent Gtd
+              Agent GTD
             </Typography>
           </Box>
 

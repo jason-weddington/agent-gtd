@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Dialog,
   TextField,
@@ -42,6 +42,7 @@ export default function QuickCapture({ open, onClose }: QuickCaptureProps) {
   const [saving, setSaving] = useState(false)
   const [justCaptured, setJustCaptured] = useState<string | null>(null)
   const [toast, setToast] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   // Load projects when expanded
   useEffect(() => {
@@ -113,6 +114,7 @@ export default function QuickCapture({ open, onClose }: QuickCaptureProps) {
         open={open}
         onClose={onClose}
         TransitionComponent={SlideDown}
+        TransitionProps={{ onEntered: () => inputRef.current?.focus() }}
         fullWidth
         maxWidth="sm"
         slotProps={{
@@ -134,6 +136,7 @@ export default function QuickCapture({ open, onClose }: QuickCaptureProps) {
           <TextField
             fullWidth
             autoFocus
+            inputRef={inputRef}
             placeholder="Capture a thought..."
             value={title}
             onChange={(e) => setTitle(e.target.value)}
