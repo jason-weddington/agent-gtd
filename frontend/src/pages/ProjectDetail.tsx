@@ -35,6 +35,7 @@ import { api, ApiError } from '../api'
 import type { Project, Item, Note, ItemStatus, Priority, ProjectStatus } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
 import KanbanBoard from '../components/KanbanBoard'
+import NoteEditor from '../components/NoteEditor'
 
 const STATUS_COLORS: Record<ProjectStatus, 'success' | 'default' | 'warning' | 'error'> = {
   active: 'success',
@@ -684,7 +685,7 @@ export default function ProjectDetail() {
         open={noteDialogOpen}
         onClose={() => setNoteDialogOpen(false)}
         fullWidth
-        maxWidth="sm"
+        maxWidth="md"
       >
         <DialogTitle>{editingNote ? 'Edit Note' : 'New Note'}</DialogTitle>
         <DialogContent>
@@ -697,16 +698,7 @@ export default function ProjectDetail() {
             autoFocus
             size="small"
           />
-          <TextField
-            fullWidth
-            label="Content"
-            value={noteContent}
-            onChange={(e) => setNoteContent(e.target.value)}
-            margin="normal"
-            multiline
-            rows={8}
-            size="small"
-          />
+          <NoteEditor content={noteContent} onChange={setNoteContent} />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setNoteDialogOpen(false)}>Cancel</Button>
