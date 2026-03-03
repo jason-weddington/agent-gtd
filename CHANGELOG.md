@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.9.2 (2026-03-03)
+
+### Bug Fixes
+
+- Inbox project-less items, quick capture focus, delete dialog sizing, header casing
+  ([`79a71e4`](https://github.com/home/jason/git/agent_gtd/commit/79a71e435a900614f2ed49521e875d1ccb7d4ca6))
+
+### Chores
+
+- Add "check the KB first" guidance to CLAUDE.md
+  ([`f060f54`](https://github.com/home/jason/git/agent_gtd/commit/f060f54de990e4d4905370bd1a106e2bf9e84381))
+
+- Add deployment info to CLAUDE.md
+  ([`f2d22cb`](https://github.com/home/jason/git/agent_gtd/commit/f2d22cb1d346dfe411bce92f5473414679d09e68))
+
+- Delete roadmap, add Agent GTD dogfooding mandate to CLAUDE.md
+  ([`59ac1ce`](https://github.com/home/jason/git/agent_gtd/commit/59ac1ce9afd4d148a9f21a544d9df95fb385abbb))
+
+
 ## v1.9.1 (2026-03-03)
 
 ### Bug Fixes
