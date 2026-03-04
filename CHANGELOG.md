@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.12.0 (2026-03-04)
+
+### Features
+
+- Add Cmd+1-7 keyboard shortcuts for sidebar navigation
+  ([`c9bf49c`](https://github.com/home/jason/git/agent_gtd/commit/c9bf49cd44f38a121b9b62323ba6485e8679aada))
+
+
 ## v1.11.3 (2026-03-04)
 
 ### Bug Fixes
