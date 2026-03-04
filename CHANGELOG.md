@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.11.3 (2026-03-04)
+
+### Bug Fixes
+
+- Wrap long item titles in review rows instead of truncating
+  ([`1d22d47`](https://github.com/home/jason/git/agent_gtd/commit/1d22d47fdf09a8d52ec19ce479a0ca7fbfb7f9d7))
+
+
 ## v1.11.2 (2026-03-04)
 
 ### Bug Fixes
