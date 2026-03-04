@@ -81,6 +81,7 @@ export default function ProjectReviewCard({
         mb: 1,
         borderLeft: isStuck ? 3 : 1,
         borderLeftColor: isStuck ? 'warning.main' : 'divider',
+        overflow: 'hidden',
       }}
     >
       <Box

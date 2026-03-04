@@ -101,7 +101,7 @@ export default function ReviewItemRow({
   }
 
   return (
-    <Box sx={{ mb: 0.5 }}>
+    <Box sx={{ mb: 0.5, minWidth: 0 }}>
       <Box
         sx={{
           display: 'flex',
@@ -112,6 +112,7 @@ export default function ReviewItemRow({
           border: 1,
           borderColor: 'divider',
           borderRadius: 1,
+          overflow: 'hidden',
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
