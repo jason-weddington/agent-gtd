@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.11.0 (2026-03-04)
+
+### Chores
+
+- Re-enable DB tests on push now that SQLite backend is fast
+  ([`8d588f8`](https://github.com/home/jason/git/agent_gtd/commit/8d588f88e03906957995fd28736b8beae65140b3))
+
+### Features
+
+- Redesign weekly review as step-by-step wizard
+  ([`62c39a6`](https://github.com/home/jason/git/agent_gtd/commit/62c39a6b759a03168ce89e610ee79219e488df22))
+
+
 ## v1.10.0 (2026-03-03)
 
 ### Chores
