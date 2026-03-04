@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.11.1 (2026-03-04)
+
+### Bug Fixes
+
+- Improve inbox processor navigation and action layout
+  ([`9ca3298`](https://github.com/home/jason/git/agent_gtd/commit/9ca3298835b2056a8935ab3f88ee97fc36b6e162))
+
+
 ## v1.11.0 (2026-03-04)
 
 ### Chores
