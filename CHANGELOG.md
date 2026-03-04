@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.11.2 (2026-03-04)
+
+### Bug Fixes
+
+- Prevent long item titles from overflowing review layout
+  ([`3b1bfa4`](https://github.com/home/jason/git/agent_gtd/commit/3b1bfa47d261d9c20b9ceb645fd29c5869601f84))
+
+
 ## v1.11.1 (2026-03-04)
 
 ### Bug Fixes
