@@ -105,29 +105,31 @@ export default function ReviewItemRow({
       <Box
         sx={{
           display: 'flex',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           justifyContent: 'space-between',
+          gap: 1,
           py: 1,
           px: 2,
           border: 1,
           borderColor: 'divider',
           borderRadius: 1,
-          overflow: 'hidden',
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
-          <Typography variant="body2" sx={{ fontWeight: 500 }} noWrap>
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography variant="body2" sx={{ fontWeight: 500, wordBreak: 'break-word' }}>
             {item.title}
           </Typography>
-          {item.projectId && projectMap[item.projectId] && (
-            <Chip label={projectMap[item.projectId].name} size="small" variant="outlined" />
-          )}
-          <Chip label={item.priority} size="small" color={PRIORITY_COLORS[item.priority]} />
-          <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
-            {formatRelativeAge(item.createdAt)}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
+            {item.projectId && projectMap[item.projectId] && (
+              <Chip label={projectMap[item.projectId].name} size="small" variant="outlined" />
+            )}
+            <Chip label={item.priority} size="small" color={PRIORITY_COLORS[item.priority]} />
+            <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+              {formatRelativeAge(item.createdAt)}
+            </Typography>
+          </Box>
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 1, flexShrink: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
           {actions.map((action) => (
             <Button
               key={action.label}
