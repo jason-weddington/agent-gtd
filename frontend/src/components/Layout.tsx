@@ -39,6 +39,31 @@ export default function Layout() {
     navigate('/')
   }, { enableOnFormTags: false, enableOnContentEditable: false })
 
+  // Cmd+1 through Cmd+7: jump to sidebar sections in order
+  const NAV_ROUTES = [
+    '/',               // 1 — Inbox
+    '/inbox/process',  // 2 — Process
+    '/next-actions',   // 3 — Next Actions
+    '/waiting-for',    // 4 — Waiting For
+    '/someday-maybe',  // 5 — Someday / Maybe
+    '/review',         // 6 — Weekly Review
+    '/projects',       // 7 — Projects
+  ]
+  useHotkeys(
+    'meta+1, meta+2, meta+3, meta+4, meta+5, meta+6, meta+7',
+    (e, handler) => {
+      e.preventDefault()
+      const keys = handler.keys ?? []
+      const digit = keys[keys.length - 1]
+      if (!digit) return
+      const idx = parseInt(digit, 10) - 1
+      if (idx >= 0 && idx < NAV_ROUTES.length) {
+        navigate(NAV_ROUTES[idx])
+      }
+    },
+    { enableOnFormTags: true },
+  )
+
   const displayName = user?.email ?? ''
 
   const handleLogout = () => {

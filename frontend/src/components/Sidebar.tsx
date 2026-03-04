@@ -1,3 +1,4 @@
+import { type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Drawer,
@@ -19,6 +20,43 @@ import EventRepeatIcon from '@mui/icons-material/EventRepeat'
 import SettingsIcon from '@mui/icons-material/Settings'
 
 const DRAWER_WIDTH = 240
+
+interface NavItem {
+  label: string
+  path: string
+  icon: ReactNode
+  shortcut: number // Cmd+N
+}
+
+const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
+  {
+    heading: 'Collect',
+    items: [
+      { label: 'Inbox', path: '/', icon: <InboxIcon fontSize="small" />, shortcut: 1 },
+      { label: 'Process', path: '/inbox/process', icon: <FilterListIcon fontSize="small" />, shortcut: 2 },
+    ],
+  },
+  {
+    heading: 'Lists',
+    items: [
+      { label: 'Next Actions', path: '/next-actions', icon: <PlaylistPlayIcon fontSize="small" />, shortcut: 3 },
+      { label: 'Waiting For', path: '/waiting-for', icon: <HourglassEmptyIcon fontSize="small" />, shortcut: 4 },
+      { label: 'Someday / Maybe', path: '/someday-maybe', icon: <LightbulbIcon fontSize="small" />, shortcut: 5 },
+    ],
+  },
+  {
+    heading: 'Reflect',
+    items: [
+      { label: 'Weekly Review', path: '/review', icon: <EventRepeatIcon fontSize="small" />, shortcut: 6 },
+    ],
+  },
+  {
+    heading: 'Organize',
+    items: [
+      { label: 'Projects', path: '/projects', icon: <FolderIcon fontSize="small" />, shortcut: 7 },
+    ],
+  },
+]
 
 interface SidebarProps {
   open: boolean
@@ -49,116 +87,39 @@ export default function Sidebar({ open }: SidebarProps) {
         },
       }}
     >
-      {/* Collect */}
-      <Box sx={{ p: 2, pb: 1 }}>
-        <Typography
-          variant="overline"
-          sx={{ color: 'text.secondary', fontWeight: 600, letterSpacing: 1.2 }}
-        >
-          Collect
-        </Typography>
-      </Box>
-      <List dense sx={{ px: 0 }}>
-        <ListItemButton selected={isSelected('/')} onClick={() => navigate('/')}>
-          <ListItemIcon sx={{ minWidth: 36 }}>
-            <InboxIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="Inbox" />
-        </ListItemButton>
-        <ListItemButton
-          selected={isSelected('/inbox/process')}
-          onClick={() => navigate('/inbox/process')}
-        >
-          <ListItemIcon sx={{ minWidth: 36 }}>
-            <FilterListIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="Process" />
-        </ListItemButton>
-      </List>
-
-      <Divider sx={{ my: 1 }} />
-
-      {/* Lists */}
-      <Box sx={{ px: 2, pb: 1 }}>
-        <Typography
-          variant="overline"
-          sx={{ color: 'text.secondary', fontWeight: 600, letterSpacing: 1.2 }}
-        >
-          Lists
-        </Typography>
-      </Box>
-      <List dense sx={{ px: 0 }}>
-        <ListItemButton
-          selected={isSelected('/next-actions')}
-          onClick={() => navigate('/next-actions')}
-        >
-          <ListItemIcon sx={{ minWidth: 36 }}>
-            <PlaylistPlayIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="Next Actions" />
-        </ListItemButton>
-        <ListItemButton
-          selected={isSelected('/waiting-for')}
-          onClick={() => navigate('/waiting-for')}
-        >
-          <ListItemIcon sx={{ minWidth: 36 }}>
-            <HourglassEmptyIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="Waiting For" />
-        </ListItemButton>
-        <ListItemButton
-          selected={isSelected('/someday-maybe')}
-          onClick={() => navigate('/someday-maybe')}
-        >
-          <ListItemIcon sx={{ minWidth: 36 }}>
-            <LightbulbIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="Someday / Maybe" />
-        </ListItemButton>
-      </List>
-
-      <Divider sx={{ my: 1 }} />
-
-      {/* Reflect */}
-      <Box sx={{ px: 2, pb: 1 }}>
-        <Typography
-          variant="overline"
-          sx={{ color: 'text.secondary', fontWeight: 600, letterSpacing: 1.2 }}
-        >
-          Reflect
-        </Typography>
-      </Box>
-      <List dense sx={{ px: 0 }}>
-        <ListItemButton selected={isSelected('/review')} onClick={() => navigate('/review')}>
-          <ListItemIcon sx={{ minWidth: 36 }}>
-            <EventRepeatIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="Weekly Review" />
-        </ListItemButton>
-      </List>
-
-      <Divider sx={{ my: 1 }} />
-
-      {/* Organize */}
-      <Box sx={{ px: 2, pb: 1 }}>
-        <Typography
-          variant="overline"
-          sx={{ color: 'text.secondary', fontWeight: 600, letterSpacing: 1.2 }}
-        >
-          Organize
-        </Typography>
-      </Box>
-      <List dense sx={{ px: 0 }}>
-        <ListItemButton
-          selected={isSelected('/projects')}
-          onClick={() => navigate('/projects')}
-        >
-          <ListItemIcon sx={{ minWidth: 36 }}>
-            <FolderIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="Projects" />
-        </ListItemButton>
-      </List>
+      {NAV_SECTIONS.map((section, si) => (
+        <Box key={section.heading}>
+          {si > 0 && <Divider sx={{ my: 1 }} />}
+          <Box sx={{ p: 2, pb: 1 }}>
+            <Typography
+              variant="overline"
+              sx={{ color: 'text.secondary', fontWeight: 600, letterSpacing: 1.2 }}
+            >
+              {section.heading}
+            </Typography>
+          </Box>
+          <List dense sx={{ px: 0 }}>
+            {section.items.map((item) => (
+              <ListItemButton
+                key={item.path}
+                selected={isSelected(item.path)}
+                onClick={() => navigate(item.path)}
+              >
+                <ListItemIcon sx={{ minWidth: 36 }}>
+                  {item.icon}
+                </ListItemIcon>
+                <ListItemText primary={item.label} />
+                <Typography
+                  variant="caption"
+                  sx={{ color: 'text.disabled', fontSize: '0.7rem', fontFamily: 'monospace' }}
+                >
+                  {'\u2318'}{item.shortcut}
+                </Typography>
+              </ListItemButton>
+            ))}
+          </List>
+        </Box>
+      ))}
 
       <Divider sx={{ my: 1 }} />
 
