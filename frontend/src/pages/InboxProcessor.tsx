@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Box,
   Typography,
@@ -19,6 +19,8 @@ import type { ProcessorResult } from '../components/ProcessorActions'
 
 export default function InboxProcessor() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo ?? '/'
   const [items, setItems] = useState<Item[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
@@ -164,8 +166,8 @@ export default function InboxProcessor() {
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
           Nothing to process. Capture some items first.
         </Typography>
-        <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate('/')}>
-          Back to Inbox
+        <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate(returnTo)}>
+          Back
         </Button>
       </Box>
     )
@@ -182,8 +184,8 @@ export default function InboxProcessor() {
         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
           You processed {totalCount} item{totalCount !== 1 ? 's' : ''}.
         </Typography>
-        <Button variant="contained" startIcon={<ArrowBackIcon />} onClick={() => navigate('/')}>
-          Back to Inbox
+        <Button variant="contained" startIcon={<ArrowBackIcon />} onClick={() => navigate(returnTo)}>
+          Back
         </Button>
       </Box>
     )
@@ -195,8 +197,8 @@ export default function InboxProcessor() {
     <Box>
       {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-        <Button size="small" startIcon={<ArrowBackIcon />} onClick={() => navigate('/')}>
-          Back to Inbox
+        <Button size="small" startIcon={<ArrowBackIcon />} onClick={() => navigate(returnTo)}>
+          Back
         </Button>
         <Typography variant="body2" color="text.secondary">
           {processedCount + 1} of {totalCount}

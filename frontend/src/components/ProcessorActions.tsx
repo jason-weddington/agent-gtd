@@ -136,11 +136,14 @@ export default function ProcessorActions({
 
   return (
     <Box>
-      {/* Outcome buttons — 2-column grid */}
+      {/* Assign to project */}
+      <Typography variant="overline" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+        Assign to project&hellip;
+      </Typography>
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
+          gridTemplateColumns: '1fr 1fr 1fr',
           gap: 1,
           mb: 2,
         }}
@@ -154,14 +157,6 @@ export default function ProcessorActions({
           Next Action
         </Button>
         <Button
-          variant={selected === 'waiting_for' ? 'contained' : 'outlined'}
-          onClick={() => handleSelect('waiting_for')}
-          disabled={submitting}
-          fullWidth
-        >
-          Waiting For
-        </Button>
-        <Button
           variant={selected === 'scheduled' ? 'contained' : 'outlined'}
           onClick={() => handleSelect('scheduled')}
           disabled={submitting}
@@ -170,12 +165,31 @@ export default function ProcessorActions({
           Scheduled
         </Button>
         <Button
+          variant={selected === 'waiting_for' ? 'contained' : 'outlined'}
+          onClick={() => handleSelect('waiting_for')}
+          disabled={submitting}
+          fullWidth
+        >
+          Waiting For
+        </Button>
+      </Box>
+
+      {/* Other outcomes */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: 1,
+          mb: 2,
+        }}
+      >
+        <Button
           variant={selected === 'someday_maybe' ? 'contained' : 'outlined'}
           onClick={() => handleSelect('someday_maybe')}
           disabled={submitting}
           fullWidth
         >
-          Someday
+          Someday / Maybe
         </Button>
         <Button
           variant={selected === 'project' ? 'contained' : 'outlined'}
@@ -183,30 +197,28 @@ export default function ProcessorActions({
           disabled={submitting}
           fullWidth
         >
-          Project
+          Convert to Project&hellip;
         </Button>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant={selected === 'done' ? 'contained' : 'outlined'}
-            color="success"
-            onClick={() => handleSelect('done')}
-            disabled={submitting}
-            startIcon={<CheckIcon />}
-            fullWidth
-          >
-            Done
-          </Button>
-          <Button
-            variant={selected === 'trash' ? 'contained' : 'outlined'}
-            color="error"
-            onClick={() => handleSelect('trash')}
-            disabled={submitting}
-            startIcon={<DeleteIcon />}
-            fullWidth
-          >
-            Trash
-          </Button>
-        </Box>
+        <Button
+          variant={selected === 'done' ? 'contained' : 'outlined'}
+          color="success"
+          onClick={() => handleSelect('done')}
+          disabled={submitting}
+          startIcon={<CheckIcon />}
+          fullWidth
+        >
+          Done
+        </Button>
+        <Button
+          variant={selected === 'trash' ? 'contained' : 'outlined'}
+          color="error"
+          onClick={() => handleSelect('trash')}
+          disabled={submitting}
+          startIcon={<DeleteIcon />}
+          fullWidth
+        >
+          Trash
+        </Button>
       </Box>
 
       {/* Follow-up fields for Next Action / Waiting For / Scheduled */}

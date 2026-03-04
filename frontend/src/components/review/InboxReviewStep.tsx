@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { Typography } from '@mui/material'
+import { useNavigate } from 'react-router-dom'
+import { Typography, Button, Box } from '@mui/material'
 import CheckIcon from '@mui/icons-material/Check'
 import InboxIcon from '@mui/icons-material/Inbox'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import ReviewItemList from './ReviewItemList'
 import type { ReviewAction } from './ReviewItemRow'
 import type { Item, Project, ItemStatus } from '../../types'
@@ -23,6 +25,7 @@ export default function InboxReviewStep({
   onDelete,
   onTriage,
 }: InboxReviewStepProps) {
+  const navigate = useNavigate()
   const [triageOpenId, setTriageOpenId] = useState<string | null>(null)
 
   const actions: ReviewAction[] = [
@@ -36,7 +39,18 @@ export default function InboxReviewStep({
 
   return (
     <>
-      <Typography variant="h6" gutterBottom>Process Inbox</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+        <Typography variant="h6">Process Inbox</Typography>
+        {items.length > 0 && (
+          <Button
+            size="small"
+            startIcon={<OpenInNewIcon />}
+            onClick={() => navigate('/inbox/process', { state: { returnTo: '/review' } })}
+          >
+            Process one-by-one
+          </Button>
+        )}
+      </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Triage each inbox item: assign a status and optional project, mark done, or delete.
       </Typography>
