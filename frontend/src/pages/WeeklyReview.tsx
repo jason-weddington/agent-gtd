@@ -159,6 +159,16 @@ export default function WeeklyReview() {
     }
   }
 
+  const handleAddProjectItem = async (projectId: string, title: string) => {
+    try {
+      await api.projects.createItem(projectId, { title, status: 'next_action' })
+      statsRef.current.captured++
+      await loadData()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : 'Failed to add item')
+    }
+  }
+
   // --- Navigation ---
 
   const handleNext = () => setActiveStep((s) => Math.min(s + 1, TOTAL_STEPS - 1))
@@ -239,6 +249,7 @@ export default function WeeklyReview() {
             onDone={handleDone}
             onDelete={handleDelete}
             onUpdateStatus={handleUpdateStatus}
+            onAddItem={handleAddProjectItem}
           />
         )
       case 4:
