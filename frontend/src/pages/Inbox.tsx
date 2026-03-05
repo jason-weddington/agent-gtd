@@ -251,6 +251,12 @@ export default function Inbox() {
         onClose={() => setTriageTarget(null)}
         fullWidth
         maxWidth="xs"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !triaging) {
+            e.preventDefault()
+            handleTriage()
+          }
+        }}
       >
         <DialogTitle>Triage: {triageTarget?.title}</DialogTitle>
         <DialogContent>

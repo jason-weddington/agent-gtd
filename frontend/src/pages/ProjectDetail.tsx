@@ -541,6 +541,12 @@ export default function ProjectDetail() {
         onClose={() => setEditProjectOpen(false)}
         fullWidth
         maxWidth="sm"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !(e.target instanceof HTMLTextAreaElement)) {
+            e.preventDefault()
+            if (editName.trim() && !savingProject) handleSaveProject()
+          }
+        }}
       >
         <DialogTitle>Edit Project</DialogTitle>
         <DialogContent>
@@ -604,6 +610,12 @@ export default function ProjectDetail() {
         onClose={() => setItemDialogOpen(false)}
         fullWidth
         maxWidth="sm"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !(e.target instanceof HTMLTextAreaElement)) {
+            e.preventDefault()
+            if (itemTitle.trim() && !savingItem) handleSaveItem()
+          }
+        }}
       >
         <DialogTitle>{editingItem ? 'Edit Item' : 'New Item'}</DialogTitle>
         <DialogContent>

@@ -235,6 +235,12 @@ export default function Projects() {
         onClose={() => setDialogOpen(false)}
         fullWidth
         maxWidth="sm"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !(e.target instanceof HTMLTextAreaElement)) {
+            e.preventDefault()
+            if (name.trim() && !saving) handleSave()
+          }
+        }}
       >
         <DialogTitle>{editing ? 'Edit Project' : 'New Project'}</DialogTitle>
         <DialogContent>

@@ -267,6 +267,12 @@ export default function GtdItemList({
         onClose={() => setEditTarget(null)}
         fullWidth
         maxWidth="sm"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !(e.target instanceof HTMLTextAreaElement)) {
+            e.preventDefault()
+            if (editTitle.trim() && !saving) handleSave()
+          }
+        }}
       >
         <DialogTitle>Edit Item</DialogTitle>
         <DialogContent>
