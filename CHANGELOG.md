@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.13.0 (2026-03-04)
+
+### Features
+
+- Add Enter-to-submit on all create/edit dialogs
+  ([`891d04a`](https://github.com/home/jason/git/agent_gtd/commit/891d04ab07379cfb73d7e42e91db0b021ee41c61))
+
+
 ## v1.12.0 (2026-03-04)
 
 ### Features
