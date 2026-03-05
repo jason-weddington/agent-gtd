@@ -51,20 +51,30 @@ async def _get_session(ctx: Context) -> dict[str, str]:
     return session
 
 
-def _format_item(row: dict[str, Any]) -> dict[str, Any]:
+async def _build_project_map(db: Any, user_id: str) -> dict[str, str]:
+    """Build {project_id: project_name} map for name resolution."""
+    projects = await project_service.list_projects(db, user_id)
+    return {p["id"]: p["name"] for p in projects}
+
+
+def _format_item(
+    row: dict[str, Any], project_map: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Format an item row for MCP tool output."""
-    return {
-        **row,
-        "labels": decode_json_list(str(row["labels"])),
-    }
+    result = {**row, "labels": decode_json_list(str(row["labels"]))}
+    if project_map and row.get("project_id"):
+        result["project_name"] = project_map.get(row["project_id"], "")
+    return result
 
 
-def _format_note(row: dict[str, Any]) -> dict[str, Any]:
+def _format_note(
+    row: dict[str, Any], project_map: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Format a note row for MCP tool output."""
-    return {
-        **row,
-        "labels": decode_json_list(str(row["labels"])),
-    }
+    result = {**row, "labels": decode_json_list(str(row["labels"]))}
+    if project_map and row.get("project_id"):
+        result["project_name"] = project_map.get(row["project_id"], "")
+    return result
 
 
 # --- Registration tools ---
@@ -102,7 +112,7 @@ async def register_agent(
 
     # Validate project exists and belongs to user
     try:
-        await project_service.get_project(db, user_id, project_id)
+        project = await project_service.get_project(db, user_id, project_id)
     except NotFoundError:
         raise ToolError(f"Project not found: {project_id}") from None
 
@@ -118,6 +128,7 @@ async def register_agent(
     return {
         "status": "registered",
         "project_id": project_id,
+        "project_name": project["name"],
         "agent_name": agent_name,
     }
 
@@ -144,7 +155,7 @@ async def switch_project(
     db = await get_db()
 
     try:
-        await project_service.get_project(db, session["user_id"], project_id)
+        project = await project_service.get_project(db, session["user_id"], project_id)
     except NotFoundError:
         raise ToolError(f"Project not found: {project_id}") from None
 
@@ -154,6 +165,7 @@ async def switch_project(
     return {
         "status": "switched",
         "project_id": project_id,
+        "project_name": project["name"],
         "agent_name": session["agent_name"],
     }
 
@@ -222,7 +234,8 @@ async def inbox_capture(
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
-    return _format_item(row)
+    project_map = await _build_project_map(db, session["user_id"])
+    return _format_item(row, project_map)
 
 
 @mcp.tool(
@@ -272,7 +285,8 @@ async def add_item(
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
-    return _format_item(row)
+    project_map = await _build_project_map(db, session["user_id"])
+    return _format_item(row, project_map)
 
 
 @mcp.tool(
@@ -330,7 +344,8 @@ async def update_item(
     except VersionConflictError as e:
         raise ToolError(e.detail) from None
 
-    return _format_item(row)
+    project_map = await _build_project_map(db, session["user_id"])
+    return _format_item(row, project_map)
 
 
 @mcp.tool(
@@ -357,7 +372,8 @@ async def complete_item(
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
-    return _format_item(row)
+    project_map = await _build_project_map(db, session["user_id"])
+    return _format_item(row, project_map)
 
 
 @mcp.tool(
@@ -394,7 +410,8 @@ async def list_items(
         priority=priority,
         assigned_to=assigned_to,
     )
-    return [_format_item(r) for r in rows]
+    project_map = await _build_project_map(db, session["user_id"])
+    return [_format_item(r, project_map) for r in rows]
 
 
 @mcp.tool(
@@ -421,7 +438,8 @@ async def get_item(
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
-    return _format_item(row)
+    project_map = await _build_project_map(db, session["user_id"])
+    return _format_item(row, project_map)
 
 
 @mcp.tool(
@@ -455,7 +473,8 @@ async def claim_item(
     except AlreadyClaimedError as e:
         raise ToolError(e.detail) from None
 
-    return _format_item(row)
+    project_map = await _build_project_map(db, session["user_id"])
+    return _format_item(row, project_map)
 
 
 @mcp.tool(
@@ -482,7 +501,8 @@ async def release_item(
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
-    return _format_item(row)
+    project_map = await _build_project_map(db, session["user_id"])
+    return _format_item(row, project_map)
 
 
 # --- Note tools (project-scoped, require registration) ---
@@ -523,7 +543,8 @@ async def add_note(
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
-    return _format_note(row)
+    project_map = await _build_project_map(db, session["user_id"])
+    return _format_note(row, project_map)
 
 
 @mcp.tool(
@@ -563,7 +584,8 @@ async def update_note(
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
-    return _format_note(row)
+    project_map = await _build_project_map(db, session["user_id"])
+    return _format_note(row, project_map)
 
 
 @mcp.tool(
@@ -590,7 +612,8 @@ async def list_notes(
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
-    return [_format_note(r) for r in rows]
+    project_map = await _build_project_map(db, session["user_id"])
+    return [_format_note(r, project_map) for r in rows]
 
 
 @mcp.tool(
@@ -617,4 +640,5 @@ async def get_note(
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
-    return _format_note(row)
+    project_map = await _build_project_map(db, session["user_id"])
+    return _format_note(row, project_map)

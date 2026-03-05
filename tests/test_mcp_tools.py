@@ -70,6 +70,7 @@ async def test_register_agent(mcp_client, user_id, project_id):
     data = _parse_result(result)
     assert data["status"] == "registered"
     assert data["project_id"] == project_id
+    assert data["project_name"] == "MCP Project"
     assert data["agent_name"] == "test-agent"
 
 
@@ -119,6 +120,7 @@ async def test_switch_project(mcp_client, user_id, project_id):
     data = _parse_result(result)
     assert data["status"] == "switched"
     assert data["project_id"] == p2["id"]
+    assert data["project_name"] == "Project 2"
 
 
 async def test_switch_project_without_registration(mcp_client, project_id):
@@ -193,6 +195,7 @@ async def test_inbox_capture(registered_client):
     assert data["title"] == "Quick thought"
     assert data["status"] == "inbox"
     assert data["project_id"] is None
+    assert "project_name" not in data
     assert data["created_by"] == "test-agent"
 
 
@@ -235,6 +238,8 @@ async def test_add_item(registered_client):
     assert data["priority"] == "high"
     assert data["labels"] == ["urgent"]
     assert data["created_by"] == "test-agent"
+    # Default status is "inbox" → project-less, no project_name
+    assert "project_name" not in data
 
 
 async def test_list_items(registered_client):
@@ -378,6 +383,31 @@ async def test_release_item(registered_client):
     result = await registered_client.call_tool("release_item", {"item_id": item_id})
     data = _parse_result(result)
     assert data["assigned_to"] == ""
+
+
+# --- Project name resolution ---
+
+
+async def test_item_project_name_resolution(registered_client, project):
+    """Project-scoped items include project_name matching the project."""
+    result = await registered_client.call_tool(
+        "add_item",
+        {"title": "Named Project Item", "status": "next_action"},
+    )
+    data = _parse_result(result)
+    assert data["project_name"] == project["name"]
+    assert data["project_id"] == project["id"]
+
+
+async def test_note_project_name_resolution(registered_client, project):
+    """Notes include project_name matching the project."""
+    result = await registered_client.call_tool(
+        "add_note",
+        {"title": "Named Project Note"},
+    )
+    data = _parse_result(result)
+    assert data["project_name"] == project["name"]
+    assert data["project_id"] == project["id"]
 
 
 # --- Notes ---
