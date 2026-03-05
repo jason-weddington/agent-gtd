@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.14.0 (2026-03-05)
+
+### Features
+
+- Replace project review accordion with carousel and quick-add
+  ([`212ba6f`](https://github.com/home/jason/git/agent_gtd/commit/212ba6fd78459ae16a528655a7283addd1696120))
+
+
 ## v1.13.0 (2026-03-04)
 
 ### Features
