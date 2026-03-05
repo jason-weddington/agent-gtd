@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.15.0 (2026-03-05)
+
+### Features
+
+- Add project_name to MCP tool responses
+  ([`5566f7b`](https://github.com/home/jason/git/agent_gtd/commit/5566f7bb05399c18f6c90063c7302f877748e242))
+
+
 ## v1.14.0 (2026-03-05)
 
 ### Features
