@@ -48,7 +48,7 @@ async def _setup_db(request, monkeypatch):
         await close_db()
     else:
         # In-memory SQLite path (default, fast, offline)
-        from sqlite_pool import SqlitePool
+        from agent_gtd.sqlite_pool import SqlitePool
 
         sqlite_pool = SqlitePool()
         monkeypatch.setattr(db_mod, "_pool", sqlite_pool)

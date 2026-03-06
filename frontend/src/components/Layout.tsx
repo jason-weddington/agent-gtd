@@ -27,7 +27,7 @@ import Sidebar from './Sidebar'
 
 export default function Layout() {
   const { mode, toggleTheme } = useThemeMode()
-  const { user, logout } = useAuth()
+  const { user, logout, localMode } = useAuth()
   const { openCapture } = useQuickCapture()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -150,12 +150,14 @@ export default function Layout() {
               </ListItemIcon>
               Settings
             </MenuItem>
-            <MenuItem onClick={handleLogout}>
-              <ListItemIcon>
-                <LogoutIcon fontSize="small" />
-              </ListItemIcon>
-              Sign Out
-            </MenuItem>
+            {!localMode && (
+              <MenuItem onClick={handleLogout}>
+                <ListItemIcon>
+                  <LogoutIcon fontSize="small" />
+                </ListItemIcon>
+                Sign Out
+              </MenuItem>
+            )}
           </Menu>
         </Toolbar>
       </AppBar>

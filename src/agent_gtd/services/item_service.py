@@ -5,9 +5,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-import asyncpg
-
 from agent_gtd.database import decode_json_list, encode_json_list, row_to_dict
+from agent_gtd.db_types import DbPool
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.exceptions import (
     AlreadyClaimedError,
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 async def list_items(
-    db: asyncpg.Pool,
+    db: DbPool,
     user_id: str,
     *,
     status: str | None = None,
@@ -55,7 +54,7 @@ async def list_items(
 
 
 async def create_item(
-    db: asyncpg.Pool,
+    db: DbPool,
     user_id: str,
     *,
     title: str,
@@ -124,7 +123,7 @@ async def create_item(
     return result
 
 
-async def get_item(db: asyncpg.Pool, user_id: str, item_id: str) -> dict[str, Any]:
+async def get_item(db: DbPool, user_id: str, item_id: str) -> dict[str, Any]:
     """Get a single item by ID.
 
     Raises:
@@ -141,7 +140,7 @@ async def get_item(db: asyncpg.Pool, user_id: str, item_id: str) -> dict[str, An
 
 
 async def update_item(
-    db: asyncpg.Pool,
+    db: DbPool,
     user_id: str,
     item_id: str,
     *,
@@ -271,7 +270,7 @@ async def update_item(
     return result
 
 
-async def delete_item(db: asyncpg.Pool, user_id: str, item_id: str) -> None:
+async def delete_item(db: DbPool, user_id: str, item_id: str) -> None:
     """Delete an item.
 
     Raises:
@@ -296,7 +295,7 @@ async def delete_item(db: asyncpg.Pool, user_id: str, item_id: str) -> None:
 
 
 async def inbox_capture(
-    db: asyncpg.Pool,
+    db: DbPool,
     user_id: str,
     title: str,
     *,
@@ -319,12 +318,12 @@ async def inbox_capture(
     )
 
 
-async def list_inbox(db: asyncpg.Pool, user_id: str) -> list[dict[str, Any]]:
+async def list_inbox(db: DbPool, user_id: str) -> list[dict[str, Any]]:
     """List inbox items (status=inbox)."""
     return await list_items(db, user_id, status=ItemStatus.INBOX.value)
 
 
-async def complete_item(db: asyncpg.Pool, user_id: str, item_id: str) -> dict[str, Any]:
+async def complete_item(db: DbPool, user_id: str, item_id: str) -> dict[str, Any]:
     """Set item status to done and auto-set completed_at.
 
     Raises:
@@ -334,7 +333,7 @@ async def complete_item(db: asyncpg.Pool, user_id: str, item_id: str) -> dict[st
 
 
 async def claim_item(
-    db: asyncpg.Pool,
+    db: DbPool,
     user_id: str,
     item_id: str,
     agent_name: str,
@@ -361,7 +360,7 @@ async def claim_item(
     return await update_item(db, user_id, item_id, assigned_to=agent_name)
 
 
-async def release_item(db: asyncpg.Pool, user_id: str, item_id: str) -> dict[str, Any]:
+async def release_item(db: DbPool, user_id: str, item_id: str) -> dict[str, Any]:
     """Release an item (clear assigned_to).
 
     Raises:
@@ -371,7 +370,7 @@ async def release_item(db: asyncpg.Pool, user_id: str, item_id: str) -> dict[str
 
 
 async def list_project_items(
-    db: asyncpg.Pool, user_id: str, project_id: str
+    db: DbPool, user_id: str, project_id: str
 ) -> list[dict[str, Any]]:
     """List items for a specific project.
 
@@ -383,7 +382,7 @@ async def list_project_items(
 
 
 async def create_project_item(
-    db: asyncpg.Pool,
+    db: DbPool,
     user_id: str,
     project_id: str,
     *,

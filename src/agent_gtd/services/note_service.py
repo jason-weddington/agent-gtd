@@ -5,9 +5,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-import asyncpg
-
 from agent_gtd.database import decode_json_list, encode_json_list, row_to_dict
+from agent_gtd.db_types import DbPool
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.exceptions import NotFoundError
 from agent_gtd.services.project_service import verify_project_ownership
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 async def list_project_notes(
-    db: asyncpg.Pool, user_id: str, project_id: str
+    db: DbPool, user_id: str, project_id: str
 ) -> list[dict[str, Any]]:
     """List notes for a specific project.
 
@@ -35,7 +34,7 @@ async def list_project_notes(
 
 
 async def create_note(
-    db: asyncpg.Pool,
+    db: DbPool,
     user_id: str,
     project_id: str,
     *,
@@ -88,7 +87,7 @@ async def create_note(
     return result
 
 
-async def get_note(db: asyncpg.Pool, user_id: str, note_id: str) -> dict[str, Any]:
+async def get_note(db: DbPool, user_id: str, note_id: str) -> dict[str, Any]:
     """Get a single note by ID.
 
     Raises:
@@ -105,7 +104,7 @@ async def get_note(db: asyncpg.Pool, user_id: str, note_id: str) -> dict[str, An
 
 
 async def update_note(
-    db: asyncpg.Pool,
+    db: DbPool,
     user_id: str,
     note_id: str,
     *,
@@ -162,7 +161,7 @@ async def update_note(
     return result
 
 
-async def delete_note(db: asyncpg.Pool, user_id: str, note_id: str) -> None:
+async def delete_note(db: DbPool, user_id: str, note_id: str) -> None:
     """Delete a note.
 
     Raises:

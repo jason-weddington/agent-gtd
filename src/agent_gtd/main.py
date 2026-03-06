@@ -6,7 +6,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from agent_gtd.database import close_db, init_db
+from agent_gtd.auth import get_current_user, get_local_user
+from agent_gtd.database import close_db, init_db, is_local_mode
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.mcp_server import mcp
 from agent_gtd.routes.auth_routes import router as auth_router
@@ -20,6 +21,8 @@ from agent_gtd.routes.project_routes import router as project_router
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifecycle: init/close database."""
     await init_db()
+    if is_local_mode():
+        _app.dependency_overrides[get_current_user] = get_local_user
     yield
     await get_event_bus().drain()
     await close_db()
@@ -50,3 +53,9 @@ app.mount("/mcp", mcp_app)
 async def health() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "ok"}
+
+
+@app.get("/api/config")
+async def config() -> dict[str, bool]:
+    """Return app configuration (unauthenticated)."""
+    return {"local_mode": is_local_mode()}

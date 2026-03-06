@@ -5,18 +5,15 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-import asyncpg
-
 from agent_gtd.database import row_to_dict
+from agent_gtd.db_types import DbPool
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.exceptions import NotFoundError
 
 logger = logging.getLogger(__name__)
 
 
-async def verify_project_ownership(
-    db: asyncpg.Pool, project_id: str, user_id: str
-) -> None:
+async def verify_project_ownership(db: DbPool, project_id: str, user_id: str) -> None:
     """Verify that a project exists and belongs to the user.
 
     Raises:
@@ -32,7 +29,7 @@ async def verify_project_ownership(
 
 
 async def list_projects(
-    db: asyncpg.Pool,
+    db: DbPool,
     user_id: str,
     *,
     status: str | None = None,
@@ -58,7 +55,7 @@ async def list_projects(
 
 
 async def create_project(
-    db: asyncpg.Pool,
+    db: DbPool,
     user_id: str,
     *,
     name: str,
@@ -104,9 +101,7 @@ async def create_project(
     return result
 
 
-async def get_project(
-    db: asyncpg.Pool, user_id: str, project_id: str
-) -> dict[str, Any]:
+async def get_project(db: DbPool, user_id: str, project_id: str) -> dict[str, Any]:
     """Get a single project by ID.
 
     Raises:
@@ -123,7 +118,7 @@ async def get_project(
 
 
 async def update_project(
-    db: asyncpg.Pool,
+    db: DbPool,
     user_id: str,
     project_id: str,
     *,
@@ -183,7 +178,7 @@ async def update_project(
     return result
 
 
-async def delete_project(db: asyncpg.Pool, user_id: str, project_id: str) -> None:
+async def delete_project(db: DbPool, user_id: str, project_id: str) -> None:
     """Delete a project and cascade to items and notes.
 
     Raises:

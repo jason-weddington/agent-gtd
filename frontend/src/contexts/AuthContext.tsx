@@ -6,6 +6,7 @@ interface AuthContextValue {
   isAuthenticated: boolean
   user: UserResponse | null
   loading: boolean
+  localMode: boolean
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string) => Promise<void>
   logout: () => void
@@ -22,28 +23,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return null
     }
   })
-  const [loading, setLoading] = useState(() => Boolean(localStorage.getItem('agent_gtd-token')))
+  const [loading, setLoading] = useState(true)
+  const [localMode, setLocalMode] = useState(false)
 
   useEffect(() => {
-    const token = localStorage.getItem('agent_gtd-token')
-    if (!token) return
     let cancelled = false
-    api.auth
-      .me()
-      .then((u) => {
+
+    async function init() {
+      try {
+        const config = await api.config.get()
         if (cancelled) return
-        setUser(u)
-        localStorage.setItem('agent_gtd-user', JSON.stringify(u))
-      })
-      .catch(() => {
+
+        if (config.localMode) {
+          setLocalMode(true)
+          // In local mode, fetch user without token (dependency override on backend)
+          const u = await api.auth.me()
+          if (cancelled) return
+          setUser(u)
+        } else {
+          // Normal auth flow
+          const token = localStorage.getItem('agent_gtd-token')
+          if (token) {
+            const u = await api.auth.me()
+            if (cancelled) return
+            setUser(u)
+            localStorage.setItem('agent_gtd-user', JSON.stringify(u))
+          }
+        }
+      } catch {
         if (cancelled) return
         localStorage.removeItem('agent_gtd-token')
         localStorage.removeItem('agent_gtd-user')
         setUser(null)
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false)
-      })
+      }
+    }
+
+    init()
     return () => { cancelled = true }
   }, [])
 
@@ -73,11 +90,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: user !== null,
       user,
       loading,
+      localMode,
       login,
       register,
       logout,
     }),
-    [user, loading, login, register, logout],
+    [user, loading, localMode, login, register, logout],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

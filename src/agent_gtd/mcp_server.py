@@ -8,7 +8,15 @@ from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from agent_gtd.database import close_db, decode_json_list, get_db, init_db
+from agent_gtd.database import (
+    LOCAL_PROJECT_ID,
+    LOCAL_USER_ID,
+    close_db,
+    decode_json_list,
+    get_db,
+    init_db,
+    is_local_mode,
+)
 from agent_gtd.exceptions import (
     AlreadyClaimedError,
     NotFoundError,
@@ -42,12 +50,22 @@ mcp = FastMCP(
 async def _get_session(ctx: Context) -> dict[str, str]:
     """Get the registered agent session from context state.
 
+    In local mode, auto-creates a default session if none exists.
+
     Raises:
-        ToolError: If the agent hasn't registered yet.
+        ToolError: If the agent hasn't registered yet (non-local mode).
     """
     session: dict[str, str] | None = await ctx.get_state("agent_session")
     if session is None:
-        raise ToolError("Agent not registered — call register_agent first")
+        if is_local_mode():
+            session = {
+                "user_id": LOCAL_USER_ID,
+                "project_id": LOCAL_PROJECT_ID,
+                "agent_name": "local-agent",
+            }
+            await ctx.set_state("agent_session", session)
+        else:
+            raise ToolError("Agent not registered — call register_agent first")
     return session
 
 

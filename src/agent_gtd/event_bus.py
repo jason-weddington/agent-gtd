@@ -8,9 +8,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-import asyncpg
-
 from agent_gtd.database import row_to_dict
+from agent_gtd.db_types import DbPool
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +43,7 @@ class EventBus:
 
     async def publish(
         self,
-        db: asyncpg.Pool,
+        db: DbPool,
         *,
         user_id: str,
         event_type: str,
@@ -108,7 +107,7 @@ class EventBus:
 
     async def replay_since(
         self,
-        db: asyncpg.Pool,
+        db: DbPool,
         user_id: str,
         since_id: str,
     ) -> list[dict[str, Any]]:

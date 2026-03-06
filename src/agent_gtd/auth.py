@@ -10,7 +10,12 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from agent_gtd.database import get_db, row_to_dict
+from agent_gtd.database import (
+    LOCAL_EMAIL,
+    LOCAL_USER_ID,
+    get_db,
+    row_to_dict,
+)
 from agent_gtd.models import User
 
 SECRET_KEY = os.environ.get("JWT_SECRET", "dev-secret-change-me")
@@ -92,6 +97,16 @@ async def get_current_user_from_token(token: str) -> User:
             detail="User not found",
         )
     return User(**row_to_dict(row))
+
+
+async def get_local_user() -> User:
+    """Return the well-known local user (no DB lookup, no JWT)."""
+    return User(
+        id=LOCAL_USER_ID,
+        email=LOCAL_EMAIL,
+        hashed_password="local-no-password",  # noqa: S106
+        created_at=datetime(2000, 1, 1, tzinfo=UTC),
+    )
 
 
 async def register_user(email: str, password: str) -> User:

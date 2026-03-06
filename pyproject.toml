@@ -4,6 +4,7 @@ version = "1.15.0"
 description = "Agent Gtd"
 requires-python = ">=3.13"
 dependencies = [
+    "aiosqlite>=0.20",
     "asyncpg>=0.30",
     "bcrypt>=4.0",
     "fastapi>=0.115",
@@ -15,7 +16,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "aiosqlite>=0.20",
     "ruff>=0.9",
     "mypy>=1.14",
     "pytest>=8",

@@ -61,6 +61,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 // --- Namespaced API ---
 
 export const api = {
+  config: {
+    get: () => request<{ localMode: boolean }>('GET', '/config'),
+  },
+
   auth: {
     register: (email: string, password: string) =>
       request<AuthResponse>('POST', '/auth/register', { email, password }),

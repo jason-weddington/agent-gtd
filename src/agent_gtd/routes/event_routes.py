@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.responses import StreamingResponse
 
-from agent_gtd.auth import get_current_user_from_token
-from agent_gtd.database import get_db
+from agent_gtd.auth import get_current_user_from_token, get_local_user
+from agent_gtd.database import get_db, is_local_mode
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.models import User
 
@@ -28,6 +28,8 @@ async def _resolve_user(
     ] = None,
 ) -> User:
     """Resolve user from query param token or Bearer header."""
+    if is_local_mode():
+        return await get_local_user()
     raw_token = token
     if raw_token is None and credentials is not None:
         raw_token = credentials.credentials
