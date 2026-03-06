@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.17.0 (2026-03-06)
+
+### Features
+
+- Improve weekly review navigation UX
+  ([`9c4790e`](https://github.com/home/jason/git/agent_gtd/commit/9c4790ebe655f7d8f40b1083288b3c62d66fd56d))
+
+
 ## v1.16.0 (2026-03-06)
 
 ### Features
