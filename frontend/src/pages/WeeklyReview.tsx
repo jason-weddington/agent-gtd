@@ -13,6 +13,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import AssignmentIcon from '@mui/icons-material/Assignment'
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
 import EventNoteIcon from '@mui/icons-material/EventNote'
+import TaskAltIcon from '@mui/icons-material/TaskAlt'
 import { api, ApiError } from '../api'
 import type { Item, Project, ItemStatus } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
@@ -25,6 +26,7 @@ import SummaryStep, { type ReviewStats } from '../components/review/SummaryStep'
 import type { ReviewAction } from '../components/review/ReviewItemRow'
 
 const TOTAL_STEPS = 7
+const PROJECTS_STEP = 3
 
 export default function WeeklyReview() {
   const [activeStep, setActiveStep] = useState(0)
@@ -49,6 +51,10 @@ export default function WeeklyReview() {
     activated: 0,
     captured: 0,
   })
+
+  // Project review state
+  const [projectReviewState, setProjectReviewState] = useState({ current: 0, total: 0, allReviewed: false })
+  const markReviewedRef = useRef<(() => void) | null>(null)
 
   const { onEvent } = useEvents()
   const loadDataRef = useRef<() => Promise<void>>(undefined)
@@ -169,10 +175,38 @@ export default function WeeklyReview() {
     }
   }
 
+  const handleReviewStateChange = useCallback((current: number, total: number, allReviewed: boolean) => {
+    setProjectReviewState({ current, total, allReviewed })
+  }, [])
+
   // --- Navigation ---
 
   const handleNext = () => setActiveStep((s) => Math.min(s + 1, TOTAL_STEPS - 1))
   const handleBack = () => setActiveStep((s) => Math.max(s - 1, 0))
+
+  const handlePrimaryAction = () => {
+    if (activeStep === PROJECTS_STEP && !projectReviewState.allReviewed) {
+      markReviewedRef.current?.()
+    } else {
+      handleNext()
+    }
+  }
+
+  // --- Primary button config ---
+
+  const isProjectsStep = activeStep === PROJECTS_STEP
+  const isLastStep = activeStep === TOTAL_STEPS - 1
+  const showMarkReviewed = isProjectsStep && !projectReviewState.allReviewed && projectReviewState.total > 0
+
+  let primaryLabel: string
+  let primaryIcon: React.ReactNode
+  if (showMarkReviewed) {
+    primaryLabel = `Mark Reviewed (${projectReviewState.current} of ${projectReviewState.total})`
+    primaryIcon = <TaskAltIcon />
+  } else {
+    primaryLabel = 'Next'
+    primaryIcon = <ArrowForwardIcon />
+  }
 
   // --- Render ---
 
@@ -250,6 +284,8 @@ export default function WeeklyReview() {
             onDelete={handleDelete}
             onUpdateStatus={handleUpdateStatus}
             onAddItem={handleAddProjectItem}
+            onReviewStateChange={handleReviewStateChange}
+            onMarkReviewedRef={markReviewedRef}
           />
         )
       case 4:
@@ -290,12 +326,8 @@ export default function WeeklyReview() {
         </Alert>
       )}
 
-      <Box sx={{ minHeight: 300 }}>
-        {renderStep()}
-      </Box>
-
-      {/* Navigation buttons */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+      {/* Navigation buttons — above content */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
         <Button
           onClick={handleBack}
           disabled={activeStep === 0}
@@ -305,12 +337,16 @@ export default function WeeklyReview() {
         </Button>
         <Button
           variant="contained"
-          onClick={handleNext}
-          disabled={activeStep === TOTAL_STEPS - 1}
-          endIcon={<ArrowForwardIcon />}
+          onClick={handlePrimaryAction}
+          disabled={isLastStep}
+          endIcon={primaryIcon}
         >
-          Next
+          {primaryLabel}
         </Button>
+      </Box>
+
+      <Box sx={{ minHeight: 300 }}>
+        {renderStep()}
       </Box>
     </Box>
   )
