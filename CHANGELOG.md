@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.16.0 (2026-03-06)
+
+### Features
+
+- SQLite fallback + local single-user mode
+  ([`81fa4e3`](https://github.com/home/jason/git/agent_gtd/commit/81fa4e398e48b4c3c6d42fe15f0e8815374af3c6))
+
+
 ## v1.15.0 (2026-03-05)
 
 ### Features
