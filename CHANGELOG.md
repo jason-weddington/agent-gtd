@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.9 (2026-03-07)
+
+### Bug Fixes
+
+- Hide kanban card at render time to eliminate Safari drag pop-back
+  ([`3826f48`](https://github.com/home/jason/git/agent_gtd/commit/3826f48f97e7d9602405df0013e67ed2ed36af7c))
+
+
 ## v1.20.8 (2026-03-07)
 
 ### Bug Fixes
