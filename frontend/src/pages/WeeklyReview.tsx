@@ -318,34 +318,47 @@ export default function WeeklyReview() {
 
   return (
     <Box>
-      <ReviewStepper activeStep={activeStep} onStepClick={setActiveStep} />
+      {/* Pinned header: stepper + nav buttons */}
+      <Box
+        sx={{
+          position: 'sticky',
+          top: 64, // below AppBar
+          zIndex: 10,
+          bgcolor: 'background.default',
+          mx: -3,
+          px: 3,
+          pt: 0,
+          pb: 1,
+        }}
+      >
+        <ReviewStepper activeStep={activeStep} onStepClick={setActiveStep} />
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+            {error}
+          </Alert>
+        )}
 
-      {/* Navigation buttons — above content */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
-        <Button
-          onClick={handleBack}
-          disabled={activeStep === 0}
-          startIcon={<ArrowBackIcon />}
-        >
-          Back
-        </Button>
-        <Button
-          variant="contained"
-          onClick={handlePrimaryAction}
-          disabled={isLastStep}
-          endIcon={primaryIcon}
-        >
-          {primaryLabel}
-        </Button>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', pb: 2, borderBottom: 1, borderColor: 'divider' }}>
+          <Button
+            onClick={handleBack}
+            disabled={activeStep === 0}
+            startIcon={<ArrowBackIcon />}
+          >
+            Back
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handlePrimaryAction}
+            disabled={isLastStep}
+            endIcon={primaryIcon}
+          >
+            {primaryLabel}
+          </Button>
+        </Box>
       </Box>
 
-      <Box sx={{ minHeight: 300 }}>
+      <Box sx={{ minHeight: 300, pt: 3 }}>
         {renderStep()}
       </Box>
     </Box>
