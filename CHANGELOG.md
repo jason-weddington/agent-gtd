@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.3 (2026-03-07)
+
+### Bug Fixes
+
+- Replace @dnd-kit/react with @hello-pangea/dnd for reliable kanban drag
+  ([`7d72ee1`](https://github.com/home/jason/git/agent_gtd/commit/7d72ee116e3489bf8104a7d7c3407faf03454077))
+
+
 ## v1.20.2 (2026-03-07)
 
 ### Bug Fixes

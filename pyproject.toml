@@ -1,6 +1,6 @@
 [project]
 name = "agent_gtd"
-version = "1.20.2"
+version = "1.20.3"
 description = "Agent Gtd"
 requires-python = ">=3.13"
 dependencies = [
