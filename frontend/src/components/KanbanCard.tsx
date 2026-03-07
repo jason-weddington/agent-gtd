@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { Box, Typography, Chip, IconButton, Tooltip } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -18,7 +19,7 @@ interface KanbanCardProps {
   onDelete: (item: Item) => void
 }
 
-export default function KanbanCard({ item, index, onEdit, onDelete }: KanbanCardProps) {
+export default memo(function KanbanCard({ item, index, onEdit, onDelete }: KanbanCardProps) {
   const isOverdue = item.dueDate && new Date(item.dueDate) < new Date()
 
   return (
@@ -44,6 +45,11 @@ export default function KanbanCard({ item, index, onEdit, onDelete }: KanbanCard
             borderColor: PRIORITY_BORDER[item.priority],
             boxShadow: snapshot.isDragging ? 4 : 1,
             cursor: snapshot.isDragging ? 'grabbing' : 'pointer',
+            // Promote to GPU layer to prevent Safari compositor flash
+            // when switching between CPU and GPU rendering during drag.
+            transform: 'translateZ(0)',
+            WebkitBackfaceVisibility: 'hidden',
+            backfaceVisibility: 'hidden',
             '&:hover .kanban-actions': { opacity: 1 },
           }}
         >
@@ -92,4 +98,4 @@ export default function KanbanCard({ item, index, onEdit, onDelete }: KanbanCard
       )}
     </Draggable>
   )
-}
+})
