@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.8 (2026-03-07)
+
+### Bug Fixes
+
+- Add React.memo and GPU compositing to KanbanCard for Safari drag stability
+  ([`14b2a94`](https://github.com/home/jason/git/agent_gtd/commit/14b2a94c920a55890dd05ce17d62b8dc65ca30bd))
+
+
 ## v1.20.7 (2026-03-07)
 
 ### Bug Fixes
