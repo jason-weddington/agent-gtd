@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.5 (2026-03-07)
+
+### Bug Fixes
+
+- Use flushSync to eliminate kanban card pop-back on drop
+  ([`0be4290`](https://github.com/home/jason/git/agent_gtd/commit/0be42908342b5495746f73886bb3053bc05e9bfe))
+
+
 ## v1.20.4 (2026-03-07)
 
 ### Bug Fixes
