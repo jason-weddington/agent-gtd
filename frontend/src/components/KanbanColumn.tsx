@@ -21,7 +21,11 @@ export default function KanbanColumn({
   onDelete,
   onAdd,
 }: KanbanColumnProps) {
-  const { ref, isDropTarget } = useDroppable({ id: `col:${id}` })
+  const { ref, isDropTarget } = useDroppable({
+    id: `col:${id}`,
+    accept: 'item',
+    collisionPriority: 0, // Lower than sortable cards so card-to-card takes precedence
+  })
 
   return (
     <Box

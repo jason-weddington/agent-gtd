@@ -32,6 +32,12 @@ function computeSortOrder(items: Item[], targetIndex: number): number {
   return (items[targetIndex - 1].sortOrder + items[targetIndex].sortOrder) / 2
 }
 
+/** Extract column ID from a column droppable ID like "col:next_action" */
+function parseColumnDroppableId(id: string): string | null {
+  if (typeof id === 'string' && id.startsWith('col:')) return id.slice(4)
+  return null
+}
+
 interface KanbanBoardProps {
   items: Item[]
   onRefresh: () => Promise<void>
@@ -75,38 +81,45 @@ export default function KanbanBoard({
     async (event: any) => {
       try {
         const { operation, canceled } = event
-        if (canceled || !isSortableOperation(operation)) return
+        if (canceled) return
 
         const { source, target } = operation
         if (!source || !target) return
 
-        const srcGroup = source.initialGroup as string | undefined
-        const dstGroup = (target.group ?? srcGroup) as string | undefined
-        if (!srcGroup || !dstGroup) return
-
         const itemId = source.id as string
         if (!itemId) return
 
-        const targetIndex = typeof target.index === 'number' ? target.index : 0
+        let dstGroup: string | undefined
+        let targetIndex: number
 
-        // If same column and same index, nothing to do
-        if (srcGroup === dstGroup && source.initialIndex === targetIndex) return
+        if (isSortableOperation(operation)) {
+          // Dropped on another card — use that card's group and index
+          const srcGroup = source.initialGroup as string | undefined
+          dstGroup = (target.group ?? srcGroup) as string | undefined
+          targetIndex = typeof target.index === 'number' ? target.index : 0
 
-        // Compute new status from destination column
+          // Same column, same position — nothing to do
+          if (srcGroup === dstGroup && source.initialIndex === targetIndex) return
+        } else {
+          // Dropped on the column droppable (empty area) — append to end
+          const targetId = target.id as string
+          const parsed = parseColumnDroppableId(targetId)
+          if (!parsed) return
+          dstGroup = parsed
+          targetIndex = (columnItems[dstGroup] ?? []).length
+        }
+
+        if (!dstGroup) return
+
         const newStatus = COLUMN_DEFAULT_STATUS[dstGroup]
         if (!newStatus) return
 
         // Compute new sortOrder based on destination column items
         const dstItems = columnItems[dstGroup] ?? []
-        // Filter out the dragged item from destination for correct midpoint
         const filtered = dstItems.filter((i) => i.id !== itemId)
         const newSortOrder = computeSortOrder(filtered, targetIndex)
 
-        const update: Record<string, unknown> = { sortOrder: newSortOrder }
-        // Only change status if moving between columns
-        if (srcGroup !== dstGroup) {
-          update.status = newStatus
-        }
+        const update: Record<string, unknown> = { sortOrder: newSortOrder, status: newStatus }
         await api.items.update(itemId, update)
       } catch {
         // Swallow errors to prevent React crash — refresh restores state

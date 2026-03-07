@@ -2,18 +2,13 @@ import { Box, Typography, Chip, IconButton, Tooltip } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { useSortable } from '@dnd-kit/react/sortable'
-import type { Item, ItemStatus, Priority } from '../types'
+import type { Item, Priority } from '../types'
 
 const PRIORITY_BORDER: Record<Priority, string> = {
   low: '#9e9e9e',
   normal: '#2196f3',
   high: '#ff9800',
   urgent: '#f44336',
-}
-
-const SUB_STATUS_LABELS: Partial<Record<ItemStatus, string>> = {
-  waiting_for: 'Waiting',
-  scheduled: 'Scheduled',
 }
 
 interface KanbanCardProps {
@@ -29,6 +24,8 @@ export default function KanbanCard({ item, index, group, onEdit, onDelete }: Kan
     id: item.id,
     index,
     group,
+    type: 'item',
+    accept: 'item',
     data: item,
   })
 
@@ -67,14 +64,6 @@ export default function KanbanCard({ item, index, group, onEdit, onDelete }: Kan
             sx={{ height: 20, fontSize: '0.7rem' }}
           />
         )}
-        {SUB_STATUS_LABELS[item.status] && (
-          <Chip
-            label={SUB_STATUS_LABELS[item.status]}
-            size="small"
-            variant="outlined"
-            sx={{ height: 20, fontSize: '0.7rem' }}
-          />
-        )}
         {item.labels.map((label) => (
           <Chip
             key={label}
@@ -91,12 +80,12 @@ export default function KanbanCard({ item, index, group, onEdit, onDelete }: Kan
           sx={{ opacity: 0, transition: 'opacity 0.15s', display: 'flex' }}
         >
           <Tooltip title="Edit">
-            <IconButton size="small" onClick={() => onEdit(item)} sx={{ p: 0.25 }}>
+            <IconButton size="small" onClick={(e) => { e.stopPropagation(); onEdit(item) }} sx={{ p: 0.25 }}>
               <EditIcon sx={{ fontSize: 16 }} />
             </IconButton>
           </Tooltip>
           <Tooltip title="Delete">
-            <IconButton size="small" onClick={() => onDelete(item)} sx={{ p: 0.25 }}>
+            <IconButton size="small" onClick={(e) => { e.stopPropagation(); onDelete(item) }} sx={{ p: 0.25 }}>
               <DeleteIcon sx={{ fontSize: 16 }} />
             </IconButton>
           </Tooltip>
