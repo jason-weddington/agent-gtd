@@ -36,11 +36,16 @@ async def _setup_db(request, monkeypatch):
 
         await init_db()
 
+        # Truncate stale data from previous runs (handles crashed teardowns).
+        pool = await get_db()
+        async with pool.acquire() as conn:
+            await conn.execute("TRUNCATE events, notes, items, projects, users CASCADE")
+
         yield
 
-        # Truncate all tables in dependency order.
+        # Truncate after test too, for clean state.
         pool = db_mod._pool
-        if pool is None or pool._closed:
+        if pool is None or getattr(pool, "_closed", False):
             db_mod._pool = None
             pool = await get_db()
         async with pool.acquire() as conn:
