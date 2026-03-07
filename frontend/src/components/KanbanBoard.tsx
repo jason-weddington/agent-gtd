@@ -54,17 +54,31 @@ export default function KanbanBoard({
 
   // --- Safari pop-back fix ---
   // The library restores the dragged element to its source DOM position
-  // BEFORE calling onDragEnd. The browser can paint that frame, causing a
-  // visible "pop-back". To prevent this, we attach a capture-phase
-  // transitionend listener that fires BEFORE the library's handler and
-  // hides the element before the browser ever paints it at the source.
+  // BEFORE calling onDragEnd. The browser paints that frame → pop-back.
+  //
+  // Previous attempts (imperative style.display, render-time hiding) all
+  // failed because React re-renders UNDO imperative style changes.
+  //
+  // Solution: use a data attribute (`data-drop-hiding`) + a global CSS
+  // rule with `!important`. React doesn't manage unknown data attributes,
+  // so it won't remove them during reconciliation. And `!important` beats
+  // any inline style React applies.
   const draggingIdRef = useRef<string | null>(null)
   const boardRef = useRef<HTMLDivElement>(null)
+
+  // Inject the CSS rule once
+  useEffect(() => {
+    const style = document.createElement('style')
+    style.textContent = '[data-drop-hiding] { display: none !important; }'
+    document.head.appendChild(style)
+    return () => style.remove()
+  }, [])
 
   const handleDragStart = useCallback((start: DragStart) => {
     draggingIdRef.current = start.draggableId
   }, [])
 
+  // Capture-phase transitionend: hide element BEFORE library restores it
   useEffect(() => {
     const container = boardRef.current
     if (!container) return
@@ -74,11 +88,10 @@ export default function KanbanBoard({
       if (!id) return
       const el = container.querySelector(`[data-kanban-id="${id}"]`) as HTMLElement | null
       if (el && (el === e.target || el.contains(e.target as Node))) {
-        el.style.display = 'none'
+        el.setAttribute('data-drop-hiding', '')
       }
     }
 
-    // Capture phase fires before the library's direct handler
     container.addEventListener('transitionend', handler, true)
     return () => container.removeEventListener('transitionend', handler, true)
   }, [])
@@ -107,20 +120,23 @@ export default function KanbanBoard({
     async (result: DropResult) => {
       const { source, destination, draggableId } = result
       draggingIdRef.current = null
+      const el = document.querySelector(`[data-kanban-id="${draggableId}"]`) as HTMLElement | null
 
       if (!destination) {
         // Cancelled — show the card again
-        const el = document.querySelector(`[data-kanban-id="${draggableId}"]`) as HTMLElement | null
-        if (el) el.style.display = ''
+        if (el) el.removeAttribute('data-drop-hiding')
         return
       }
 
       // Dropped in same position — show the card again
       if (source.droppableId === destination.droppableId && source.index === destination.index) {
-        const el = document.querySelector(`[data-kanban-id="${draggableId}"]`) as HTMLElement | null
-        if (el) el.style.display = ''
+        if (el) el.removeAttribute('data-drop-hiding')
         return
       }
+
+      // Hide the card (belt-and-suspenders — transitionend handler may
+      // have already done this, but it doesn't hurt to ensure it)
+      if (el) el.setAttribute('data-drop-hiding', '')
 
       const dstColumnId = destination.droppableId
       const newStatus = COLUMN_DEFAULT_STATUS[dstColumnId]
