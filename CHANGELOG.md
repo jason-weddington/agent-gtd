@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.19.0 (2026-03-07)
+
+### Features
+
+- Show app version on settings page
+  ([`bb24248`](https://github.com/home/jason/git/agent_gtd/commit/bb242483821358bfb9bc4aa69de20861d65fed66))
+
+
 ## v1.18.0 (2026-03-06)
 
 ### Features
