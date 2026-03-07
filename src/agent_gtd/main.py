@@ -56,6 +56,8 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/api/config")
-async def config() -> dict[str, bool]:
+async def config() -> dict[str, object]:
     """Return app configuration (unauthenticated)."""
-    return {"local_mode": is_local_mode()}
+    from importlib.metadata import version
+
+    return {"local_mode": is_local_mode(), "version": version("agent_gtd")}

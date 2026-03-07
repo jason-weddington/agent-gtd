@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import {
   Box,
   Typography,
@@ -9,10 +10,16 @@ import {
 } from '@mui/material'
 import { useThemeMode } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
+import { api } from '../api'
 
 export default function Settings() {
   const { mode, toggleTheme } = useThemeMode()
   const { user } = useAuth()
+  const [version, setVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.config.get().then((cfg) => setVersion(cfg.version)).catch(() => {})
+  }, [])
 
   return (
     <Box sx={{ maxWidth: 600 }}>
@@ -50,6 +57,12 @@ export default function Settings() {
           </Typography>
         </CardContent>
       </Card>
+
+      {version && (
+        <Typography variant="body2" color="text.disabled" sx={{ mt: 3, textAlign: 'center' }}>
+          v{version}
+        </Typography>
+      )}
     </Box>
   )
 }

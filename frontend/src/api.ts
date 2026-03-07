@@ -62,7 +62,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   config: {
-    get: () => request<{ localMode: boolean }>('GET', '/config'),
+    get: () => request<{ localMode: boolean; version: string }>('GET', '/config'),
   },
 
   auth: {
