@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.7 (2026-03-07)
+
+### Bug Fixes
+
+- Imperatively hide source element on drop to prevent Safari pop-back
+  ([`20cd40c`](https://github.com/home/jason/git/agent_gtd/commit/20cd40cbcd619bb93d9981f8041e9b36e8555a4b))
+
+
 ## v1.20.6 (2026-03-07)
 
 ### Bug Fixes
