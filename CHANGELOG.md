@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.2 (2026-03-07)
+
+### Bug Fixes
+
+- Kanban drag visual glitch and crash on repeated drags
+  ([`93488f0`](https://github.com/home/jason/git/agent_gtd/commit/93488f038fe694249e79bffde93880ccb2467ac4))
+
+
 ## v1.20.1 (2026-03-07)
 
 ### Bug Fixes
