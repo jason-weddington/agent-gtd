@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.18.0 (2026-03-06)
+
+### Features
+
+- Pin weekly review stepper and nav buttons while content scrolls
+  ([`a46f4b6`](https://github.com/home/jason/git/agent_gtd/commit/a46f4b63e8aa728d402ad43bc551a988580dd0b6))
+
+
 ## v1.17.1 (2026-03-06)
 
 ### Bug Fixes
