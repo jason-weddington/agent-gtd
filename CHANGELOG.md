@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.0 (2026-03-07)
+
+### Features
+
+- Improve project views — icon buttons, kanban columns, clickable cards
+  ([`5779c73`](https://github.com/home/jason/git/agent_gtd/commit/5779c732ecbb3d7a9cb4bdce66c4d28f9b59a86f))
+
+
 ## v1.19.0 (2026-03-07)
 
 ### Features
