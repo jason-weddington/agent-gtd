@@ -88,8 +88,15 @@ export default function KanbanBoard({
       const dstItems = (columnItems[dstColumnId] ?? []).filter((i) => i.id !== draggableId)
       const newSortOrder = computeSortOrder(dstItems, destination.index)
 
-      // Optimistic update — flushSync forces React to paint before the browser
-      // renders the intermediate state (card back in source column)
+      // Hide the source element immediately to prevent Safari pop-back.
+      // The library restores the element to its source position BEFORE calling
+      // onDragEnd. Imperatively hiding it ensures the user never sees it there.
+      const el = document.querySelector(`[data-kanban-id="${draggableId}"]`) as HTMLElement | null
+      if (el) el.style.opacity = '0'
+
+      // Optimistic update — flushSync forces React to commit the DOM update
+      // synchronously, so the card appears in the destination column before
+      // the browser paints.
       flushSync(() => {
         setOptimistic(
           items.map((item) =>

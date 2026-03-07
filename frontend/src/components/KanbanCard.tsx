@@ -30,10 +30,10 @@ export default function KanbanCard({ item, index, onEdit, onDelete }: KanbanCard
           {...provided.dragHandleProps}
           style={{
             ...provided.draggableProps.style,
-            // Make drop animation near-instant so onDragEnd fires immediately,
-            // preventing the brief pop-back to the source column in Safari.
+            // Make drop animation near-instant so onDragEnd fires immediately.
             ...(snapshot.isDropAnimating ? { transitionDuration: '0.001s' } : {}),
           }}
+          data-kanban-id={item.id}
           onClick={() => onEdit(item)}
           sx={{
             p: 1.5,
