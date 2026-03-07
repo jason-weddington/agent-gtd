@@ -47,25 +47,28 @@ export default function KanbanBoard({
   onAddItem,
 }: KanbanBoardProps) {
   const [doneExpanded, setDoneExpanded] = useState(false)
+  // Optimistic override — applied instantly on drop so cards don't pop back to source column
+  const [optimistic, setOptimistic] = useState<Item[] | null>(null)
+  const displayItems = optimistic ?? items
 
   // Group items into columns by status
   const columnItems = useMemo(() => {
     const grouped: Record<string, Item[]> = {}
     for (const col of COLUMNS) {
-      grouped[col.id] = items
+      grouped[col.id] = displayItems
         .filter((item) => col.statuses.includes(item.status))
         .sort((a, b) => a.sortOrder - b.sortOrder)
     }
     return grouped
-  }, [items])
+  }, [displayItems])
 
   const doneItems = useMemo(
-    () => items.filter((item) => item.status === 'done').sort((a, b) => {
+    () => displayItems.filter((item) => item.status === 'done').sort((a, b) => {
       const aTime = a.completedAt ?? a.updatedAt
       const bTime = b.completedAt ?? b.updatedAt
       return bTime.localeCompare(aTime)
     }),
-    [items],
+    [displayItems],
   )
 
   const handleDragEnd = useCallback(
@@ -84,14 +87,24 @@ export default function KanbanBoard({
       const dstItems = (columnItems[dstColumnId] ?? []).filter((i) => i.id !== draggableId)
       const newSortOrder = computeSortOrder(dstItems, destination.index)
 
+      // Optimistic update — move card instantly in the UI
+      setOptimistic(
+        items.map((item) =>
+          item.id === draggableId
+            ? { ...item, status: newStatus, sortOrder: newSortOrder }
+            : item,
+        ),
+      )
+
       try {
         await api.items.update(draggableId, { status: newStatus, sortOrder: newSortOrder })
       } catch {
         // API error — refresh will restore correct state
       }
+      setOptimistic(null)
       await onRefresh()
     },
-    [columnItems, onRefresh],
+    [columnItems, items, onRefresh],
   )
 
   const handleAddToColumn = useCallback(
