@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.6 (2026-03-07)
+
+### Bug Fixes
+
+- Make kanban drop animation near-instant to prevent Safari pop-back
+  ([`ec6841c`](https://github.com/home/jason/git/agent_gtd/commit/ec6841c87129f356e34060d031971def17a8c116))
+
+
 ## v1.20.5 (2026-03-07)
 
 ### Bug Fixes
