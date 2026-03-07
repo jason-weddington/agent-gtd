@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.4 (2026-03-07)
+
+### Bug Fixes
+
+- Eliminate kanban card pop-back with optimistic state update
+  ([`0d4757f`](https://github.com/home/jason/git/agent_gtd/commit/0d4757f68aff11978c26dc8729dc5a0614c9ad96))
+
+
 ## v1.20.3 (2026-03-07)
 
 ### Bug Fixes
