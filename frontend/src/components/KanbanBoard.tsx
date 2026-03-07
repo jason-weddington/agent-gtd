@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo } from 'react'
+import { flushSync } from 'react-dom'
 import { Box, Chip, Typography, Collapse, IconButton } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
@@ -87,14 +88,17 @@ export default function KanbanBoard({
       const dstItems = (columnItems[dstColumnId] ?? []).filter((i) => i.id !== draggableId)
       const newSortOrder = computeSortOrder(dstItems, destination.index)
 
-      // Optimistic update — move card instantly in the UI
-      setOptimistic(
-        items.map((item) =>
-          item.id === draggableId
-            ? { ...item, status: newStatus, sortOrder: newSortOrder }
-            : item,
-        ),
-      )
+      // Optimistic update — flushSync forces React to paint before the browser
+      // renders the intermediate state (card back in source column)
+      flushSync(() => {
+        setOptimistic(
+          items.map((item) =>
+            item.id === draggableId
+              ? { ...item, status: newStatus, sortOrder: newSortOrder }
+              : item,
+          ),
+        )
+      })
 
       try {
         await api.items.update(draggableId, { status: newStatus, sortOrder: newSortOrder })
