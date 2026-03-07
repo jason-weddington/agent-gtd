@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useRef } from 'react'
 import { Box, Typography, Chip, IconButton, Tooltip } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -20,11 +20,21 @@ interface KanbanCardProps {
 }
 
 export default memo(function KanbanCard({ item, index, onEdit, onDelete }: KanbanCardProps) {
+  const wasDraggingRef = useRef(false)
   const isOverdue = item.dueDate && new Date(item.dueDate) < new Date()
 
   return (
     <Draggable draggableId={item.id} index={index}>
-      {(provided, snapshot) => (
+      {(provided, snapshot) => {
+        // Track drag→idle transition to hide card before browser paints it
+        // at the source position (prevents Safari pop-back).
+        if (snapshot.isDragging || snapshot.isDropAnimating) {
+          wasDraggingRef.current = true
+        }
+        const hiding = wasDraggingRef.current && !snapshot.isDragging && !snapshot.isDropAnimating
+        if (hiding) wasDraggingRef.current = false
+
+        return (
         <Box
           ref={provided.innerRef}
           {...provided.draggableProps}
@@ -33,6 +43,11 @@ export default memo(function KanbanCard({ item, index, onEdit, onDelete }: Kanba
             ...provided.draggableProps.style,
             // Make drop animation near-instant so onDragEnd fires immediately.
             ...(snapshot.isDropAnimating ? { transitionDuration: '0.001s' } : {}),
+            // Hide card in the idle render right after drop — before the
+            // browser paints it at the source position. The optimistic
+            // update in onDragEnd will unmount this instance (cross-column)
+            // or re-render it (same-column reorder).
+            ...(hiding ? { display: 'none' } : {}),
           }}
           data-kanban-id={item.id}
           onClick={() => onEdit(item)}
@@ -95,7 +110,8 @@ export default memo(function KanbanCard({ item, index, onEdit, onDelete }: Kanba
             </Box>
           </Box>
         </Box>
-      )}
+        )
+      }}
     </Draggable>
   )
 })

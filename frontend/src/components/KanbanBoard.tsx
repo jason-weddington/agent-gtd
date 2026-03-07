@@ -77,8 +77,13 @@ export default function KanbanBoard({
       const { source, destination, draggableId } = result
       if (!destination) return
 
-      // Dropped in same position
-      if (source.droppableId === destination.droppableId && source.index === destination.index) return
+      // Dropped in same position — show the card that KanbanCard hid during
+      // the drop transition (no optimistic update will re-render it).
+      if (source.droppableId === destination.droppableId && source.index === destination.index) {
+        const el = document.querySelector(`[data-kanban-id="${draggableId}"]`) as HTMLElement | null
+        if (el) el.style.display = ''
+        return
+      }
 
       const dstColumnId = destination.droppableId
       const newStatus = COLUMN_DEFAULT_STATUS[dstColumnId]
@@ -87,12 +92,6 @@ export default function KanbanBoard({
       // Compute sortOrder from destination column items (excluding the dragged item)
       const dstItems = (columnItems[dstColumnId] ?? []).filter((i) => i.id !== draggableId)
       const newSortOrder = computeSortOrder(dstItems, destination.index)
-
-      // Hide the source element immediately to prevent Safari pop-back.
-      // The library restores the element to its source position BEFORE calling
-      // onDragEnd. Imperatively hiding it ensures the user never sees it there.
-      const el = document.querySelector(`[data-kanban-id="${draggableId}"]`) as HTMLElement | null
-      if (el) el.style.opacity = '0'
 
       // Optimistic update — flushSync forces React to commit the DOM update
       // synchronously, so the card appears in the destination column before
