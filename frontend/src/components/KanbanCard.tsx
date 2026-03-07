@@ -27,6 +27,8 @@ export default function KanbanCard({ item, index, group, onEdit, onDelete }: Kan
     type: 'item',
     accept: 'item',
     data: item,
+    plugins: [],       // Disable OptimisticSortingPlugin — it conflicts with external state refresh
+    transition: null,  // Disable sort transition — prevents fly-in glitch on cross-column drops
   })
 
   const isOverdue = item.dueDate && new Date(item.dueDate) < new Date()

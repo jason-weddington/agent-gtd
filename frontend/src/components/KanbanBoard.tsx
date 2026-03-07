@@ -124,6 +124,8 @@ export default function KanbanBoard({
       } catch {
         // Swallow errors to prevent React crash — refresh restores state
       }
+      // Delay refresh so dnd-kit can finish drag cleanup before React re-renders
+      await new Promise((r) => setTimeout(r, 50))
       await onRefresh()
     },
     [columnItems, onRefresh],
