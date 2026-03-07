@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.10 (2026-03-07)
+
+### Bug Fixes
+
+- Use capture-phase transitionend listener to prevent kanban pop-back
+  ([`83107a2`](https://github.com/home/jason/git/agent_gtd/commit/83107a27643c9fcec66959060d0e53baf7c14b09))
+
+
 ## v1.20.9 (2026-03-07)
 
 ### Bug Fixes
