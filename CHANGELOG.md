@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.11 (2026-03-07)
+
+### Bug Fixes
+
+- Use data attribute + !important CSS to prevent React from undoing hide
+  ([`2b358f1`](https://github.com/home/jason/git/agent_gtd/commit/2b358f11aa45b72c20072b80b910a6baf98e739b))
+
+
 ## v1.20.10 (2026-03-07)
 
 ### Bug Fixes
