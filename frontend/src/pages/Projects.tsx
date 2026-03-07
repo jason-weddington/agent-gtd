@@ -8,6 +8,7 @@ import {
   CardContent,
   CardActionArea,
   Chip,
+  IconButton,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -21,6 +22,8 @@ import {
   MenuItem,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
+import EditIcon from '@mui/icons-material/Edit'
+import DeleteIcon from '@mui/icons-material/Delete'
 import { api, ApiError } from '../api'
 import type { Project, ProjectStatus } from '../types'
 
@@ -209,20 +212,19 @@ export default function Projects() {
                   )}
                 </CardContent>
               </CardActionArea>
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1, pb: 1 }}>
-                <Button size="small" onClick={(e) => openEdit(project, e)}>
-                  Edit
-                </Button>
-                <Button
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1, pb: 0.5 }}>
+                <IconButton size="small" onClick={(e) => openEdit(project, e)}>
+                  <EditIcon fontSize="small" />
+                </IconButton>
+                <IconButton
                   size="small"
-                  color="error"
                   onClick={(e) => {
                     e.stopPropagation()
                     setDeleteTarget(project)
                   }}
                 >
-                  Delete
-                </Button>
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
               </Box>
             </Card>
           ))}

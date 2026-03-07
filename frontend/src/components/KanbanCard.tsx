@@ -37,6 +37,7 @@ export default function KanbanCard({ item, index, group, onEdit, onDelete }: Kan
   return (
     <Box
       ref={ref}
+      onClick={() => onEdit(item)}
       sx={{
         p: 1.5,
         mb: 1,
@@ -48,7 +49,7 @@ export default function KanbanCard({ item, index, group, onEdit, onDelete }: Kan
         opacity: isDragging ? 0.4 : 1,
         outline: isDropTarget ? '2px solid' : 'none',
         outlineColor: 'primary.main',
-        cursor: 'grab',
+        cursor: isDragging ? 'grabbing' : 'pointer',
         '&:hover .kanban-actions': { opacity: 1 },
       }}
     >

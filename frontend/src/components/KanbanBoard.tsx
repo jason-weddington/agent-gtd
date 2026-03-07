@@ -10,17 +10,17 @@ import type { Item, ItemStatus } from '../types'
 
 /** Column definitions: id -> { title, statuses that map to this column } */
 const COLUMNS = [
-  { id: 'inbox', title: 'Inbox', statuses: ['inbox'] as ItemStatus[] },
-  { id: 'next_action', title: 'Next Action', statuses: ['next_action'] as ItemStatus[] },
-  { id: 'in_progress', title: 'In Progress', statuses: ['active', 'waiting_for', 'scheduled'] as ItemStatus[] },
+  { id: 'next_action', title: 'To Do', statuses: ['next_action'] as ItemStatus[] },
+  { id: 'in_progress', title: 'In Progress', statuses: ['active', 'scheduled'] as ItemStatus[] },
+  { id: 'waiting_for', title: 'Waiting', statuses: ['waiting_for'] as ItemStatus[] },
   { id: 'someday', title: 'Someday', statuses: ['someday_maybe'] as ItemStatus[] },
 ]
 
 /** Map a column ID to the default status when dropping into it */
 const COLUMN_DEFAULT_STATUS: Record<string, ItemStatus> = {
-  inbox: 'inbox',
   next_action: 'next_action',
   in_progress: 'active',
+  waiting_for: 'waiting_for',
   someday: 'someday_maybe',
 }
 
@@ -73,31 +73,35 @@ export default function KanbanBoard({
   const handleDragEnd = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async (event: any) => {
-      const { operation, canceled } = event
-      if (canceled || !isSortableOperation(operation)) return
-
-      const { source, target } = operation
-      if (!source || !target) return
-
-      const srcGroup = source.initialGroup as string
-      const dstGroup = (target.group ?? srcGroup) as string
-      const itemId = source.id as string
-
-      // If same column and same index, nothing to do
-      if (srcGroup === dstGroup && source.initialIndex === target.index) return
-
-      // Compute new status from destination column
-      const newStatus = COLUMN_DEFAULT_STATUS[dstGroup]
-      if (!newStatus) return
-
-      // Compute new sortOrder based on destination column items
-      const dstItems = columnItems[dstGroup] ?? []
-      // Filter out the dragged item from destination for correct midpoint
-      const filtered = dstItems.filter((i) => i.id !== itemId)
-      const newSortOrder = computeSortOrder(filtered, target.index)
-
-      // Fire API update (optimistic via SSE refresh)
       try {
+        const { operation, canceled } = event
+        if (canceled || !isSortableOperation(operation)) return
+
+        const { source, target } = operation
+        if (!source || !target) return
+
+        const srcGroup = source.initialGroup as string | undefined
+        const dstGroup = (target.group ?? srcGroup) as string | undefined
+        if (!srcGroup || !dstGroup) return
+
+        const itemId = source.id as string
+        if (!itemId) return
+
+        const targetIndex = typeof target.index === 'number' ? target.index : 0
+
+        // If same column and same index, nothing to do
+        if (srcGroup === dstGroup && source.initialIndex === targetIndex) return
+
+        // Compute new status from destination column
+        const newStatus = COLUMN_DEFAULT_STATUS[dstGroup]
+        if (!newStatus) return
+
+        // Compute new sortOrder based on destination column items
+        const dstItems = columnItems[dstGroup] ?? []
+        // Filter out the dragged item from destination for correct midpoint
+        const filtered = dstItems.filter((i) => i.id !== itemId)
+        const newSortOrder = computeSortOrder(filtered, targetIndex)
+
         const update: Record<string, unknown> = { sortOrder: newSortOrder }
         // Only change status if moving between columns
         if (srcGroup !== dstGroup) {
@@ -105,7 +109,7 @@ export default function KanbanBoard({
         }
         await api.items.update(itemId, update)
       } catch {
-        // Refresh to restore correct state on error
+        // Swallow errors to prevent React crash — refresh restores state
       }
       await onRefresh()
     },

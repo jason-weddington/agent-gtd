@@ -53,7 +53,7 @@ const STATUS_LABELS: Record<ProjectStatus, string> = {
 
 const ITEM_STATUS_LABELS: Record<ItemStatus, string> = {
   inbox: 'Inbox',
-  next_action: 'Next Action',
+  next_action: 'To Do',
   waiting_for: 'Waiting For',
   scheduled: 'Scheduled',
   someday_maybe: 'Someday',
@@ -419,14 +419,15 @@ export default function ProjectDetail() {
               {items.map((item) => (
                 <ListItem
                   key={item.id}
+                  onClick={() => openEditItem(item)}
                   secondaryAction={
                     <Box>
-                      <IconButton size="small" onClick={() => openEditItem(item)}>
+                      <IconButton size="small" onClick={(e) => { e.stopPropagation(); openEditItem(item) }}>
                         <EditIcon fontSize="small" />
                       </IconButton>
                       <IconButton
                         size="small"
-                        onClick={() => setDeleteItemTarget(item)}
+                        onClick={(e) => { e.stopPropagation(); setDeleteItemTarget(item) }}
                       >
                         <DeleteIcon fontSize="small" />
                       </IconButton>
@@ -437,6 +438,8 @@ export default function ProjectDetail() {
                     borderColor: 'divider',
                     borderRadius: 1,
                     mb: 1,
+                    cursor: 'pointer',
+                    '&:hover': { bgcolor: 'action.hover' },
                   }}
                 >
                   <ListItemText
@@ -647,7 +650,7 @@ export default function ProjectDetail() {
               label="Status"
             >
               <MenuItem value="inbox">Inbox</MenuItem>
-              <MenuItem value="next_action">Next Action</MenuItem>
+              <MenuItem value="next_action">To Do</MenuItem>
               <MenuItem value="waiting_for">Waiting For</MenuItem>
               <MenuItem value="scheduled">Scheduled</MenuItem>
               <MenuItem value="someday_maybe">Someday/Maybe</MenuItem>
