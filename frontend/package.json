@@ -12,11 +12,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@dnd-kit/dom": "^0.3.2",
-    "@dnd-kit/react": "^0.3.2",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@fontsource/roboto": "^5.2.9",
+    "@hello-pangea/dnd": "^18.0.1",
     "@mui/icons-material": "^7.3.8",
     "@mui/material": "^7.3.8",
     "@tiptap/core": "^3.20.0",

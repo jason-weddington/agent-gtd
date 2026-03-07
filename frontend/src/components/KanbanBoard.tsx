@@ -2,13 +2,12 @@ import { useState, useCallback, useMemo } from 'react'
 import { Box, Chip, Typography, Collapse, IconButton } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
-import { DragDropProvider } from '@dnd-kit/react'
-import { isSortableOperation } from '@dnd-kit/react/sortable'
+import { DragDropContext, type DropResult } from '@hello-pangea/dnd'
 import KanbanColumn from './KanbanColumn'
 import { api } from '../api'
 import type { Item, ItemStatus } from '../types'
 
-/** Column definitions: id -> { title, statuses that map to this column } */
+/** Column definitions */
 const COLUMNS = [
   { id: 'next_action', title: 'To Do', statuses: ['next_action'] as ItemStatus[] },
   { id: 'in_progress', title: 'In Progress', statuses: ['active', 'scheduled'] as ItemStatus[] },
@@ -30,12 +29,6 @@ function computeSortOrder(items: Item[], targetIndex: number): number {
   if (targetIndex <= 0) return items[0].sortOrder - 1000
   if (targetIndex >= items.length) return items[items.length - 1].sortOrder + 1000
   return (items[targetIndex - 1].sortOrder + items[targetIndex].sortOrder) / 2
-}
-
-/** Extract column ID from a column droppable ID like "col:next_action" */
-function parseColumnDroppableId(id: string): string | null {
-  if (typeof id === 'string' && id.startsWith('col:')) return id.slice(4)
-  return null
 }
 
 interface KanbanBoardProps {
@@ -68,7 +61,6 @@ export default function KanbanBoard({
 
   const doneItems = useMemo(
     () => items.filter((item) => item.status === 'done').sort((a, b) => {
-      // Most recently completed first
       const aTime = a.completedAt ?? a.updatedAt
       const bTime = b.completedAt ?? b.updatedAt
       return bTime.localeCompare(aTime)
@@ -77,55 +69,26 @@ export default function KanbanBoard({
   )
 
   const handleDragEnd = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async (event: any) => {
+    async (result: DropResult) => {
+      const { source, destination, draggableId } = result
+      if (!destination) return
+
+      // Dropped in same position
+      if (source.droppableId === destination.droppableId && source.index === destination.index) return
+
+      const dstColumnId = destination.droppableId
+      const newStatus = COLUMN_DEFAULT_STATUS[dstColumnId]
+      if (!newStatus) return
+
+      // Compute sortOrder from destination column items (excluding the dragged item)
+      const dstItems = (columnItems[dstColumnId] ?? []).filter((i) => i.id !== draggableId)
+      const newSortOrder = computeSortOrder(dstItems, destination.index)
+
       try {
-        const { operation, canceled } = event
-        if (canceled) return
-
-        const { source, target } = operation
-        if (!source || !target) return
-
-        const itemId = source.id as string
-        if (!itemId) return
-
-        let dstGroup: string | undefined
-        let targetIndex: number
-
-        if (isSortableOperation(operation)) {
-          // Dropped on another card — use that card's group and index
-          const srcGroup = source.initialGroup as string | undefined
-          dstGroup = (target.group ?? srcGroup) as string | undefined
-          targetIndex = typeof target.index === 'number' ? target.index : 0
-
-          // Same column, same position — nothing to do
-          if (srcGroup === dstGroup && source.initialIndex === targetIndex) return
-        } else {
-          // Dropped on the column droppable (empty area) — append to end
-          const targetId = target.id as string
-          const parsed = parseColumnDroppableId(targetId)
-          if (!parsed) return
-          dstGroup = parsed
-          targetIndex = (columnItems[dstGroup] ?? []).length
-        }
-
-        if (!dstGroup) return
-
-        const newStatus = COLUMN_DEFAULT_STATUS[dstGroup]
-        if (!newStatus) return
-
-        // Compute new sortOrder based on destination column items
-        const dstItems = columnItems[dstGroup] ?? []
-        const filtered = dstItems.filter((i) => i.id !== itemId)
-        const newSortOrder = computeSortOrder(filtered, targetIndex)
-
-        const update: Record<string, unknown> = { sortOrder: newSortOrder, status: newStatus }
-        await api.items.update(itemId, update)
+        await api.items.update(draggableId, { status: newStatus, sortOrder: newSortOrder })
       } catch {
-        // Swallow errors to prevent React crash — refresh restores state
+        // API error — refresh will restore correct state
       }
-      // Delay refresh so dnd-kit can finish drag cleanup before React re-renders
-      await new Promise((r) => setTimeout(r, 50))
       await onRefresh()
     },
     [columnItems, onRefresh],
@@ -141,7 +104,7 @@ export default function KanbanBoard({
 
   return (
     <Box>
-      <DragDropProvider onDragEnd={handleDragEnd}>
+      <DragDropContext onDragEnd={handleDragEnd}>
         <Box
           sx={{
             display: 'flex',
@@ -163,7 +126,7 @@ export default function KanbanBoard({
             />
           ))}
         </Box>
-      </DragDropProvider>
+      </DragDropContext>
 
       {/* Done section (collapsed) */}
       <Box sx={{ mt: 1, borderTop: 1, borderColor: 'divider', pt: 1 }}>

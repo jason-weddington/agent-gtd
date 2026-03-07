@@ -1,6 +1,6 @@
 import { Box, Typography, Button, Chip } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
-import { useDroppable } from '@dnd-kit/react'
+import { Droppable } from '@hello-pangea/dnd'
 import KanbanCard from './KanbanCard'
 import type { Item } from '../types'
 
@@ -21,12 +21,6 @@ export default function KanbanColumn({
   onDelete,
   onAdd,
 }: KanbanColumnProps) {
-  const { ref, isDropTarget } = useDroppable({
-    id: `col:${id}`,
-    accept: 'item',
-    collisionPriority: 0, // Lower than sortable cards so card-to-card takes precedence
-  })
-
   return (
     <Box
       sx={{
@@ -46,30 +40,35 @@ export default function KanbanColumn({
       </Box>
 
       {/* Drop zone */}
-      <Box
-        ref={ref}
-        sx={{
-          flex: 1,
-          minHeight: 80,
-          p: 0.5,
-          borderRadius: 1,
-          bgcolor: isDropTarget ? 'action.hover' : 'transparent',
-          border: items.length === 0 ? '2px dashed' : 'none',
-          borderColor: 'divider',
-          transition: 'background-color 0.15s',
-        }}
-      >
-        {items.map((item, index) => (
-          <KanbanCard
-            key={item.id}
-            item={item}
-            index={index}
-            group={id}
-            onEdit={onEdit}
-            onDelete={onDelete}
-          />
-        ))}
-      </Box>
+      <Droppable droppableId={id}>
+        {(provided, snapshot) => (
+          <Box
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            sx={{
+              flex: 1,
+              minHeight: 80,
+              p: 0.5,
+              borderRadius: 1,
+              bgcolor: snapshot.isDraggingOver ? 'action.hover' : 'transparent',
+              border: items.length === 0 && !snapshot.isDraggingOver ? '2px dashed' : 'none',
+              borderColor: 'divider',
+              transition: 'background-color 0.15s',
+            }}
+          >
+            {items.map((item, index) => (
+              <KanbanCard
+                key={item.id}
+                item={item}
+                index={index}
+                onEdit={onEdit}
+                onDelete={onDelete}
+              />
+            ))}
+            {provided.placeholder}
+          </Box>
+        )}
+      </Droppable>
 
       {/* Add button */}
       <Button
