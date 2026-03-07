@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.20.1 (2026-03-07)
+
+### Bug Fixes
+
+- Kanban cross-column drag-and-drop
+  ([`37aa924`](https://github.com/home/jason/git/agent_gtd/commit/37aa9243026c6ec7bddd5f011df2431dd21a282c))
+
+
 ## v1.20.0 (2026-03-07)
 
 ### Features
