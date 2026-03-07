@@ -1,9 +1,9 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { flushSync } from 'react-dom'
 import { Box, Chip, Typography, Collapse, IconButton } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
-import { DragDropContext, type DropResult } from '@hello-pangea/dnd'
+import { DragDropContext, type DropResult, type DragStart } from '@hello-pangea/dnd'
 import KanbanColumn from './KanbanColumn'
 import { api } from '../api'
 import type { Item, ItemStatus } from '../types'
@@ -52,6 +52,37 @@ export default function KanbanBoard({
   const [optimistic, setOptimistic] = useState<Item[] | null>(null)
   const displayItems = optimistic ?? items
 
+  // --- Safari pop-back fix ---
+  // The library restores the dragged element to its source DOM position
+  // BEFORE calling onDragEnd. The browser can paint that frame, causing a
+  // visible "pop-back". To prevent this, we attach a capture-phase
+  // transitionend listener that fires BEFORE the library's handler and
+  // hides the element before the browser ever paints it at the source.
+  const draggingIdRef = useRef<string | null>(null)
+  const boardRef = useRef<HTMLDivElement>(null)
+
+  const handleDragStart = useCallback((start: DragStart) => {
+    draggingIdRef.current = start.draggableId
+  }, [])
+
+  useEffect(() => {
+    const container = boardRef.current
+    if (!container) return
+
+    const handler = (e: Event) => {
+      const id = draggingIdRef.current
+      if (!id) return
+      const el = container.querySelector(`[data-kanban-id="${id}"]`) as HTMLElement | null
+      if (el && (el === e.target || el.contains(e.target as Node))) {
+        el.style.display = 'none'
+      }
+    }
+
+    // Capture phase fires before the library's direct handler
+    container.addEventListener('transitionend', handler, true)
+    return () => container.removeEventListener('transitionend', handler, true)
+  }, [])
+
   // Group items into columns by status
   const columnItems = useMemo(() => {
     const grouped: Record<string, Item[]> = {}
@@ -75,10 +106,16 @@ export default function KanbanBoard({
   const handleDragEnd = useCallback(
     async (result: DropResult) => {
       const { source, destination, draggableId } = result
-      if (!destination) return
+      draggingIdRef.current = null
 
-      // Dropped in same position — show the card that KanbanCard hid during
-      // the drop transition (no optimistic update will re-render it).
+      if (!destination) {
+        // Cancelled — show the card again
+        const el = document.querySelector(`[data-kanban-id="${draggableId}"]`) as HTMLElement | null
+        if (el) el.style.display = ''
+        return
+      }
+
+      // Dropped in same position — show the card again
       if (source.droppableId === destination.droppableId && source.index === destination.index) {
         const el = document.querySelector(`[data-kanban-id="${draggableId}"]`) as HTMLElement | null
         if (el) el.style.display = ''
@@ -126,8 +163,8 @@ export default function KanbanBoard({
   )
 
   return (
-    <Box>
-      <DragDropContext onDragEnd={handleDragEnd}>
+    <Box ref={boardRef}>
+      <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <Box
           sx={{
             display: 'flex',
