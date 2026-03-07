@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.17.1 (2026-03-06)
+
+### Bug Fixes
+
+- Truncate PostgreSQL test DB at setup to handle stale data from crashed runs
+  ([`8c192f4`](https://github.com/home/jason/git/agent_gtd/commit/8c192f4485e325e2f8b507ba180d57168f3b0f0a))
+
+
 ## v1.17.0 (2026-03-06)
 
 ### Features
