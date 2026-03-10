@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.20.12 (2026-03-10)
+
+### Bug Fixes
+
+- Force tests to always use in-memory SQLite
+  ([`6094118`](https://github.com/home/jason/git/agent_gtd/commit/60941187fa31fed8dab33b8cfe1104237822728e))
+
+### Documentation
+
+- Add README with quick start, MCP setup, and dev commands
+  ([`f896e6c`](https://github.com/home/jason/git/agent_gtd/commit/f896e6c2cf3a59b54dd6fd566ec106673f5fbf2e))
+
+
 ## v1.20.11 (2026-03-07)
 
 ### Bug Fixes
