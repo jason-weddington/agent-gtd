@@ -1,75 +1,26 @@
 """Shared test fixtures for Agent GTD."""
 
-import os
-
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from agent_gtd.database import close_db, get_db, init_db
+from agent_gtd.database import init_db
 from agent_gtd.main import app
 
 
 @pytest.fixture(autouse=True)
-async def _setup_db(request, monkeypatch):
-    """Init a fresh test database for each test.
-
-    - Default (no env vars): in-memory SQLite via SqlitePool (fast, offline).
-    - AGENT_GTD_TEST_DATABASE_URL set: PostgreSQL (CI regression).
-    - SKIP_DB_TESTS=1: skip async tests (pre-push hook).
-    """
+async def _setup_db(monkeypatch):
+    """Init a fresh in-memory SQLite database for each test."""
     import agent_gtd.database as db_mod
+    from agent_gtd.sqlite_pool import SqlitePool
 
-    if os.environ.get("SKIP_DB_TESTS") == "1":
-        # Skip any test that actually needs the DB (has async fixtures or
-        # uses client/auth_headers/project_id). Pure sync tests survive.
-        if request.node.get_closest_marker("asyncio") or _is_async_test(request):
-            pytest.skip("SKIP_DB_TESTS=1")
-        yield
-        return
+    sqlite_pool = SqlitePool()
+    monkeypatch.setattr(db_mod, "_pool", sqlite_pool)
 
-    test_url = os.environ.get("AGENT_GTD_TEST_DATABASE_URL")
+    await init_db()
 
-    if test_url:
-        # PostgreSQL path (CI / explicit)
-        monkeypatch.setenv("AGENT_GTD_DATABASE_URL", test_url)
-        monkeypatch.setattr(db_mod, "_pool", None)
+    yield
 
-        await init_db()
-
-        # Truncate stale data from previous runs (handles crashed teardowns).
-        pool = await get_db()
-        async with pool.acquire() as conn:
-            await conn.execute("TRUNCATE events, notes, items, projects, users CASCADE")
-
-        yield
-
-        # Truncate after test too, for clean state.
-        pool = db_mod._pool
-        if pool is None or getattr(pool, "_closed", False):
-            db_mod._pool = None
-            pool = await get_db()
-        async with pool.acquire() as conn:
-            await conn.execute("TRUNCATE events, notes, items, projects, users CASCADE")
-        await close_db()
-    else:
-        # In-memory SQLite path (default, fast, offline)
-        from agent_gtd.sqlite_pool import SqlitePool
-
-        sqlite_pool = SqlitePool()
-        monkeypatch.setattr(db_mod, "_pool", sqlite_pool)
-
-        await init_db()
-
-        yield
-
-        await sqlite_pool.close()
-
-
-def _is_async_test(request) -> bool:
-    """Check if the test function is a coroutine (async def)."""
-    import asyncio
-
-    return asyncio.iscoroutinefunction(request.node.obj)
+    await sqlite_pool.close()
 
 
 @pytest.fixture
