@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.21.0 (2026-03-13)
+
+### Chores
+
+- Add agent-gtd-mcp console entry point
+  ([`22871b5`](https://github.com/home/jason/git/agent_gtd/commit/22871b583dad6732840269ac3c6d6f6c0e426685))
+
+### Features
+
+- Remove project-scoped registration in single-user mode
+  ([`57cd253`](https://github.com/home/jason/git/agent_gtd/commit/57cd2535adae908b4fac9bb46db5727181dab16f))
+
+
 ## v1.20.12 (2026-03-10)
 
 ### Bug Fixes
