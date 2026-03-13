@@ -16,11 +16,9 @@ export type ItemStatus =
   | 'inbox'
   | 'next_action'
   | 'waiting_for'
-  | 'scheduled'
   | 'someday_maybe'
   | 'active'
   | 'done'
-  | 'cancelled'
 export type Priority = 'low' | 'normal' | 'high' | 'urgent'
 
 // --- Domain Types ---

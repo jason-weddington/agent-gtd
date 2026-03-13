@@ -202,7 +202,7 @@ export default function WeeklyReview() {
     try {
       // Complete all non-done items in the project
       const items = projectItems[projectId] ?? []
-      const openItems = items.filter((i) => i.status !== 'done' && i.status !== 'cancelled')
+      const openItems = items.filter((i) => i.status !== 'done')
       await Promise.all(
         openItems.map((item) => {
           statsRef.current.completed++

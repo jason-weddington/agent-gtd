@@ -11,7 +11,7 @@ import type { Item, ItemStatus } from '../types'
 /** Column definitions */
 const COLUMNS = [
   { id: 'next_action', title: 'To Do', statuses: ['next_action'] as ItemStatus[] },
-  { id: 'in_progress', title: 'In Progress', statuses: ['active', 'scheduled'] as ItemStatus[] },
+  { id: 'in_progress', title: 'In Progress', statuses: ['active'] as ItemStatus[] },
   { id: 'waiting_for', title: 'Waiting', statuses: ['waiting_for'] as ItemStatus[] },
   { id: 'someday', title: 'Someday', statuses: ['someday_maybe'] as ItemStatus[] },
 ]

@@ -107,8 +107,8 @@ export default function ProjectsReviewStep({
 
   const project = projects[projectIndex]
   const allItems = projectItems[project.id] ?? []
-  // Filter out completed/cancelled items for the review
-  const items = allItems.filter((i) => i.status !== 'done' && i.status !== 'cancelled')
+  // Filter out completed items for the review
+  const items = allItems.filter((i) => i.status !== 'done')
   const hasNextAction = items.some((i) => i.status === 'next_action')
   const isStuck = !hasNextAction && items.length > 0
   const isCurrentReviewed = reviewedSet.has(projectIndex)

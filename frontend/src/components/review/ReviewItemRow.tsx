@@ -172,9 +172,9 @@ export default function ReviewItemRow({
                 onChange={(e) => setTriageStatus(e.target.value as ItemStatus)}
                 label="Status"
               >
-                <MenuItem value="next_action">Next Action</MenuItem>
-                <MenuItem value="waiting_for">Waiting For</MenuItem>
-                <MenuItem value="scheduled">Scheduled</MenuItem>
+                <MenuItem value="next_action">To Do</MenuItem>
+                <MenuItem value="active">In Progress</MenuItem>
+                <MenuItem value="waiting_for">Waiting</MenuItem>
                 <MenuItem value="someday_maybe">Someday</MenuItem>
               </Select>
             </FormControl>

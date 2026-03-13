@@ -54,12 +54,10 @@ const STATUS_LABELS: Record<ProjectStatus, string> = {
 const ITEM_STATUS_LABELS: Record<ItemStatus, string> = {
   inbox: 'Inbox',
   next_action: 'To Do',
-  waiting_for: 'Waiting For',
-  scheduled: 'Scheduled',
+  waiting_for: 'Waiting',
   someday_maybe: 'Someday',
-  active: 'Active',
+  active: 'In Progress',
   done: 'Done',
-  cancelled: 'Cancelled',
 }
 
 const PRIORITY_COLORS: Record<Priority, 'default' | 'info' | 'warning' | 'error'> = {
@@ -649,14 +647,11 @@ export default function ProjectDetail() {
               onChange={(e) => setItemStatus(e.target.value as ItemStatus)}
               label="Status"
             >
-              <MenuItem value="inbox">Inbox</MenuItem>
               <MenuItem value="next_action">To Do</MenuItem>
-              <MenuItem value="waiting_for">Waiting For</MenuItem>
-              <MenuItem value="scheduled">Scheduled</MenuItem>
-              <MenuItem value="someday_maybe">Someday/Maybe</MenuItem>
-              <MenuItem value="active">Active</MenuItem>
+              <MenuItem value="active">In Progress</MenuItem>
+              <MenuItem value="waiting_for">Waiting</MenuItem>
+              <MenuItem value="someday_maybe">Someday</MenuItem>
               <MenuItem value="done">Done</MenuItem>
-              <MenuItem value="cancelled">Cancelled</MenuItem>
             </Select>
           </FormControl>
           <FormControl fullWidth margin="normal" size="small">

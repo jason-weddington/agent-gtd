@@ -21,7 +21,7 @@ import type { Project, Priority } from '../types'
 type Outcome =
   | 'next_action'
   | 'waiting_for'
-  | 'scheduled'
+  | 'active'
   | 'someday_maybe'
   | 'project'
   | 'done'
@@ -32,7 +32,6 @@ export interface ProcessorResult {
   projectId?: string
   priority?: Priority
   waitingOn?: string
-  dueDate?: string
   newProjectName?: string
   keepAsAction?: boolean
 }
@@ -58,9 +57,6 @@ export default function ProcessorActions({
 
   // Waiting For
   const [waitingOn, setWaitingOn] = useState('')
-
-  // Scheduled
-  const [dueDate, setDueDate] = useState('')
 
   // Project outcome
   const [newProjectName, setNewProjectName] = useState(itemTitle)
@@ -94,17 +90,13 @@ export default function ProcessorActions({
 
     const result: ProcessorResult = { outcome: selected }
 
-    if (selected === 'next_action' || selected === 'waiting_for' || selected === 'scheduled') {
+    if (selected === 'next_action' || selected === 'waiting_for' || selected === 'active') {
       if (projectId) result.projectId = projectId
       result.priority = priority
     }
 
     if (selected === 'waiting_for') {
       result.waitingOn = waitingOn
-    }
-
-    if (selected === 'scheduled') {
-      result.dueDate = dueDate
     }
 
     if (selected === 'someday_maybe') {
@@ -131,7 +123,6 @@ export default function ProcessorActions({
 
   const isConfirmDisabled =
     submitting ||
-    (selected === 'scheduled' && !dueDate) ||
     (selected === 'project' && !newProjectName.trim())
 
   return (
@@ -154,15 +145,15 @@ export default function ProcessorActions({
           disabled={submitting}
           fullWidth
         >
-          Next Action
+          To Do
         </Button>
         <Button
-          variant={selected === 'scheduled' ? 'contained' : 'outlined'}
-          onClick={() => handleSelect('scheduled')}
+          variant={selected === 'active' ? 'contained' : 'outlined'}
+          onClick={() => handleSelect('active')}
           disabled={submitting}
           fullWidth
         >
-          Scheduled
+          In Progress
         </Button>
         <Button
           variant={selected === 'waiting_for' ? 'contained' : 'outlined'}
@@ -170,7 +161,7 @@ export default function ProcessorActions({
           disabled={submitting}
           fullWidth
         >
-          Waiting For
+          Waiting
         </Button>
       </Box>
 
@@ -221,8 +212,8 @@ export default function ProcessorActions({
         </Button>
       </Box>
 
-      {/* Follow-up fields for Next Action / Waiting For / Scheduled */}
-      <Collapse in={selected === 'next_action' || selected === 'waiting_for' || selected === 'scheduled'}>
+      {/* Follow-up fields for To Do / In Progress / Waiting */}
+      <Collapse in={selected === 'next_action' || selected === 'waiting_for' || selected === 'active'}>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mb: 2 }}>
           {selected === 'waiting_for' && (
             <TextField
@@ -232,17 +223,6 @@ export default function ProcessorActions({
               onChange={(e) => setWaitingOn(e.target.value)}
               size="small"
               placeholder="Who or what are you waiting on?"
-            />
-          )}
-          {selected === 'scheduled' && (
-            <TextField
-              fullWidth
-              label="Due Date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              size="small"
-              type="date"
-              slotProps={{ inputLabel: { shrink: true } }}
             />
           )}
           <FormControl fullWidth size="small">

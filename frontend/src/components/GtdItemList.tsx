@@ -29,13 +29,11 @@ import { useEvents } from '../contexts/EventStreamContext'
 
 const ITEM_STATUS_LABELS: Record<ItemStatus, string> = {
   inbox: 'Inbox',
-  next_action: 'Next Action',
-  waiting_for: 'Waiting For',
-  scheduled: 'Scheduled',
+  next_action: 'To Do',
+  waiting_for: 'Waiting',
   someday_maybe: 'Someday',
-  active: 'Active',
+  active: 'In Progress',
   done: 'Done',
-  cancelled: 'Cancelled',
 }
 
 const PRIORITY_COLORS: Record<Priority, 'default' | 'info' | 'warning' | 'error'> = {

@@ -95,11 +95,10 @@ export default function InboxProcessor() {
           })
           break
         }
-        case 'scheduled': {
+        case 'active': {
           await api.items.update(currentItem.id, {
-            status: 'scheduled',
+            status: 'active',
             priority: result.priority,
-            dueDate: result.dueDate ?? null,
             ...(result.projectId ? { projectId: result.projectId } : {}),
             ...titleUpdate,
           })
