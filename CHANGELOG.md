@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.21.3 (2026-03-13)
+
+### Bug Fixes
+
+- Preserve reviewed project count across step navigation
+  ([`94ac32c`](https://github.com/home/jason/git/agent_gtd/commit/94ac32c8470296ea22a33359f7e22f068b216ffb))
+
+
 ## v1.21.2 (2026-03-13)
 
 ### Bug Fixes
