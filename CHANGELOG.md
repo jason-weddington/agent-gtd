@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.21.1 (2026-03-13)
+
+### Bug Fixes
+
+- Weekly review UX improvements
+  ([`2c9114e`](https://github.com/home/jason/git/agent_gtd/commit/2c9114e7cbb863b83e5fdbfec2a98472bddf685f))
+
+
 ## v1.21.0 (2026-03-13)
 
 ### Chores
