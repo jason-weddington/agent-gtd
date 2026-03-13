@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.21.2 (2026-03-13)
+
+### Bug Fixes
+
+- Move project prev link next to mark reviewed button
+  ([`72b77d8`](https://github.com/home/jason/git/agent_gtd/commit/72b77d8e41a97914b5cb8945d3ac5c4976be1cde))
+
+
 ## v1.21.1 (2026-03-13)
 
 ### Bug Fixes
