@@ -8,7 +8,6 @@ import {
   Paper,
   Fade,
   Button,
-  Link,
 } from '@mui/material'
 import FolderIcon from '@mui/icons-material/Folder'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
@@ -89,16 +88,6 @@ export default function ProjectsReviewStep({
     onMarkReviewedRef.current = markReviewed
   }, [markReviewed, onMarkReviewedRef])
 
-  const goToProject = useCallback((index: number) => {
-    setFadeIn(false)
-    setTimeout(() => {
-      onProjectIndexChange(index)
-      setAddText('')
-      setConfirmComplete(false)
-      setFadeIn(true)
-    }, 150)
-  }, [])
-
   if (projects.length === 0) {
     return (
       <Box sx={{ textAlign: 'center', py: 4 }}>
@@ -176,24 +165,11 @@ export default function ProjectsReviewStep({
         Review each project: mark completed items done, add missing actions.
       </Typography>
 
-      {/* Progress indicator with back link */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 2 }}>
-        {projectIndex > 0 && (
-          <Link
-            component="button"
-            variant="body2"
-            underline="hover"
-            onClick={() => goToProject(projectIndex - 1)}
-            sx={{ color: 'text.secondary' }}
-          >
-            &larr; prev
-          </Link>
-        )}
-        <Typography variant="body2" color="text.secondary">
-          Project {projectIndex + 1} of {projects.length}
-          {isCurrentReviewed && ' — reviewed'}
-        </Typography>
-      </Box>
+      {/* Progress indicator */}
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center' }}>
+        Project {projectIndex + 1} of {projects.length}
+        {isCurrentReviewed && ' — reviewed'}
+      </Typography>
 
       {/* Project card */}
       <Fade in={fadeIn} timeout={150}>

@@ -395,14 +395,26 @@ export default function WeeklyReview() {
           >
             {backLabel}
           </Button>
-          <Button
-            variant="contained"
-            onClick={handlePrimaryAction}
-            disabled={isLastStep}
-            endIcon={primaryIcon}
-          >
-            {primaryLabel}
-          </Button>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {showMarkReviewed && projectIndex > 0 && (
+              <Button
+                size="small"
+                onClick={() => setProjectIndex((i) => i - 1)}
+                startIcon={<ArrowBackIcon />}
+                sx={{ textTransform: 'none' }}
+              >
+                prev
+              </Button>
+            )}
+            <Button
+              variant="contained"
+              onClick={handlePrimaryAction}
+              disabled={isLastStep}
+              endIcon={primaryIcon}
+            >
+              {primaryLabel}
+            </Button>
+          </Box>
         </Box>
       </Box>
 
