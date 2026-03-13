@@ -50,10 +50,7 @@ Create or edit `.mcp.json` in your project root:
     "agent-gtd": {
       "type": "stdio",
       "command": "uv",
-      "args": [
-        "run", "--directory", "/path/to/agent_gtd",
-        "fastmcp", "run", "src/agent_gtd/mcp_server.py:mcp", "-t", "stdio"
-      ]
+      "args": ["run", "--directory", "/path/to/agent_gtd", "agent-gtd-mcp"]
     }
   }
 }

@@ -660,3 +660,11 @@ async def get_note(
 
     project_map = await _build_project_map(db, session["user_id"])
     return _format_note(row, project_map)
+
+
+# --- Entry point ---
+
+
+def main() -> None:
+    """Run the MCP server (stdio transport)."""
+    mcp.run(transport="stdio")
