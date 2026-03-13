@@ -33,6 +33,15 @@ async def list_project_notes(
     return [row_to_dict(r) for r in rows]
 
 
+async def list_user_notes(db: DbPool, user_id: str) -> list[dict[str, Any]]:
+    """List all notes for a user across all projects."""
+    rows = await db.fetch(
+        "SELECT * FROM notes WHERE user_id = $1 ORDER BY updated_at DESC",
+        user_id,
+    )
+    return [row_to_dict(r) for r in rows]
+
+
 async def create_note(
     db: DbPool,
     user_id: str,

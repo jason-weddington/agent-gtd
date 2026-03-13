@@ -138,28 +138,20 @@ async def test_tool_without_registration(mcp_client):
         await mcp_client.call_tool("list_items")
 
 
-# --- Discovery (no registration required) ---
+# --- Discovery (requires session for user_id) ---
 
 
-async def test_list_projects_discovery(mcp_client, user_id, project_id):
-    result = await mcp_client.call_tool(
-        "list_projects",
-        {
-            "user_id": user_id,
-        },
-    )
+async def test_list_projects(registered_client, project_id):
+    result = await registered_client.call_tool("list_projects")
     data = _parse_result(result)
     assert len(data) == 1
     assert data[0]["id"] == project_id
 
 
-async def test_list_projects_with_status_filter(mcp_client, user_id, project_id):
-    result = await mcp_client.call_tool(
+async def test_list_projects_with_status_filter(registered_client, project_id):
+    result = await registered_client.call_tool(
         "list_projects",
-        {
-            "user_id": user_id,
-            "status": "completed",
-        },
+        {"status": "completed"},
     )
     data = _parse_result(result)
     assert len(data) == 0
@@ -179,6 +171,35 @@ async def registered_client(mcp_client, user_id, project_id):
         },
     )
     return mcp_client
+
+
+# --- Projects ---
+
+
+async def test_add_project(registered_client):
+    result = await registered_client.call_tool(
+        "add_project",
+        {
+            "name": "New Project",
+            "description": "A test project",
+            "area": "work",
+        },
+    )
+    data = _parse_result(result)
+    assert data["name"] == "New Project"
+    assert data["description"] == "A test project"
+    assert data["area"] == "work"
+    assert data["status"] == "active"
+
+
+async def test_add_project_then_list(registered_client):
+    await registered_client.call_tool("add_project", {"name": "Extra Project"})
+    result = await registered_client.call_tool("list_projects")
+    data = _parse_result(result)
+    # Original project + new one
+    assert len(data) == 2
+    names = {d["name"] for d in data}
+    assert "Extra Project" in names
 
 
 # --- Items ---
@@ -238,29 +259,81 @@ async def test_add_item(registered_client):
     assert data["priority"] == "high"
     assert data["labels"] == ["urgent"]
     assert data["created_by"] == "test-agent"
-    # Default status is "inbox" → project-less, no project_name
+    # Default status is "inbox" -> project-less, no project_name
     assert "project_name" not in data
 
 
-async def test_list_items(registered_client):
+async def test_add_item_with_project(registered_client, project_id):
+    """add_item with explicit project_id assigns to that project."""
+    result = await registered_client.call_tool(
+        "add_item",
+        {
+            "title": "Project Task",
+            "status": "next_action",
+            "project_id": project_id,
+        },
+    )
+    data = _parse_result(result)
+    assert data["project_id"] == project_id
+    assert data["status"] == "next_action"
+
+
+async def test_add_item_no_project(registered_client):
+    """add_item with non-inbox status but no project_id creates project-less item."""
+    result = await registered_client.call_tool(
+        "add_item",
+        {
+            "title": "Floating Task",
+            "status": "next_action",
+        },
+    )
+    data = _parse_result(result)
+    assert data["project_id"] is None
+    assert data["status"] == "next_action"
+
+
+async def test_list_items_cross_project(registered_client, project_id):
+    """list_items without project_id returns items across all projects."""
     await registered_client.call_tool(
-        "add_item", {"title": "Item 1", "status": "next_action"}
+        "add_item",
+        {"title": "Item 1", "status": "next_action", "project_id": project_id},
     )
     await registered_client.call_tool(
-        "add_item", {"title": "Item 2", "status": "next_action"}
+        "add_item",
+        {"title": "Item 2", "status": "next_action"},
     )
 
-    result = await registered_client.call_tool("list_items")
+    result = await registered_client.call_tool("list_items", {"status": "next_action"})
     data = _parse_result(result)
     assert len(data) == 2
 
 
-async def test_list_items_filter_status(registered_client):
+async def test_list_items_filter_project(registered_client, project_id):
+    """list_items with project_id only returns that project's items."""
+    await registered_client.call_tool(
+        "add_item",
+        {"title": "In Project", "status": "next_action", "project_id": project_id},
+    )
+    await registered_client.call_tool(
+        "add_item",
+        {"title": "No Project", "status": "next_action"},
+    )
+
+    result = await registered_client.call_tool(
+        "list_items", {"status": "next_action", "project_id": project_id}
+    )
+    data = _parse_result(result)
+    assert len(data) == 1
+    assert data[0]["title"] == "In Project"
+
+
+async def test_list_items_filter_status(registered_client, project_id):
     await registered_client.call_tool(
         "add_item",
         {
             "title": "Active",
             "status": "active",
+            "project_id": project_id,
         },
     )
     await registered_client.call_tool(
@@ -268,6 +341,7 @@ async def test_list_items_filter_status(registered_client):
         {
             "title": "Next",
             "status": "next_action",
+            "project_id": project_id,
         },
     )
 
@@ -392,7 +466,11 @@ async def test_item_project_name_resolution(registered_client, project):
     """Project-scoped items include project_name matching the project."""
     result = await registered_client.call_tool(
         "add_item",
-        {"title": "Named Project Item", "status": "next_action"},
+        {
+            "title": "Named Project Item",
+            "status": "next_action",
+            "project_id": project["id"],
+        },
     )
     data = _parse_result(result)
     assert data["project_name"] == project["name"]
@@ -403,7 +481,7 @@ async def test_note_project_name_resolution(registered_client, project):
     """Notes include project_name matching the project."""
     result = await registered_client.call_tool(
         "add_note",
-        {"title": "Named Project Note"},
+        {"title": "Named Project Note", "project_id": project["id"]},
     )
     data = _parse_result(result)
     assert data["project_name"] == project["name"]
@@ -413,10 +491,11 @@ async def test_note_project_name_resolution(registered_client, project):
 # --- Notes ---
 
 
-async def test_add_note(registered_client):
+async def test_add_note(registered_client, project_id):
     result = await registered_client.call_tool(
         "add_note",
         {
+            "project_id": project_id,
             "title": "Meeting Notes",
             "content_markdown": "# Agenda\n- Item 1",
             "labels": ["meeting"],
@@ -427,8 +506,10 @@ async def test_add_note(registered_client):
     assert data["labels"] == ["meeting"]
 
 
-async def test_update_note(registered_client):
-    created = await registered_client.call_tool("add_note", {"title": "Original"})
+async def test_update_note(registered_client, project_id):
+    created = await registered_client.call_tool(
+        "add_note", {"project_id": project_id, "title": "Original"}
+    )
     note_id = _parse_result(created)["id"]
 
     result = await registered_client.call_tool(
@@ -442,17 +523,58 @@ async def test_update_note(registered_client):
     assert data["title"] == "Updated"
 
 
-async def test_list_notes(registered_client):
-    await registered_client.call_tool("add_note", {"title": "Note 1"})
-    await registered_client.call_tool("add_note", {"title": "Note 2"})
+async def test_list_notes(registered_client, project_id):
+    await registered_client.call_tool(
+        "add_note", {"project_id": project_id, "title": "Note 1"}
+    )
+    await registered_client.call_tool(
+        "add_note", {"project_id": project_id, "title": "Note 2"}
+    )
 
     result = await registered_client.call_tool("list_notes")
     data = _parse_result(result)
     assert len(data) == 2
 
 
-async def test_get_note(registered_client):
-    created = await registered_client.call_tool("add_note", {"title": "Fetch Me"})
+async def test_list_notes_filter_project(registered_client, user_id, project_id):
+    """list_notes with project_id only returns that project's notes."""
+    db = await get_db()
+    p2 = await project_service.create_project(db, user_id, name="Other Project")
+
+    await registered_client.call_tool(
+        "add_note", {"project_id": project_id, "title": "Note in P1"}
+    )
+    await registered_client.call_tool(
+        "add_note", {"project_id": p2["id"], "title": "Note in P2"}
+    )
+
+    result = await registered_client.call_tool("list_notes", {"project_id": project_id})
+    data = _parse_result(result)
+    assert len(data) == 1
+    assert data[0]["title"] == "Note in P1"
+
+
+async def test_list_notes_cross_project(registered_client, user_id, project_id):
+    """list_notes without project_id returns notes across all projects."""
+    db = await get_db()
+    p2 = await project_service.create_project(db, user_id, name="Other Project")
+
+    await registered_client.call_tool(
+        "add_note", {"project_id": project_id, "title": "Note in P1"}
+    )
+    await registered_client.call_tool(
+        "add_note", {"project_id": p2["id"], "title": "Note in P2"}
+    )
+
+    result = await registered_client.call_tool("list_notes")
+    data = _parse_result(result)
+    assert len(data) == 2
+
+
+async def test_get_note(registered_client, project_id):
+    created = await registered_client.call_tool(
+        "add_note", {"project_id": project_id, "title": "Fetch Me"}
+    )
     note_id = _parse_result(created)["id"]
 
     result = await registered_client.call_tool("get_note", {"note_id": note_id})
@@ -545,7 +667,7 @@ async def test_get_note_not_found(registered_client):
 
 
 async def test_session_isolation(user_id):
-    """Two clients on different projects can't see each other's items."""
+    """Two clients with different project_id filters see different items."""
     db = await get_db()
     p1 = await project_service.create_project(db, user_id, name="Project A")
     p2 = await project_service.create_project(db, user_id, name="Project B")
@@ -569,16 +691,27 @@ async def test_session_isolation(user_id):
         )
 
         await client1.call_tool(
-            "add_item", {"title": "P1 Item", "status": "next_action"}
+            "add_item",
+            {"title": "P1 Item", "status": "next_action", "project_id": p1["id"]},
         )
         await client2.call_tool(
-            "add_item", {"title": "P2 Item", "status": "next_action"}
+            "add_item",
+            {"title": "P2 Item", "status": "next_action", "project_id": p2["id"]},
         )
 
-        r1 = _parse_result(await client1.call_tool("list_items"))
-        r2 = _parse_result(await client2.call_tool("list_items"))
+        # With project_id filter, each sees only their project's items
+        r1 = _parse_result(
+            await client1.call_tool("list_items", {"project_id": p1["id"]})
+        )
+        r2 = _parse_result(
+            await client2.call_tool("list_items", {"project_id": p2["id"]})
+        )
 
         assert len(r1) == 1
         assert r1[0]["title"] == "P1 Item"
         assert len(r2) == 1
         assert r2[0]["title"] == "P2 Item"
+
+        # Without project_id filter, both see all items
+        r_all = _parse_result(await client1.call_tool("list_items"))
+        assert len(r_all) == 2

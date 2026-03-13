@@ -9,7 +9,6 @@ from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from agent_gtd.database import (
-    LOCAL_PROJECT_ID,
     LOCAL_USER_ID,
     close_db,
     decode_json_list,
@@ -33,13 +32,22 @@ async def mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
     await close_db()
 
 
-mcp = FastMCP(
-    name="Agent GTD",
-    instructions=(
+_LOCAL_MODE = is_local_mode()
+
+_instructions = (
+    "GTD (Getting Things Done) task management system. "
+    "Use item and note tools to manage work."
+    if _LOCAL_MODE
+    else (
         "GTD (Getting Things Done) task management system. "
         "Call register_agent first with a valid user_id and project_id "
         "to start working. Then use item and note tools to manage work."
-    ),
+    )
+)
+
+mcp = FastMCP(
+    name="Agent GTD",
+    instructions=_instructions,
     lifespan=mcp_lifespan,
 )
 
@@ -57,10 +65,9 @@ async def _get_session(ctx: Context) -> dict[str, str]:
     """
     session: dict[str, str] | None = await ctx.get_state("agent_session")
     if session is None:
-        if is_local_mode():
+        if _LOCAL_MODE:
             session = {
                 "user_id": LOCAL_USER_ID,
-                "project_id": LOCAL_PROJECT_ID,
                 "agent_name": "local-agent",
             }
             await ctx.set_state("agent_session", session)
@@ -95,127 +102,163 @@ def _format_note(
     return result
 
 
-# --- Registration tools ---
+# --- Registration tools (multi-user mode only) ---
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
-)
-async def register_agent(
-    user_id: str,
-    project_id: str,
-    agent_name: str,
-    ctx: Context,
-) -> dict[str, str]:
-    """Register an agent session for a user and project.
+if not _LOCAL_MODE:
 
-    Must be called before using project-scoped tools. Validates that
-    the user and project exist and that the project belongs to the user.
-
-    Args:
-        user_id: ID of the user account to operate as.
-        project_id: ID of the project to work in.
-        agent_name: Name of the agent (used for created_by, assigned_to).
-        ctx: MCP context (injected automatically).
-
-    Returns:
-        Registration confirmation with status, project_id, and agent_name.
-    """
-    db = await get_db()
-
-    # Validate user exists
-    row = await db.fetchrow("SELECT id FROM users WHERE id = $1", user_id)
-    if row is None:
-        raise ToolError(f"User not found: {user_id}")
-
-    # Validate project exists and belongs to user
-    try:
-        project = await project_service.get_project(db, user_id, project_id)
-    except NotFoundError:
-        raise ToolError(f"Project not found: {project_id}") from None
-
-    await ctx.set_state(
-        "agent_session",
-        {
-            "user_id": user_id,
-            "project_id": project_id,
-            "agent_name": agent_name,
-        },
+    @mcp.tool(
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
     )
+    async def register_agent(
+        user_id: str,
+        project_id: str,
+        agent_name: str,
+        ctx: Context,
+    ) -> dict[str, str]:
+        """Register an agent session for a user and project.
 
-    return {
-        "status": "registered",
-        "project_id": project_id,
-        "project_name": project["name"],
-        "agent_name": agent_name,
-    }
+        Must be called before using project-scoped tools. Validates that
+        the user and project exist and that the project belongs to the user.
+
+        Args:
+            user_id: ID of the user account to operate as.
+            project_id: ID of the project to work in.
+            agent_name: Name of the agent (used for created_by, assigned_to).
+            ctx: MCP context (injected automatically).
+
+        Returns:
+            Registration confirmation with status, project_id, and agent_name.
+        """
+        db = await get_db()
+
+        # Validate user exists
+        row = await db.fetchrow("SELECT id FROM users WHERE id = $1", user_id)
+        if row is None:
+            raise ToolError(f"User not found: {user_id}")
+
+        # Validate project exists and belongs to user
+        try:
+            project = await project_service.get_project(db, user_id, project_id)
+        except NotFoundError:
+            raise ToolError(f"Project not found: {project_id}") from None
+
+        await ctx.set_state(
+            "agent_session",
+            {
+                "user_id": user_id,
+                "project_id": project_id,
+                "agent_name": agent_name,
+            },
+        )
+
+        return {
+            "status": "registered",
+            "project_id": project_id,
+            "project_name": project["name"],
+            "agent_name": agent_name,
+        }
+
+    @mcp.tool(
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+    )
+    async def switch_project(
+        project_id: str,
+        ctx: Context,
+    ) -> dict[str, str]:
+        """Switch the registered agent to a different project.
+
+        Requires prior registration via register_agent.
+
+        Args:
+            project_id: ID of the project to switch to.
+            ctx: MCP context (injected automatically).
+
+        Returns:
+            Confirmation with new project_id.
+        """
+        session = await _get_session(ctx)
+        db = await get_db()
+
+        try:
+            project = await project_service.get_project(
+                db, session["user_id"], project_id
+            )
+        except NotFoundError:
+            raise ToolError(f"Project not found: {project_id}") from None
+
+        session["project_id"] = project_id
+        await ctx.set_state("agent_session", session)
+
+        return {
+            "status": "switched",
+            "project_id": project_id,
+            "project_name": project["name"],
+            "agent_name": session["agent_name"],
+        }
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
-)
-async def switch_project(
-    project_id: str,
-    ctx: Context,
-) -> dict[str, str]:
-    """Switch the registered agent to a different project.
-
-    Requires prior registration via register_agent.
-
-    Args:
-        project_id: ID of the project to switch to.
-        ctx: MCP context (injected automatically).
-
-    Returns:
-        Confirmation with new project_id.
-    """
-    session = await _get_session(ctx)
-    db = await get_db()
-
-    try:
-        project = await project_service.get_project(db, session["user_id"], project_id)
-    except NotFoundError:
-        raise ToolError(f"Project not found: {project_id}") from None
-
-    session["project_id"] = project_id
-    await ctx.set_state("agent_session", session)
-
-    return {
-        "status": "switched",
-        "project_id": project_id,
-        "project_name": project["name"],
-        "agent_name": session["agent_name"],
-    }
-
-
-# --- Discovery tools (no registration required) ---
+# --- Project tools ---
 
 
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def list_projects(
-    user_id: str,
+    ctx: Context,
     status: str | None = None,
 ) -> list[dict[str, Any]]:
-    """List projects for a user.
-
-    Does not require registration. Use this to discover available projects
-    before calling register_agent.
+    """List projects for the current user.
 
     Args:
-        user_id: ID of the user to list projects for.
+        ctx: MCP context (injected automatically).
         status: Optional filter by project status
             (active, completed, on_hold, cancelled).
 
     Returns:
         List of project dicts.
     """
+    session = await _get_session(ctx)
     db = await get_db()
-    return await project_service.list_projects(db, user_id, status=status)
+    return await project_service.list_projects(db, session["user_id"], status=status)
 
 
-# --- Item tools (project-scoped, require registration) ---
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+async def add_project(
+    name: str,
+    ctx: Context,
+    description: str = "",
+    area: str = "",
+    status: str = "active",
+) -> dict[str, Any]:
+    """Create a new project.
+
+    Args:
+        name: Project name.
+        ctx: MCP context (injected automatically).
+        description: Optional project description.
+        area: Optional area/category.
+        status: Project status (active, on_hold, completed, cancelled).
+            Default: active.
+
+    Returns:
+        The created project dict.
+    """
+    session = await _get_session(ctx)
+    db = await get_db()
+    return await project_service.create_project(
+        db,
+        session["user_id"],
+        name=name,
+        description=description,
+        area=area,
+        status=status,
+    )
+
+
+# --- Item tools ---
 
 
 @mcp.tool(
@@ -266,8 +309,12 @@ async def add_item(
     priority: str = "normal",
     status: str = "inbox",
     labels: list[str] | None = None,
+    project_id: str | None = None,
 ) -> dict[str, Any]:
-    """Create a new item in the registered project.
+    """Create a new item.
+
+    Items with status='inbox' are always project-less. For other statuses,
+    pass project_id to assign to a project, or omit for a project-less item.
 
     Args:
         title: Title of the item.
@@ -278,6 +325,7 @@ async def add_item(
             next_action, waiting_for, scheduled, someday_maybe,
             active, done, cancelled.
         labels: Optional list of labels/tags.
+        project_id: Optional project to assign to. Ignored for inbox items.
 
     Returns:
         The created item dict.
@@ -286,7 +334,7 @@ async def add_item(
     db = await get_db()
 
     # Inbox items are project-less (global capture bucket).
-    effective_project_id = None if status == "inbox" else session["project_id"]
+    effective_project_id = None if status == "inbox" else project_id
 
     try:
         row = await item_service.create_item(
@@ -402,14 +450,18 @@ async def list_items(
     status: str | None = None,
     assigned_to: str | None = None,
     priority: str | None = None,
+    project_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """List items in the registered project.
+    """List items, optionally filtered by project and/or status.
+
+    Without project_id, lists items across all projects.
 
     Args:
         ctx: MCP context (injected automatically).
         status: Optional filter by item status.
         assigned_to: Optional filter by assignee.
         priority: Optional filter by priority.
+        project_id: Optional project filter. Omit to list cross-project.
 
     Returns:
         List of item dicts.
@@ -417,14 +469,11 @@ async def list_items(
     session = await _get_session(ctx)
     db = await get_db()
 
-    # Inbox items are project-less, so don't filter by project.
-    effective_project_id = None if status == "inbox" else session["project_id"]
-
     rows = await item_service.list_items(
         db,
         session["user_id"],
         status=status,
-        project_id=effective_project_id,
+        project_id=project_id,
         priority=priority,
         assigned_to=assigned_to,
     )
@@ -523,21 +572,23 @@ async def release_item(
     return _format_item(row, project_map)
 
 
-# --- Note tools (project-scoped, require registration) ---
+# --- Note tools ---
 
 
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def add_note(
+    project_id: str,
     ctx: Context,
     title: str = "",
     content_markdown: str = "",
     labels: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Create a new note in the registered project.
+    """Create a new note in a project.
 
     Args:
+        project_id: Project to create the note in.
         ctx: MCP context (injected automatically).
         title: Note title.
         content_markdown: Note content in Markdown.
@@ -553,7 +604,7 @@ async def add_note(
         row = await note_service.create_note(
             db,
             session["user_id"],
-            session["project_id"],
+            project_id,
             title=title,
             content_markdown=content_markdown,
             labels=labels,
@@ -611,11 +662,15 @@ async def update_note(
 )
 async def list_notes(
     ctx: Context,
+    project_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """List notes in the registered project.
+    """List notes, optionally filtered by project.
+
+    Without project_id, lists all notes across all projects.
 
     Args:
         ctx: MCP context (injected automatically).
+        project_id: Optional project filter. Omit to list cross-project.
 
     Returns:
         List of note dicts.
@@ -624,9 +679,12 @@ async def list_notes(
     db = await get_db()
 
     try:
-        rows = await note_service.list_project_notes(
-            db, session["user_id"], session["project_id"]
-        )
+        if project_id is not None:
+            rows = await note_service.list_project_notes(
+                db, session["user_id"], project_id
+            )
+        else:
+            rows = await note_service.list_user_notes(db, session["user_id"])
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
