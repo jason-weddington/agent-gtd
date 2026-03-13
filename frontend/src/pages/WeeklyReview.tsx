@@ -65,6 +65,7 @@ export default function WeeklyReview() {
   // Project review state (lifted so it survives step navigation)
   const [projectReviewState, setProjectReviewState] = useState({ current: 0, total: 0, allReviewed: false })
   const [projectIndex, setProjectIndex] = useState(0)
+  const [reviewedSet, setReviewedSet] = useState<Set<number>>(new Set())
   const markReviewedRef = useRef<(() => void) | null>(null)
 
   const { onEvent } = useEvents()
@@ -327,6 +328,8 @@ export default function WeeklyReview() {
             projectMap={projectMap}
             projectIndex={projectIndex}
             onProjectIndexChange={setProjectIndex}
+            reviewedSet={reviewedSet}
+            onReviewedSetChange={setReviewedSet}
             onDone={handleDone}
             onDelete={handleDelete}
             onUpdateStatus={handleUpdateStatus}

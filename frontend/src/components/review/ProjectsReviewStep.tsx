@@ -24,6 +24,8 @@ interface ProjectsReviewStepProps {
   projectMap: Record<string, Project>
   projectIndex: number
   onProjectIndexChange: (index: number) => void
+  reviewedSet: Set<number>
+  onReviewedSetChange: React.Dispatch<React.SetStateAction<Set<number>>>
   onDone: (id: string) => void
   onDelete: (id: string) => void
   onUpdateStatus: (id: string, status: string) => void
@@ -39,6 +41,8 @@ export default function ProjectsReviewStep({
   projectMap,
   projectIndex,
   onProjectIndexChange,
+  reviewedSet,
+  onReviewedSetChange,
   onDone,
   onDelete,
   onUpdateStatus,
@@ -47,7 +51,6 @@ export default function ProjectsReviewStep({
   onReviewStateChange,
   onMarkReviewedRef,
 }: ProjectsReviewStepProps) {
-  const [reviewedSet, setReviewedSet] = useState<Set<number>>(new Set())
   const [addText, setAddText] = useState('')
   const [adding, setAdding] = useState(false)
   const [fadeIn, setFadeIn] = useState(true)
@@ -66,7 +69,7 @@ export default function ProjectsReviewStep({
   const markReviewed = useCallback(() => {
     if (allReviewed) return
 
-    setReviewedSet((prev) => {
+    onReviewedSetChange((prev) => {
       const next = new Set(prev)
       next.add(projectIndex)
       return next
