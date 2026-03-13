@@ -34,7 +34,6 @@ export default memo(function KanbanCard({ item, index, onEdit, onDelete }: Kanba
             // Make drop animation near-instant so onDragEnd fires immediately.
             ...(snapshot.isDropAnimating ? { transitionDuration: '0.001s' } : {}),
           }}
-          data-kanban-id={item.id}
           onClick={() => onEdit(item)}
           sx={{
             p: 1.5,

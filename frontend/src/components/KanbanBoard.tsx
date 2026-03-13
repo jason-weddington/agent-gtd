@@ -1,9 +1,9 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { flushSync } from 'react-dom'
 import { Box, Chip, Typography, Collapse, IconButton } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
-import { DragDropContext, type DropResult, type DragStart } from '@hello-pangea/dnd'
+import { DragDropContext, type DropResult } from '@hello-pangea/dnd'
 import KanbanColumn from './KanbanColumn'
 import { api } from '../api'
 import type { Item, ItemStatus } from '../types'
@@ -52,49 +52,12 @@ export default function KanbanBoard({
   const [optimistic, setOptimistic] = useState<Item[] | null>(null)
   const displayItems = optimistic ?? items
 
-  // --- Safari pop-back fix ---
-  // The library restores the dragged element to its source DOM position
-  // BEFORE calling onDragEnd. The browser paints that frame → pop-back.
-  //
-  // Previous attempts (imperative style.display, render-time hiding) all
-  // failed because React re-renders UNDO imperative style changes.
-  //
-  // Solution: use a data attribute (`data-drop-hiding`) + a global CSS
-  // rule with `!important`. React doesn't manage unknown data attributes,
-  // so it won't remove them during reconciliation. And `!important` beats
-  // any inline style React applies.
-  const draggingIdRef = useRef<string | null>(null)
-  const boardRef = useRef<HTMLDivElement>(null)
-
-  // Inject the CSS rule once
-  useEffect(() => {
-    const style = document.createElement('style')
-    style.textContent = '[data-drop-hiding] { display: none !important; }'
-    document.head.appendChild(style)
-    return () => style.remove()
-  }, [])
-
-  const handleDragStart = useCallback((start: DragStart) => {
-    draggingIdRef.current = start.draggableId
-  }, [])
-
-  // Capture-phase transitionend: hide element BEFORE library restores it
-  useEffect(() => {
-    const container = boardRef.current
-    if (!container) return
-
-    const handler = (e: Event) => {
-      const id = draggingIdRef.current
-      if (!id) return
-      const el = container.querySelector(`[data-kanban-id="${id}"]`) as HTMLElement | null
-      if (el && (el === e.target || el.contains(e.target as Node))) {
-        el.setAttribute('data-drop-hiding', '')
-      }
-    }
-
-    container.addEventListener('transitionend', handler, true)
-    return () => container.removeEventListener('transitionend', handler, true)
-  }, [])
+  // Safari pop-back prevention relies on two mechanisms working together:
+  // 1. KanbanCard sets transitionDuration: '0.001s' during isDropAnimating,
+  //    so the drop animation completes near-instantly.
+  // 2. flushSync() in handleDragEnd forces React to commit the optimistic
+  //    state update synchronously — the card appears in its destination
+  //    column before the browser paints the next frame.
 
   // Group items into columns by status
   const columnItems = useMemo(() => {
@@ -119,24 +82,13 @@ export default function KanbanBoard({
   const handleDragEnd = useCallback(
     async (result: DropResult) => {
       const { source, destination, draggableId } = result
-      draggingIdRef.current = null
-      const el = document.querySelector(`[data-kanban-id="${draggableId}"]`) as HTMLElement | null
 
-      if (!destination) {
-        // Cancelled — show the card again
-        if (el) el.removeAttribute('data-drop-hiding')
-        return
-      }
+      if (!destination) return
 
-      // Dropped in same position — show the card again
+      // Dropped in same position — no-op
       if (source.droppableId === destination.droppableId && source.index === destination.index) {
-        if (el) el.removeAttribute('data-drop-hiding')
         return
       }
-
-      // Hide the card (belt-and-suspenders — transitionend handler may
-      // have already done this, but it doesn't hurt to ensure it)
-      if (el) el.setAttribute('data-drop-hiding', '')
 
       const dstColumnId = destination.droppableId
       const newStatus = COLUMN_DEFAULT_STATUS[dstColumnId]
@@ -179,8 +131,8 @@ export default function KanbanBoard({
   )
 
   return (
-    <Box ref={boardRef}>
-      <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+    <Box>
+      <DragDropContext onDragEnd={handleDragEnd}>
         <Box
           sx={{
             display: 'flex',
