@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.22.0 (2026-03-13)
+
+### Features
+
+- Simplify item statuses and align labels with kanban columns
+  ([`d42fc40`](https://github.com/home/jason/git/agent_gtd/commit/d42fc406f0d6e802bd9425421188c2c1da6eb9ae))
+
+
 ## v1.21.4 (2026-03-13)
 
 ### Bug Fixes
