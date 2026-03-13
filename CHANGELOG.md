@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.21.4 (2026-03-13)
+
+### Bug Fixes
+
+- Remove transitionend handler that hid kanban cards on drag start
+  ([`8e42b1f`](https://github.com/home/jason/git/agent_gtd/commit/8e42b1ff41b9bfe483bac7c9a20a0b309be03a07))
+
+
 ## v1.21.3 (2026-03-13)
 
 ### Bug Fixes
