@@ -28,6 +28,16 @@ import type { ReviewAction } from '../components/review/ReviewItemRow'
 const TOTAL_STEPS = 7
 const PROJECTS_STEP = 3
 
+const STEP_LABELS = [
+  'Inbox',
+  'Next Actions',
+  'Waiting For',
+  'Projects',
+  'Someday',
+  'Capture',
+  'Summary',
+]
+
 export default function WeeklyReview() {
   const [activeStep, setActiveStep] = useState(0)
 
@@ -52,8 +62,9 @@ export default function WeeklyReview() {
     captured: 0,
   })
 
-  // Project review state
+  // Project review state (lifted so it survives step navigation)
   const [projectReviewState, setProjectReviewState] = useState({ current: 0, total: 0, allReviewed: false })
+  const [projectIndex, setProjectIndex] = useState(0)
   const markReviewedRef = useRef<(() => void) | null>(null)
 
   const { onEvent } = useEvents()
@@ -154,6 +165,17 @@ export default function WeeklyReview() {
     }
   }
 
+  const handleConvertToProject = async (itemId: string, title: string) => {
+    try {
+      const project = await api.projects.create({ name: title })
+      await api.items.update(itemId, { status: 'next_action', projectId: project.id })
+      statsRef.current.triaged++
+      await loadData()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : 'Failed to convert to project')
+    }
+  }
+
   const handleCapture = async (title: string) => {
     try {
       const item = await api.items.capture(title)
@@ -172,6 +194,25 @@ export default function WeeklyReview() {
       await loadData()
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : 'Failed to add item')
+    }
+  }
+
+  const handleCompleteProject = async (projectId: string) => {
+    try {
+      // Complete all non-done items in the project
+      const items = projectItems[projectId] ?? []
+      const openItems = items.filter((i) => i.status !== 'done' && i.status !== 'cancelled')
+      await Promise.all(
+        openItems.map((item) => {
+          statsRef.current.completed++
+          return api.items.update(item.id, { status: 'done' })
+        }),
+      )
+      // Mark the project itself as completed
+      await api.projects.update(projectId, { status: 'completed' })
+      await loadData()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : 'Failed to complete project')
     }
   }
 
@@ -207,6 +248,9 @@ export default function WeeklyReview() {
     primaryLabel = 'Next'
     primaryIcon = <ArrowForwardIcon />
   }
+
+  // Back button shows the name of the step it returns to
+  const backLabel = activeStep > 0 ? STEP_LABELS[activeStep - 1] : 'Back'
 
   // --- Render ---
 
@@ -244,6 +288,7 @@ export default function WeeklyReview() {
             onDone={handleDone}
             onDelete={handleDelete}
             onTriage={handleTriage}
+            onConvertToProject={handleConvertToProject}
           />
         )
       case 1:
@@ -280,10 +325,13 @@ export default function WeeklyReview() {
             projects={projects}
             projectItems={projectItems}
             projectMap={projectMap}
+            projectIndex={projectIndex}
+            onProjectIndexChange={setProjectIndex}
             onDone={handleDone}
             onDelete={handleDelete}
             onUpdateStatus={handleUpdateStatus}
             onAddItem={handleAddProjectItem}
+            onCompleteProject={handleCompleteProject}
             onReviewStateChange={handleReviewStateChange}
             onMarkReviewedRef={markReviewedRef}
           />
@@ -345,7 +393,7 @@ export default function WeeklyReview() {
             disabled={activeStep === 0}
             startIcon={<ArrowBackIcon />}
           >
-            Back
+            {backLabel}
           </Button>
           <Button
             variant="contained"

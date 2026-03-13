@@ -7,12 +7,15 @@ import {
   CircularProgress,
   Paper,
   Fade,
+  Button,
+  Link,
 } from '@mui/material'
 import FolderIcon from '@mui/icons-material/Folder'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import CheckIcon from '@mui/icons-material/Check'
 import SnoozeIcon from '@mui/icons-material/Snooze'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import DoneAllIcon from '@mui/icons-material/DoneAll'
 import ReviewItemRow, { type ReviewAction } from './ReviewItemRow'
 import type { Item, Project } from '../../types'
 
@@ -20,10 +23,13 @@ interface ProjectsReviewStepProps {
   projects: Project[]
   projectItems: Record<string, Item[]>
   projectMap: Record<string, Project>
+  projectIndex: number
+  onProjectIndexChange: (index: number) => void
   onDone: (id: string) => void
   onDelete: (id: string) => void
   onUpdateStatus: (id: string, status: string) => void
   onAddItem: (projectId: string, title: string) => Promise<void>
+  onCompleteProject: (projectId: string) => Promise<void>
   onReviewStateChange: (current: number, total: number, allReviewed: boolean) => void
   onMarkReviewedRef: React.MutableRefObject<(() => void) | null>
 }
@@ -32,18 +38,22 @@ export default function ProjectsReviewStep({
   projects,
   projectItems,
   projectMap,
+  projectIndex,
+  onProjectIndexChange,
   onDone,
   onDelete,
   onUpdateStatus,
   onAddItem,
+  onCompleteProject,
   onReviewStateChange,
   onMarkReviewedRef,
 }: ProjectsReviewStepProps) {
-  const [projectIndex, setProjectIndex] = useState(0)
   const [reviewedSet, setReviewedSet] = useState<Set<number>>(new Set())
   const [addText, setAddText] = useState('')
   const [adding, setAdding] = useState(false)
   const [fadeIn, setFadeIn] = useState(true)
+  const [confirmComplete, setConfirmComplete] = useState(false)
+  const [completing, setCompleting] = useState(false)
 
   const allReviewed = reviewedSet.size >= projects.length
   const currentReviewed = reviewedSet.size
@@ -67,16 +77,27 @@ export default function ProjectsReviewStep({
     if (projectIndex < projects.length - 1) {
       setFadeIn(false)
       setTimeout(() => {
-        setProjectIndex((i) => i + 1)
+        onProjectIndexChange(projectIndex + 1)
         setAddText('')
+        setConfirmComplete(false)
         setFadeIn(true)
       }, 150)
     }
-  }, [allReviewed, projectIndex, projects.length])
+  }, [allReviewed, projectIndex, projects.length, onProjectIndexChange])
 
   useEffect(() => {
     onMarkReviewedRef.current = markReviewed
   }, [markReviewed, onMarkReviewedRef])
+
+  const goToProject = useCallback((index: number) => {
+    setFadeIn(false)
+    setTimeout(() => {
+      onProjectIndexChange(index)
+      setAddText('')
+      setConfirmComplete(false)
+      setFadeIn(true)
+    }, 150)
+  }, [])
 
   if (projects.length === 0) {
     return (
@@ -93,7 +114,9 @@ export default function ProjectsReviewStep({
   }
 
   const project = projects[projectIndex]
-  const items = projectItems[project.id] ?? []
+  const allItems = projectItems[project.id] ?? []
+  // Filter out completed/cancelled items for the review
+  const items = allItems.filter((i) => i.status !== 'done' && i.status !== 'cancelled')
   const hasNextAction = items.some((i) => i.status === 'next_action')
   const isStuck = !hasNextAction && items.length > 0
   const isCurrentReviewed = reviewedSet.has(projectIndex)
@@ -107,6 +130,16 @@ export default function ProjectsReviewStep({
       setAddText('')
     } finally {
       setAdding(false)
+    }
+  }
+
+  const handleCompleteProject = async () => {
+    setCompleting(true)
+    try {
+      await onCompleteProject(project.id)
+      setConfirmComplete(false)
+    } finally {
+      setCompleting(false)
     }
   }
 
@@ -143,11 +176,24 @@ export default function ProjectsReviewStep({
         Review each project: mark completed items done, add missing actions.
       </Typography>
 
-      {/* Progress indicator */}
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center' }}>
-        Project {projectIndex + 1} of {projects.length}
-        {isCurrentReviewed && ' — reviewed'}
-      </Typography>
+      {/* Progress indicator with back link */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 2 }}>
+        {projectIndex > 0 && (
+          <Link
+            component="button"
+            variant="body2"
+            underline="hover"
+            onClick={() => goToProject(projectIndex - 1)}
+            sx={{ color: 'text.secondary' }}
+          >
+            &larr; prev
+          </Link>
+        )}
+        <Typography variant="body2" color="text.secondary">
+          Project {projectIndex + 1} of {projects.length}
+          {isCurrentReviewed && ' — reviewed'}
+        </Typography>
+      </Box>
 
       {/* Project card */}
       <Fade in={fadeIn} timeout={150}>
@@ -180,10 +226,10 @@ export default function ProjectsReviewStep({
             )}
           </Box>
 
-          {/* Items */}
+          {/* Items (excluding done/cancelled) */}
           {items.length === 0 ? (
             <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-              No items in this project. Add one below.
+              No open items in this project.
             </Typography>
           ) : (
             items.map((item) => (
@@ -213,6 +259,40 @@ export default function ProjectsReviewStep({
               },
             }}
           />
+
+          {/* Complete project */}
+          <Box sx={{ mt: 1.5, display: 'flex', justifyContent: 'flex-end' }}>
+            {confirmComplete ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Complete project{items.length > 0 ? ` and ${items.length} open item${items.length !== 1 ? 's' : ''}` : ''}?
+                </Typography>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="success"
+                  disabled={completing}
+                  onClick={handleCompleteProject}
+                  startIcon={completing ? <CircularProgress size={16} /> : <DoneAllIcon />}
+                >
+                  Confirm
+                </Button>
+                <Button size="small" onClick={() => setConfirmComplete(false)} disabled={completing}>
+                  Cancel
+                </Button>
+              </Box>
+            ) : (
+              <Button
+                size="small"
+                variant="text"
+                color="success"
+                startIcon={<DoneAllIcon />}
+                onClick={() => setConfirmComplete(true)}
+              >
+                Complete project
+              </Button>
+            )}
+          </Box>
         </Paper>
       </Fade>
     </>

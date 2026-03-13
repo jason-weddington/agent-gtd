@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Typography, Button, Box } from '@mui/material'
 import CheckIcon from '@mui/icons-material/Check'
+import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder'
 import InboxIcon from '@mui/icons-material/Inbox'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import ReviewItemList from './ReviewItemList'
@@ -15,6 +16,7 @@ interface InboxReviewStepProps {
   onDone: (id: string) => void
   onDelete: (id: string) => void
   onTriage: (itemId: string, status: ItemStatus, projectId: string | null) => void
+  onConvertToProject: (itemId: string, title: string) => void
 }
 
 export default function InboxReviewStep({
@@ -24,6 +26,7 @@ export default function InboxReviewStep({
   onDone,
   onDelete,
   onTriage,
+  onConvertToProject,
 }: InboxReviewStepProps) {
   const navigate = useNavigate()
   const [triageOpenId, setTriageOpenId] = useState<string | null>(null)
@@ -34,6 +37,11 @@ export default function InboxReviewStep({
       icon: <CheckIcon fontSize="small" />,
       color: 'success',
       onClick: (item) => onDone(item.id),
+    },
+    {
+      label: 'To project',
+      icon: <CreateNewFolderIcon fontSize="small" />,
+      onClick: (item) => onConvertToProject(item.id, item.title),
     },
   ]
 
