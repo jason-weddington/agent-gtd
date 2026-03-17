@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Box,
@@ -20,10 +20,21 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  InputAdornment,
+  ToggleButtonGroup,
+  ToggleButton,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemText,
+  Tooltip,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
+import SearchIcon from '@mui/icons-material/Search'
+import ViewModuleIcon from '@mui/icons-material/ViewModule'
+import ViewListIcon from '@mui/icons-material/ViewList'
 import { api, ApiError } from '../api'
 import type { Project, ProjectStatus } from '../types'
 
@@ -41,11 +52,19 @@ const STATUS_LABELS: Record<ProjectStatus, string> = {
   cancelled: 'Cancelled',
 }
 
+type ViewMode = 'cards' | 'list'
+
+const VIEW_MODE_KEY = 'agent_gtd-projects-view'
+
 export default function Projects() {
   const navigate = useNavigate()
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    () => (localStorage.getItem(VIEW_MODE_KEY) as ViewMode) || 'cards',
+  )
 
   // Create/edit dialog
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -75,6 +94,24 @@ export default function Projects() {
   useEffect(() => {
     loadProjects()
   }, [loadProjects])
+
+  const filteredProjects = useMemo(() => {
+    if (!search.trim()) return projects
+    const q = search.toLowerCase()
+    return projects.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.description.toLowerCase().includes(q) ||
+        p.area.toLowerCase().includes(q),
+    )
+  }, [projects, search])
+
+  const handleViewChange = (_: React.MouseEvent<HTMLElement>, newView: ViewMode | null) => {
+    if (newView) {
+      setViewMode(newView)
+      localStorage.setItem(VIEW_MODE_KEY, newView)
+    }
+  }
 
   const openCreate = () => {
     setEditing(null)
@@ -138,7 +175,7 @@ export default function Projects() {
   return (
     <Box>
       <Box
-        sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}
+        sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}
       >
         <Typography variant="h5">Projects</Typography>
         <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
@@ -167,68 +204,166 @@ export default function Projects() {
           </CardContent>
         </Card>
       ) : (
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-            gap: 2,
-          }}
-        >
-          {projects.map((project) => (
-            <Card key={project.id} sx={{ border: 1, borderColor: 'divider' }}>
-              <CardActionArea onClick={() => navigate(`/projects/${project.id}`)}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                    <Typography variant="h6" noWrap sx={{ flex: 1 }}>
-                      {project.name}
-                    </Typography>
-                    <Chip
-                      label={STATUS_LABELS[project.status]}
-                      color={STATUS_COLORS[project.status]}
+        <>
+          <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center' }}>
+            <TextField
+              size="small"
+              placeholder="Search projects…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              sx={{ flex: 1, maxWidth: 400 }}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+            <ToggleButtonGroup
+              value={viewMode}
+              exclusive
+              onChange={handleViewChange}
+              size="small"
+            >
+              <ToggleButton value="cards">
+                <Tooltip title="Card view">
+                  <ViewModuleIcon fontSize="small" />
+                </Tooltip>
+              </ToggleButton>
+              <ToggleButton value="list">
+                <Tooltip title="List view">
+                  <ViewListIcon fontSize="small" />
+                </Tooltip>
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+
+          {filteredProjects.length === 0 ? (
+            <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+              No projects match &ldquo;{search}&rdquo;
+            </Typography>
+          ) : viewMode === 'cards' ? (
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+                gap: 2,
+              }}
+            >
+              {filteredProjects.map((project) => (
+                <Card key={project.id} sx={{ border: 1, borderColor: 'divider' }}>
+                  <CardActionArea onClick={() => navigate(`/projects/${project.id}`)}>
+                    <CardContent>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                        <Typography variant="h6" noWrap sx={{ flex: 1 }}>
+                          {project.name}
+                        </Typography>
+                        <Chip
+                          label={STATUS_LABELS[project.status]}
+                          color={STATUS_COLORS[project.status]}
+                          size="small"
+                          sx={{ ml: 1 }}
+                        />
+                      </Box>
+                      <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        sx={{
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          minHeight: '2.4em',
+                        }}
+                      >
+                        {project.description || 'No description'}
+                      </Typography>
+                      {project.area && (
+                        <Chip
+                          label={project.area}
+                          size="small"
+                          variant="outlined"
+                          sx={{ mt: 1 }}
+                        />
+                      )}
+                    </CardContent>
+                  </CardActionArea>
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1, pb: 0.5 }}>
+                    <IconButton size="small" onClick={(e) => openEdit(project, e)}>
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton
                       size="small"
-                      sx={{ ml: 1 }}
-                    />
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setDeleteTarget(project)
+                      }}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
                   </Box>
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                      minHeight: '2.4em',
-                    }}
+                </Card>
+              ))}
+            </Box>
+          ) : (
+            <Card sx={{ border: 1, borderColor: 'divider' }}>
+              <List disablePadding>
+                {filteredProjects.map((project, index) => (
+                  <ListItem
+                    key={project.id}
+                    disablePadding
+                    divider={index < filteredProjects.length - 1}
+                    secondaryAction={
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        <IconButton size="small" onClick={(e) => openEdit(project, e)}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDeleteTarget(project)
+                          }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    }
                   >
-                    {project.description || 'No description'}
-                  </Typography>
-                  {project.area && (
-                    <Chip
-                      label={project.area}
-                      size="small"
-                      variant="outlined"
-                      sx={{ mt: 1 }}
-                    />
-                  )}
-                </CardContent>
-              </CardActionArea>
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1, pb: 0.5 }}>
-                <IconButton size="small" onClick={(e) => openEdit(project, e)}>
-                  <EditIcon fontSize="small" />
-                </IconButton>
-                <IconButton
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setDeleteTarget(project)
-                  }}
-                >
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              </Box>
+                    <ListItemButton onClick={() => navigate(`/projects/${project.id}`)}>
+                      <ListItemText
+                        primary={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body1" noWrap>
+                              {project.name}
+                            </Typography>
+                            <Chip
+                              label={STATUS_LABELS[project.status]}
+                              color={STATUS_COLORS[project.status]}
+                              size="small"
+                            />
+                            {project.area && (
+                              <Chip
+                                label={project.area}
+                                size="small"
+                                variant="outlined"
+                              />
+                            )}
+                          </Box>
+                        }
+                        secondary={project.description || undefined}
+                        secondaryTypographyProps={{ noWrap: true }}
+                      />
+                    </ListItemButton>
+                  </ListItem>
+                ))}
+              </List>
             </Card>
-          ))}
-        </Box>
+          )}
+        </>
       )}
 
       {/* Create/Edit Dialog */}
