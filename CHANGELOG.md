@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.23.0 (2026-03-17)
+
+### Features
+
+- Improve projects page with search, list view, and light mode theme
+  ([`aeb90d9`](https://github.com/home/jason/git/agent_gtd/commit/aeb90d91bfd22ce69f490cc4127562fe5d929593))
+
+
 ## v1.22.0 (2026-03-13)
 
 ### Features
