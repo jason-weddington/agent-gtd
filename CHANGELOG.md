@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.23.2 (2026-03-18)
+
+### Bug Fixes
+
+- Simplify light theme to match photoqueue — only set primary, secondary, background
+  ([`724f1cc`](https://github.com/home/jason/git/agent_gtd/commit/724f1cc34f2f9ce2c6f403e281039c54f4431b17))
+
+
 ## v1.23.1 (2026-03-18)
 
 ### Bug Fixes
