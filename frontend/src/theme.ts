@@ -96,60 +96,13 @@ export const lightTheme = createTheme({
     mode: 'light',
     primary: {
       main: '#3d4f5f',
-      light: '#637a8e',
-      dark: '#2a3742',
     },
     secondary: {
       main: '#ff0084',
-      light: '#ff4da6',
-      dark: '#c4005f',
     },
     background: {
       default: '#f5f5f5',
       paper: '#ffffff',
-    },
-    text: {
-      primary: '#1a1a1a',
-      secondary: '#5f6368',
-    },
-    divider: 'rgba(0, 0, 0, 0.10)',
-    action: {
-      hover: 'rgba(0, 0, 0, 0.04)',
-      selected: 'rgba(61, 79, 95, 0.10)',
-    },
-  },
-  components: {
-    ...shared.components,
-    MuiAppBar: {
-      styleOverrides: {
-        root: {
-          backgroundColor: '#ffffff',
-          backgroundImage: 'none',
-          borderBottom: '1px solid rgba(0, 0, 0, 0.10)',
-        },
-      },
-    },
-    MuiDrawer: {
-      styleOverrides: {
-        paper: {
-          backgroundColor: '#fafafa',
-          borderRight: '1px solid rgba(0, 0, 0, 0.08)',
-        },
-      },
-    },
-    MuiListItemButton: {
-      styleOverrides: {
-        root: {
-          borderRadius: 6,
-          margin: '2px 8px',
-          '&.Mui-selected': {
-            backgroundColor: 'rgba(61, 79, 95, 0.10)',
-            '&:hover': {
-              backgroundColor: 'rgba(61, 79, 95, 0.16)',
-            },
-          },
-        },
-      },
     },
   },
 })
