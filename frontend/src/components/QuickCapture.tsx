@@ -100,6 +100,7 @@ export default function QuickCapture({ open, onClose }: QuickCaptureProps) {
       setExpanded(true)
     }
     if (e.key === 'Escape') {
+      e.preventDefault() // prevent browser from exiting fullscreen
       if (expanded) {
         setExpanded(false)
       } else {

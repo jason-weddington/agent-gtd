@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -13,6 +14,19 @@ import Settings from './pages/Settings'
 import WeeklyReview from './pages/WeeklyReview'
 
 export default function App() {
+  // Prevent Escape from exiting browser fullscreen when a dialog is open.
+  // preventDefault() stops the browser's native fullscreen-exit while MUI's
+  // own keydown handler still fires to close the dialog.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && document.querySelector('.MuiDialog-root')) {
+        e.preventDefault()
+      }
+    }
+    document.addEventListener('keydown', handler, true)
+    return () => document.removeEventListener('keydown', handler, true)
+  }, [])
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
