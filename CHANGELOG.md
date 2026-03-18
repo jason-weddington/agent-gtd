@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.23.1 (2026-03-18)
+
+### Bug Fixes
+
+- Prevent Escape key from exiting browser fullscreen when dialogs are open
+  ([`cf863b4`](https://github.com/home/jason/git/agent_gtd/commit/cf863b455df4250fa7daafab7516fd02b40bf63b))
+
+
 ## v1.23.0 (2026-03-17)
 
 ### Features
