@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.24.0 (2026-03-19)
+
+### Features
+
+- Add search to GTD list views and fix quick capture focus
+  ([`e8f881b`](https://github.com/home/jason/git/agent_gtd/commit/e8f881b8b80610982bdb15ccb47c56871d76a89a))
+
+
 ## v1.23.2 (2026-03-18)
 
 ### Bug Fixes
