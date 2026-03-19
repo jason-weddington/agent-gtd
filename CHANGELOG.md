@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.25.0 (2026-03-19)
+
+### Features
+
+- Context-aware quick capture from project views
+  ([`7fad585`](https://github.com/home/jason/git/agent_gtd/commit/7fad585548f3ddfbdc8e22975b4fa79e38cb99ba))
+
+
 ## v1.24.0 (2026-03-19)
 
 ### Features
