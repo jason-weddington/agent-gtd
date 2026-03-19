@@ -553,7 +553,7 @@ export default function ProjectDetail() {
         fullWidth
         maxWidth="sm"
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && !(e.target instanceof HTMLTextAreaElement)) {
+          if (e.key === 'Enter' && !e.shiftKey && ((e.metaKey || e.ctrlKey) || !(e.target instanceof HTMLTextAreaElement))) {
             e.preventDefault()
             if (editName.trim() && !savingProject) handleSaveProject()
           }
@@ -622,7 +622,7 @@ export default function ProjectDetail() {
         fullWidth
         maxWidth="sm"
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && !(e.target instanceof HTMLTextAreaElement)) {
+          if (e.key === 'Enter' && !e.shiftKey && ((e.metaKey || e.ctrlKey) || !(e.target instanceof HTMLTextAreaElement))) {
             e.preventDefault()
             if (itemTitle.trim() && !savingItem) handleSaveItem()
           }
