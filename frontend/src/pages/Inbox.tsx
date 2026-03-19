@@ -92,11 +92,12 @@ export default function Inbox() {
       await api.items.capture(title)
       setCaptureText('')
       await loadData()
-      captureInputRef.current?.focus()
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : 'Failed to capture item')
     } finally {
       setCapturing(false)
+      // Refocus after re-render re-enables the input
+      requestAnimationFrame(() => captureInputRef.current?.focus())
     }
   }
 

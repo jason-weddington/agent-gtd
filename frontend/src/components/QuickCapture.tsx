@@ -86,6 +86,8 @@ export default function QuickCapture({ open, onClose }: QuickCaptureProps) {
       // Keep dialog open on error so user doesn't lose input
     } finally {
       setSaving(false)
+      // Refocus after re-render re-enables the input (toast can steal focus in Safari)
+      requestAnimationFrame(() => inputRef.current?.focus())
     }
   }
 
@@ -229,6 +231,7 @@ export default function QuickCapture({ open, onClose }: QuickCaptureProps) {
         onClose={() => setToast(false)}
         message="Captured to Inbox"
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        disableWindowBlurListener
       />
     </>
   )

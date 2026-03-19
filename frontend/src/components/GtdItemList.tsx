@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Box,
   Typography,
@@ -19,10 +19,12 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  InputAdornment,
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import DoneIcon from '@mui/icons-material/Done'
 import DeleteIcon from '@mui/icons-material/Delete'
+import SearchIcon from '@mui/icons-material/Search'
 import { api, ApiError } from '../api'
 import type { Item, Project, ItemStatus, Priority } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
@@ -62,6 +64,7 @@ export default function GtdItemList({
   const [projectMap, setProjectMap] = useState<Record<string, Project>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   // Edit dialog
   const [editTarget, setEditTarget] = useState<Item | null>(null)
@@ -114,6 +117,17 @@ export default function GtdItemList({
     ]
     return () => { unsubs.forEach((u) => u()) }
   }, [onEvent])
+
+  const filteredItems = useMemo(() => {
+    if (!search.trim()) return items
+    const q = search.toLowerCase()
+    return items.filter(
+      (item) =>
+        item.title.toLowerCase().includes(q) ||
+        item.description.toLowerCase().includes(q) ||
+        (item.projectId && projectMap[item.projectId]?.name.toLowerCase().includes(q)),
+    )
+  }, [items, search, projectMap])
 
   const openEdit = (item: Item) => {
     setEditTarget(item)
@@ -199,8 +213,31 @@ export default function GtdItemList({
           </Typography>
         </Box>
       ) : (
+        <>
+          <TextField
+            size="small"
+            placeholder={`Search ${title.toLowerCase()}…`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            sx={{ mb: 2, maxWidth: 400 }}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" color="action" />
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+
+          {filteredItems.length === 0 ? (
+            <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+              No items match &ldquo;{search}&rdquo;
+            </Typography>
+          ) : (
         <List>
-          {items.map((item) => (
+          {filteredItems.map((item) => (
             <ListItem
               key={item.id}
               secondaryAction={
@@ -257,6 +294,8 @@ export default function GtdItemList({
             </ListItem>
           ))}
         </List>
+          )}
+        </>
       )}
 
       {/* Edit Dialog */}
