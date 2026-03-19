@@ -34,6 +34,7 @@ import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
 import { api, ApiError } from '../api'
 import type { Project, Item, Note, ItemStatus, Priority, ProjectStatus } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
+import { useQuickCapture } from '../contexts/QuickCaptureContext'
 import KanbanBoard from '../components/KanbanBoard'
 import NoteEditor from '../components/NoteEditor'
 
@@ -115,6 +116,7 @@ export default function ProjectDetail() {
   const [deletingNote, setDeletingNote] = useState(false)
 
   const { onEvent } = useEvents()
+  const { setActiveProject } = useQuickCapture()
   const loadDataRef = useRef<() => Promise<void>>(undefined)
 
   const loadData = useCallback(async () => {
@@ -145,6 +147,14 @@ export default function ProjectDetail() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // Set active project for QuickCapture context
+  useEffect(() => {
+    if (project) {
+      setActiveProject({ id: project.id, name: project.name })
+    }
+    return () => setActiveProject(null)
+  }, [project, setActiveProject])
 
   // Re-fetch when relevant entities change via SSE
   useEffect(() => {

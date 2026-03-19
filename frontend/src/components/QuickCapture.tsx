@@ -5,6 +5,8 @@ import {
   Box,
   Collapse,
   FormControl,
+  FormControlLabel,
+  Checkbox,
   InputLabel,
   Select,
   MenuItem,
@@ -18,7 +20,12 @@ import BoltIcon from '@mui/icons-material/Bolt'
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import { forwardRef } from 'react'
 import { api } from '../api'
+import type { ActiveProject } from '../contexts/QuickCaptureContext'
 import type { Project, ItemStatus, Priority } from '../types'
+
+function truncate(s: string, max: number) {
+  return s.length > max ? s.slice(0, max) + '…' : s
+}
 
 const SlideDown = forwardRef(function SlideDown(
   props: TransitionProps & { children: React.ReactElement },
@@ -30,9 +37,10 @@ const SlideDown = forwardRef(function SlideDown(
 interface QuickCaptureProps {
   open: boolean
   onClose: () => void
+  activeProject: ActiveProject | null
 }
 
-export default function QuickCapture({ open, onClose }: QuickCaptureProps) {
+export default function QuickCapture({ open, onClose, activeProject }: QuickCaptureProps) {
   const [title, setTitle] = useState('')
   const [expanded, setExpanded] = useState(false)
   const [projectId, setProjectId] = useState('')
@@ -42,6 +50,8 @@ export default function QuickCapture({ open, onClose }: QuickCaptureProps) {
   const [saving, setSaving] = useState(false)
   const [justCaptured, setJustCaptured] = useState<string | null>(null)
   const [toast, setToast] = useState(false)
+  const [toastMessage, setToastMessage] = useState('Captured to Inbox')
+  const [captureToProject, setCaptureToProject] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Load projects when expanded
@@ -58,24 +68,35 @@ export default function QuickCapture({ open, onClose }: QuickCaptureProps) {
     setStatus('inbox')
     setPriority('normal')
     setJustCaptured(null)
+    setCaptureToProject(false)
   }, [])
 
-  // Reset state when dialog closes
+  // Initialize state when dialog opens/closes
   useEffect(() => {
+    if (open && activeProject) {
+      setCaptureToProject(true)
+    }
     if (!open) reset()
-  }, [open, reset])
+  }, [open, activeProject, reset])
 
   const handleSubmit = async () => {
     const trimmed = title.trim()
     if (!trimmed || saving) return
     setSaving(true)
     try {
-      if (expanded && (projectId || status !== 'inbox' || priority !== 'normal')) {
-        const data: Record<string, unknown> = { title: trimmed, status, priority }
-        if (projectId) data.projectId = projectId
+      const useProject = captureToProject && activeProject
+      if (useProject || (expanded && (projectId || status !== 'inbox' || priority !== 'normal'))) {
+        const data: Record<string, unknown> = {
+          title: trimmed,
+          status: useProject && !expanded ? 'next_action' : status,
+          priority,
+        }
+        data.projectId = useProject ? activeProject.id : projectId || undefined
         await api.items.create(data as Parameters<typeof api.items.create>[0])
+        setToastMessage(useProject ? `Added to ${truncate(activeProject.name, 30)}` : 'Captured to Inbox')
       } else {
         await api.items.capture(trimmed)
+        setToastMessage('Captured to Inbox')
       }
       setJustCaptured(trimmed)
       setTitle('')
@@ -157,6 +178,24 @@ export default function QuickCapture({ open, onClose }: QuickCaptureProps) {
             }}
           />
 
+          {activeProject && (
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={captureToProject}
+                  onChange={(e) => setCaptureToProject(e.target.checked)}
+                  size="small"
+                />
+              }
+              label={
+                <Typography variant="body2" noWrap sx={{ maxWidth: 300 }}>
+                  Add to {truncate(activeProject.name, 30)}
+                </Typography>
+              }
+              sx={{ mt: 0.5, mb: -0.5 }}
+            />
+          )}
+
           {justCaptured && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
               <CheckCircleOutlineIcon sx={{ fontSize: 16, color: 'success.main' }} />
@@ -229,7 +268,7 @@ export default function QuickCapture({ open, onClose }: QuickCaptureProps) {
         open={toast}
         autoHideDuration={3000}
         onClose={() => setToast(false)}
-        message="Captured to Inbox"
+        message={toastMessage}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
         disableWindowBlurListener
       />
