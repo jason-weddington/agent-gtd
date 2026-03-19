@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.26.0 (2026-03-19)
+
+### Features
+
+- Cmd/Ctrl+Enter saves and closes dialogs from textareas
+  ([`db76d2a`](https://github.com/home/jason/git/agent_gtd/commit/db76d2a0335be2ec8380f03fc61d00d8c21b21a6))
+
+
 ## v1.25.0 (2026-03-19)
 
 ### Features
