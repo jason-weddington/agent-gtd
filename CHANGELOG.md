@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.27.0 (2026-03-20)
+
+### Features
+
+- API key auth with MCP auto-login
+  ([`ece6857`](https://github.com/home/jason/git/agent_gtd/commit/ece6857fdd9856a53031c296d43ab2fa369c529e))
+
+
 ## v1.26.0 (2026-03-19)
 
 ### Features
