@@ -9,6 +9,15 @@ export interface AuthResponse {
   user: UserResponse
 }
 
+// --- API Keys ---
+
+export interface ApiKeyInfo {
+  id: string
+  name: string
+  hashPrefix: string
+  createdAt: string
+}
+
 // --- GTD Enums ---
 
 export type ProjectStatus = 'active' | 'completed' | 'on_hold' | 'cancelled'

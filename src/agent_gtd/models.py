@@ -144,6 +144,37 @@ class UserResponse(BaseModel):
     created_at: datetime
 
 
+# --- API Key Schemas ---
+
+
+class CreateApiKeyRequest(BaseModel):
+    """Create a new API key."""
+
+    name: str = ""
+
+
+class ApiKeyResponse(BaseModel):
+    """API key creation response — plaintext key shown only once."""
+
+    api_key: str
+    name: str
+
+
+class ApiKeyInfo(BaseModel):
+    """API key metadata (no secret material)."""
+
+    id: str
+    name: str
+    hash_prefix: str
+    created_at: datetime
+
+
+class ApiKeyListResponse(BaseModel):
+    """List of API keys for the current user."""
+
+    keys: list[ApiKeyInfo]
+
+
 # --- Project Schemas ---
 
 

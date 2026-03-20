@@ -7,7 +7,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from agent_gtd.auth import register_user
+from agent_gtd.auth import generate_api_key, hash_api_key, register_user
 from agent_gtd.database import get_db
 from agent_gtd.mcp_server import mcp
 from agent_gtd.services import project_service
@@ -39,6 +39,28 @@ async def user_id(user):
 
 
 @pytest.fixture
+async def api_key(user_id):
+    """Create an API key for the test user and return the plaintext key."""
+    import uuid
+    from datetime import UTC, datetime
+
+    db = await get_db()
+    key = generate_api_key()
+    h = hash_api_key(key)
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO api_keys (id, user_id, key_hash, name, created_at)"
+        " VALUES ($1, $2, $3, $4, $5)",
+        str(uuid.uuid4()),
+        user_id,
+        h,
+        "test-key",
+        now,
+    )
+    return key
+
+
+@pytest.fixture
 async def project(user_id):
     db = await get_db()
     return await project_service.create_project(db, user_id, name="MCP Project")
@@ -55,57 +77,38 @@ async def mcp_client():
         yield c
 
 
-# --- Registration ---
+# --- Login ---
 
 
-async def test_register_agent(mcp_client, user_id, project_id):
+async def test_login(mcp_client, api_key):
     result = await mcp_client.call_tool(
-        "register_agent",
+        "login",
         {
-            "user_id": user_id,
-            "project_id": project_id,
+            "api_key": api_key,
             "agent_name": "test-agent",
         },
     )
     data = _parse_result(result)
-    assert data["status"] == "registered"
-    assert data["project_id"] == project_id
-    assert data["project_name"] == "MCP Project"
+    assert data["status"] == "logged_in"
+    assert data["user_email"] == "mcp@example.com"
     assert data["agent_name"] == "test-agent"
 
 
-async def test_register_agent_invalid_user(mcp_client, project_id):
-    with pytest.raises(ToolError, match="User not found"):
+async def test_login_invalid_key(mcp_client):
+    with pytest.raises(ToolError, match="Invalid API key"):
         await mcp_client.call_tool(
-            "register_agent",
+            "login",
             {
-                "user_id": "nonexistent",
-                "project_id": project_id,
+                "api_key": "agtd_bogus_key_here",
                 "agent_name": "test-agent",
             },
         )
 
 
-async def test_register_agent_invalid_project(mcp_client, user_id):
-    with pytest.raises(ToolError, match="Project not found"):
-        await mcp_client.call_tool(
-            "register_agent",
-            {
-                "user_id": user_id,
-                "project_id": "nonexistent",
-                "agent_name": "test-agent",
-            },
-        )
-
-
-async def test_switch_project(mcp_client, user_id, project_id):
+async def test_switch_project(mcp_client, api_key, user_id, project_id):
     await mcp_client.call_tool(
-        "register_agent",
-        {
-            "user_id": user_id,
-            "project_id": project_id,
-            "agent_name": "test-agent",
-        },
+        "login",
+        {"api_key": api_key, "agent_name": "test-agent"},
     )
 
     db = await get_db()
@@ -113,9 +116,7 @@ async def test_switch_project(mcp_client, user_id, project_id):
 
     result = await mcp_client.call_tool(
         "switch_project",
-        {
-            "project_id": p2["id"],
-        },
+        {"project_id": p2["id"]},
     )
     data = _parse_result(result)
     assert data["status"] == "switched"
@@ -123,19 +124,30 @@ async def test_switch_project(mcp_client, user_id, project_id):
     assert data["project_name"] == "Project 2"
 
 
-async def test_switch_project_without_registration(mcp_client, project_id):
-    with pytest.raises(ToolError, match="not registered"):
+async def test_switch_project_without_login(mcp_client, project_id):
+    with pytest.raises(ToolError, match="Not logged in"):
         await mcp_client.call_tool(
             "switch_project",
-            {
-                "project_id": project_id,
-            },
+            {"project_id": project_id},
         )
 
 
-async def test_tool_without_registration(mcp_client):
-    with pytest.raises(ToolError, match="not registered"):
+async def test_tool_without_login(mcp_client):
+    with pytest.raises(ToolError, match="Not logged in"):
         await mcp_client.call_tool("list_items")
+
+
+async def test_env_var_auto_login(api_key, monkeypatch):
+    """AGENT_GTD_API_KEY env var auto-authenticates without explicit login."""
+    import agent_gtd.mcp_server as mcp_mod
+
+    monkeypatch.setattr(mcp_mod, "_ENV_API_KEY", api_key)
+
+    async with Client(mcp) as c:
+        # Should work without calling login first
+        result = await c.call_tool("list_items")
+        data = _parse_result(result)
+        assert isinstance(data, list)
 
 
 # --- Discovery (requires session for user_id) ---
@@ -157,18 +169,14 @@ async def test_list_projects_with_status_filter(registered_client, project_id):
     assert len(data) == 0
 
 
-# --- Helper to register an agent for the remaining tests ---
+# --- Helper to login for the remaining tests ---
 
 
 @pytest.fixture
-async def registered_client(mcp_client, user_id, project_id):
+async def registered_client(mcp_client, api_key, project_id):
     await mcp_client.call_tool(
-        "register_agent",
-        {
-            "user_id": user_id,
-            "project_id": project_id,
-            "agent_name": "test-agent",
-        },
+        "login",
+        {"api_key": api_key, "agent_name": "test-agent"},
     )
     return mcp_client
 
@@ -666,7 +674,7 @@ async def test_get_note_not_found(registered_client):
 # --- Session isolation ---
 
 
-async def test_session_isolation(user_id):
+async def test_session_isolation(user_id, api_key):
     """Two clients with different project_id filters see different items."""
     db = await get_db()
     p1 = await project_service.create_project(db, user_id, name="Project A")
@@ -674,20 +682,12 @@ async def test_session_isolation(user_id):
 
     async with Client(mcp) as client1, Client(mcp) as client2:
         await client1.call_tool(
-            "register_agent",
-            {
-                "user_id": user_id,
-                "project_id": p1["id"],
-                "agent_name": "agent-1",
-            },
+            "login",
+            {"api_key": api_key, "agent_name": "agent-1"},
         )
         await client2.call_tool(
-            "register_agent",
-            {
-                "user_id": user_id,
-                "project_id": p2["id"],
-                "agent_name": "agent-2",
-            },
+            "login",
+            {"api_key": api_key, "agent_name": "agent-2"},
         )
 
         await client1.call_tool(

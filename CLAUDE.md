@@ -197,9 +197,9 @@ The existing pages (`Inbox.tsx`, `ProjectDetail.tsx`, `GtdItemList.tsx`, etc.) d
 
 Every session that involves implementation work MUST follow this workflow:
 
-1. **Register immediately.** At the start of any session that will touch code or planning, register with the MCP server:
+1. **Login immediately.** At the start of any session that will touch code or planning, authenticate with the MCP server:
    ```
-   register_agent(user_id=<from data/seed.json>, project_id=<from data/seed.json>, agent_name="claude-code")
+   login(api_key=<from data/seed.json>, agent_name="claude-code")
    ```
 2. **Check the backlog first.** Run `list_items` to see what's already tracked before starting work. The user may refer to items by title or description — find the matching item rather than starting from scratch.
 3. **Capture new work as items.** When the user asks for something new, `add_item` or `inbox_capture` it. Features go to `next_action` or `someday_maybe`. Bugs go to `next_action` with `high` priority. Vague ideas go to `inbox` for later triage.

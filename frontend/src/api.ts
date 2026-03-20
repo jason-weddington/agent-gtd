@@ -1,4 +1,4 @@
-import type { AuthResponse, Item, Note, Project, UserResponse } from './types'
+import type { ApiKeyInfo, AuthResponse, Item, Note, Project, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -72,6 +72,13 @@ export const api = {
       request<AuthResponse>('POST', '/auth/login', { email, password }),
     logout: () => request<void>('POST', '/auth/logout'),
     me: () => request<UserResponse>('GET', '/auth/me'),
+  },
+
+  apiKeys: {
+    create: (name: string) =>
+      request<{ apiKey: string; name: string }>('POST', '/auth/api-keys', { name }),
+    list: () => request<{ keys: ApiKeyInfo[] }>('GET', '/auth/api-keys'),
+    revoke: (id: string) => request<void>('DELETE', `/auth/api-keys/${id}`),
   },
 
   projects: {

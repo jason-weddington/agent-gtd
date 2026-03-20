@@ -91,6 +91,17 @@ _SCHEMA_STATEMENTS: list[str] = [
     """,
     """CREATE INDEX IF NOT EXISTS idx_events_user_created
     ON events (user_id, created_at)""",
+    """
+    CREATE TABLE IF NOT EXISTS api_keys (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        key_hash TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)",
+    "CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id)",
 ]
 
 

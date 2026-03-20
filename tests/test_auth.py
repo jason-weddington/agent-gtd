@@ -12,6 +12,8 @@ from agent_gtd.auth import (
     SECRET_KEY,
     create_token,
     decode_token,
+    generate_api_key,
+    hash_api_key,
     hash_password,
     verify_password,
 )
@@ -73,3 +75,28 @@ def test_hash_verify_any_password(password):
 def test_token_roundtrip_any_user_id(user_id):
     token = create_token(user_id)
     assert decode_token(token) == user_id
+
+
+# --- API key utilities ---
+
+
+def test_generate_api_key_prefix():
+    key = generate_api_key()
+    assert key.startswith("agtd_")
+    assert len(key) > 10
+
+
+def test_generate_api_key_unique():
+    keys = {generate_api_key() for _ in range(10)}
+    assert len(keys) == 10
+
+
+def test_hash_api_key_deterministic():
+    key = generate_api_key()
+    assert hash_api_key(key) == hash_api_key(key)
+
+
+def test_hash_api_key_different_keys():
+    k1 = generate_api_key()
+    k2 = generate_api_key()
+    assert hash_api_key(k1) != hash_api_key(k2)

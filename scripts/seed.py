@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agent_gtd.auth import hash_password
+from agent_gtd.auth import generate_api_key, hash_api_key, hash_password
 from agent_gtd.database import close_db, get_db, init_db
 
 SEED_EMAIL = "admin@local"
@@ -53,13 +53,45 @@ async def main() -> None:
         )
         print(f"Created project: {project_id}")
 
+    # Ensure API key exists
+    row = await db.fetchrow(
+        "SELECT id, key_hash FROM api_keys WHERE user_id = $1", user_id
+    )
+    if row:
+        api_key = None
+        print(f"API key already exists (prefix: {row['key_hash'][:8]}...)")
+    else:
+        api_key = generate_api_key()
+        h = hash_api_key(api_key)
+        now = datetime.now(UTC).isoformat()
+        await db.execute(
+            "INSERT INTO api_keys (id, user_id, key_hash, name, created_at)"
+            " VALUES ($1, $2, $3, $4, $5)",
+            str(uuid.uuid4()), user_id, h, "seed", now,
+        )
+        print(f"Created API key: {api_key}")
+
     # Write seed.json
-    seed_data = {"user_id": user_id, "project_id": project_id}
+    seed_data: dict[str, str] = {
+        "user_id": user_id,
+        "project_id": project_id,
+    }
+    if api_key:
+        seed_data["api_key"] = api_key
+    else:
+        # Preserve existing api_key from seed.json if present
+        if SEED_FILE.exists():
+            existing = json.loads(SEED_FILE.read_text())
+            if "api_key" in existing:
+                seed_data["api_key"] = existing["api_key"]
+
     SEED_FILE.parent.mkdir(parents=True, exist_ok=True)
     SEED_FILE.write_text(json.dumps(seed_data, indent=2) + "\n")
-    print(f"\nSeed IDs written to {SEED_FILE}")
+    print(f"\nSeed data written to {SEED_FILE}")
     print(f"  user_id:    {user_id}")
     print(f"  project_id: {project_id}")
+    if api_key:
+        print(f"  api_key:    {api_key}")
 
     await close_db()
 

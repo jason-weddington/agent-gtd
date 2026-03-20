@@ -1,25 +1,91 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
+  Alert,
   Box,
-  Typography,
+  Button,
   Card,
   CardContent,
-  Switch,
-  FormControlLabel,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   Divider,
+  FormControlLabel,
+  IconButton,
+  List,
+  ListItem,
+  ListItemText,
+  Switch,
+  TextField,
+  Tooltip,
+  Typography,
 } from '@mui/material'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import DeleteIcon from '@mui/icons-material/Delete'
 import { useThemeMode } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../api'
+import type { ApiKeyInfo } from '../types'
 
 export default function Settings() {
   const { mode, toggleTheme } = useThemeMode()
   const { user } = useAuth()
   const [version, setVersion] = useState<string | null>(null)
 
+  // API key state
+  const [apiKeys, setApiKeys] = useState<ApiKeyInfo[]>([])
+  const [newApiKey, setNewApiKey] = useState<{ key: string; name: string } | null>(null)
+  const [apiKeyCopied, setApiKeyCopied] = useState(false)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [newKeyName, setNewKeyName] = useState('')
+  const [revokeTarget, setRevokeTarget] = useState<ApiKeyInfo | null>(null)
+
   useEffect(() => {
     api.config.get().then((cfg) => setVersion(cfg.version)).catch(() => {})
   }, [])
+
+  const loadApiKeys = useCallback(() => {
+    api.apiKeys.list().then(({ keys }) => setApiKeys(keys)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    loadApiKeys()
+  }, [loadApiKeys])
+
+  const handleCreateApiKey = async () => {
+    const name = newKeyName.trim() || 'Untitled'
+    try {
+      const { apiKey } = await api.apiKeys.create(name)
+      setNewApiKey({ key: apiKey, name })
+      setApiKeyCopied(false)
+      setCreateDialogOpen(false)
+      setNewKeyName('')
+      loadApiKeys()
+    } catch {
+      // handled by api client
+    }
+  }
+
+  const handleCopyApiKey = async () => {
+    if (!newApiKey) return
+    await navigator.clipboard.writeText(newApiKey.key)
+    setApiKeyCopied(true)
+  }
+
+  const handleRevokeApiKey = async () => {
+    if (!revokeTarget) return
+    try {
+      await api.apiKeys.revoke(revokeTarget.id)
+      setApiKeys((prev) => prev.filter((k) => k.id !== revokeTarget.id))
+      if (newApiKey && revokeTarget.name === newApiKey.name) {
+        setNewApiKey(null)
+      }
+      setRevokeTarget(null)
+    } catch {
+      // handled by api client
+    }
+  }
 
   return (
     <Box sx={{ maxWidth: 600 }}>
@@ -43,7 +109,7 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      <Card sx={{ border: 1, borderColor: 'divider' }}>
+      <Card sx={{ border: 1, borderColor: 'divider', mb: 3 }}>
         <CardContent>
           <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600 }}>
             Account
@@ -58,11 +124,133 @@ export default function Settings() {
         </CardContent>
       </Card>
 
+      <Card sx={{ border: 1, borderColor: 'divider', mb: 3 }}>
+        <CardContent>
+          <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600 }}>
+            API Access
+          </Typography>
+          <Divider sx={{ my: 1 }} />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            API keys allow MCP clients and agents to authenticate without a password.
+          </Typography>
+
+          {newApiKey && (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+              action={
+                <Tooltip title={apiKeyCopied ? 'Copied!' : 'Copy to clipboard'}>
+                  <IconButton size="small" onClick={handleCopyApiKey}>
+                    <ContentCopyIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              }
+            >
+              <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                {newApiKey.name}
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}
+              >
+                {newApiKey.key}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Copy now — it won't be shown again.
+              </Typography>
+            </Alert>
+          )}
+
+          {apiKeys.length > 0 && (
+            <List dense disablePadding>
+              {apiKeys.map((k) => (
+                <ListItem
+                  key={k.id}
+                  secondaryAction={
+                    <IconButton
+                      edge="end"
+                      size="small"
+                      onClick={() => setRevokeTarget(k)}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  }
+                >
+                  <ListItemText
+                    primary={k.name || 'Untitled'}
+                    secondary={`agtd_...${k.hashPrefix} · ${new Date(k.createdAt).toLocaleDateString()}`}
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
+
+          <Button
+            variant="outlined"
+            size="small"
+            sx={{ mt: 1 }}
+            onClick={() => setCreateDialogOpen(true)}
+          >
+            Create API Key
+          </Button>
+        </CardContent>
+      </Card>
+
       {version && (
         <Typography variant="body2" color="text.disabled" sx={{ mt: 3, textAlign: 'center' }}>
           v{version}
         </Typography>
       )}
+
+      {/* Create API Key Dialog */}
+      <Dialog
+        open={createDialogOpen}
+        onClose={() => setCreateDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Create API Key</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Key name"
+            placeholder="e.g. claude-code"
+            value={newKeyName}
+            onChange={(e) => setNewKeyName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleCreateApiKey()
+            }}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleCreateApiKey} variant="contained">
+            Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Revoke Confirmation Dialog */}
+      <Dialog
+        open={revokeTarget !== null}
+        onClose={() => setRevokeTarget(null)}
+      >
+        <DialogTitle>Revoke API Key</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Revoke "{revokeTarget?.name || 'Untitled'}"? Any agents using this key
+            will lose access immediately.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRevokeTarget(null)}>Cancel</Button>
+          <Button onClick={handleRevokeApiKey} color="error">
+            Revoke
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

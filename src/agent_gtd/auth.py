@@ -1,6 +1,8 @@
-"""Authentication utilities: password hashing, JWT, and FastAPI dependency."""
+"""Authentication utilities: password hashing, JWT, API keys, and FastAPI dependency."""
 
+import hashlib
 import os
+import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -23,6 +25,16 @@ ALGORITHM = "HS256"
 TOKEN_EXPIRY_HOURS = 72
 
 _bearer = HTTPBearer()
+
+
+def generate_api_key() -> str:
+    """Generate a new API key with identifiable prefix."""
+    return "agtd_" + secrets.token_urlsafe(32)
+
+
+def hash_api_key(key: str) -> str:
+    """Hash an API key with SHA-256 for fast lookup."""
+    return hashlib.sha256(key.encode()).hexdigest()
 
 
 def hash_password(password: str) -> str:
@@ -72,11 +84,34 @@ def decode_token(token: str) -> str:
         ) from None
 
 
+async def _authenticate_api_key(token: str) -> User:
+    """Try to authenticate via API key. Returns User or raises 401."""
+    db = await get_db()
+    h = hash_api_key(token)
+    row = await db.fetchrow("SELECT user_id FROM api_keys WHERE key_hash = $1", h)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key",
+        )
+    user_row = await db.fetchrow("SELECT * FROM users WHERE id = $1", row["user_id"])
+    if user_row is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+    return User(**row_to_dict(user_row))
+
+
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
 ) -> User:
-    """FastAPI dependency that extracts and validates the current user."""
-    return await get_current_user_from_token(credentials.credentials)
+    """FastAPI dependency: authenticate via JWT or API key."""
+    token = credentials.credentials
+    try:
+        return await get_current_user_from_token(token)
+    except HTTPException:
+        return await _authenticate_api_key(token)
 
 
 async def get_current_user_from_token(token: str) -> User:

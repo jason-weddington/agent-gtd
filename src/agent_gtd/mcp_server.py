@@ -1,5 +1,6 @@
 """MCP server for Agent GTD — AI agent interface to the GTD system."""
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -8,6 +9,7 @@ from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from agent_gtd.auth import hash_api_key
 from agent_gtd.database import (
     LOCAL_USER_ID,
     close_db,
@@ -34,14 +36,16 @@ async def mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
 
 _LOCAL_MODE = is_local_mode()
 
+_ENV_API_KEY = os.environ.get("AGENT_GTD_API_KEY", "")
+
 _instructions = (
     "GTD (Getting Things Done) task management system. "
     "Use item and note tools to manage work."
-    if _LOCAL_MODE
+    if _LOCAL_MODE or _ENV_API_KEY
     else (
         "GTD (Getting Things Done) task management system. "
-        "Call register_agent first with a valid user_id and project_id "
-        "to start working. Then use item and note tools to manage work."
+        "Call login first with a valid api_key to authenticate. "
+        "Then use item and note tools to manage work."
     )
 )
 
@@ -56,24 +60,48 @@ mcp = FastMCP(
 
 
 async def _get_session(ctx: Context) -> dict[str, str]:
-    """Get the registered agent session from context state.
+    """Get the agent session from context state.
 
-    In local mode, auto-creates a default session if none exists.
-
-    Raises:
-        ToolError: If the agent hasn't registered yet (non-local mode).
+    Session is resolved in order:
+    1. Existing session in context state (from prior login call).
+    2. Local mode: auto-creates a default session.
+    3. AGENT_GTD_API_KEY env var: auto-authenticates on first call.
+    4. Otherwise raises ToolError.
     """
     session: dict[str, str] | None = await ctx.get_state("agent_session")
-    if session is None:
-        if _LOCAL_MODE:
-            session = {
-                "user_id": LOCAL_USER_ID,
-                "agent_name": "local-agent",
-            }
-            await ctx.set_state("agent_session", session)
-        else:
-            raise ToolError("Agent not registered — call register_agent first")
-    return session
+    if session is not None:
+        return session
+
+    if _LOCAL_MODE:
+        session = {
+            "user_id": LOCAL_USER_ID,
+            "agent_name": "local-agent",
+        }
+        await ctx.set_state("agent_session", session)
+        return session
+
+    if _ENV_API_KEY:
+        session = await _login_with_key(_ENV_API_KEY, "mcp-agent")
+        await ctx.set_state("agent_session", session)
+        return session
+
+    raise ToolError("Not logged in — call login first")
+
+
+async def _login_with_key(api_key: str, agent_name: str) -> dict[str, str]:
+    """Validate an API key and return a session dict."""
+    db = await get_db()
+    h = hash_api_key(api_key)
+    row = await db.fetchrow("SELECT user_id FROM api_keys WHERE key_hash = $1", h)
+    if row is None:
+        raise ToolError("Invalid API key")
+
+    user_id = row["user_id"]
+    user_row = await db.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
+    if user_row is None:
+        raise ToolError("User not found for this API key")
+
+    return {"user_id": user_id, "agent_name": agent_name}
 
 
 async def _build_project_map(db: Any, user_id: str) -> dict[str, str]:
@@ -102,7 +130,7 @@ def _format_note(
     return result
 
 
-# --- Registration tools (multi-user mode only) ---
+# --- Auth tools (multi-user mode only) ---
 
 
 if not _LOCAL_MODE:
@@ -110,52 +138,36 @@ if not _LOCAL_MODE:
     @mcp.tool(
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
     )
-    async def register_agent(
-        user_id: str,
-        project_id: str,
+    async def login(
+        api_key: str,
         agent_name: str,
         ctx: Context,
     ) -> dict[str, str]:
-        """Register an agent session for a user and project.
+        """Authenticate with an API key to start a session.
 
-        Must be called before using project-scoped tools. Validates that
-        the user and project exist and that the project belongs to the user.
+        Must be called before using any other tools. Validates the API key
+        and establishes a session for the owning user.
 
         Args:
-            user_id: ID of the user account to operate as.
-            project_id: ID of the project to work in.
+            api_key: API key (starts with agtd_).
             agent_name: Name of the agent (used for created_by, assigned_to).
             ctx: MCP context (injected automatically).
 
         Returns:
-            Registration confirmation with status, project_id, and agent_name.
+            Login confirmation with status, user email, and agent_name.
         """
+        session = await _login_with_key(api_key, agent_name)
+        await ctx.set_state("agent_session", session)
+
         db = await get_db()
-
-        # Validate user exists
-        row = await db.fetchrow("SELECT id FROM users WHERE id = $1", user_id)
-        if row is None:
-            raise ToolError(f"User not found: {user_id}")
-
-        # Validate project exists and belongs to user
-        try:
-            project = await project_service.get_project(db, user_id, project_id)
-        except NotFoundError:
-            raise ToolError(f"Project not found: {project_id}") from None
-
-        await ctx.set_state(
-            "agent_session",
-            {
-                "user_id": user_id,
-                "project_id": project_id,
-                "agent_name": agent_name,
-            },
+        user_row = await db.fetchrow(
+            "SELECT email FROM users WHERE id = $1",
+            session["user_id"],
         )
 
         return {
-            "status": "registered",
-            "project_id": project_id,
-            "project_name": project["name"],
+            "status": "logged_in",
+            "user_email": user_row["email"] if user_row else "",
             "agent_name": agent_name,
         }
 
@@ -166,9 +178,10 @@ if not _LOCAL_MODE:
         project_id: str,
         ctx: Context,
     ) -> dict[str, str]:
-        """Switch the registered agent to a different project.
+        """Switch the current project context.
 
-        Requires prior registration via register_agent.
+        Requires prior login. Sets the active project for context,
+        though most tools accept project_id as an explicit parameter.
 
         Args:
             project_id: ID of the project to switch to.
