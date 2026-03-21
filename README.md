@@ -40,31 +40,53 @@ uv run python scripts/seed.py   # Creates admin user (admin@local / admin)
 
 The app includes an MCP server for managing GTD items from AI agents (Claude Code, etc.).
 
-### Add to Claude Code
+### Local mode
 
-Create or edit `.mcp.json` in your project root:
+In local mode (no `AGENT_GTD_DATABASE_URL`), the MCP server uses SQLite and auto-authenticates — no setup needed.
 
-```json
-{
-  "mcpServers": {
-    "agent-gtd": {
-      "type": "stdio",
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/agent_gtd", "agent-gtd-mcp"]
-    }
-  }
+### Multi-user mode (PostgreSQL)
+
+Authentication uses API keys. Get one, set it in your environment, and the MCP server handles the rest.
+
+**1. Get an API key**
+
+Either generate one with the seed script:
+
+```bash
+uv run python scripts/seed.py   # Prints the key
+```
+
+Or log into the web UI, go to **Settings > API Access**, and create one there.
+
+**2. Set `AGENT_GTD_API_KEY` in your environment**
+
+How you do this is up to you:
+
+```bash
+# Shell profile (~/.zshrc, ~/.bashrc)
+export AGENT_GTD_API_KEY=agtd_...
+
+# direnv (.envrc)
+export AGENT_GTD_API_KEY=agtd_...
+
+# Claude Code MCP config (~/.claude.json)
+"agent-gtd": {
+  "type": "stdio",
+  "command": "uv",
+  "args": ["run", "--directory", "/path/to/agent_gtd", "agent-gtd-mcp"],
+  "env": { "AGENT_GTD_API_KEY": "agtd_..." }
 }
 ```
 
-In local mode (no `AGENT_GTD_DATABASE_URL`), the MCP server auto-registers with a default user and project — no setup needed.
+When the env var is set, the MCP server auto-authenticates on first tool call. No explicit `login` step needed.
 
-With PostgreSQL, call `register_agent` first with your `user_id` and `project_id` from `data/seed.json`.
+**Key management:** Create multiple keys (one per machine) from the Settings page. Revoke individually if a machine is lost or compromised.
 
 ### Available Tools
 
 | Tool | Description |
 |------|-------------|
-| `register_agent` | Register with user/project IDs |
+| `login` | Authenticate with API key (not needed if env var is set) |
 | `inbox_capture` | Quick-capture to inbox |
 | `add_item` | Create an item with status, priority, labels |
 | `update_item` | Update an existing item |
@@ -74,7 +96,8 @@ With PostgreSQL, call `register_agent` first with your `user_id` and `project_id
 | `claim_item` / `release_item` | Lock/unlock items for concurrent agents |
 | `add_note` / `update_note` | Create or update project notes |
 | `list_notes` / `get_note` | Read project notes |
-| `list_projects` | List available projects |
+| `list_projects` / `add_project` | Manage projects |
+| `switch_project` | Set active project context |
 
 ## Development
 
