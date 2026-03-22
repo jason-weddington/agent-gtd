@@ -132,9 +132,13 @@ async def test_switch_project_without_login(mcp_client, project_id):
         )
 
 
-async def test_tool_without_login(mcp_client):
-    with pytest.raises(ToolError, match="Not logged in"):
-        await mcp_client.call_tool("list_items")
+async def test_tool_without_login(monkeypatch):
+    import agent_gtd.mcp_server as mcp_mod
+
+    monkeypatch.setattr(mcp_mod, "_ENV_API_KEY", "")
+    async with Client(mcp) as c:
+        with pytest.raises(ToolError, match="Not logged in"):
+            await c.call_tool("list_items")
 
 
 async def test_env_var_auto_login(api_key, monkeypatch):
