@@ -9,6 +9,7 @@ import ssl
 from typing import Any, Protocol
 
 import httpx
+import truststore
 from fastmcp.exceptions import ToolError
 
 
@@ -434,7 +435,7 @@ class HttpBackend:
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=30.0,
-            verify=ssl.create_default_context(),
+            verify=truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT),
         )
         self._project_cache: dict[str, str] | None = None
 
