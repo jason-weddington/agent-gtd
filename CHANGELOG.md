@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.29.0 (2026-03-22)
+
+### Chores
+
+- Remove redundant test_switch_project_without_login
+  ([`14c0d1d`](https://github.com/home/jason/git/agent_gtd/commit/14c0d1db8363bec2f46bdc25d58ab50b61b0d180))
+
+### Features
+
+- MCP HTTP backend — remote mode calls FastAPI API instead of DB
+  ([`4d4decd`](https://github.com/home/jason/git/agent_gtd/commit/4d4decde295bb13b906a7b1c483c0dbeb9b314c5))
+
+
 ## v1.28.2 (2026-03-22)
 
 ### Bug Fixes
