@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.28.1 (2026-03-22)
+
+### Bug Fixes
+
+- Clear _ENV_API_KEY in test_tool_without_login to avoid auto-login
+  ([`fc47ace`](https://github.com/home/jason/git/agent_gtd/commit/fc47ace95bcbec725ff85d454912f639d33f8aaf))
+
+
 ## v1.28.0 (2026-03-22)
 
 ### Documentation
