@@ -24,10 +24,13 @@ import {
   MenuItem,
   ToggleButtonGroup,
   ToggleButton,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
+import DoneIcon from '@mui/icons-material/Done'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ViewListIcon from '@mui/icons-material/ViewList'
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
@@ -108,6 +111,9 @@ export default function ProjectDetail() {
   const [itemView, setItemView] = useState<'list' | 'board'>(() => {
     return (localStorage.getItem(`gtd_view_${projectId}`) as 'list' | 'board') || 'list'
   })
+
+  // Show completed items toggle
+  const [showCompleted, setShowCompleted] = useState(false)
 
   // Delete confirmation
   const [deleteItemTarget, setDeleteItemTarget] = useState<Item | null>(null)
@@ -280,6 +286,17 @@ export default function ProjectDetail() {
     }
   }
 
+  const handleCompleteItem = async (item: Item) => {
+    try {
+      await api.items.update(item.id, { status: 'done' })
+      await loadData()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : 'Failed to mark done')
+    }
+  }
+
+  const visibleItems = showCompleted ? items : items.filter((i) => i.status !== 'done')
+
   // --- Notes ---
   const openCreateNote = () => {
     setEditingNote(null)
@@ -379,14 +396,28 @@ export default function ProjectDetail() {
 
       {/* Tabs */}
       <Tabs value={tab} onChange={(_, v: number) => setTab(v)} sx={{ mb: 2 }}>
-        <Tab label={`Items (${items.length})`} />
+        <Tab label={`Items (${visibleItems.length})`} />
         <Tab label={`Notes (${notes.length})`} />
       </Tabs>
 
       {/* Items Tab */}
       {tab === 0 && (
         <Box>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            {itemView === 'list' && (
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    size="small"
+                    checked={showCompleted}
+                    onChange={(e) => setShowCompleted(e.target.checked)}
+                  />
+                }
+                label={<Typography variant="body2">Show completed</Typography>}
+                sx={{ mr: 'auto' }}
+              />
+            )}
+            {itemView !== 'list' && <Box sx={{ flex: 1 }} />}
             <ToggleButtonGroup
               size="small"
               value={itemView}
@@ -418,13 +449,15 @@ export default function ProjectDetail() {
               onDeleteItem={setDeleteItemTarget}
               onAddItem={openCreateItemWithStatus}
             />
-          ) : items.length === 0 ? (
+          ) : visibleItems.length === 0 ? (
             <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-              No items in this project yet.
+              {items.length === 0
+                ? 'No items in this project yet.'
+                : 'All items are completed.'}
             </Typography>
           ) : (
             <List>
-              {items.map((item) => (
+              {visibleItems.map((item) => (
                 <ListItem
                   key={item.id}
                   onClick={() => openEditItem(item)}
@@ -433,6 +466,11 @@ export default function ProjectDetail() {
                       <IconButton size="small" onClick={(e) => { e.stopPropagation(); openEditItem(item) }}>
                         <EditIcon fontSize="small" />
                       </IconButton>
+                      {item.status !== 'done' && (
+                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleCompleteItem(item) }} title="Done">
+                          <DoneIcon fontSize="small" />
+                        </IconButton>
+                      )}
                       <IconButton
                         size="small"
                         onClick={(e) => { e.stopPropagation(); setDeleteItemTarget(item) }}
