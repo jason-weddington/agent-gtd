@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.28.2 (2026-03-22)
+
+### Bug Fixes
+
+- Clear _ENV_API_KEY in test_switch_project_without_login too
+  ([`416b572`](https://github.com/home/jason/git/agent_gtd/commit/416b572d4b02143d8e87ac90a06036b8348c4182))
+
+
 ## v1.28.1 (2026-03-22)
 
 ### Bug Fixes
