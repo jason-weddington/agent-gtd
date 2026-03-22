@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.29.1 (2026-03-22)
+
+### Bug Fixes
+
+- Use system trust store for HttpBackend SSL verification
+  ([`6d2773c`](https://github.com/home/jason/git/agent_gtd/commit/6d2773ce22614ce20411a2a1f5a4011d04fa17bc))
+
+
 ## v1.29.0 (2026-03-22)
 
 ### Chores
