@@ -7,8 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import decode_json_list, get_db
-from agent_gtd.exceptions import NotFoundError, VersionConflictError
+from agent_gtd.exceptions import (
+    AlreadyClaimedError,
+    NotFoundError,
+    VersionConflictError,
+)
 from agent_gtd.models import (
+    ClaimItemRequest,
     CreateItemRequest,
     InboxCaptureRequest,
     ItemResponse,
@@ -51,6 +56,7 @@ async def list_items(
     item_status: Annotated[ItemStatus | None, Query(alias="status")] = None,
     project_id: str | None = None,
     priority: Priority | None = None,
+    assigned_to: str | None = None,
 ) -> list[ItemResponse]:
     """List items for the current user, with optional filters."""
     db = await get_db()
@@ -60,6 +66,7 @@ async def list_items(
         status=item_status.value if item_status else None,
         project_id=project_id,
         priority=priority.value if priority else None,
+        assigned_to=assigned_to,
     )
     return [_item_response(r) for r in rows]
 
@@ -81,6 +88,7 @@ async def create_item(
             status=body.status.value,
             priority=body.priority.value,
             due_date=body.due_date,
+            created_by=body.created_by,
             assigned_to=body.assigned_to,
             waiting_on=body.waiting_on,
             sort_order=body.sort_order,
@@ -152,6 +160,54 @@ async def delete_item(
         raise HTTPException(status_code=404, detail="Item not found") from None
 
 
+# --- Item action endpoints ---
+
+
+@router.post("/items/{item_id}/complete", response_model=ItemResponse)
+async def complete_item(
+    item_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+) -> ItemResponse:
+    """Mark an item as done."""
+    db = await get_db()
+    try:
+        row = await item_service.complete_item(db, user.id, item_id)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Item not found") from None
+    return _item_response(row)
+
+
+@router.post("/items/{item_id}/claim", response_model=ItemResponse)
+async def claim_item(
+    item_id: str,
+    body: ClaimItemRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> ItemResponse:
+    """Atomically claim an item for an agent."""
+    db = await get_db()
+    try:
+        row = await item_service.claim_item(db, user.id, item_id, body.agent_name)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Item not found") from None
+    except AlreadyClaimedError as e:
+        raise HTTPException(status_code=409, detail=e.detail) from None
+    return _item_response(row)
+
+
+@router.post("/items/{item_id}/release", response_model=ItemResponse)
+async def release_item(
+    item_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+) -> ItemResponse:
+    """Release an item (clear assigned_to)."""
+    db = await get_db()
+    try:
+        row = await item_service.release_item(db, user.id, item_id)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Item not found") from None
+    return _item_response(row)
+
+
 # --- Inbox shortcuts ---
 
 
@@ -172,7 +228,9 @@ async def capture_inbox(
 ) -> ItemResponse:
     """Quick capture to inbox — title only."""
     db = await get_db()
-    row = await item_service.inbox_capture(db, user.id, body.title)
+    row = await item_service.inbox_capture(
+        db, user.id, body.title, created_by=body.created_by
+    )
     return _item_response(row)
 
 
@@ -215,6 +273,7 @@ async def create_project_item(
             status=body.status.value,
             priority=body.priority.value,
             due_date=body.due_date,
+            created_by=body.created_by,
             assigned_to=body.assigned_to,
             waiting_on=body.waiting_on,
             sort_order=body.sort_order,

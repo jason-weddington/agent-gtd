@@ -325,3 +325,133 @@ async def test_item_ownership_isolation(client: AsyncClient):
 
     res = await client.get(f"/api/items/{iid}", headers=headers2)
     assert res.status_code == 404
+
+
+# --- assigned_to filter ---
+
+
+async def test_filter_items_by_assigned_to(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    await client.post(
+        "/api/items",
+        json={"title": "Claimed", "assigned_to": "agent-1", "status": "active"},
+        headers=auth_headers,
+    )
+    await client.post(
+        "/api/items",
+        json={"title": "Unclaimed", "status": "active"},
+        headers=auth_headers,
+    )
+
+    res = await client.get(
+        "/api/items", params={"assigned_to": "agent-1"}, headers=auth_headers
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data) == 1
+    assert data[0]["title"] == "Claimed"
+
+
+# --- created_by passthrough ---
+
+
+async def test_create_item_with_created_by(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/items",
+        json={"title": "Agent task", "created_by": "claude-code"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["created_by"] == "claude-code"
+
+
+async def test_inbox_capture_with_created_by(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/inbox",
+        json={"title": "Quick note", "created_by": "mcp-agent"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["created_by"] == "mcp-agent"
+
+
+# --- Action endpoints: complete, claim, release ---
+
+
+async def test_complete_item(client: AsyncClient, auth_headers: dict[str, str]):
+    res = await client.post(
+        "/api/items",
+        json={"title": "Do it", "status": "active"},
+        headers=auth_headers,
+    )
+    item_id = res.json()["id"]
+
+    res = await client.post(f"/api/items/{item_id}/complete", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["status"] == "done"
+    assert res.json()["completed_at"] is not None
+
+
+async def test_complete_item_not_found(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post("/api/items/nonexistent/complete", headers=auth_headers)
+    assert res.status_code == 404
+
+
+async def test_claim_item(client: AsyncClient, auth_headers: dict[str, str]):
+    res = await client.post(
+        "/api/items",
+        json={"title": "Claimable", "status": "active"},
+        headers=auth_headers,
+    )
+    item_id = res.json()["id"]
+
+    res = await client.post(
+        f"/api/items/{item_id}/claim",
+        json={"agent_name": "test-agent"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["assigned_to"] == "test-agent"
+
+
+async def test_claim_item_already_claimed(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/items",
+        json={"title": "Contested", "status": "active"},
+        headers=auth_headers,
+    )
+    item_id = res.json()["id"]
+
+    await client.post(
+        f"/api/items/{item_id}/claim",
+        json={"agent_name": "agent-1"},
+        headers=auth_headers,
+    )
+    res = await client.post(
+        f"/api/items/{item_id}/claim",
+        json={"agent_name": "agent-2"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 409
+
+
+async def test_release_item(client: AsyncClient, auth_headers: dict[str, str]):
+    res = await client.post(
+        "/api/items",
+        json={"title": "Release me", "status": "active", "assigned_to": "agent-1"},
+        headers=auth_headers,
+    )
+    item_id = res.json()["id"]
+
+    res = await client.post(f"/api/items/{item_id}/release", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["assigned_to"] == ""

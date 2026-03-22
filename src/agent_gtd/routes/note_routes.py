@@ -31,6 +31,26 @@ def _note_response(row: dict[str, object]) -> NoteResponse:
     )
 
 
+# --- All-user notes ---
+
+
+@router.get("/notes", response_model=list[NoteResponse])
+async def list_notes(
+    user: Annotated[User, Depends(get_current_user)],
+    project_id: str | None = None,
+) -> list[NoteResponse]:
+    """List notes for the current user, optionally filtered by project."""
+    db = await get_db()
+    if project_id:
+        try:
+            rows = await note_service.list_project_notes(db, user.id, project_id)
+        except NotFoundError:
+            raise HTTPException(status_code=404, detail="Project not found") from None
+    else:
+        rows = await note_service.list_user_notes(db, user.id)
+    return [_note_response(r) for r in rows]
+
+
 # --- Project-scoped endpoints ---
 
 

@@ -186,3 +186,49 @@ async def test_note_ownership_isolation(client: AsyncClient):
     # User 2 cannot access the note
     res = await client.get(f"/api/notes/{nid}", headers=headers2)
     assert res.status_code == 404
+
+
+# --- GET /api/notes (all-user notes) ---
+
+
+async def test_list_all_notes(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    await client.post(
+        f"/api/projects/{project_id}/notes",
+        json={"title": "Note A"},
+        headers=auth_headers,
+    )
+    # Create a second project with a note
+    res = await client.post(
+        "/api/projects", json={"name": "Project 2"}, headers=auth_headers
+    )
+    pid2 = res.json()["id"]
+    await client.post(
+        f"/api/projects/{pid2}/notes",
+        json={"title": "Note B"},
+        headers=auth_headers,
+    )
+
+    # List all notes
+    res = await client.get("/api/notes", headers=auth_headers)
+    assert res.status_code == 200
+    titles = {n["title"] for n in res.json()}
+    assert titles == {"Note A", "Note B"}
+
+
+async def test_list_notes_filtered_by_project(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    await client.post(
+        f"/api/projects/{project_id}/notes",
+        json={"title": "In project"},
+        headers=auth_headers,
+    )
+
+    res = await client.get(
+        "/api/notes", params={"project_id": project_id}, headers=auth_headers
+    )
+    assert res.status_code == 200
+    assert len(res.json()) == 1
+    assert res.json()[0]["title"] == "In project"

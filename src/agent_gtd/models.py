@@ -220,6 +220,7 @@ class CreateItemRequest(BaseModel):
     status: ItemStatus = ItemStatus.INBOX
     priority: Priority = Priority.NORMAL
     due_date: str | None = None
+    created_by: str = "human"
     assigned_to: str = ""
     waiting_on: str = ""
     sort_order: float = 0
@@ -246,6 +247,13 @@ class InboxCaptureRequest(BaseModel):
     """Quick capture to inbox — title only."""
 
     title: str
+    created_by: str = "human"
+
+
+class ClaimItemRequest(BaseModel):
+    """Claim an item for an agent."""
+
+    agent_name: str
 
 
 class ItemResponse(BaseModel):

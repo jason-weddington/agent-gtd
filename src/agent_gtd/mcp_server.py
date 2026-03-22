@@ -9,39 +9,49 @@ from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from agent_gtd.auth import hash_api_key
-from agent_gtd.database import (
-    LOCAL_USER_ID,
-    close_db,
-    decode_json_list,
-    get_db,
-    init_db,
-    is_local_mode,
-)
 from agent_gtd.exceptions import (
     AlreadyClaimedError,
     NotFoundError,
     VersionConflictError,
 )
-from agent_gtd.services import item_service, note_service, project_service
+from agent_gtd.mcp_backend import LocalBackend, create_backend
+
+_backend = create_backend()
+_HTTP_MODE = not isinstance(_backend, LocalBackend)
+
+_ENV_API_KEY = os.environ.get("AGENT_GTD_API_KEY", "")
 
 
 @asynccontextmanager
 async def mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
-    """Initialize and tear down the database for standalone MCP mode."""
-    await init_db()
-    yield
-    await close_db()
+    """Initialize and tear down resources for standalone MCP mode."""
+    if isinstance(_backend, LocalBackend):
+        from agent_gtd.database import close_db, init_db
+
+        await init_db()
+        yield
+        await close_db()
+    else:
+        yield
+        await _backend.close()
 
 
-_LOCAL_MODE = is_local_mode()
+def _needs_login() -> bool:
+    """Whether the login tool should be registered."""
+    if _HTTP_MODE:
+        return not _ENV_API_KEY
+    # Local mode: check if local-mode SQLite (no auth needed)
+    from agent_gtd.database import is_local_mode
 
-_ENV_API_KEY = os.environ.get("AGENT_GTD_API_KEY", "")
+    return not is_local_mode()
+
+
+_show_login = _needs_login()
 
 _instructions = (
     "GTD (Getting Things Done) task management system. "
     "Use item and note tools to manage work."
-    if _LOCAL_MODE or _ENV_API_KEY
+    if not _show_login
     else (
         "GTD (Getting Things Done) task management system. "
         "Call login first with a valid api_key to authenticate. "
@@ -56,7 +66,7 @@ mcp = FastMCP(
 )
 
 
-# --- Helpers ---
+# --- Session management ---
 
 
 async def _get_session(ctx: Context) -> dict[str, str]:
@@ -64,7 +74,7 @@ async def _get_session(ctx: Context) -> dict[str, str]:
 
     Session is resolved in order:
     1. Existing session in context state (from prior login call).
-    2. Local mode: auto-creates a default session.
+    2. Local mode (SQLite): auto-creates a default session.
     3. AGENT_GTD_API_KEY env var: auto-authenticates on first call.
     4. Otherwise raises ToolError.
     """
@@ -72,68 +82,37 @@ async def _get_session(ctx: Context) -> dict[str, str]:
     if session is not None:
         return session
 
-    if _LOCAL_MODE:
-        session = {
-            "user_id": LOCAL_USER_ID,
-            "agent_name": "local-agent",
-        }
-        await ctx.set_state("agent_session", session)
-        return session
+    # Local SQLite mode — no auth needed
+    if not _HTTP_MODE:
+        from agent_gtd.database import is_local_mode
 
+        if is_local_mode():
+            from agent_gtd.database import LOCAL_USER_ID
+
+            session = {
+                "user_id": LOCAL_USER_ID,
+                "agent_name": "local-agent",
+            }
+            await ctx.set_state("agent_session", session)
+            return session
+
+    # Auto-login via env var
     if _ENV_API_KEY:
-        session = await _login_with_key(_ENV_API_KEY, "mcp-agent")
+        result = await _backend.login(_ENV_API_KEY, "mcp-agent")
+        session = {
+            "user_id": result["user_id"],
+            "agent_name": result["agent_name"],
+        }
         await ctx.set_state("agent_session", session)
         return session
 
     raise ToolError("Not logged in — call login first")
 
 
-async def _login_with_key(api_key: str, agent_name: str) -> dict[str, str]:
-    """Validate an API key and return a session dict."""
-    db = await get_db()
-    h = hash_api_key(api_key)
-    row = await db.fetchrow("SELECT user_id FROM api_keys WHERE key_hash = $1", h)
-    if row is None:
-        raise ToolError("Invalid API key")
-
-    user_id = row["user_id"]
-    user_row = await db.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
-    if user_row is None:
-        raise ToolError("User not found for this API key")
-
-    return {"user_id": user_id, "agent_name": agent_name}
+# --- Auth tools (when login is required) ---
 
 
-async def _build_project_map(db: Any, user_id: str) -> dict[str, str]:
-    """Build {project_id: project_name} map for name resolution."""
-    projects = await project_service.list_projects(db, user_id)
-    return {p["id"]: p["name"] for p in projects}
-
-
-def _format_item(
-    row: dict[str, Any], project_map: dict[str, str] | None = None
-) -> dict[str, Any]:
-    """Format an item row for MCP tool output."""
-    result = {**row, "labels": decode_json_list(str(row["labels"]))}
-    if project_map and row.get("project_id"):
-        result["project_name"] = project_map.get(row["project_id"], "")
-    return result
-
-
-def _format_note(
-    row: dict[str, Any], project_map: dict[str, str] | None = None
-) -> dict[str, Any]:
-    """Format a note row for MCP tool output."""
-    result = {**row, "labels": decode_json_list(str(row["labels"]))}
-    if project_map and row.get("project_id"):
-        result["project_name"] = project_map.get(row["project_id"], "")
-    return result
-
-
-# --- Auth tools (multi-user mode only) ---
-
-
-if not _LOCAL_MODE:
+if _show_login:
 
     @mcp.tool(
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
@@ -156,18 +135,16 @@ if not _LOCAL_MODE:
         Returns:
             Login confirmation with status, user email, and agent_name.
         """
-        session = await _login_with_key(api_key, agent_name)
+        result = await _backend.login(api_key, agent_name)
+        session = {
+            "user_id": result["user_id"],
+            "agent_name": agent_name,
+        }
         await ctx.set_state("agent_session", session)
-
-        db = await get_db()
-        user_row = await db.fetchrow(
-            "SELECT email FROM users WHERE id = $1",
-            session["user_id"],
-        )
 
         return {
             "status": "logged_in",
-            "user_email": user_row["email"] if user_row else "",
+            "user_email": result.get("email", ""),
             "agent_name": agent_name,
         }
 
@@ -191,12 +168,9 @@ if not _LOCAL_MODE:
             Confirmation with new project_id.
         """
         session = await _get_session(ctx)
-        db = await get_db()
 
         try:
-            project = await project_service.get_project(
-                db, session["user_id"], project_id
-            )
+            project = await _backend.get_project(session["user_id"], project_id)
         except NotFoundError:
             raise ToolError(f"Project not found: {project_id}") from None
 
@@ -232,8 +206,7 @@ async def list_projects(
         List of project dicts.
     """
     session = await _get_session(ctx)
-    db = await get_db()
-    return await project_service.list_projects(db, session["user_id"], status=status)
+    return await _backend.list_projects(session["user_id"], status=status)
 
 
 @mcp.tool(
@@ -260,9 +233,7 @@ async def add_project(
         The created project dict.
     """
     session = await _get_session(ctx)
-    db = await get_db()
-    return await project_service.create_project(
-        db,
+    return await _backend.create_project(
         session["user_id"],
         name=name,
         description=description,
@@ -295,21 +266,15 @@ async def inbox_capture(
         The created item dict.
     """
     session = await _get_session(ctx)
-    db = await get_db()
 
     try:
-        row = await item_service.inbox_capture(
-            db,
+        return await _backend.inbox_capture(
             session["user_id"],
             title,
-            project_id=None,
             created_by=session["agent_name"],
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
-
-    project_map = await _build_project_map(db, session["user_id"])
-    return _format_item(row, project_map)
 
 
 @mcp.tool(
@@ -344,14 +309,12 @@ async def add_item(
         The created item dict.
     """
     session = await _get_session(ctx)
-    db = await get_db()
 
     # Inbox items are project-less (global capture bucket).
     effective_project_id = None if status == "inbox" else project_id
 
     try:
-        row = await item_service.create_item(
-            db,
+        return await _backend.create_item(
             session["user_id"],
             title=title,
             description=description,
@@ -363,9 +326,6 @@ async def add_item(
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
-
-    project_map = await _build_project_map(db, session["user_id"])
-    return _format_item(row, project_map)
 
 
 @mcp.tool(
@@ -403,28 +363,23 @@ async def update_item(
         The updated item dict.
     """
     session = await _get_session(ctx)
-    db = await get_db()
 
     try:
-        row = await item_service.update_item(
-            db,
+        return await _backend.update_item(
             session["user_id"],
             item_id,
+            version=version,
             title=title,
             description=description,
             status=status,
             priority=priority,
             assigned_to=assigned_to,
             labels=labels,
-            version=version,
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except VersionConflictError as e:
         raise ToolError(e.detail) from None
-
-    project_map = await _build_project_map(db, session["user_id"])
-    return _format_item(row, project_map)
 
 
 @mcp.tool(
@@ -444,15 +399,11 @@ async def complete_item(
         The updated item dict.
     """
     session = await _get_session(ctx)
-    db = await get_db()
 
     try:
-        row = await item_service.complete_item(db, session["user_id"], item_id)
+        return await _backend.complete_item(session["user_id"], item_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
-
-    project_map = await _build_project_map(db, session["user_id"])
-    return _format_item(row, project_map)
 
 
 @mcp.tool(
@@ -480,18 +431,13 @@ async def list_items(
         List of item dicts.
     """
     session = await _get_session(ctx)
-    db = await get_db()
-
-    rows = await item_service.list_items(
-        db,
+    return await _backend.list_items(
         session["user_id"],
         status=status,
         project_id=project_id,
         priority=priority,
         assigned_to=assigned_to,
     )
-    project_map = await _build_project_map(db, session["user_id"])
-    return [_format_item(r, project_map) for r in rows]
 
 
 @mcp.tool(
@@ -511,15 +457,11 @@ async def get_item(
         The item dict.
     """
     session = await _get_session(ctx)
-    db = await get_db()
 
     try:
-        row = await item_service.get_item(db, session["user_id"], item_id)
+        return await _backend.get_item(session["user_id"], item_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
-
-    project_map = await _build_project_map(db, session["user_id"])
-    return _format_item(row, project_map)
 
 
 @mcp.tool(
@@ -542,19 +484,15 @@ async def claim_item(
         The updated item dict.
     """
     session = await _get_session(ctx)
-    db = await get_db()
 
     try:
-        row = await item_service.claim_item(
-            db, session["user_id"], item_id, session["agent_name"]
+        return await _backend.claim_item(
+            session["user_id"], item_id, session["agent_name"]
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except AlreadyClaimedError as e:
         raise ToolError(e.detail) from None
-
-    project_map = await _build_project_map(db, session["user_id"])
-    return _format_item(row, project_map)
 
 
 @mcp.tool(
@@ -574,15 +512,11 @@ async def release_item(
         The updated item dict.
     """
     session = await _get_session(ctx)
-    db = await get_db()
 
     try:
-        row = await item_service.release_item(db, session["user_id"], item_id)
+        return await _backend.release_item(session["user_id"], item_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
-
-    project_map = await _build_project_map(db, session["user_id"])
-    return _format_item(row, project_map)
 
 
 # --- Note tools ---
@@ -611,11 +545,9 @@ async def add_note(
         The created note dict.
     """
     session = await _get_session(ctx)
-    db = await get_db()
 
     try:
-        row = await note_service.create_note(
-            db,
+        return await _backend.create_note(
             session["user_id"],
             project_id,
             title=title,
@@ -624,9 +556,6 @@ async def add_note(
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
-
-    project_map = await _build_project_map(db, session["user_id"])
-    return _format_note(row, project_map)
 
 
 @mcp.tool(
@@ -652,11 +581,9 @@ async def update_note(
         The updated note dict.
     """
     session = await _get_session(ctx)
-    db = await get_db()
 
     try:
-        row = await note_service.update_note(
-            db,
+        return await _backend.update_note(
             session["user_id"],
             note_id,
             title=title,
@@ -665,9 +592,6 @@ async def update_note(
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
-
-    project_map = await _build_project_map(db, session["user_id"])
-    return _format_note(row, project_map)
 
 
 @mcp.tool(
@@ -689,20 +613,11 @@ async def list_notes(
         List of note dicts.
     """
     session = await _get_session(ctx)
-    db = await get_db()
 
     try:
-        if project_id is not None:
-            rows = await note_service.list_project_notes(
-                db, session["user_id"], project_id
-            )
-        else:
-            rows = await note_service.list_user_notes(db, session["user_id"])
+        return await _backend.list_notes(session["user_id"], project_id=project_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
-
-    project_map = await _build_project_map(db, session["user_id"])
-    return [_format_note(r, project_map) for r in rows]
 
 
 @mcp.tool(
@@ -722,15 +637,11 @@ async def get_note(
         The note dict.
     """
     session = await _get_session(ctx)
-    db = await get_db()
 
     try:
-        row = await note_service.get_note(db, session["user_id"], note_id)
+        return await _backend.get_note(session["user_id"], note_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
-
-    project_map = await _build_project_map(db, session["user_id"])
-    return _format_note(row, project_map)
 
 
 # --- Entry point ---
