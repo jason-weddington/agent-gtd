@@ -9,6 +9,7 @@ from fastmcp.exceptions import ToolError
 
 from agent_gtd.auth import generate_api_key, hash_api_key, register_user
 from agent_gtd.database import get_db
+from agent_gtd.mcp_backend import LocalBackend
 from agent_gtd.mcp_server import mcp
 from agent_gtd.services import project_service
 
@@ -69,6 +70,15 @@ async def project(user_id):
 @pytest.fixture
 async def project_id(project):
     return project["id"]
+
+
+@pytest.fixture(autouse=True)
+def _force_local_backend(monkeypatch):
+    """Ensure MCP tools use LocalBackend regardless of env vars."""
+    import agent_gtd.mcp_server as srv
+
+    monkeypatch.setattr(srv, "_backend", LocalBackend())
+    monkeypatch.setattr(srv, "_HTTP_MODE", False)
 
 
 @pytest.fixture

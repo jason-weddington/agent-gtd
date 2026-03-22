@@ -39,7 +39,7 @@ async def mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
 def _needs_login() -> bool:
     """Whether the login tool should be registered."""
     if _HTTP_MODE:
-        return not _ENV_API_KEY
+        return True
     # Local mode: check if local-mode SQLite (no auth needed)
     from agent_gtd.database import is_local_mode
 
