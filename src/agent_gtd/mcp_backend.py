@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+import ssl
 from typing import Any, Protocol
 
 import httpx
@@ -433,6 +434,7 @@ class HttpBackend:
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=30.0,
+            verify=ssl.create_default_context(),
         )
         self._project_cache: dict[str, str] | None = None
 
