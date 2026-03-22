@@ -124,12 +124,16 @@ async def test_switch_project(mcp_client, api_key, user_id, project_id):
     assert data["project_name"] == "Project 2"
 
 
-async def test_switch_project_without_login(mcp_client, project_id):
-    with pytest.raises(ToolError, match="Not logged in"):
-        await mcp_client.call_tool(
-            "switch_project",
-            {"project_id": project_id},
-        )
+async def test_switch_project_without_login(monkeypatch, project_id):
+    import agent_gtd.mcp_server as mcp_mod
+
+    monkeypatch.setattr(mcp_mod, "_ENV_API_KEY", "")
+    async with Client(mcp) as c:
+        with pytest.raises(ToolError, match="Not logged in"):
+            await c.call_tool(
+                "switch_project",
+                {"project_id": project_id},
+            )
 
 
 async def test_tool_without_login(monkeypatch):
