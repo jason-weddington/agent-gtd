@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.28.0 (2026-03-22)
+
+### Documentation
+
+- Update README with API key auth setup instructions
+  ([`205ebb6`](https://github.com/home/jason/git/agent_gtd/commit/205ebb6df96943f92506ff1cee6ef0b3a2ba171c))
+
+### Features
+
+- Add complete button and hide-completed toggle in project list view
+  ([`1777505`](https://github.com/home/jason/git/agent_gtd/commit/1777505f6cc9b58b673a5e520df633c7e4ea500c))
+
+
 ## v1.27.0 (2026-03-20)
 
 ### Features
