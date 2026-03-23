@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.30.0 (2026-03-23)
+
+### Bug Fixes
+
+- Always register login tool in non-local mode and isolate MCP tests
+  ([`5042375`](https://github.com/home/jason/git/agent_gtd/commit/50423759e7868042da40cefab133020f45af5584))
+
+- Use system trust store for HttpBackend SSL verification
+  ([`6d2773c`](https://github.com/home/jason/git/agent_gtd/commit/6d2773ce22614ce20411a2a1f5a4011d04fa17bc))
+
+- Use truststore for OS-native SSL cert verification
+  ([`a96d78c`](https://github.com/home/jason/git/agent_gtd/commit/a96d78c43223373bcc568fc14208e6c0ddcefe15))
+
+### Features
+
+- Refresh project view after QuickCapture
+  ([`77cb3f1`](https://github.com/home/jason/git/agent_gtd/commit/77cb3f19579bc57f27d5560171622a8ee811e6ed))
+
+
 ## v1.29.0 (2026-03-22)
 
 ### Chores
