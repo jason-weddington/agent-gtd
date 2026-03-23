@@ -10,19 +10,23 @@ export interface ActiveProject {
 interface QuickCaptureContextType {
   openCapture: () => void
   setActiveProject: (project: ActiveProject | null) => void
+  captureCount: number
 }
 
 const QuickCaptureContext = createContext<QuickCaptureContextType>({
   openCapture: () => {},
   setActiveProject: () => {},
+  captureCount: 0,
 })
 
 export function QuickCaptureProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
   const [activeProject, setActiveProject] = useState<ActiveProject | null>(null)
+  const [captureCount, setCaptureCount] = useState(0)
 
   const openCapture = useCallback(() => setOpen(true), [])
   const closeCapture = useCallback(() => setOpen(false), [])
+  const onCaptured = useCallback(() => setCaptureCount((c) => c + 1), [])
 
   // Global Cmd+K / Ctrl+K shortcut
   useHotkeys('meta+k, ctrl+k', (e) => {
@@ -33,9 +37,9 @@ export function QuickCaptureProvider({ children }: { children: React.ReactNode }
   })
 
   return (
-    <QuickCaptureContext.Provider value={{ openCapture, setActiveProject }}>
+    <QuickCaptureContext.Provider value={{ openCapture, setActiveProject, captureCount }}>
       {children}
-      <QuickCapture open={open} onClose={closeCapture} activeProject={activeProject} />
+      <QuickCapture open={open} onClose={closeCapture} activeProject={activeProject} onCaptured={onCaptured} />
     </QuickCaptureContext.Provider>
   )
 }

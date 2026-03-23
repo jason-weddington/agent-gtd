@@ -122,7 +122,7 @@ export default function ProjectDetail() {
   const [deletingNote, setDeletingNote] = useState(false)
 
   const { onEvent } = useEvents()
-  const { setActiveProject } = useQuickCapture()
+  const { setActiveProject, captureCount } = useQuickCapture()
   const loadDataRef = useRef<() => Promise<void>>(undefined)
 
   const loadData = useCallback(async () => {
@@ -153,6 +153,11 @@ export default function ProjectDetail() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // Refresh when items are captured via QuickCapture
+  useEffect(() => {
+    if (captureCount > 0) loadData()
+  }, [captureCount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Set active project for QuickCapture context
   useEffect(() => {

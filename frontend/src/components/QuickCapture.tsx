@@ -38,9 +38,10 @@ interface QuickCaptureProps {
   open: boolean
   onClose: () => void
   activeProject: ActiveProject | null
+  onCaptured?: () => void
 }
 
-export default function QuickCapture({ open, onClose, activeProject }: QuickCaptureProps) {
+export default function QuickCapture({ open, onClose, activeProject, onCaptured }: QuickCaptureProps) {
   const [title, setTitle] = useState('')
   const [expanded, setExpanded] = useState(false)
   const [projectId, setProjectId] = useState('')
@@ -101,6 +102,7 @@ export default function QuickCapture({ open, onClose, activeProject }: QuickCapt
       setJustCaptured(trimmed)
       setTitle('')
       setToast(true)
+      onCaptured?.()
       // Auto-clear the "just captured" indicator
       setTimeout(() => setJustCaptured(null), 1500)
     } catch {
