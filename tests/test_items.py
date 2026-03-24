@@ -294,6 +294,18 @@ async def test_project_scoped_items(
     assert res.json()[0]["title"] == "Project task"
 
 
+async def test_project_scoped_item_defaults_to_next_action(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    res = await client.post(
+        f"/api/projects/{project_id}/items",
+        json={"title": "Default status task"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["status"] == "next_action"
+
+
 async def test_project_scoped_items_not_found(
     client: AsyncClient, auth_headers: dict[str, str]
 ):

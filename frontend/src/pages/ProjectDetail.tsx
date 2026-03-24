@@ -232,7 +232,7 @@ export default function ProjectDetail() {
     setEditingItem(null)
     setItemTitle('')
     setItemDescription('')
-    setItemStatus('active')
+    setItemStatus('next_action')
     setItemPriority('normal')
     setItemDueDate('')
     setItemDialogOpen(true)

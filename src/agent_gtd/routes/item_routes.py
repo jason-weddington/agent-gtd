@@ -264,13 +264,13 @@ async def create_project_item(
     """Create an item in a specific project."""
     db = await get_db()
     try:
+        status = body.status.value if "status" in body.model_fields_set else None
         row = await item_service.create_project_item(
             db,
             user.id,
             project_id,
             title=body.title,
             description=body.description,
-            status=body.status.value,
             priority=body.priority.value,
             due_date=body.due_date,
             created_by=body.created_by,
@@ -278,6 +278,7 @@ async def create_project_item(
             waiting_on=body.waiting_on,
             sort_order=body.sort_order,
             labels=body.labels,
+            **({"status": status} if status is not None else {}),
         )
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None

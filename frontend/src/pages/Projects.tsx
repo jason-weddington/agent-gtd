@@ -30,6 +30,7 @@ import {
   Tooltip,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
+import DoneIcon from '@mui/icons-material/Done'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import SearchIcon from '@mui/icons-material/Search'
@@ -164,6 +165,16 @@ export default function Projects() {
     }
   }
 
+  const handleComplete = async (project: Project, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      await api.projects.update(project.id, { status: 'completed' })
+      await loadProjects()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : 'Failed to complete project')
+    }
+  }
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
@@ -295,6 +306,11 @@ export default function Projects() {
                     <IconButton size="small" onClick={(e) => openEdit(project, e)}>
                       <EditIcon fontSize="small" />
                     </IconButton>
+                    {project.status !== 'completed' && (
+                      <IconButton size="small" onClick={(e) => handleComplete(project, e)} title="Complete">
+                        <DoneIcon fontSize="small" />
+                      </IconButton>
+                    )}
                     <IconButton
                       size="small"
                       onClick={(e) => {
@@ -321,6 +337,11 @@ export default function Projects() {
                         <IconButton size="small" onClick={(e) => openEdit(project, e)}>
                           <EditIcon fontSize="small" />
                         </IconButton>
+                        {project.status !== 'completed' && (
+                          <IconButton size="small" onClick={(e) => handleComplete(project, e)} title="Complete">
+                            <DoneIcon fontSize="small" />
+                          </IconButton>
+                        )}
                         <IconButton
                           size="small"
                           onClick={(e) => {

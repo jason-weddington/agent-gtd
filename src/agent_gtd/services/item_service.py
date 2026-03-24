@@ -388,7 +388,7 @@ async def create_project_item(
     *,
     title: str,
     description: str = "",
-    status: str = ItemStatus.INBOX.value,
+    status: str = ItemStatus.NEXT_ACTION.value,
     priority: str = Priority.NORMAL.value,
     due_date: str | None = None,
     created_by: str = "human",
