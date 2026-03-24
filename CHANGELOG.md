@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.31.0 (2026-03-24)
+
+### Features
+
+- Complete projects from list + default project items to next_action
+  ([`60861a5`](https://github.com/home/jason/git/agent_gtd/commit/60861a5bae9a0fddf9df6180aec556ec0aa1b943))
+
+
 ## v1.30.0 (2026-03-23)
 
 ### Bug Fixes
