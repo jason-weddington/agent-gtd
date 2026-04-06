@@ -138,6 +138,8 @@ async def test_tool_without_login(monkeypatch):
     import agent_gtd.mcp_server as mcp_mod
 
     monkeypatch.setattr(mcp_mod, "_ENV_API_KEY", "")
+    # Force HTTP mode so local-mode auto-session doesn't kick in
+    monkeypatch.setattr(mcp_mod, "_HTTP_MODE", True)
     async with Client(mcp) as c:
         with pytest.raises(ToolError, match="Not logged in"):
             await c.call_tool("list_items")
@@ -721,3 +723,107 @@ async def test_session_isolation(user_id, api_key):
         # Without project_id filter, both see all items
         r_all = _parse_result(await client1.call_tool("list_items"))
         assert len(r_all) == 2
+
+
+# --- Comments ---
+
+
+async def test_add_project_comment(registered_client, project_id):
+    result = await registered_client.call_tool(
+        "add_comment",
+        {
+            "content_markdown": "Project looks great",
+            "project_id": project_id,
+        },
+    )
+    data = _parse_result(result)
+    assert data["content_markdown"] == "Project looks great"
+    assert data["project_id"] == project_id
+    assert data["item_id"] is None
+    assert data["created_by"] == "test-agent"
+
+
+async def test_add_item_comment(registered_client, project_id):
+    created = await registered_client.call_tool(
+        "add_item",
+        {"title": "Commentable", "status": "next_action", "project_id": project_id},
+    )
+    item_id = _parse_result(created)["id"]
+
+    result = await registered_client.call_tool(
+        "add_comment",
+        {
+            "content_markdown": "Working on it",
+            "item_id": item_id,
+        },
+    )
+    data = _parse_result(result)
+    assert data["content_markdown"] == "Working on it"
+    assert data["item_id"] == item_id
+    assert data["project_id"] is None
+
+
+async def test_add_comment_requires_parent(registered_client):
+    with pytest.raises(ToolError, match="Either project_id or item_id"):
+        await registered_client.call_tool(
+            "add_comment",
+            {"content_markdown": "Orphan"},
+        )
+
+
+async def test_add_comment_exclusive_parent(registered_client, project_id):
+    created = await registered_client.call_tool(
+        "add_item",
+        {"title": "Item", "status": "next_action", "project_id": project_id},
+    )
+    item_id = _parse_result(created)["id"]
+
+    with pytest.raises(ToolError, match="only one"):
+        await registered_client.call_tool(
+            "add_comment",
+            {
+                "content_markdown": "Both",
+                "project_id": project_id,
+                "item_id": item_id,
+            },
+        )
+
+
+async def test_list_comments(registered_client, project_id):
+    await registered_client.call_tool(
+        "add_comment",
+        {"content_markdown": "Comment 1", "project_id": project_id},
+    )
+    await registered_client.call_tool(
+        "add_comment",
+        {"content_markdown": "Comment 2", "project_id": project_id},
+    )
+
+    result = await registered_client.call_tool(
+        "list_comments", {"project_id": project_id}
+    )
+    data = _parse_result(result)
+    assert len(data) == 2
+
+
+async def test_update_comment(registered_client, project_id):
+    created = await registered_client.call_tool(
+        "add_comment",
+        {"content_markdown": "Original", "project_id": project_id},
+    )
+    comment_id = _parse_result(created)["id"]
+
+    result = await registered_client.call_tool(
+        "update_comment",
+        {"comment_id": comment_id, "content_markdown": "Edited"},
+    )
+    data = _parse_result(result)
+    assert data["content_markdown"] == "Edited"
+
+
+async def test_update_comment_not_found(registered_client):
+    with pytest.raises(ToolError, match="not found"):
+        await registered_client.call_tool(
+            "update_comment",
+            {"comment_id": "nonexistent", "content_markdown": "Nope"},
+        )

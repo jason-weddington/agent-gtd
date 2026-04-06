@@ -56,6 +56,7 @@ export function useEventStream(
       'item_created', 'item_updated', 'item_deleted',
       'project_created', 'project_updated', 'project_deleted',
       'note_created', 'note_updated', 'note_deleted',
+      'comment_created', 'comment_updated', 'comment_deleted',
     ]
     for (const type of eventTypes) {
       es.addEventListener(type, handleMessage)

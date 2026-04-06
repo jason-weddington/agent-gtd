@@ -70,3 +70,13 @@ export interface Note {
   createdAt: string
   updatedAt: string
 }
+
+export interface Comment {
+  id: string
+  projectId: string | null
+  itemId: string | null
+  contentMarkdown: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}

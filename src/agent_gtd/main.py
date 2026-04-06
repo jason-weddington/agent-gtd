@@ -11,6 +11,7 @@ from agent_gtd.database import close_db, init_db, is_local_mode
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.mcp_server import mcp
 from agent_gtd.routes.auth_routes import router as auth_router
+from agent_gtd.routes.comment_routes import router as comment_router
 from agent_gtd.routes.event_routes import router as event_router
 from agent_gtd.routes.item_routes import router as item_router
 from agent_gtd.routes.note_routes import router as note_router
@@ -44,6 +45,7 @@ app.include_router(auth_router)
 app.include_router(project_router)
 app.include_router(item_router)
 app.include_router(note_router)
+app.include_router(comment_router)
 app.include_router(event_router)
 
 app.mount("/mcp", mcp_app)

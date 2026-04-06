@@ -99,6 +99,19 @@ class Note(BaseModel):
     updated_at: datetime
 
 
+class Comment(BaseModel):
+    """A comment on a project or item."""
+
+    id: str
+    project_id: str | None = None
+    item_id: str | None = None
+    user_id: str
+    content_markdown: str = ""
+    created_by: str = "human"
+    created_at: datetime
+    updated_at: datetime
+
+
 class Event(BaseModel):
     """A server-sent event record."""
 
@@ -304,5 +317,33 @@ class NoteResponse(BaseModel):
     title: str
     content_markdown: str
     labels: list[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+# --- Comment Schemas ---
+
+
+class CreateCommentRequest(BaseModel):
+    """Create a new comment."""
+
+    content_markdown: str
+    created_by: str = "human"
+
+
+class UpdateCommentRequest(BaseModel):
+    """Update a comment. All fields optional."""
+
+    content_markdown: str | None = None
+
+
+class CommentResponse(BaseModel):
+    """Comment data returned from API."""
+
+    id: str
+    project_id: str | None
+    item_id: str | None
+    content_markdown: str
+    created_by: str
     created_at: datetime
     updated_at: datetime

@@ -48,14 +48,16 @@ def _needs_login() -> bool:
 
 _show_login = _needs_login()
 
+# When AGENT_GTD_API_KEY is set, auto-auth in _get_session() handles
+# authentication transparently — don't tell agents to call login.
 _instructions = (
     "GTD (Getting Things Done) task management system. "
-    "Use item and note tools to manage work."
-    if not _show_login
+    "Use item, note, and comment tools to manage work."
+    if not _show_login or _ENV_API_KEY
     else (
         "GTD (Getting Things Done) task management system. "
         "Call login first with a valid api_key to authenticate. "
-        "Then use item and note tools to manage work."
+        "Then use item, note, and comment tools to manage work."
     )
 )
 
@@ -640,6 +642,107 @@ async def get_note(
 
     try:
         return await _backend.get_note(session["user_id"], note_id)
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+
+
+# --- Comment tools ---
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+async def add_comment(
+    content_markdown: str,
+    ctx: Context,
+    project_id: str | None = None,
+    item_id: str | None = None,
+) -> dict[str, Any]:
+    """Add a comment to a project or item.
+
+    Exactly one of project_id or item_id must be provided.
+
+    Args:
+        content_markdown: Comment content in Markdown.
+        ctx: MCP context (injected automatically).
+        project_id: Project to comment on (mutually exclusive with item_id).
+        item_id: Item to comment on (mutually exclusive with project_id).
+
+    Returns:
+        The created comment dict.
+    """
+    if not project_id and not item_id:
+        raise ToolError("Either project_id or item_id is required")
+    if project_id and item_id:
+        raise ToolError("Provide only one of project_id or item_id")
+
+    session = await _get_session(ctx)
+    try:
+        return await _backend.create_comment(
+            session["user_id"],
+            project_id=project_id,
+            item_id=item_id,
+            content_markdown=content_markdown,
+            created_by=session["agent_name"],
+        )
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
+)
+async def list_comments(
+    ctx: Context,
+    project_id: str | None = None,
+    item_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """List comments on a project or item.
+
+    Without filters, lists all comments for the user.
+
+    Args:
+        ctx: MCP context (injected automatically).
+        project_id: Filter by project.
+        item_id: Filter by item.
+
+    Returns:
+        List of comment dicts, oldest first.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.list_comments(
+            session["user_id"], project_id=project_id, item_id=item_id
+        )
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+async def update_comment(
+    comment_id: str,
+    ctx: Context,
+    content_markdown: str | None = None,
+) -> dict[str, Any]:
+    """Update an existing comment.
+
+    Args:
+        comment_id: ID of the comment to update.
+        ctx: MCP context (injected automatically).
+        content_markdown: New content (None = unchanged).
+
+    Returns:
+        The updated comment dict.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.update_comment(
+            session["user_id"],
+            comment_id,
+            content_markdown=content_markdown,
+        )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 

@@ -92,6 +92,25 @@ _SCHEMA_STATEMENTS: list[str] = [
     """CREATE INDEX IF NOT EXISTS idx_events_user_created
     ON events (user_id, created_at)""",
     """
+    CREATE TABLE IF NOT EXISTS comments (
+        id TEXT PRIMARY KEY,
+        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        item_id TEXT REFERENCES items(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        content_markdown TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL DEFAULT 'human',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (
+            (project_id IS NOT NULL AND item_id IS NULL)
+            OR (project_id IS NULL AND item_id IS NOT NULL)
+        )
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_comments_project_id ON comments(project_id)",
+    "CREATE INDEX IF NOT EXISTS idx_comments_item_id ON comments(item_id)",
+    "CREATE INDEX IF NOT EXISTS idx_comments_user_id ON comments(user_id)",
+    """
     CREATE TABLE IF NOT EXISTS api_keys (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(id),

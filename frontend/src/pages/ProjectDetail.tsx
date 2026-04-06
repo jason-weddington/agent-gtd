@@ -26,7 +26,9 @@ import {
   ToggleButton,
   FormControlLabel,
   Checkbox,
+  Divider,
 } from '@mui/material'
+import SendIcon from '@mui/icons-material/Send'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -35,7 +37,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ViewListIcon from '@mui/icons-material/ViewList'
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
 import { api, ApiError } from '../api'
-import type { Project, Item, Note, ItemStatus, Priority, ProjectStatus } from '../types'
+import type { Project, Item, Note, Comment, ItemStatus, Priority, ProjectStatus } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
 import { useQuickCapture } from '../contexts/QuickCaptureContext'
 import KanbanBoard from '../components/KanbanBoard'
@@ -78,9 +80,19 @@ export default function ProjectDetail() {
   const [project, setProject] = useState<Project | null>(null)
   const [items, setItems] = useState<Item[]>([])
   const [notes, setNotes] = useState<Note[]>([])
+  const [comments, setComments] = useState<Comment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState(0)
+
+  // Project comment input
+  const [newComment, setNewComment] = useState('')
+  const [savingComment, setSavingComment] = useState(false)
+
+  // Item comments (loaded when editing)
+  const [itemComments, setItemComments] = useState<Comment[]>([])
+  const [newItemComment, setNewItemComment] = useState('')
+  const [savingItemComment, setSavingItemComment] = useState(false)
 
   // Project edit dialog
   const [editProjectOpen, setEditProjectOpen] = useState(false)
@@ -128,14 +140,16 @@ export default function ProjectDetail() {
   const loadData = useCallback(async () => {
     if (!projectId) return
     try {
-      const [proj, projItems, projNotes] = await Promise.all([
+      const [proj, projItems, projNotes, projComments] = await Promise.all([
         api.projects.get(projectId),
         api.projects.items(projectId),
         api.projects.notes(projectId),
+        api.projects.comments(projectId),
       ])
       setProject(proj)
       setItems(projItems)
       setNotes(projNotes)
+      setComments(projComments)
       setError(null)
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
@@ -178,6 +192,9 @@ export default function ProjectDetail() {
       onEvent('note_deleted', () => { loadDataRef.current?.() }),
       onEvent('project_updated', () => { loadDataRef.current?.() }),
       onEvent('project_deleted', () => { loadDataRef.current?.() }),
+      onEvent('comment_created', () => { loadDataRef.current?.() }),
+      onEvent('comment_updated', () => { loadDataRef.current?.() }),
+      onEvent('comment_deleted', () => { loadDataRef.current?.() }),
     ]
     return () => { unsubs.forEach((u) => u()) }
   }, [onEvent])
@@ -245,7 +262,10 @@ export default function ProjectDetail() {
     setItemStatus(item.status)
     setItemPriority(item.priority)
     setItemDueDate(item.dueDate ?? '')
+    setItemComments([])
+    setNewItemComment('')
     setItemDialogOpen(true)
+    api.items.comments(item.id).then(setItemComments).catch(() => {})
   }
 
   const handleSaveItem = async () => {
@@ -355,6 +375,45 @@ export default function ProjectDetail() {
     }
   }
 
+  // --- Project comments ---
+  const handleAddComment = async () => {
+    if (!projectId || !newComment.trim()) return
+    setSavingComment(true)
+    try {
+      await api.projects.createComment(projectId, { contentMarkdown: newComment })
+      setNewComment('')
+      await loadData()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : 'Failed to add comment')
+    } finally {
+      setSavingComment(false)
+    }
+  }
+
+  const handleDeleteComment = async (commentId: string) => {
+    try {
+      await api.comments.delete(commentId)
+      await loadData()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : 'Failed to delete comment')
+    }
+  }
+
+  // --- Item comments ---
+  const handleAddItemComment = async () => {
+    if (!editingItem || !newItemComment.trim()) return
+    setSavingItemComment(true)
+    try {
+      const created = await api.items.createComment(editingItem.id, { contentMarkdown: newItemComment })
+      setItemComments((prev) => [...prev, created])
+      setNewItemComment('')
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : 'Failed to add comment')
+    } finally {
+      setSavingItemComment(false)
+    }
+  }
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
@@ -403,6 +462,7 @@ export default function ProjectDetail() {
       <Tabs value={tab} onChange={(_, v: number) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label={`Items (${visibleItems.length})`} />
         <Tab label={`Notes (${notes.length})`} />
+        <Tab label={`Comments (${comments.length})`} />
       </Tabs>
 
       {/* Items Tab */}
@@ -589,6 +649,75 @@ export default function ProjectDetail() {
         </Box>
       )}
 
+      {/* Comments Tab */}
+      {tab === 2 && (
+        <Box>
+          {comments.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+              No comments on this project yet.
+            </Typography>
+          ) : (
+            <List>
+              {comments.map((comment) => (
+                <ListItem
+                  key={comment.id}
+                  secondaryAction={
+                    <IconButton
+                      size="small"
+                      onClick={() => handleDeleteComment(comment.id)}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  }
+                  sx={{
+                    border: 1,
+                    borderColor: 'divider',
+                    borderRadius: 1,
+                    mb: 1,
+                  }}
+                >
+                  <ListItemText
+                    primary={comment.contentMarkdown}
+                    secondary={
+                      <Box component="span" sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center' }}>
+                        <Chip label={comment.createdBy} size="small" variant="outlined" />
+                        <Typography variant="caption" color="text.secondary">
+                          {new Date(comment.createdAt).toLocaleString()}
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
+          <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Add a comment..."
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  if (newComment.trim() && !savingComment) handleAddComment()
+                }
+              }}
+              multiline
+              maxRows={4}
+            />
+            <IconButton
+              color="primary"
+              onClick={handleAddComment}
+              disabled={savingComment || !newComment.trim()}
+            >
+              {savingComment ? <CircularProgress size={20} /> : <SendIcon />}
+            </IconButton>
+          </Box>
+        </Box>
+      )}
+
       {/* Edit Project Dialog */}
       <Dialog
         open={editProjectOpen}
@@ -730,6 +859,56 @@ export default function ProjectDetail() {
             type="date"
             slotProps={{ inputLabel: { shrink: true } }}
           />
+          {editingItem && (
+            <>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Comments ({itemComments.length})
+              </Typography>
+              {itemComments.length > 0 && (
+                <List dense sx={{ mb: 1 }}>
+                  {itemComments.map((c) => (
+                    <ListItem key={c.id} sx={{ px: 0 }}>
+                      <ListItemText
+                        primary={c.contentMarkdown}
+                        secondary={
+                          <Box component="span" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                            <Chip label={c.createdBy} size="small" variant="outlined" />
+                            <Typography variant="caption" color="text.secondary">
+                              {new Date(c.createdAt).toLocaleString()}
+                            </Typography>
+                          </Box>
+                        }
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              )}
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  placeholder="Add a comment..."
+                  value={newItemComment}
+                  onChange={(e) => setNewItemComment(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      if (newItemComment.trim() && !savingItemComment) handleAddItemComment()
+                    }
+                  }}
+                />
+                <IconButton
+                  color="primary"
+                  onClick={handleAddItemComment}
+                  disabled={savingItemComment || !newItemComment.trim()}
+                  size="small"
+                >
+                  {savingItemComment ? <CircularProgress size={16} /> : <SendIcon fontSize="small" />}
+                </IconButton>
+              </Box>
+            </>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setItemDialogOpen(false)}>Cancel</Button>

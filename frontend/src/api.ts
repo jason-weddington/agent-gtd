@@ -1,4 +1,4 @@
-import type { ApiKeyInfo, AuthResponse, Item, Note, Project, UserResponse } from './types'
+import type { ApiKeyInfo, AuthResponse, Comment, Item, Note, Project, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -101,6 +101,9 @@ export const api = {
     notes: (id: string) => request<Note[]>('GET', `/projects/${id}/notes`),
     createNote: (id: string, data: { title?: string; contentMarkdown?: string; labels?: string[] }) =>
       request<Note>('POST', `/projects/${id}/notes`, data),
+    comments: (id: string) => request<Comment[]>('GET', `/projects/${id}/comments`),
+    createComment: (id: string, data: { contentMarkdown: string }) =>
+      request<Comment>('POST', `/projects/${id}/comments`, data),
   },
 
   items: {
@@ -120,6 +123,9 @@ export const api = {
     update: (id: string, data: Record<string, unknown>) =>
       request<Item>('PATCH', `/items/${id}`, data),
     delete: (id: string) => request<void>('DELETE', `/items/${id}`),
+    comments: (id: string) => request<Comment[]>('GET', `/items/${id}/comments`),
+    createComment: (id: string, data: { contentMarkdown: string }) =>
+      request<Comment>('POST', `/items/${id}/comments`, data),
   },
 
   notes: {
@@ -127,6 +133,13 @@ export const api = {
     update: (id: string, data: { title?: string; contentMarkdown?: string; labels?: string[] }) =>
       request<Note>('PATCH', `/notes/${id}`, data),
     delete: (id: string) => request<void>('DELETE', `/notes/${id}`),
+  },
+
+  comments: {
+    get: (id: string) => request<Comment>('GET', `/comments/${id}`),
+    update: (id: string, data: { contentMarkdown?: string }) =>
+      request<Comment>('PATCH', `/comments/${id}`, data),
+    delete: (id: string) => request<void>('DELETE', `/comments/${id}`),
   },
 }
 

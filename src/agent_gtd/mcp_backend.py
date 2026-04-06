@@ -111,6 +111,34 @@ class McpBackend(Protocol):
         labels: list[str] | None = None,
     ) -> dict[str, Any]: ...
 
+    async def list_comments(
+        self,
+        user_id: str,
+        *,
+        project_id: str | None = None,
+        item_id: str | None = None,
+    ) -> list[dict[str, Any]]: ...
+
+    async def create_comment(
+        self,
+        user_id: str,
+        *,
+        project_id: str | None = None,
+        item_id: str | None = None,
+        content_markdown: str = "",
+        created_by: str = "human",
+    ) -> dict[str, Any]: ...
+
+    async def update_comment(
+        self,
+        user_id: str,
+        comment_id: str,
+        *,
+        content_markdown: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def delete_comment(self, user_id: str, comment_id: str) -> None: ...
+
     async def close(self) -> None: ...
 
 
@@ -415,6 +443,65 @@ class LocalBackend:
         )
         pm = await self._build_project_map(user_id)
         return self._format_note(row, pm)
+
+    async def list_comments(
+        self,
+        user_id: str,
+        *,
+        project_id: str | None = None,
+        item_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import comment_service
+
+        db = await get_db()
+        return await comment_service.list_comments(
+            db, user_id, project_id=project_id, item_id=item_id
+        )
+
+    async def create_comment(
+        self,
+        user_id: str,
+        *,
+        project_id: str | None = None,
+        item_id: str | None = None,
+        content_markdown: str = "",
+        created_by: str = "human",
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import comment_service
+
+        db = await get_db()
+        return await comment_service.create_comment(
+            db,
+            user_id,
+            project_id=project_id,
+            item_id=item_id,
+            content_markdown=content_markdown,
+            created_by=created_by,
+        )
+
+    async def update_comment(
+        self,
+        user_id: str,
+        comment_id: str,
+        *,
+        content_markdown: str | None = None,
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import comment_service
+
+        db = await get_db()
+        return await comment_service.update_comment(
+            db, user_id, comment_id, content_markdown=content_markdown
+        )
+
+    async def delete_comment(self, user_id: str, comment_id: str) -> None:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import comment_service
+
+        db = await get_db()
+        await comment_service.delete_comment(db, user_id, comment_id)
 
     async def close(self) -> None:
         pass
@@ -752,6 +839,72 @@ class HttpBackend:
         note = resp.json()
         pm = await self._get_project_map()
         return self._enrich_note(note, pm)
+
+    async def list_comments(
+        self,
+        user_id: str,
+        *,
+        project_id: str | None = None,
+        item_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, str] = {}
+        if project_id:
+            params["project_id"] = project_id
+        if item_id:
+            params["item_id"] = item_id
+        resp = await self._client.get(
+            "/api/comments", params=params, headers=self._headers()
+        )
+        self._check(resp)
+        result: list[dict[str, Any]] = resp.json()
+        return result
+
+    async def create_comment(
+        self,
+        user_id: str,
+        *,
+        project_id: str | None = None,
+        item_id: str | None = None,
+        content_markdown: str = "",
+        created_by: str = "human",
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "content_markdown": content_markdown,
+            "created_by": created_by,
+        }
+        if project_id:
+            path = f"/api/projects/{project_id}/comments"
+        elif item_id:
+            path = f"/api/items/{item_id}/comments"
+        else:
+            raise ToolError("Either project_id or item_id is required")
+        resp = await self._client.post(path, json=body, headers=self._headers())
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def update_comment(
+        self,
+        user_id: str,
+        comment_id: str,
+        *,
+        content_markdown: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {}
+        if content_markdown is not None:
+            body["content_markdown"] = content_markdown
+        resp = await self._client.patch(
+            f"/api/comments/{comment_id}", json=body, headers=self._headers()
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def delete_comment(self, user_id: str, comment_id: str) -> None:
+        resp = await self._client.delete(
+            f"/api/comments/{comment_id}", headers=self._headers()
+        )
+        self._check(resp)
 
     async def close(self) -> None:
         await self._client.aclose()
