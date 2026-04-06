@@ -338,3 +338,32 @@ async def test_list_comments_filtered_by_item(
     assert res.status_code == 200
     assert len(res.json()) == 1
     assert res.json()[0]["content_markdown"] == "On item"
+
+
+async def test_list_project_comments_not_found(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Listing comments for a non-existent project returns 404."""
+    fake_id = "00000000-0000-0000-0000-000000000000"
+    res = await client.get(f"/api/projects/{fake_id}/comments", headers=auth_headers)
+    assert res.status_code == 404
+
+
+async def test_list_item_comments_not_found(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Listing comments for a non-existent item returns 404."""
+    fake_id = "00000000-0000-0000-0000-000000000000"
+    res = await client.get(f"/api/items/{fake_id}/comments", headers=auth_headers)
+    assert res.status_code == 404
+
+
+async def test_list_comments_nonexistent_project_filter(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Filtering /comments by non-existent project_id returns 404."""
+    fake_id = "00000000-0000-0000-0000-000000000000"
+    res = await client.get(
+        "/api/comments", params={"project_id": fake_id}, headers=auth_headers
+    )
+    assert res.status_code == 404

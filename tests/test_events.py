@@ -212,6 +212,56 @@ async def test_queue_full_drops_oldest(_setup_db):
     )
 
 
+# --- _format_sse unit tests ---
+
+
+def test_format_sse_basic():
+    """_format_sse produces valid SSE wire format."""
+    from agent_gtd.routes.event_routes import _format_sse
+
+    event = {
+        "id": "evt-001",
+        "event_type": "item_created",
+        "entity_type": "item",
+        "entity_id": "item-123",
+        "project_id": "proj-456",
+        "payload": json.dumps({"title": "Buy milk"}),
+        "created_at": "2026-01-01T00:00:00Z",
+    }
+    result = _format_sse(event)
+    assert result.startswith("id: evt-001\n")
+    assert "event: item_created\n" in result
+    assert result.endswith("\n\n")
+    # Parse the data line
+    data_line = next(line for line in result.split("\n") if line.startswith("data:"))
+    data = json.loads(data_line[len("data: ") :])
+    assert data["eventType"] == "item_created"
+    assert data["entityType"] == "item"
+    assert data["entityId"] == "item-123"
+    assert data["projectId"] == "proj-456"
+    assert data["payload"] == {"title": "Buy milk"}
+    assert data["createdAt"] == "2026-01-01T00:00:00Z"
+
+
+def test_format_sse_null_project():
+    """_format_sse handles null project_id."""
+    from agent_gtd.routes.event_routes import _format_sse
+
+    event = {
+        "id": "evt-002",
+        "event_type": "item_updated",
+        "entity_type": "item",
+        "entity_id": "item-789",
+        "project_id": None,
+        "payload": json.dumps({"title": "Updated"}),
+        "created_at": "2026-01-02T00:00:00Z",
+    }
+    result = _format_sse(event)
+    data_line = next(line for line in result.split("\n") if line.startswith("data:"))
+    data = json.loads(data_line[len("data: ") :])
+    assert data["projectId"] is None
+
+
 # --- SSE endpoint integration tests ---
 
 

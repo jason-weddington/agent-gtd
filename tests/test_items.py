@@ -467,3 +467,33 @@ async def test_release_item(client: AsyncClient, auth_headers: dict[str, str]):
     res = await client.post(f"/api/items/{item_id}/release", headers=auth_headers)
     assert res.status_code == 200
     assert res.json()["assigned_to"] == ""
+
+
+async def test_claim_item_not_found(client: AsyncClient, auth_headers: dict[str, str]):
+    fake_id = "00000000-0000-0000-0000-000000000000"
+    res = await client.post(
+        f"/api/items/{fake_id}/claim",
+        json={"agent_name": "test-agent"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 404
+
+
+async def test_release_item_not_found(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    fake_id = "00000000-0000-0000-0000-000000000000"
+    res = await client.post(f"/api/items/{fake_id}/release", headers=auth_headers)
+    assert res.status_code == 404
+
+
+async def test_create_item_nonexistent_project(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    fake_id = "00000000-0000-0000-0000-000000000000"
+    res = await client.post(
+        f"/api/projects/{fake_id}/items",
+        json={"title": "Orphan item"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 404

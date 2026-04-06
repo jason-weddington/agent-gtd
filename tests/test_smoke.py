@@ -9,6 +9,15 @@ async def test_health(client: AsyncClient):
     assert res.json() == {"status": "ok"}
 
 
+async def test_config(client: AsyncClient):
+    res = await client.get("/api/config")
+    assert res.status_code == 200
+    data = res.json()
+    assert "local_mode" in data
+    assert "version" in data
+    assert isinstance(data["version"], str)
+
+
 async def test_register_and_login(client: AsyncClient):
     # Register
     res = await client.post(
@@ -46,14 +55,16 @@ async def test_projects_crud(client: AsyncClient, auth_headers: dict[str, str]):
     assert res.status_code == 200
     assert len(res.json()) == 1
 
-    # Update the project
+    # Update the project (name, description, area to cover all update branches)
     res = await client.patch(
         f"/api/projects/{project_id}",
-        json={"name": "Updated Project"},
+        json={"name": "Updated Project", "description": "Updated desc", "area": "work"},
         headers=auth_headers,
     )
     assert res.status_code == 200
     assert res.json()["name"] == "Updated Project"
+    assert res.json()["description"] == "Updated desc"
+    assert res.json()["area"] == "work"
 
     # Delete the project
     res = await client.delete(f"/api/projects/{project_id}", headers=auth_headers)
