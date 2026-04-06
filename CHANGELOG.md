@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.33.1 (2026-04-06)
+
+### Bug Fixes
+
+- Restore test coverage above 92% threshold
+  ([`e860b89`](https://github.com/home/jason/git/agent_gtd/commit/e860b8994b5e41f58e35f65d04d8b5944b45aef7))
+
+
 ## v1.33.0 (2026-04-06)
 
 ### Bug Fixes
