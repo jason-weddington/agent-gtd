@@ -42,6 +42,7 @@ import { useEvents } from '../contexts/EventStreamContext'
 import { useQuickCapture } from '../contexts/QuickCaptureContext'
 import KanbanBoard from '../components/KanbanBoard'
 import NoteEditor from '../components/NoteEditor'
+import ItemDetailDrawer from '../components/ItemDetailDrawer'
 
 const STATUS_COLORS: Record<ProjectStatus, 'success' | 'default' | 'warning' | 'error'> = {
   active: 'success',
@@ -118,6 +119,9 @@ export default function ProjectDetail() {
   const [noteTitle, setNoteTitle] = useState('')
   const [noteContent, setNoteContent] = useState('')
   const [savingNote, setSavingNote] = useState(false)
+
+  // Detail drawer
+  const [drawerItem, setDrawerItem] = useState<Item | null>(null)
 
   // View toggle (list vs board)
   const [itemView, setItemView] = useState<'list' | 'board'>(() => {
@@ -510,7 +514,7 @@ export default function ProjectDetail() {
             <KanbanBoard
               items={items}
               onRefresh={loadData}
-              onEditItem={openEditItem}
+              onEditItem={setDrawerItem}
               onDeleteItem={setDeleteItemTarget}
               onAddItem={openCreateItemWithStatus}
             />
@@ -525,7 +529,7 @@ export default function ProjectDetail() {
               {visibleItems.map((item) => (
                 <ListItem
                   key={item.id}
-                  onClick={() => openEditItem(item)}
+                  onClick={() => setDrawerItem(item)}
                   secondaryAction={
                     <Box>
                       <IconButton size="small" onClick={(e) => { e.stopPropagation(); openEditItem(item) }}>
@@ -1001,6 +1005,14 @@ export default function ProjectDetail() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Item Detail Drawer */}
+      <ItemDetailDrawer
+        item={drawerItem}
+        onClose={() => setDrawerItem(null)}
+        onEdit={(item) => { setDrawerItem(null); openEditItem(item) }}
+        projectName={project.name}
+      />
     </Box>
   )
 }

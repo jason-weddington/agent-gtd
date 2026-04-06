@@ -28,6 +28,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import { api, ApiError } from '../api'
 import type { Item, Project, ItemStatus, Priority } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
+import ItemDetailDrawer from './ItemDetailDrawer'
 
 const ITEM_STATUS_LABELS: Record<ItemStatus, string> = {
   inbox: 'Inbox',
@@ -78,6 +79,9 @@ export default function GtdItemList({
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<Item | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // Detail drawer
+  const [drawerItem, setDrawerItem] = useState<Item | null>(null)
 
   const { onEvent } = useEvents()
   const loadDataRef = useRef<() => Promise<void>>(undefined)
@@ -240,17 +244,18 @@ export default function GtdItemList({
           {filteredItems.map((item) => (
             <ListItem
               key={item.id}
+              onClick={() => setDrawerItem(item)}
               secondaryAction={
                 <Box>
-                  <IconButton size="small" onClick={() => openEdit(item)} title="Edit">
+                  <IconButton size="small" onClick={(e) => { e.stopPropagation(); openEdit(item) }} title="Edit">
                     <EditIcon fontSize="small" />
                   </IconButton>
-                  <IconButton size="small" onClick={() => handleDone(item)} title="Done">
+                  <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleDone(item) }} title="Done">
                     <DoneIcon fontSize="small" />
                   </IconButton>
                   <IconButton
                     size="small"
-                    onClick={() => setDeleteTarget(item)}
+                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(item) }}
                     title="Delete"
                   >
                     <DeleteIcon fontSize="small" />
@@ -262,6 +267,8 @@ export default function GtdItemList({
                 borderColor: 'divider',
                 borderRadius: 1,
                 mb: 1,
+                cursor: 'pointer',
+                '&:hover': { bgcolor: 'action.hover' },
               }}
             >
               <ListItemText
@@ -421,6 +428,14 @@ export default function GtdItemList({
           />
         </Box>
       )}
+
+      {/* Item Detail Drawer */}
+      <ItemDetailDrawer
+        item={drawerItem}
+        onClose={() => setDrawerItem(null)}
+        onEdit={(item) => { setDrawerItem(null); openEdit(item) }}
+        projectName={drawerItem?.projectId ? projectMap[drawerItem.projectId]?.name : undefined}
+      />
     </Box>
   )
 }
