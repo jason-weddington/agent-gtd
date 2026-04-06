@@ -14,12 +14,13 @@ import Settings from './pages/Settings'
 import WeeklyReview from './pages/WeeklyReview'
 
 export default function App() {
-  // Prevent Escape from exiting browser fullscreen when a dialog is open.
-  // preventDefault() stops the browser's native fullscreen-exit while MUI's
-  // own keydown handler still fires to close the dialog.
+  // Prevent Escape from exiting browser fullscreen (Safari).
+  // Always intercept Escape at the capture phase so the browser never sees it.
+  // MUI dialogs, react-hotkeys-hook, and our own handlers still fire normally
+  // since they listen on the React/DOM event, not the default browser action.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && document.querySelector('.MuiDialog-root')) {
+      if (e.key === 'Escape') {
         e.preventDefault()
       }
     }
