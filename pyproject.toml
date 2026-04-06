@@ -99,6 +99,11 @@ changelog_file = "CHANGELOG.md"
 commit_message = "chore(release): {version}"
 build_command = "uv lock && git add uv.lock && uv build"
 
+[tool.semantic_release.remote]
+name = "github"
+url = "https://github.com/jason-weddington/agent-gtd"
+type = "github"
+
 [tool.semantic_release.publish]
 upload_to_vcs_release = false
 
