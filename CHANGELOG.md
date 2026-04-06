@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.32.0 (2026-04-05)
+
+### Features
+
+- Add comments for items and projects
+  ([`178736a`](https://github.com/home/jason/git/agent_gtd/commit/178736af6a625f909827ef63f1d24c75653734fc))
+
+
 ## v1.31.0 (2026-03-24)
 
 ### Features
