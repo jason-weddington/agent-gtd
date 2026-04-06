@@ -215,13 +215,16 @@ async def test_queue_full_drops_oldest(_setup_db):
 # --- SSE endpoint integration tests ---
 
 
-async def test_sse_endpoint_requires_auth(client: AsyncClient):
+async def test_sse_endpoint_requires_auth(client: AsyncClient, monkeypatch):
     """SSE endpoint rejects unauthenticated requests."""
+    monkeypatch.setattr("agent_gtd.routes.event_routes.is_local_mode", lambda: False)
     res = await client.get("/api/events")
     assert res.status_code == 401
 
 
-async def test_sse_endpoint_accepts_token_param(client: AsyncClient, auth_headers):
+async def test_sse_endpoint_accepts_token_param(
+    client: AsyncClient, auth_headers, monkeypatch
+):
     """SSE endpoint authenticates via ?token= query param.
 
     Note: We can't read the streaming body in ASGI tests because httpx's
@@ -253,7 +256,8 @@ async def test_sse_endpoint_accepts_token_param(client: AsyncClient, auth_header
     assert row is not None
     assert row["event_type"] == "item_created"
 
-    # Verify bad token is rejected
+    # Verify bad token is rejected — disable local mode so auth actually runs
+    monkeypatch.setattr("agent_gtd.routes.event_routes.is_local_mode", lambda: False)
     res = await client.get("/api/events?token=bad-token")
     assert res.status_code == 401
 
