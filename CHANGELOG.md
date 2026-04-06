@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v1.33.0 (2026-04-06)
+
+### Bug Fixes
+
+- Patch SSE auth tests to monkeypatch local mode
+  ([`ee5a878`](https://github.com/home/jason/git/agent_gtd/commit/ee5a87810bc5d11649b5df779d3a6bf4df497c84))
+
+- Prevent Escape from exiting Safari fullscreen globally
+  ([`d39dce8`](https://github.com/home/jason/git/agent_gtd/commit/d39dce860eac96a1529fc8b438e3b8b253fc7bdb))
+
+### Features
+
+- Add item detail drawer with comment thread
+  ([`4938430`](https://github.com/home/jason/git/agent_gtd/commit/49384307db5f4f44604161efa8dbc9fe8961468d))
+
+
 ## v1.32.0 (2026-04-05)
 
 ### Features
