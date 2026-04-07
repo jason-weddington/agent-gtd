@@ -52,8 +52,7 @@ _SAFE_ENV_KEYS = {
     "GIT_SSH_COMMAND",  # user may set for deploy keys
     "AGENT_GTD_URL",  # agent needs to post comments back
     "AGENT_GTD_API_KEY",
-    "PERSONAL_KB_URL",  # agent can search/update the knowledge base
-    "PERSONAL_KB_API_KEY",
+    "KB_DATABASE_URL",  # personal-kb MCP server needs this
 }
 
 
