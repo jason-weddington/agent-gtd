@@ -59,6 +59,15 @@ async def dispatch_item(
         raise HTTPException(status_code=404, detail=str(e)) from None
     except RunActiveError as e:
         raise HTTPException(status_code=409, detail=str(e)) from None
+
+    # Enqueue for background processing
+    try:
+        from agent_gtd.dispatch_worker import enqueue_run
+
+        enqueue_run(str(row["id"]))
+    except AssertionError:
+        pass  # Worker not started (e.g. in tests)
+
     return _run_response(row)
 
 
@@ -99,6 +108,15 @@ async def cancel_run(
     """Cancel an active dispatch run."""
     db = await get_db()
     try:
-        await dispatch_service.cancel_run(db, user.id, run_id)
+        run = await dispatch_service.cancel_run(db, user.id, run_id)
+        # Kill the subprocess if it's running
+        pid = run.get("pid")
+        if pid:
+            import contextlib
+            import os
+            import signal
+
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(os.getpgid(int(str(pid))), signal.SIGTERM)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from None

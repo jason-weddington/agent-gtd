@@ -22,15 +22,27 @@ from agent_gtd.routes.project_routes import router as project_router
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifecycle: init/close database."""
+    import asyncio
+
+    from agent_gtd.dispatch_worker import dispatch_worker, shutdown_worker
+    from agent_gtd.services.dispatch_service import reconcile_orphans
+
     await init_db()
     if is_local_mode():
         _app.dependency_overrides[get_current_user] = get_local_user
-    # Mark any runs left active from a prior crash as failed
-    from agent_gtd.services.dispatch_service import reconcile_orphans
 
+    # Mark any runs left active from a prior crash as failed
     pool = await get_db()
     await reconcile_orphans(pool)
+
+    # Start background dispatch worker
+    worker_task = asyncio.create_task(dispatch_worker())
+
     yield
+
+    # Shutdown
+    worker_task.cancel()
+    await shutdown_worker()
     await get_event_bus().drain()
     await close_db()
 
