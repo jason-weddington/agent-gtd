@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.34.5 (2026-04-06)
+
+### Bug Fixes
+
+- Install pre-commit hooks in dispatch workspace after clone
+  ([`6208a84`](https://github.com/jason-weddington/agent-gtd/commit/6208a844120a2bcc8312c1800c4bc6bf36ced3fe))
+
+
 ## v1.34.4 (2026-04-06)
 
 ### Bug Fixes
