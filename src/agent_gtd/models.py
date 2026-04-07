@@ -39,6 +39,18 @@ class Priority(StrEnum):
     URGENT = "urgent"
 
 
+class RunStatus(StrEnum):
+    """Claude dispatch run status."""
+
+    PENDING = "pending"
+    CLONING = "cloning"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+    TIMEOUT = "timeout"
+    CANCELLED = "cancelled"
+
+
 # --- Domain Models ---
 
 
@@ -353,5 +365,31 @@ class CommentResponse(BaseModel):
     item_id: str | None
     content_markdown: str
     created_by: str
+    created_at: datetime
+    updated_at: datetime
+
+
+# --- Dispatch Run Schemas ---
+
+
+class CreateRunRequest(BaseModel):
+    """Dispatch a Claude Code agent for an item."""
+
+    max_turns: int = 20
+
+
+class RunResponse(BaseModel):
+    """Claude dispatch run data returned from API."""
+
+    id: str
+    item_id: str
+    project_id: str
+    status: RunStatus
+    feature_branch: str
+    workspace_dir: str
+    max_turns: int
+    started_at: datetime | None
+    finished_at: datetime | None
+    error_msg: str
     created_at: datetime
     updated_at: datetime

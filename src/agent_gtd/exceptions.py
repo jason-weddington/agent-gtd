@@ -65,3 +65,13 @@ class NotRegisteredError(AgentGTDError):
     def __init__(self) -> None:
         """Initialize with a fixed message."""
         super().__init__("Agent not registered — call register_agent first")
+
+
+class RunActiveError(AgentGTDError):
+    """A dispatch run is already active for this item."""
+
+    def __init__(self, item_id: str, run_id: str) -> None:
+        """Initialize with the item and existing run IDs."""
+        self.item_id = item_id
+        self.run_id = run_id
+        super().__init__(f"Item {item_id} already has an active run: {run_id}")

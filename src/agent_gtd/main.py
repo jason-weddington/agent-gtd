@@ -7,11 +7,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent_gtd.auth import get_current_user, get_local_user
-from agent_gtd.database import close_db, init_db, is_local_mode
+from agent_gtd.database import close_db, get_db, init_db, is_local_mode
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.mcp_server import mcp
 from agent_gtd.routes.auth_routes import router as auth_router
 from agent_gtd.routes.comment_routes import router as comment_router
+from agent_gtd.routes.dispatch_routes import router as dispatch_router
 from agent_gtd.routes.event_routes import router as event_router
 from agent_gtd.routes.item_routes import router as item_router
 from agent_gtd.routes.note_routes import router as note_router
@@ -24,6 +25,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await init_db()
     if is_local_mode():
         _app.dependency_overrides[get_current_user] = get_local_user
+    # Mark any runs left active from a prior crash as failed
+    from agent_gtd.services.dispatch_service import reconcile_orphans
+
+    pool = await get_db()
+    await reconcile_orphans(pool)
     yield
     await get_event_bus().drain()
     await close_db()
@@ -46,6 +52,7 @@ app.include_router(project_router)
 app.include_router(item_router)
 app.include_router(note_router)
 app.include_router(comment_router)
+app.include_router(dispatch_router)
 app.include_router(event_router)
 
 app.mount("/mcp", mcp_app)

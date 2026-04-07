@@ -124,6 +124,27 @@ _SCHEMA_STATEMENTS: list[str] = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)",
     "CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id)",
+    """
+    CREATE TABLE IF NOT EXISTS claude_runs (
+        id TEXT PRIMARY KEY,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        status TEXT NOT NULL DEFAULT 'pending',
+        feature_branch TEXT NOT NULL DEFAULT '',
+        workspace_dir TEXT NOT NULL DEFAULT '',
+        pid INTEGER,
+        max_turns INTEGER NOT NULL DEFAULT 20,
+        started_at TEXT,
+        finished_at TEXT,
+        error_msg TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_claude_runs_user_id ON claude_runs(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_claude_runs_item_id ON claude_runs(item_id)",
+    "CREATE INDEX IF NOT EXISTS idx_claude_runs_status ON claude_runs(status)",
 ]
 
 # Idempotent column additions for existing databases.
