@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.34.3 (2026-04-06)
+
+### Bug Fixes
+
+- Dispatch script env vars, branch name, and CLI flag
+  ([`408f418`](https://github.com/jason-weddington/agent-gtd/commit/408f418bca6c7e2528ee5e671a7093d6525b269f))
+
+
 ## v1.34.2 (2026-04-06)
 
 ### Bug Fixes
