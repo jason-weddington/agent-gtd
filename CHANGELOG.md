@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.36.0 (2026-04-07)
+
+### Features
+
+- Add dispatch run tracking (Phase 2A)
+  ([`897b594`](https://github.com/jason-weddington/agent-gtd/commit/897b59455a0013b5fa549899c7bffd09febf73f2))
+
+
 ## v1.35.0 (2026-04-07)
 
 ### Features
