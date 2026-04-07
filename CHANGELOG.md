@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.34.1 (2026-04-06)
+
+### Bug Fixes
+
+- Offset detail drawer below app header
+  ([`11daa73`](https://github.com/jason-weddington/agent-gtd/commit/11daa735ad1169d725f55de3981bfc20e05742a3))
+
+
 ## v1.34.0 (2026-04-06)
 
 ### Chores
