@@ -137,6 +137,22 @@ def prepare_workspace(origin: str, item_id: str) -> Path:
             check=True,
         )
 
+    # Install pre-commit hooks if the project uses them
+    if (workspace / ".pre-commit-config.yaml").exists():
+        print("  Installing pre-commit hooks...")
+        subprocess.run(
+            [
+                "pre-commit", "install",
+                "--hook-type", "pre-commit",
+                "--hook-type", "commit-msg",
+                "--hook-type", "post-commit",
+                "--hook-type", "pre-push",
+            ],
+            cwd=workspace,
+            check=False,
+            capture_output=True,
+        )
+
     return workspace
 
 
