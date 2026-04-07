@@ -110,6 +110,8 @@ export default function ItemDetailDrawer({ item, onClose, onEdit, projectName }:
         '& .MuiDrawer-paper': {
           width: DRAWER_WIDTH,
           boxSizing: 'border-box',
+          top: '64px',
+          height: 'calc(100% - 64px)',
         },
       }}
     >
