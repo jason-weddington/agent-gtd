@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.37.0 (2026-04-07)
+
+### Features
+
+- Add dispatch worker for headless Claude Code agents (Phase 2B)
+  ([`e949c6f`](https://github.com/jason-weddington/agent-gtd/commit/e949c6f5ae0438429e43eb08509801316f0660b8))
+
+
 ## v1.36.0 (2026-04-07)
 
 ### Features
