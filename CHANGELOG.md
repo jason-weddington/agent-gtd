@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.35.0 (2026-04-07)
+
+### Features
+
+- Add kb_project_ref field to projects for KB-aware dispatch
+  ([`131356e`](https://github.com/jason-weddington/agent-gtd/commit/131356e15b9050a72ed6526022d7e1a6e54fa196))
+
+
 ## v1.34.5 (2026-04-06)
 
 ### Bug Fixes
