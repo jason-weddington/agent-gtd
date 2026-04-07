@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.34.4 (2026-04-06)
+
+### Bug Fixes
+
+- Correct KB env vars in dispatch script
+  ([`3f6ad49`](https://github.com/jason-weddington/agent-gtd/commit/3f6ad496ca44ce6bcf0e9420c6c9479d0358f345))
+
+
 ## v1.34.3 (2026-04-06)
 
 ### Bug Fixes
