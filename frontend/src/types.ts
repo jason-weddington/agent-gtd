@@ -38,6 +38,7 @@ export interface Project {
   description: string
   status: ProjectStatus
   area: string
+  gitOrigin: string
   createdAt: string
   updatedAt: string
 }

@@ -220,6 +220,7 @@ async def add_project(
     description: str = "",
     area: str = "",
     status: str = "active",
+    git_origin: str = "",
 ) -> dict[str, Any]:
     """Create a new project.
 
@@ -230,6 +231,7 @@ async def add_project(
         area: Optional area/category.
         status: Project status (active, on_hold, completed, cancelled).
             Default: active.
+        git_origin: Optional git remote URL for the project repo.
 
     Returns:
         The created project dict.
@@ -241,6 +243,7 @@ async def add_project(
         description=description,
         area=area,
         status=status,
+        git_origin=git_origin,
     )
 
 

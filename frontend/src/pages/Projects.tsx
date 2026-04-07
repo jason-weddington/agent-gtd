@@ -74,6 +74,7 @@ export default function Projects() {
   const [description, setDescription] = useState('')
   const [status, setStatus] = useState<ProjectStatus>('active')
   const [area, setArea] = useState('')
+  const [gitOrigin, setGitOrigin] = useState('')
   const [saving, setSaving] = useState(false)
 
   // Delete confirmation
@@ -120,6 +121,7 @@ export default function Projects() {
     setDescription('')
     setStatus('active')
     setArea('')
+    setGitOrigin('')
     setDialogOpen(true)
   }
 
@@ -130,6 +132,7 @@ export default function Projects() {
     setDescription(project.description)
     setStatus(project.status)
     setArea(project.area)
+    setGitOrigin(project.gitOrigin || '')
     setDialogOpen(true)
   }
 
@@ -138,9 +141,9 @@ export default function Projects() {
     setSaving(true)
     try {
       if (editing) {
-        await api.projects.update(editing.id, { name, description, status, area })
+        await api.projects.update(editing.id, { name, description, status, area, gitOrigin })
       } else {
-        await api.projects.create({ name, description, status, area })
+        await api.projects.create({ name, description, status, area, gitOrigin })
       }
       setDialogOpen(false)
       await loadProjects()
@@ -443,6 +446,16 @@ export default function Projects() {
             margin="normal"
             size="small"
             placeholder="e.g. work, personal, health"
+          />
+          <TextField
+            fullWidth
+            label="Git Origin"
+            value={gitOrigin}
+            onChange={(e) => setGitOrigin(e.target.value)}
+            margin="normal"
+            size="small"
+            placeholder="e.g. git@github.com:org/repo.git"
+            helperText="Repository URL for agent dispatch"
           />
         </DialogContent>
         <DialogActions>

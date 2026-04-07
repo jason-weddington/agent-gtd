@@ -1,5 +1,6 @@
 """Async database with connection pool (PostgreSQL or SQLite fallback)."""
 
+import contextlib
 import json
 import os
 from datetime import UTC, datetime
@@ -33,6 +34,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         description TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'active',
         area TEXT NOT NULL DEFAULT '',
+        git_origin TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )
@@ -123,6 +125,13 @@ _SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id)",
 ]
 
+# Idempotent column additions for existing databases.
+# These run after CREATE TABLE IF NOT EXISTS, so they only matter
+# when the table already existed without the new column.
+_MIGRATIONS: list[str] = [
+    "ALTER TABLE projects ADD COLUMN git_origin TEXT NOT NULL DEFAULT ''",
+]
+
 
 def is_local_mode() -> bool:
     """Return True when AGENT_GTD_DATABASE_URL is not set (SQLite fallback)."""
@@ -197,6 +206,9 @@ async def init_db() -> None:
     async with pool.acquire() as conn:
         for stmt in _SCHEMA_STATEMENTS:
             await conn.execute(stmt)
+        for stmt in _MIGRATIONS:
+            with contextlib.suppress(Exception):
+                await conn.execute(stmt)
 
     if is_local_mode():
         await ensure_local_user(pool)

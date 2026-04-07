@@ -101,6 +101,7 @@ export default function ProjectDetail() {
   const [editDescription, setEditDescription] = useState('')
   const [editStatus, setEditStatus] = useState<ProjectStatus>('active')
   const [editArea, setEditArea] = useState('')
+  const [editGitOrigin, setEditGitOrigin] = useState('')
   const [savingProject, setSavingProject] = useState(false)
 
   // Item dialog
@@ -226,6 +227,7 @@ export default function ProjectDetail() {
     setEditDescription(project.description)
     setEditStatus(project.status)
     setEditArea(project.area)
+    setEditGitOrigin(project.gitOrigin || '')
     setEditProjectOpen(true)
   }
 
@@ -238,6 +240,7 @@ export default function ProjectDetail() {
         description: editDescription,
         status: editStatus,
         area: editArea,
+        gitOrigin: editGitOrigin,
       })
       setEditProjectOpen(false)
       await loadData()
@@ -777,6 +780,16 @@ export default function ProjectDetail() {
             onChange={(e) => setEditArea(e.target.value)}
             margin="normal"
             size="small"
+          />
+          <TextField
+            fullWidth
+            label="Git Origin"
+            value={editGitOrigin}
+            onChange={(e) => setEditGitOrigin(e.target.value)}
+            margin="normal"
+            size="small"
+            placeholder="e.g. git@github.com:org/repo.git"
+            helperText="Repository URL for agent dispatch"
           />
         </DialogContent>
         <DialogActions>

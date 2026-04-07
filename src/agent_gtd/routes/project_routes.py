@@ -27,6 +27,7 @@ def _project_response(row: dict[str, object]) -> ProjectResponse:
         description=str(row["description"]),
         status=ProjectStatus(str(row["status"])),
         area=str(row["area"]),
+        git_origin=str(row.get("git_origin", "")),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
     )
@@ -63,6 +64,7 @@ async def create_project(
         description=body.description,
         status=body.status.value,
         area=body.area,
+        git_origin=body.git_origin,
     )
     return _project_response(row)
 
@@ -98,6 +100,7 @@ async def update_project(
             description=body.description,
             status=body.status.value if body.status else None,
             area=body.area,
+            git_origin=body.git_origin,
         )
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None

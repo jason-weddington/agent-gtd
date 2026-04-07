@@ -89,7 +89,7 @@ export const api = {
       const qs = query.toString()
       return request<Project[]>('GET', `/projects${qs ? `?${qs}` : ''}`)
     },
-    create: (data: { name: string; description?: string; status?: string; area?: string }) =>
+    create: (data: { name: string; description?: string; status?: string; area?: string; gitOrigin?: string }) =>
       request<Project>('POST', '/projects', data),
     get: (id: string) => request<Project>('GET', `/projects/${id}`),
     update: (id: string, data: Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>) =>
