@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.34.2 (2026-04-06)
+
+### Bug Fixes
+
+- Use temporary drawer to avoid covering page controls
+  ([`df4e905`](https://github.com/jason-weddington/agent-gtd/commit/df4e9054c8699830b0aee8f25eb7cc04eabed837))
+
+
 ## v1.34.1 (2026-04-06)
 
 ### Bug Fixes
