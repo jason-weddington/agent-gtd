@@ -63,6 +63,7 @@ async def create_project(
     status: str = "active",
     area: str = "",
     git_origin: str = "",
+    kb_project_ref: str = "",
 ) -> dict[str, Any]:
     """Create a new project and return its row data."""
     now = datetime.now(UTC).isoformat()
@@ -71,8 +72,8 @@ async def create_project(
     await db.execute(
         "INSERT INTO projects "
         "(id, user_id, name, description, status, area, git_origin,"
-        " created_at, updated_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        " kb_project_ref, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         project_id,
         user_id,
         name,
@@ -80,6 +81,7 @@ async def create_project(
         status,
         area,
         git_origin,
+        kb_project_ref,
         now,
         now,
     )
@@ -130,6 +132,7 @@ async def update_project(
     status: str | None = None,
     area: str | None = None,
     git_origin: str | None = None,
+    kb_project_ref: str | None = None,
 ) -> dict[str, Any]:
     """Update a project. Only non-None fields are changed.
 
@@ -156,6 +159,9 @@ async def update_project(
     if git_origin is not None:
         params.append(git_origin)
         updates.append(f"git_origin = ${len(params)}")
+    if kb_project_ref is not None:
+        params.append(kb_project_ref)
+        updates.append(f"kb_project_ref = ${len(params)}")
 
     if updates:
         params.append(datetime.now(UTC).isoformat())

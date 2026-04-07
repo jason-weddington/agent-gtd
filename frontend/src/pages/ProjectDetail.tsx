@@ -102,6 +102,7 @@ export default function ProjectDetail() {
   const [editStatus, setEditStatus] = useState<ProjectStatus>('active')
   const [editArea, setEditArea] = useState('')
   const [editGitOrigin, setEditGitOrigin] = useState('')
+  const [editKbProjectRef, setEditKbProjectRef] = useState('')
   const [savingProject, setSavingProject] = useState(false)
 
   // Item dialog
@@ -228,6 +229,7 @@ export default function ProjectDetail() {
     setEditStatus(project.status)
     setEditArea(project.area)
     setEditGitOrigin(project.gitOrigin || '')
+    setEditKbProjectRef(project.kbProjectRef || '')
     setEditProjectOpen(true)
   }
 
@@ -241,6 +243,7 @@ export default function ProjectDetail() {
         status: editStatus,
         area: editArea,
         gitOrigin: editGitOrigin,
+        kbProjectRef: editKbProjectRef,
       })
       setEditProjectOpen(false)
       await loadData()
@@ -790,6 +793,16 @@ export default function ProjectDetail() {
             size="small"
             placeholder="e.g. git@github.com:org/repo.git"
             helperText="Repository URL for agent dispatch"
+          />
+          <TextField
+            fullWidth
+            label="KB Project Ref"
+            value={editKbProjectRef}
+            onChange={(e) => setEditKbProjectRef(e.target.value)}
+            margin="normal"
+            size="small"
+            placeholder="e.g. my-project"
+            helperText="Personal KB project reference for agent context"
           />
         </DialogContent>
         <DialogActions>

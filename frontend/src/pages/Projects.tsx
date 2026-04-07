@@ -75,6 +75,7 @@ export default function Projects() {
   const [status, setStatus] = useState<ProjectStatus>('active')
   const [area, setArea] = useState('')
   const [gitOrigin, setGitOrigin] = useState('')
+  const [kbProjectRef, setKbProjectRef] = useState('')
   const [saving, setSaving] = useState(false)
 
   // Delete confirmation
@@ -122,6 +123,7 @@ export default function Projects() {
     setStatus('active')
     setArea('')
     setGitOrigin('')
+    setKbProjectRef('')
     setDialogOpen(true)
   }
 
@@ -133,6 +135,7 @@ export default function Projects() {
     setStatus(project.status)
     setArea(project.area)
     setGitOrigin(project.gitOrigin || '')
+    setKbProjectRef(project.kbProjectRef || '')
     setDialogOpen(true)
   }
 
@@ -141,9 +144,9 @@ export default function Projects() {
     setSaving(true)
     try {
       if (editing) {
-        await api.projects.update(editing.id, { name, description, status, area, gitOrigin })
+        await api.projects.update(editing.id, { name, description, status, area, gitOrigin, kbProjectRef })
       } else {
-        await api.projects.create({ name, description, status, area, gitOrigin })
+        await api.projects.create({ name, description, status, area, gitOrigin, kbProjectRef })
       }
       setDialogOpen(false)
       await loadProjects()
@@ -456,6 +459,16 @@ export default function Projects() {
             size="small"
             placeholder="e.g. git@github.com:org/repo.git"
             helperText="Repository URL for agent dispatch"
+          />
+          <TextField
+            fullWidth
+            label="KB Project Ref"
+            value={kbProjectRef}
+            onChange={(e) => setKbProjectRef(e.target.value)}
+            margin="normal"
+            size="small"
+            placeholder="e.g. my-project"
+            helperText="Personal KB project reference for agent context"
           />
         </DialogContent>
         <DialogActions>

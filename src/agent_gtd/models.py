@@ -61,6 +61,7 @@ class Project(BaseModel):
     status: ProjectStatus = ProjectStatus.ACTIVE
     area: str = ""
     git_origin: str = ""
+    kb_project_ref: str = ""
     created_at: datetime
     updated_at: datetime
 
@@ -200,6 +201,7 @@ class CreateProjectRequest(BaseModel):
     status: ProjectStatus = ProjectStatus.ACTIVE
     area: str = ""
     git_origin: str = ""
+    kb_project_ref: str = ""
 
 
 class UpdateProjectRequest(BaseModel):
@@ -210,6 +212,7 @@ class UpdateProjectRequest(BaseModel):
     status: ProjectStatus | None = None
     area: str | None = None
     git_origin: str | None = None
+    kb_project_ref: str | None = None
 
 
 class ProjectResponse(BaseModel):
@@ -221,6 +224,7 @@ class ProjectResponse(BaseModel):
     status: ProjectStatus
     area: str
     git_origin: str
+    kb_project_ref: str
     created_at: datetime
     updated_at: datetime
 

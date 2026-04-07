@@ -39,6 +39,7 @@ export interface Project {
   status: ProjectStatus
   area: string
   gitOrigin: string
+  kbProjectRef: string
   createdAt: string
   updatedAt: string
 }

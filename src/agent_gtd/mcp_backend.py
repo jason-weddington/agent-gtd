@@ -33,6 +33,7 @@ class McpBackend(Protocol):
         area: str = "",
         status: str = "active",
         git_origin: str = "",
+        kb_project_ref: str = "",
     ) -> dict[str, Any]: ...
 
     async def list_items(
@@ -197,6 +198,7 @@ class LocalBackend:
         area: str = "",
         status: str = "active",
         git_origin: str = "",
+        kb_project_ref: str = "",
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import project_service
@@ -210,6 +212,7 @@ class LocalBackend:
             area=area,
             status=status,
             git_origin=git_origin,
+            kb_project_ref=kb_project_ref,
         )
 
     async def _build_project_map(self, user_id: str) -> dict[str, str]:
@@ -608,6 +611,7 @@ class HttpBackend:
         area: str = "",
         status: str = "active",
         git_origin: str = "",
+        kb_project_ref: str = "",
     ) -> dict[str, Any]:
         body: dict[str, str] = {
             "name": name,
@@ -617,6 +621,8 @@ class HttpBackend:
         }
         if git_origin:
             body["git_origin"] = git_origin
+        if kb_project_ref:
+            body["kb_project_ref"] = kb_project_ref
         resp = await self._client.post(
             "/api/projects",
             json=body,

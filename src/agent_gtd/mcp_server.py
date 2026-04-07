@@ -221,6 +221,7 @@ async def add_project(
     area: str = "",
     status: str = "active",
     git_origin: str = "",
+    kb_project_ref: str = "",
 ) -> dict[str, Any]:
     """Create a new project.
 
@@ -232,6 +233,8 @@ async def add_project(
         status: Project status (active, on_hold, completed, cancelled).
             Default: active.
         git_origin: Optional git remote URL for the project repo.
+        kb_project_ref: Optional personal-kb project reference for
+            agent context preflight.
 
     Returns:
         The created project dict.
@@ -244,6 +247,7 @@ async def add_project(
         area=area,
         status=status,
         git_origin=git_origin,
+        kb_project_ref=kb_project_ref,
     )
 
 

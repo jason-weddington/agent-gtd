@@ -179,6 +179,23 @@ def build_system_prompt(item: dict, project: dict, branch_name: str) -> str:
     title = item["title"]
     description = item.get("description", "")
     project_name = project["name"]
+    kb_ref = project.get("kb_project_ref", "")
+
+    kb_section = ""
+    if kb_ref:
+        kb_section = textwrap.dedent(f"""\
+
+        ## Knowledge Base
+
+        A personal-kb MCP server is available. Before starting work, run:
+        ```
+        kb_preflight(project_ref="{kb_ref}")
+        ```
+        This will surface recent decisions, conventions, and lessons learned
+        for this project. Search the KB before guessing or asking questions.
+        When you learn something non-obvious during this task, store it with
+        `kb_store(project_ref="{kb_ref}")`.
+        """)
 
     prompt = textwrap.dedent(f"""\
         You are a headless Claude Code agent dispatched by Agent GTD.
@@ -201,7 +218,7 @@ def build_system_prompt(item: dict, project: dict, branch_name: str) -> str:
         5. **Push.** When done, push `{branch_name}` to origin.
         6. **Stop if stuck.** If the task is too ambiguous, you lack information, or
            you cannot complete it cleanly — STOP. Do not guess or produce low-quality work.
-
+        {kb_section}
         ## Reporting
 
         When you finish (success or blocked), post a comment to the GTD item.

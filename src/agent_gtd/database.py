@@ -35,6 +35,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         status TEXT NOT NULL DEFAULT 'active',
         area TEXT NOT NULL DEFAULT '',
         git_origin TEXT NOT NULL DEFAULT '',
+        kb_project_ref TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )
@@ -130,6 +131,7 @@ _SCHEMA_STATEMENTS: list[str] = [
 # when the table already existed without the new column.
 _MIGRATIONS: list[str] = [
     "ALTER TABLE projects ADD COLUMN git_origin TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE projects ADD COLUMN kb_project_ref TEXT NOT NULL DEFAULT ''",
 ]
 
 
