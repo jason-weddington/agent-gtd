@@ -50,6 +50,10 @@ _SAFE_ENV_KEYS = {
     "ANTHROPIC_API_KEY",
     "SSH_AUTH_SOCK",  # needed for git SSH
     "GIT_SSH_COMMAND",  # user may set for deploy keys
+    "AGENT_GTD_URL",  # agent needs to post comments back
+    "AGENT_GTD_API_KEY",
+    "PERSONAL_KB_URL",  # agent can search/update the knowledge base
+    "PERSONAL_KB_API_KEY",
 }
 
 
@@ -138,21 +142,28 @@ def prepare_workspace(origin: str, item_id: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Branch naming
+# ---------------------------------------------------------------------------
+
+
+def make_branch_name(item: dict) -> str:
+    """Build a branch name from an item ID and title."""
+    short_id = item["id"][:8]
+    slug = re.sub(r"[^a-z0-9]+", "-", item["title"].lower())[:40].strip("-")
+    return f"feat/{short_id}-{slug}"
+
+
+# ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------
 
 
-def build_system_prompt(item: dict, project: dict) -> str:
+def build_system_prompt(item: dict, project: dict, branch_name: str) -> str:
     """Build the headless agent system prompt."""
     item_id = item["id"]
-    short_id = item_id[:8]
     title = item["title"]
     description = item.get("description", "")
     project_name = project["name"]
-
-    # Build a branch-safe slug from the title
-    slug = re.sub(r"[^a-z0-9]+", "-", title.lower())[:40].strip("-")
-    branch_name = f"feat/{short_id}-{slug}"
 
     prompt = textwrap.dedent(f"""\
         You are a headless Claude Code agent dispatched by Agent GTD.
@@ -246,7 +257,8 @@ def main() -> None:
 
     print(f"  Git origin: {git_origin}")
 
-    system_prompt = build_system_prompt(item, project)
+    branch_name = make_branch_name(item)
+    system_prompt = build_system_prompt(item, project, branch_name)
 
     if args.dry_run:
         print("\n--- System Prompt ---")
@@ -268,7 +280,7 @@ def main() -> None:
         "--dangerously-skip-permissions",
         "--max-turns",
         str(args.max_turns),
-        "--system-prompt",
+        "--append-system-prompt",
         system_prompt,
         "--print",
         item["title"],
@@ -282,7 +294,7 @@ def main() -> None:
     # Post a "started" comment
     post_comment(
         args.item_id,
-        f"Agent dispatched. Working on branch `feat/{args.item_id[:8]}-...` in `{project['name']}`.",
+        f"Agent dispatched. Working on branch `{branch_name}` in `{project['name']}`.",
     )
 
     try:
