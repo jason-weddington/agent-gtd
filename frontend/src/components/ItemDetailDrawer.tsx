@@ -105,7 +105,7 @@ export default function ItemDetailDrawer({ item, onClose, onEdit, projectName }:
       anchor="right"
       open={Boolean(item)}
       onClose={onClose}
-      variant="persistent"
+      variant="temporary"
       sx={{
         '& .MuiDrawer-paper': {
           width: DRAWER_WIDTH,
