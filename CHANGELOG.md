@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.34.0 (2026-04-06)
+
+### Chores
+
+- Configure semantic-release remote for GitHub changelog links
+  ([`ded0f5f`](https://github.com/jason-weddington/agent-gtd/commit/ded0f5f4ca7350b4643fbedd2def60dfee309f37))
+
+### Features
+
+- Add git_origin field and dispatch script (send-to-claude phase 1)
+  ([`a2a5f7f`](https://github.com/jason-weddington/agent-gtd/commit/a2a5f7f39bd289b83dcf5193e852e2bae6c820ef))
+
+
 ## v1.33.1 (2026-04-06)
 
 ### Bug Fixes
