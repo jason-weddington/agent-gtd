@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.38.0 (2026-04-07)
+
+### Features
+
+- Complete send-to-claude dispatch UI and MCP tools
+  ([`c7dec36`](https://github.com/jason-weddington/agent-gtd/commit/c7dec3645bcc932db246fb5559fd7c9865e17235))
+
+
 ## v1.37.0 (2026-04-07)
 
 ### Features
