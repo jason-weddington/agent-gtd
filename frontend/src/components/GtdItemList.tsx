@@ -435,6 +435,7 @@ export default function GtdItemList({
         onClose={() => setDrawerItem(null)}
         onEdit={(item) => { setDrawerItem(null); openEdit(item) }}
         projectName={drawerItem?.projectId ? projectMap[drawerItem.projectId]?.name : undefined}
+        projectGitOrigin={drawerItem?.projectId ? projectMap[drawerItem.projectId]?.gitOrigin : undefined}
       />
     </Box>
   )

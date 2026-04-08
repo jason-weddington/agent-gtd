@@ -1038,6 +1038,7 @@ export default function ProjectDetail() {
         onClose={() => setDrawerItem(null)}
         onEdit={(item) => { setDrawerItem(null); openEditItem(item) }}
         projectName={project.name}
+        projectGitOrigin={project.gitOrigin}
       />
     </Box>
   )

@@ -82,3 +82,20 @@ export interface Comment {
   createdAt: string
   updatedAt: string
 }
+
+export type RunStatus = 'pending' | 'cloning' | 'running' | 'success' | 'failed' | 'timeout' | 'cancelled'
+
+export interface Run {
+  id: string
+  itemId: string
+  projectId: string
+  status: RunStatus
+  featureBranch: string
+  workspaceDir: string
+  maxTurns: number
+  startedAt: string | null
+  finishedAt: string | null
+  errorMsg: string
+  createdAt: string
+  updatedAt: string
+}

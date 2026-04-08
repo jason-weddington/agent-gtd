@@ -1,4 +1,4 @@
-import type { ApiKeyInfo, AuthResponse, Comment, Item, Note, Project, UserResponse } from './types'
+import type { ApiKeyInfo, AuthResponse, Comment, Item, Note, Project, Run, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -126,6 +126,14 @@ export const api = {
     comments: (id: string) => request<Comment[]>('GET', `/items/${id}/comments`),
     createComment: (id: string, data: { contentMarkdown: string }) =>
       request<Comment>('POST', `/items/${id}/comments`, data),
+    dispatch: (id: string, data?: { maxTurns?: number }) =>
+      request<Run>('POST', `/items/${id}/dispatch`, data ?? {}),
+    runs: (id: string) => request<Run[]>('GET', `/items/${id}/runs`),
+  },
+
+  runs: {
+    get: (id: string) => request<Run>('GET', `/runs/${id}`),
+    cancel: (id: string) => request<void>('DELETE', `/runs/${id}`),
   },
 
   notes: {
