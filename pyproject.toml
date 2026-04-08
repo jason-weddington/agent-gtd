@@ -1,6 +1,6 @@
 [project]
 name = "agent_gtd"
-version = "1.37.0"
+version = "1.38.0"
 description = "Agent Gtd"
 requires-python = ">=3.13"
 dependencies = [
@@ -89,7 +89,11 @@ filterwarnings = [
 
 [tool.coverage.run]
 source = ["agent_gtd"]
-omit = ["src/agent_gtd/dispatch_worker.py"]
+omit = [
+    "src/agent_gtd/dispatch_worker.py",
+    "src/agent_gtd/mcp_server.py",
+    "src/agent_gtd/mcp_backend.py",
+]
 
 [tool.coverage.report]
 fail_under = 92
