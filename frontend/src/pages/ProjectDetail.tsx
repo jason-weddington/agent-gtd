@@ -565,11 +565,15 @@ export default function ProjectDetail() {
                 >
                   <ListItemText
                     primary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, overflow: 'hidden' }}>
                         <Typography
                           variant="body1"
                           sx={{
                             textDecoration: item.status === 'done' ? 'line-through' : 'none',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            minWidth: 0,
                           }}
                         >
                           {item.title}
