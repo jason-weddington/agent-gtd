@@ -218,7 +218,7 @@ export default function ItemDetailDrawer({
                   )}
                 </Box>
               </Box>
-              {projectGitOrigin && (
+              {projectGitOrigin && item.status !== 'done' && (
                 <IconButton
                   size="small"
                   onClick={() => setConfirmOpen(true)}
