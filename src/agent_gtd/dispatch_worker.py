@@ -1,20 +1,17 @@
-"""Background dispatch worker for headless Claude Code agents.
+"""Background dispatch worker — proxies runs to remote dispatch service.
 
-Manages the full lifecycle: clone repo, launch Claude Code subprocess,
-capture output, update run status, post comments, publish SSE events.
+Manages the lifecycle: dispatch to remote service, poll for completion,
+update run status, publish SSE events. Comments are posted by the
+remote dispatch service via the GTD API.
 """
 
 import asyncio
 import logging
 import os
-import re
-import signal
-import subprocess
-import textwrap
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -22,180 +19,23 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
-WORKSPACE_ROOT = Path.home() / "claude-workspace"
-TIMEOUT_SECONDS = 30 * 60  # 30 minutes hard kill
+DISPATCH_SERVICE_URL = os.environ.get("DISPATCH_SERVICE_URL", "")
+DISPATCH_SERVICE_API_KEY = os.environ.get("DISPATCH_SERVICE_API_KEY", "")
 MAX_CONCURRENT = 3
+POLL_INTERVAL = 15  # seconds between status polls
 
-# Env vars the subprocess is allowed to inherit
-_SAFE_ENV_KEYS = {
-    "PATH",
-    "HOME",
-    "USER",
-    "LANG",
-    "TERM",
-    "SHELL",
-    "ANTHROPIC_API_KEY",
-    "SSH_AUTH_SOCK",
-    "GIT_SSH_COMMAND",
-    "AGENT_GTD_URL",
-    "AGENT_GTD_API_KEY",
-    "KB_DATABASE_URL",
+# Status mapping: remote dispatch API -> local run statuses
+_TERMINAL_STATUSES = {"succeeded", "failed", "timed_out", "cancelled"}
+_STATUS_MAP = {
+    "succeeded": "success",
+    "failed": "failed",
+    "timed_out": "timeout",
+    "cancelled": "cancelled",
 }
 
-# ---------------------------------------------------------------------------
-# Workspace helpers
-# ---------------------------------------------------------------------------
-
-
-def _repo_name_from_origin(origin: str) -> str:
-    """Extract a clean repo name from a git origin URL."""
-    match = re.search(r"[/:]([^/:]+/[^/:]+?)(?:\.git)?$", origin)
-    if match:
-        return match.group(1).replace("/", "-")
-    parsed = urlparse(origin)
-    return Path(parsed.path).stem or "unknown"
-
-
-def _prepare_workspace(origin: str, item_id: str) -> Path:
-    """Clone or update the repo into a workspace directory."""
-    short_id = item_id[:8]
-    name = _repo_name_from_origin(origin)
-    workspace = WORKSPACE_ROOT / f"{name}-{short_id}"
-
-    if workspace.exists():
-        logger.info("Workspace exists, pulling latest: %s", workspace)
-        subprocess.run(
-            ["git", "pull", "--ff-only"],
-            cwd=workspace,
-            check=False,
-            capture_output=True,
-        )
-    else:
-        logger.info("Cloning %s -> %s", origin, workspace)
-        WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ["git", "clone", origin, str(workspace)],
-            check=True,
-        )
-
-    # Install pre-commit hooks if the project uses them
-    if (workspace / ".pre-commit-config.yaml").exists():
-        logger.info("Installing pre-commit hooks...")
-        subprocess.run(
-            [
-                "pre-commit",
-                "install",
-                "--hook-type",
-                "pre-commit",
-                "--hook-type",
-                "commit-msg",
-                "--hook-type",
-                "post-commit",
-                "--hook-type",
-                "pre-push",
-            ],
-            cwd=workspace,
-            check=False,
-            capture_output=True,
-        )
-
-    return workspace
-
 
 # ---------------------------------------------------------------------------
-# System prompt builder
-# ---------------------------------------------------------------------------
-
-
-def _build_system_prompt(
-    item: dict[str, Any],
-    project: dict[str, Any],
-    branch_name: str,
-    max_turns: int,
-) -> str:
-    """Build the headless agent system prompt."""
-    item_id = str(item["id"])
-    title = str(item["title"])
-    description = str(item.get("description", ""))
-    project_name = str(project["name"])
-    kb_ref = str(project.get("kb_project_ref", ""))
-
-    kb_section = ""
-    if kb_ref:
-        kb_section = textwrap.dedent(f"""\
-
-        ## Knowledge Base
-
-        A personal-kb MCP server is available. Before starting work, run:
-        ```
-        kb_preflight(project_ref="{kb_ref}")
-        ```
-        This will surface recent decisions, conventions, and lessons learned
-        for this project. Search the KB before guessing or asking questions.
-        When you learn something non-obvious during this task, store it with
-        `kb_store(project_ref="{kb_ref}")`.
-        """)
-
-    return textwrap.dedent(f"""\
-        You are a headless Claude Code agent dispatched by Agent GTD.
-        No human is available for questions — you must work autonomously.
-
-        ## Your Task
-
-        **Project:** {project_name}
-        **Item:** {title}
-        **Item ID:** {item_id}
-
-        {f"**Description:**{chr(10)}{description}" if description else "No description provided — work from the title only."}
-
-        ## Rules
-
-        1. **Understand first.** Read the codebase, understand the patterns, then act.
-        2. **Branch.** Create and work on the branch `{branch_name}`. Never commit to main.
-        3. **Test.** Run the project's test suite before committing. Fix failures.
-        4. **Commit.** Use conventional commit messages. Small, focused commits.
-        5. **Push.** When done, push `{branch_name}` to origin.
-        6. **Stop if stuck.** If the task is too ambiguous, you lack information, or
-           you cannot complete it cleanly — STOP. Do not guess or produce low-quality work.
-        {kb_section}
-        ## Reporting
-
-        When you finish (success or blocked), post a comment to the GTD item.
-        The Agent GTD MCP server is available — use `add_comment` with item_id="{item_id}".
-
-        **On success**, your comment should include:
-        - What you did (1-3 sentences)
-        - The branch name: `{branch_name}`
-        - Any notes for the reviewer
-
-        **On failure/blocked**, your comment should include:
-        - Why you stopped
-        - What information or clarification you need
-        - Any partial progress (if you pushed commits)
-
-        ## Important
-
-        - You have max {max_turns} turns. Budget them wisely.
-        - Never force-push, never push to main, never delete branches you didn't create.
-        - Never modify CI/CD configs, deployment scripts, or secrets.
-        - Focus only on this task. Don't fix unrelated issues you notice.
-    """)
-
-
-# ---------------------------------------------------------------------------
-# Sanitized environment
-# ---------------------------------------------------------------------------
-
-
-def _build_env() -> dict[str, str]:
-    """Build a sanitized environment for the subprocess."""
-    env = {k: v for k, v in os.environ.items() if k in _SAFE_ENV_KEYS}
-    env["HOME"] = str(Path.home())
-    return env
-
-
-# ---------------------------------------------------------------------------
-# Single run executor
+# Run DB updates
 # ---------------------------------------------------------------------------
 
 
@@ -219,228 +59,6 @@ async def _update_run(
         f" WHERE id = ${len(params)}"
     )
     await db.execute(sql, *params)
-
-
-async def _post_comment(db: Any, user_id: str, item_id: str, content: str) -> None:
-    """Post a comment on an item (best-effort, never raises)."""
-    try:
-        from agent_gtd.services.comment_service import create_comment
-
-        await create_comment(
-            db,
-            user_id,
-            item_id=item_id,
-            content_markdown=content,
-            created_by="claude-dispatch",
-        )
-    except Exception:
-        logger.exception("Failed to post dispatch comment on item %s", item_id)
-
-
-async def execute_run(
-    db: Any,
-    run: dict[str, Any],
-    item: dict[str, Any],
-    project: dict[str, Any],
-) -> None:
-    """Execute a single dispatch run (clone, launch, capture, cleanup).
-
-    Updates the run row in the database as it progresses through states.
-    Posts comments to the GTD item at start and end.
-    """
-    run_id = str(run["id"])
-    item_id = str(run["item_id"])
-    user_id = str(run["user_id"])
-    branch = str(run["feature_branch"])
-    max_turns = int(str(run["max_turns"]))
-    git_origin = str(project["git_origin"])
-
-    # --- Cloning ---
-    await _update_run(db, run_id, status="cloning")
-
-    try:
-        workspace = await asyncio.to_thread(_prepare_workspace, git_origin, item_id)
-    except Exception as e:
-        logger.exception("Clone failed for run %s", run_id)
-        now = datetime.now(UTC).isoformat()
-        await _update_run(
-            db,
-            run_id,
-            status="failed",
-            finished_at=now,
-            error_msg=f"Clone failed: {e}",
-        )
-        await _post_comment(
-            db,
-            user_id,
-            item_id,
-            f"Dispatch failed: could not clone `{git_origin}`.\n\n```\n{e}\n```",
-        )
-        return
-
-    await _update_run(
-        db,
-        run_id,
-        status="running",
-        workspace_dir=str(workspace),
-        started_at=datetime.now(UTC).isoformat(),
-    )
-
-    # Post started comment
-    await _post_comment(
-        db,
-        user_id,
-        item_id,
-        f"Agent started. Working on branch `{branch}` in `{project['name']}`.",
-    )
-
-    # Publish SSE event
-    try:
-        from agent_gtd.event_bus import get_event_bus
-
-        await get_event_bus().publish(
-            db,
-            user_id=user_id,
-            event_type="run_started",
-            entity_type="run",
-            entity_id=run_id,
-            project_id=str(run["project_id"]),
-            payload={"run_id": run_id, "item_id": item_id, "branch": branch},
-        )
-    except Exception:
-        logger.exception("Failed to publish run_started event")
-
-    # --- Launch Claude Code ---
-    prompt = _build_system_prompt(item, project, branch, max_turns)
-    env = _build_env()
-    cmd = [
-        "claude",
-        "--dangerously-skip-permissions",
-        "--max-turns",
-        str(max_turns),
-        "--append-system-prompt",
-        prompt,
-        "--print",
-        str(item["title"]),
-    ]
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            cwd=workspace,
-            env=env,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,
-        )
-
-        # Store PID for potential kill
-        await _update_run(db, run_id, pid=proc.pid)
-
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=TIMEOUT_SECONDS
-            )
-        except TimeoutError:
-            # Kill the entire process group
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                await asyncio.sleep(5)
-                if proc.returncode is None:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            now = datetime.now(UTC).isoformat()
-            await _update_run(
-                db,
-                run_id,
-                status="timeout",
-                finished_at=now,
-                error_msg=f"Timed out after {TIMEOUT_SECONDS // 60} minutes",
-            )
-            await _post_comment(
-                db,
-                user_id,
-                item_id,
-                f"Agent timed out after {TIMEOUT_SECONDS // 60} minutes. "
-                "The task may need to be broken down into smaller pieces.",
-            )
-            _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
-            return
-
-        # --- Process completed ---
-        exit_code = proc.returncode or 0
-        stdout_text = stdout.decode(errors="replace") if stdout else ""
-        stderr_text = stderr.decode(errors="replace") if stderr else ""
-        now = datetime.now(UTC).isoformat()
-
-        if exit_code == 0:
-            await _update_run(
-                db,
-                run_id,
-                status="success",
-                finished_at=now,
-            )
-            _publish_run_event(db, user_id, run_id, item_id, run, "run_completed")
-        else:
-            truncated_err = (
-                stderr_text[-500:] if len(stderr_text) > 500 else stderr_text
-            )
-            await _update_run(
-                db,
-                run_id,
-                status="failed",
-                finished_at=now,
-                error_msg=f"Exit code {exit_code}: {truncated_err}",
-            )
-            await _post_comment(
-                db,
-                user_id,
-                item_id,
-                f"Agent exited with code {exit_code}.\n\n```\n{truncated_err}\n```",
-            )
-            _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
-
-        if stdout_text:
-            logger.info(
-                "Run %s output (last 1000 chars): %s",
-                run_id,
-                stdout_text[-1000:],
-            )
-
-    except FileNotFoundError:
-        now = datetime.now(UTC).isoformat()
-        await _update_run(
-            db,
-            run_id,
-            status="failed",
-            finished_at=now,
-            error_msg="'claude' command not found — is Claude Code installed?",
-        )
-        await _post_comment(
-            db,
-            user_id,
-            item_id,
-            "Dispatch failed: `claude` command not found on the server.",
-        )
-        _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
-    except Exception as e:
-        logger.exception("Unexpected error in run %s", run_id)
-        now = datetime.now(UTC).isoformat()
-        await _update_run(
-            db,
-            run_id,
-            status="failed",
-            finished_at=now,
-            error_msg=str(e)[:500],
-        )
-        await _post_comment(
-            db,
-            user_id,
-            item_id,
-            f"Dispatch failed unexpectedly: {e}",
-        )
-        _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
 
 
 def _publish_run_event(
@@ -469,6 +87,164 @@ def _publish_run_event(
         )
     except Exception:
         logger.exception("Failed to publish %s event", event_type)
+
+
+# ---------------------------------------------------------------------------
+# Remote dispatch client
+# ---------------------------------------------------------------------------
+
+
+def _dispatch_headers() -> dict[str, str]:
+    return {"Authorization": f"Bearer {DISPATCH_SERVICE_API_KEY}"}
+
+
+async def _dispatch_to_remote(
+    client: httpx.AsyncClient,
+    item_id: str,
+    max_turns: int,
+) -> dict[str, Any]:
+    """POST /dispatch to the remote service. Returns the remote run dict."""
+    resp = await client.post(
+        f"{DISPATCH_SERVICE_URL}/dispatch",
+        json={"item_id": item_id, "max_turns": max_turns},
+        headers=_dispatch_headers(),
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    result: dict[str, Any] = resp.json()
+    return result
+
+
+async def _poll_remote_run(
+    client: httpx.AsyncClient,
+    remote_run_id: str,
+) -> dict[str, Any]:
+    """GET /runs/{id} from the remote service. Returns the remote run dict."""
+    resp = await client.get(
+        f"{DISPATCH_SERVICE_URL}/runs/{remote_run_id}",
+        headers=_dispatch_headers(),
+        timeout=15.0,
+    )
+    resp.raise_for_status()
+    result: dict[str, Any] = resp.json()
+    return result
+
+
+async def _cancel_remote_run(
+    client: httpx.AsyncClient,
+    remote_run_id: str,
+) -> None:
+    """POST /runs/{id}/cancel on the remote service."""
+    try:
+        await client.post(
+            f"{DISPATCH_SERVICE_URL}/runs/{remote_run_id}/cancel",
+            headers=_dispatch_headers(),
+            timeout=15.0,
+        )
+    except Exception:
+        logger.exception("Failed to cancel remote run %s", remote_run_id)
+
+
+# ---------------------------------------------------------------------------
+# Single run executor
+# ---------------------------------------------------------------------------
+
+
+async def execute_run(
+    db: Any,
+    run: dict[str, Any],
+    item: dict[str, Any],
+    project: dict[str, Any],
+) -> None:
+    """Execute a dispatch run by forwarding to the remote dispatch service.
+
+    Updates the local run row as it progresses. The remote service handles
+    cloning, Claude invocation, and posting comments to the GTD API.
+    """
+    run_id = str(run["id"])
+    item_id = str(run["item_id"])
+    user_id = str(run["user_id"])
+    max_turns = int(str(run["max_turns"]))
+
+    if not DISPATCH_SERVICE_URL:
+        await _update_run(
+            db,
+            run_id,
+            status="failed",
+            finished_at=datetime.now(UTC).isoformat(),
+            error_msg="DISPATCH_SERVICE_URL not configured",
+        )
+        _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
+        return
+
+    async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
+        # --- Dispatch to remote ---
+        try:
+            remote_run = await _dispatch_to_remote(client, item_id, max_turns)
+            remote_run_id = remote_run["id"]
+        except Exception as e:
+            logger.exception("Failed to dispatch run %s to remote service", run_id)
+            await _update_run(
+                db,
+                run_id,
+                status="failed",
+                finished_at=datetime.now(UTC).isoformat(),
+                error_msg=f"Dispatch service error: {e}"[:500],
+            )
+            _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
+            return
+
+        # --- Running ---
+        now = datetime.now(UTC).isoformat()
+        await _update_run(db, run_id, status="running", started_at=now)
+        _publish_run_event(db, user_id, run_id, item_id, run, "run_started")
+
+        # --- Poll until terminal ---
+        try:
+            while True:
+                await asyncio.sleep(POLL_INTERVAL)
+
+                try:
+                    remote = await _poll_remote_run(client, remote_run_id)
+                except Exception:
+                    logger.warning(
+                        "Poll failed for run %s (remote %s), will retry",
+                        run_id,
+                        remote_run_id,
+                    )
+                    continue
+
+                remote_status = remote.get("status", "")
+                if remote_status in _TERMINAL_STATUSES:
+                    break
+
+        except asyncio.CancelledError:
+            # Local cancellation — forward to remote
+            await _cancel_remote_run(client, remote_run_id)
+            await _update_run(
+                db,
+                run_id,
+                status="cancelled",
+                finished_at=datetime.now(UTC).isoformat(),
+            )
+            _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
+            return
+
+        # --- Map remote result to local run ---
+        finished = datetime.now(UTC).isoformat()
+        local_status = _STATUS_MAP.get(remote_status, "failed")
+        error_msg = remote.get("error") or ""
+
+        await _update_run(
+            db,
+            run_id,
+            status=local_status,
+            finished_at=finished,
+            error_msg=error_msg[:500] if error_msg else "",
+        )
+
+        event_type = "run_completed" if local_status == "success" else "run_failed"
+        _publish_run_event(db, user_id, run_id, item_id, run, event_type)
 
 
 # ---------------------------------------------------------------------------

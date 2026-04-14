@@ -1,4 +1,4 @@
-"""Tests for dispatch run CRUD API."""
+"""Tests for dispatch run CRUD API and remote dispatch worker."""
 
 from httpx import AsyncClient
 
@@ -214,29 +214,6 @@ async def test_cancel_run(client: AsyncClient, auth_headers: dict[str, str]):
     assert res.status_code == 201
 
 
-async def test_cancel_run_with_pid(client: AsyncClient, auth_headers: dict[str, str]):
-    """Cancel a run that has a PID — kill attempt should be made."""
-    from agent_gtd.database import get_db
-
-    project_id = await _create_project_with_origin(client, auth_headers)
-    item_id = await _create_item_in_project(client, auth_headers, project_id)
-
-    res = await client.post(
-        f"/api/items/{item_id}/dispatch",
-        json={},
-        headers=auth_headers,
-    )
-    run_id = res.json()["id"]
-
-    # Manually set a PID (non-existent process)
-    db = await get_db()
-    await db.execute("UPDATE claude_runs SET pid = $1 WHERE id = $2", 999999, run_id)
-
-    # Cancel should succeed (killpg fails silently for non-existent PID)
-    res = await client.delete(f"/api/runs/{run_id}", headers=auth_headers)
-    assert res.status_code == 204
-
-
 async def test_cancel_nonexistent_run(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
@@ -275,51 +252,18 @@ async def test_reconcile_orphans(client: AsyncClient, auth_headers: dict[str, st
     assert "Server restarted" in res.json()["error_msg"]
 
 
-# --- Worker execute_run tests ---
+# --- Worker execute_run tests (remote dispatch) ---
 
 
-async def test_execute_run_clone_failure(
-    client: AsyncClient, auth_headers: dict[str, str]
+async def test_execute_run_no_dispatch_url(
+    client: AsyncClient, auth_headers: dict[str, str], monkeypatch
 ):
-    """execute_run marks run as failed when clone fails."""
+    """execute_run fails gracefully when DISPATCH_SERVICE_URL is not set."""
+    import agent_gtd.dispatch_worker as dw
     from agent_gtd.database import get_db
     from agent_gtd.dispatch_worker import execute_run
 
-    project_id = await _create_project_with_origin(
-        client, auth_headers, git_origin="git@nonexistent:bad/repo.git"
-    )
-    item_id = await _create_item_in_project(client, auth_headers, project_id)
-
-    res = await client.post(
-        f"/api/items/{item_id}/dispatch",
-        json={},
-        headers=auth_headers,
-    )
-    run_id = res.json()["id"]
-
-    db = await get_db()
-    from agent_gtd.database import row_to_dict
-
-    run_row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
-    run = row_to_dict(run_row)
-    item_row = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
-    item = row_to_dict(item_row)
-    proj_row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
-    project = row_to_dict(proj_row)
-
-    await execute_run(db, run, item, project)
-
-    res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
-    assert res.json()["status"] == "failed"
-    assert "Clone failed" in res.json()["error_msg"]
-
-
-async def test_execute_run_claude_not_found(
-    client: AsyncClient, auth_headers: dict[str, str], monkeypatch, tmp_path
-):
-    """execute_run marks run as failed when claude CLI is not found."""
-    from agent_gtd.database import get_db
-    from agent_gtd.dispatch_worker import execute_run
+    monkeypatch.setattr(dw, "DISPATCH_SERVICE_URL", "")
 
     project_id = await _create_project_with_origin(client, auth_headers)
     item_id = await _create_item_in_project(client, auth_headers, project_id)
@@ -341,26 +285,62 @@ async def test_execute_run_claude_not_found(
     proj_row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     project = row_to_dict(proj_row)
 
-    # Mock _prepare_workspace to return a temp dir (skip real clone)
-    import agent_gtd.dispatch_worker as dw
+    await execute_run(db, run, item, project)
 
-    monkeypatch.setattr(dw, "_prepare_workspace", lambda *a: tmp_path)
-    # Set PATH to empty so 'claude' won't be found
-    monkeypatch.setattr(dw, "_build_env", lambda: {"PATH": "", "HOME": str(tmp_path)})
+    res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
+    assert res.json()["status"] == "failed"
+    assert "not configured" in res.json()["error_msg"].lower()
+
+
+async def test_execute_run_remote_dispatch_fails(
+    client: AsyncClient, auth_headers: dict[str, str], monkeypatch
+):
+    """execute_run marks run as failed when remote dispatch service errors."""
+    import agent_gtd.dispatch_worker as dw
+    from agent_gtd.database import get_db
+    from agent_gtd.dispatch_worker import execute_run
+
+    monkeypatch.setattr(dw, "DISPATCH_SERVICE_URL", "http://fake:9999")
+    monkeypatch.setattr(dw, "DISPATCH_SERVICE_API_KEY", "test-key")
+
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    run_id = res.json()["id"]
+
+    db = await get_db()
+    from agent_gtd.database import row_to_dict
+
+    run_row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
+    run = row_to_dict(run_row)
+    item_row = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    item = row_to_dict(item_row)
+    proj_row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
+    project = row_to_dict(proj_row)
 
     await execute_run(db, run, item, project)
 
     res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
     assert res.json()["status"] == "failed"
-    assert "claude" in res.json()["error_msg"].lower()
+    assert "dispatch service" in res.json()["error_msg"].lower()
 
 
 async def test_execute_run_success(
-    client: AsyncClient, auth_headers: dict[str, str], monkeypatch, tmp_path
+    client: AsyncClient, auth_headers: dict[str, str], monkeypatch
 ):
-    """execute_run marks run as success when subprocess exits 0."""
+    """execute_run marks run as success when remote dispatch succeeds."""
+    import agent_gtd.dispatch_worker as dw
     from agent_gtd.database import get_db
     from agent_gtd.dispatch_worker import execute_run
+
+    monkeypatch.setattr(dw, "DISPATCH_SERVICE_URL", "http://fake:8100")
+    monkeypatch.setattr(dw, "DISPATCH_SERVICE_API_KEY", "test-key")
+    monkeypatch.setattr(dw, "POLL_INTERVAL", 0.01)  # fast polling for tests
 
     project_id = await _create_project_with_origin(client, auth_headers)
     item_id = await _create_item_in_project(client, auth_headers, project_id)
@@ -382,35 +362,76 @@ async def test_execute_run_success(
     proj_row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     project = row_to_dict(proj_row)
 
-    # Mock workspace and replace claude with 'true' (exits 0)
-    import asyncio
+    # Mock the remote dispatch functions directly
+    poll_count = 0
 
-    import agent_gtd.dispatch_worker as dw
+    async def mock_dispatch_to_remote(client, item_id, max_turns):
+        return {"id": "remote-123", "status": "pending"}
 
-    monkeypatch.setattr(dw, "_prepare_workspace", lambda *a: tmp_path)
-    monkeypatch.setattr(
-        dw,
-        "_build_env",
-        lambda: {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
-    )
+    async def mock_poll(client, remote_run_id):
+        nonlocal poll_count
+        poll_count += 1
+        if poll_count >= 2:
+            return {"id": "remote-123", "status": "succeeded", "error": None}
+        return {"id": "remote-123", "status": "running", "error": None}
 
-    # Save the real create_subprocess_exec and patch to replace command
-    _real_exec = asyncio.create_subprocess_exec
-
-    async def mock_exec(*args, **kwargs):
-        return await _real_exec(
-            "true",
-            cwd=kwargs.get("cwd"),
-            env=kwargs.get("env"),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,
-        )
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", mock_exec)
+    monkeypatch.setattr(dw, "_dispatch_to_remote", mock_dispatch_to_remote)
+    monkeypatch.setattr(dw, "_poll_remote_run", mock_poll)
 
     await execute_run(db, run, item, project)
 
     res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
     assert res.json()["status"] == "success"
     assert res.json()["finished_at"] is not None
+
+
+async def test_execute_run_remote_failure(
+    client: AsyncClient, auth_headers: dict[str, str], monkeypatch
+):
+    """execute_run maps remote failure to local failed status."""
+    import agent_gtd.dispatch_worker as dw
+    from agent_gtd.database import get_db
+    from agent_gtd.dispatch_worker import execute_run
+
+    monkeypatch.setattr(dw, "DISPATCH_SERVICE_URL", "http://fake:8100")
+    monkeypatch.setattr(dw, "DISPATCH_SERVICE_API_KEY", "test-key")
+    monkeypatch.setattr(dw, "POLL_INTERVAL", 0.01)
+
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    run_id = res.json()["id"]
+
+    db = await get_db()
+    from agent_gtd.database import row_to_dict
+
+    run_row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
+    run = row_to_dict(run_row)
+    item_row = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    item = row_to_dict(item_row)
+    proj_row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
+    project = row_to_dict(proj_row)
+
+    async def mock_dispatch_to_remote(client, item_id, max_turns):
+        return {"id": "remote-456", "status": "pending"}
+
+    async def mock_poll(client, remote_run_id):
+        return {
+            "id": "remote-456",
+            "status": "failed",
+            "error": "Reached max turns (50)",
+        }
+
+    monkeypatch.setattr(dw, "_dispatch_to_remote", mock_dispatch_to_remote)
+    monkeypatch.setattr(dw, "_poll_remote_run", mock_poll)
+
+    await execute_run(db, run, item, project)
+
+    res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
+    assert res.json()["status"] == "failed"
+    assert "max turns" in res.json()["error_msg"].lower()

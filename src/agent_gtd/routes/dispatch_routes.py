@@ -108,15 +108,6 @@ async def cancel_run(
     """Cancel an active dispatch run."""
     db = await get_db()
     try:
-        run = await dispatch_service.cancel_run(db, user.id, run_id)
-        # Kill the subprocess if it's running
-        pid = run.get("pid")
-        if pid:
-            import contextlib
-            import os
-            import signal
-
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(os.getpgid(int(str(pid))), signal.SIGTERM)
+        await dispatch_service.cancel_run(db, user.id, run_id)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from None
