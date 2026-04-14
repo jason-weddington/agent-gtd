@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.38.2 (2026-04-14)
+
+### Bug Fixes
+
+- Add HttpBackend comment CRUD tests
+  ([`2c4a4f7`](https://github.com/jason-weddington/agent-gtd/commit/2c4a4f743ba22541b6ac7e75e15efbf0cca09277))
+
+### Documentation
+
+- Add MIT license
+  ([`6dfbfd9`](https://github.com/jason-weddington/agent-gtd/commit/6dfbfd928cd720fe2da0c068a6d34c285274a0e9))
+
+
 ## v1.38.1 (2026-04-14)
 
 ### Bug Fixes
