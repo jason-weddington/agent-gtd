@@ -22,7 +22,7 @@ def _run_response(row: dict[str, object]) -> RunResponse:
         status=RunStatus(str(row["status"])),
         feature_branch=str(row.get("feature_branch", "")),
         workspace_dir=str(row.get("workspace_dir", "")),
-        max_turns=int(str(row.get("max_turns", 20))),
+        max_turns=int(str(row.get("max_turns", 50))),
         started_at=(
             datetime.fromisoformat(str(row["started_at"]))
             if row.get("started_at")
