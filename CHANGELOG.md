@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v1.38.1 (2026-04-14)
+
+### Bug Fixes
+
+- Preflight health check before dispatch
+  ([`83ef8fc`](https://github.com/jason-weddington/agent-gtd/commit/83ef8fcbc18903411e76ac23ded05436d1b638e8))
+
+### Chores
+
+- Bump default max_turns from 20 to 50
+  ([`eca75ac`](https://github.com/jason-weddington/agent-gtd/commit/eca75ace13ef5f0493a294cac2cb9bea7bc05168))
+
+### Refactoring
+
+- Centralize max_turns default in dispatch_worker
+  ([`32f8733`](https://github.com/jason-weddington/agent-gtd/commit/32f87339b318f9c271f57d3bf306b0dc28ff1f98))
+
+
 ## v1.38.0 (2026-04-07)
 
 ### Features
