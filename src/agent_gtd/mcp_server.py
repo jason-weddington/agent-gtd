@@ -770,7 +770,7 @@ async def _get_db() -> Any:
 async def dispatch_item(
     item_id: str,
     ctx: Context,
-    max_turns: int = 20,
+    max_turns: int = 50,
 ) -> dict[str, Any]:
     """Dispatch a headless Claude Code agent to work on an item.
 
@@ -781,7 +781,7 @@ async def dispatch_item(
     Args:
         item_id: ID of the item to dispatch.
         ctx: MCP context (injected automatically).
-        max_turns: Maximum agent turns. Default: 20.
+        max_turns: Maximum agent turns. Default: 50.
 
     Returns:
         The created run dict with status and branch name.

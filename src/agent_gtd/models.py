@@ -375,7 +375,7 @@ class CommentResponse(BaseModel):
 class CreateRunRequest(BaseModel):
     """Dispatch a Claude Code agent for an item."""
 
-    max_turns: int = 20
+    max_turns: int = 50
 
 
 class RunResponse(BaseModel):

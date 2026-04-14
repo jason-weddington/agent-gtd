@@ -34,7 +34,7 @@ async def create_run(
     user_id: str,
     item_id: str,
     *,
-    max_turns: int = 20,
+    max_turns: int = 50,
 ) -> dict[str, Any]:
     """Create a new dispatch run for an item.
 

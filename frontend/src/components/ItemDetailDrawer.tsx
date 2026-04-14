@@ -357,7 +357,7 @@ export default function ItemDetailDrawer({
             <strong>Repo:</strong> {projectGitOrigin}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            <strong>Max turns:</strong> 20
+            <strong>Max turns:</strong> 50
           </Typography>
           {!item?.description && (
             <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
