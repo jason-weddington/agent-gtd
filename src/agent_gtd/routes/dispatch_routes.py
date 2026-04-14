@@ -1,15 +1,20 @@
 """Dispatch run API routes for Claude Code headless agents."""
 
+import logging
 from datetime import datetime
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
+from agent_gtd import dispatch_worker
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
 from agent_gtd.exceptions import NotFoundError, RunActiveError
 from agent_gtd.models import CreateRunRequest, RunResponse, RunStatus, User
 from agent_gtd.services import dispatch_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["dispatch"])
 
@@ -39,6 +44,38 @@ def _run_response(row: dict[str, object]) -> RunResponse:
     )
 
 
+async def _check_dispatch_service() -> None:
+    """Pre-flight check: verify the dispatch service is reachable."""
+    if not dispatch_worker.DISPATCH_SERVICE_URL:
+        raise HTTPException(
+            status_code=503,
+            detail="Dispatch service not configured",
+        )
+    try:
+        async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
+            key = dispatch_worker.DISPATCH_SERVICE_API_KEY
+            resp = await client.get(
+                f"{dispatch_worker.DISPATCH_SERVICE_URL}/health",
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=5.0,
+            )
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Dispatch service returned an error",
+                )
+    except httpx.ConnectError:
+        raise HTTPException(
+            status_code=503,
+            detail="Dispatch service is unreachable",
+        ) from None
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=503,
+            detail="Dispatch service timed out",
+        ) from None
+
+
 @router.post(
     "/api/items/{item_id}/dispatch",
     response_model=RunResponse,
@@ -50,6 +87,9 @@ async def dispatch_item(
     user: Annotated[User, Depends(get_current_user)],
 ) -> RunResponse:
     """Dispatch a Claude Code agent to work on an item."""
+    # Pre-flight: ensure dispatch service is reachable before creating a run
+    await _check_dispatch_service()
+
     db = await get_db()
     try:
         row = await dispatch_service.create_run(

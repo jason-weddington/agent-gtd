@@ -1,6 +1,20 @@
 """Tests for dispatch run CRUD API and remote dispatch worker."""
 
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
+
+
+@pytest.fixture(autouse=True)
+def _mock_dispatch_preflight():
+    """Skip the dispatch service health check in all tests."""
+    with patch(
+        "agent_gtd.routes.dispatch_routes._check_dispatch_service",
+        new_callable=AsyncMock,
+    ):
+        yield
 
 
 async def _create_project_with_origin(
@@ -435,3 +449,57 @@ async def test_execute_run_remote_failure(
     res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
     assert res.json()["status"] == "failed"
     assert "max turns" in res.json()["error_msg"].lower()
+
+
+# --- Preflight check tests ---
+
+
+async def test_dispatch_service_unreachable(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """503 when dispatch service is unreachable."""
+
+    import agent_gtd.dispatch_worker as dw
+
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    with (
+        patch.object(dw, "DISPATCH_SERVICE_URL", "http://unreachable:9999"),
+        patch.object(dw, "DISPATCH_SERVICE_API_KEY", "test"),
+        patch(
+            "agent_gtd.routes.dispatch_routes._check_dispatch_service",
+            side_effect=HTTPException(
+                status_code=503, detail="Dispatch service is unreachable"
+            ),
+        ),
+    ):
+        res = await client.post(
+            f"/api/items/{item_id}/dispatch",
+            json={},
+            headers=auth_headers,
+        )
+    assert res.status_code == 503
+    assert "unreachable" in res.json()["detail"].lower()
+
+
+async def test_dispatch_service_not_configured(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """503 when DISPATCH_SERVICE_URL is empty."""
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    with patch(
+        "agent_gtd.routes.dispatch_routes._check_dispatch_service",
+        side_effect=HTTPException(
+            status_code=503, detail="Dispatch service not configured"
+        ),
+    ):
+        res = await client.post(
+            f"/api/items/{item_id}/dispatch",
+            json={},
+            headers=auth_headers,
+        )
+    assert res.status_code == 503
+    assert "not configured" in res.json()["detail"].lower()
