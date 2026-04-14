@@ -228,3 +228,85 @@ async def test_item_not_found(authed_backend: HttpBackend):
 async def test_note_not_found(authed_backend: HttpBackend):
     with pytest.raises(ToolError):
         await authed_backend.get_note("", "nonexistent")
+
+
+# --- Comments ---
+
+
+async def test_create_project_comment(authed_backend: HttpBackend, project_id: str):
+    comment = await authed_backend.create_comment(
+        "",
+        project_id=project_id,
+        content_markdown="A project comment",
+        created_by="human",
+    )
+    assert comment["content_markdown"] == "A project comment"
+    assert comment["created_by"] == "human"
+    assert comment["project_id"] == project_id
+
+
+async def test_create_item_comment(authed_backend: HttpBackend, project_id: str):
+    item = await authed_backend.create_item(
+        "", title="Commented Item", status="active", project_id=project_id
+    )
+    comment = await authed_backend.create_comment(
+        "",
+        item_id=item["id"],
+        content_markdown="An item comment",
+        created_by="agent",
+    )
+    assert comment["content_markdown"] == "An item comment"
+    assert comment["created_by"] == "agent"
+    assert comment["item_id"] == item["id"]
+
+
+async def test_list_comments(authed_backend: HttpBackend, project_id: str):
+    await authed_backend.create_comment(
+        "", project_id=project_id, content_markdown="First"
+    )
+    await authed_backend.create_comment(
+        "", project_id=project_id, content_markdown="Second"
+    )
+    comments = await authed_backend.list_comments("", project_id=project_id)
+    assert len(comments) == 2
+
+
+async def test_list_comments_by_item(authed_backend: HttpBackend, project_id: str):
+    item = await authed_backend.create_item(
+        "", title="Item for comments", status="active", project_id=project_id
+    )
+    await authed_backend.create_comment(
+        "", project_id=project_id, content_markdown="Project comment"
+    )
+    await authed_backend.create_comment(
+        "", item_id=item["id"], content_markdown="Item comment"
+    )
+    item_comments = await authed_backend.list_comments("", item_id=item["id"])
+    assert len(item_comments) == 1
+    assert item_comments[0]["content_markdown"] == "Item comment"
+
+
+async def test_update_comment(authed_backend: HttpBackend, project_id: str):
+    comment = await authed_backend.create_comment(
+        "", project_id=project_id, content_markdown="Original content"
+    )
+    updated = await authed_backend.update_comment(
+        "", comment["id"], content_markdown="Updated content"
+    )
+    assert updated["content_markdown"] == "Updated content"
+    assert updated["id"] == comment["id"]
+
+
+async def test_delete_comment(authed_backend: HttpBackend, project_id: str):
+    comment = await authed_backend.create_comment(
+        "", project_id=project_id, content_markdown="To be deleted"
+    )
+    result = await authed_backend.delete_comment("", comment["id"])
+    assert result is None
+    comments = await authed_backend.list_comments("", project_id=project_id)
+    assert len(comments) == 0
+
+
+async def test_create_comment_no_parent(authed_backend: HttpBackend):
+    with pytest.raises(ToolError):
+        await authed_backend.create_comment("", content_markdown="Orphan comment")
