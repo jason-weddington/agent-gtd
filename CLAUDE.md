@@ -197,14 +197,10 @@ The existing pages (`Inbox.tsx`, `ProjectDetail.tsx`, `GtdItemList.tsx`, etc.) d
 
 Every session that involves implementation work MUST follow this workflow:
 
-1. **Login immediately.** At the start of any session that will touch code or planning, authenticate with the MCP server:
-   ```
-   login(api_key=<from data/seed.json>, agent_name="claude-code")
-   ```
-2. **Check the backlog first.** Run `list_items` to see what's already tracked before starting work. The user may refer to items by title or description — find the matching item rather than starting from scratch.
-3. **Capture new work as items.** When the user asks for something new, `add_item` or `inbox_capture` it. Features go to `next_action` or `someday_maybe`. Bugs go to `next_action` with `high` priority. Vague ideas go to `inbox` for later triage.
-4. **Mark items done when complete.** After shipping a feature or fix, call `complete_item`. Don't leave stale open items.
-5. **Use notes for design decisions.** When making architectural choices during a feature, capture the rationale as a project note via `add_note`. This is especially valuable for decisions that future sessions will need to understand.
+1. **Check the backlog first.** Run `list_items` to see what's already tracked before starting work. The user may refer to items by title or description — find the matching item rather than starting from scratch. (Authentication is automatic when `AGENT_GTD_API_KEY` is set in the environment — no need to call `login`.)
+2. **Capture new work as items.** When the user asks for something new, `add_item` or `inbox_capture` it. Features go to `next_action` or `someday_maybe`. Bugs go to `next_action` with `high` priority. Vague ideas go to `inbox` for later triage.
+3. **Mark items done when complete.** After shipping a feature or fix, call `complete_item`. Don't leave stale open items.
+4. **Use notes for design decisions.** When making architectural choices during a feature, capture the rationale as a project note via `add_note`. This is especially valuable for decisions that future sessions will need to understand.
 
 ### Never create roadmap or TODO files
 

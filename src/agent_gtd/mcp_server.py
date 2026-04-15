@@ -20,6 +20,7 @@ _backend = create_backend()
 _HTTP_MODE = not isinstance(_backend, LocalBackend)
 
 _ENV_API_KEY = os.environ.get("AGENT_GTD_API_KEY", "")
+_ENV_AGENT_NAME = os.environ.get("AGENT_GTD_AGENT_NAME", "mcp-agent")
 
 
 @asynccontextmanager
@@ -38,6 +39,8 @@ async def mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
 
 def _needs_login() -> bool:
     """Whether the login tool should be registered."""
+    if _ENV_API_KEY:
+        return False
     if _HTTP_MODE:
         return True
     # Local mode: check if local-mode SQLite (no auth needed)
@@ -48,12 +51,11 @@ def _needs_login() -> bool:
 
 _show_login = _needs_login()
 
-# When AGENT_GTD_API_KEY is set, auto-auth in _get_session() handles
-# authentication transparently — don't tell agents to call login.
+# When login tools are hidden, auto-auth handles authentication transparently.
 _instructions = (
     "GTD (Getting Things Done) task management system. "
     "Use item, note, and comment tools to manage work."
-    if not _show_login or _ENV_API_KEY
+    if not _show_login
     else (
         "GTD (Getting Things Done) task management system. "
         "Call login first with a valid api_key to authenticate. "
@@ -100,7 +102,7 @@ async def _get_session(ctx: Context) -> dict[str, str]:
 
     # Auto-login via env var
     if _ENV_API_KEY:
-        result = await _backend.login(_ENV_API_KEY, "mcp-agent")
+        result = await _backend.login(_ENV_API_KEY, _ENV_AGENT_NAME)
         session = {
             "user_id": result["user_id"],
             "agent_name": result["agent_name"],
@@ -148,42 +150,6 @@ if _show_login:
             "status": "logged_in",
             "user_email": result.get("email", ""),
             "agent_name": agent_name,
-        }
-
-    @mcp.tool(
-        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
-    )
-    async def switch_project(
-        project_id: str,
-        ctx: Context,
-    ) -> dict[str, str]:
-        """Switch the current project context.
-
-        Requires prior login. Sets the active project for context,
-        though most tools accept project_id as an explicit parameter.
-
-        Args:
-            project_id: ID of the project to switch to.
-            ctx: MCP context (injected automatically).
-
-        Returns:
-            Confirmation with new project_id.
-        """
-        session = await _get_session(ctx)
-
-        try:
-            project = await _backend.get_project(session["user_id"], project_id)
-        except NotFoundError:
-            raise ToolError(f"Project not found: {project_id}") from None
-
-        session["project_id"] = project_id
-        await ctx.set_state("agent_session", session)
-
-        return {
-            "status": "switched",
-            "project_id": project_id,
-            "project_name": project["name"],
-            "agent_name": session["agent_name"],
         }
 
 

@@ -97,7 +97,6 @@ When the env var is set, the MCP server auto-authenticates on first tool call. N
 | `add_note` / `update_note` | Create or update project notes |
 | `list_notes` / `get_note` | Read project notes |
 | `list_projects` / `add_project` | Manage projects |
-| `switch_project` | Set active project context |
 
 ## Development
 

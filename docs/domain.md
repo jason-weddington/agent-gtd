@@ -179,16 +179,10 @@ the FastAPI app. Both share the same database and service layer.
 
 ### Agent Registration (Session-Scoped)
 
-Agents register with a project at the start of a session. All subsequent project-scoped
-tools operate within that project automatically — no need to pass `project_id` on every call.
-
-```
-register_agent(project_id) -> { status, project_id }
-switch_project(project_id) -> { status, project_id }
-```
-
-Session state is per-client, isolated by FastMCP automatically. Agent A's session cannot
-affect Agent B's session.
+Agents authenticate at the start of a session (or auto-authenticate via `AGENT_GTD_API_KEY`).
+All tools that operate on a specific project accept `project_id` as an explicit parameter.
+Tools that list items or notes can omit `project_id` to query across all projects — mirroring
+the web UI where the user sees everything and navigates between projects freely.
 
 ### Discovery Tools (no registration required)
 

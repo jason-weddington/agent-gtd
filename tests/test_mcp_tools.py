@@ -10,7 +10,7 @@ from fastmcp.exceptions import ToolError
 from agent_gtd.auth import generate_api_key, hash_api_key, register_user
 from agent_gtd.database import get_db
 from agent_gtd.mcp_backend import LocalBackend
-from agent_gtd.mcp_server import mcp
+from agent_gtd.mcp_server import _show_login, mcp
 from agent_gtd.services import project_service
 
 
@@ -75,10 +75,15 @@ async def project_id(project):
 @pytest.fixture(autouse=True)
 def _force_local_backend(monkeypatch):
     """Ensure MCP tools use LocalBackend regardless of env vars."""
+    import agent_gtd.database as db_mod
     import agent_gtd.mcp_server as srv
 
     monkeypatch.setattr(srv, "_backend", LocalBackend())
     monkeypatch.setattr(srv, "_HTTP_MODE", False)
+    # Clear env API key so auto-auth doesn't use the real key against the test DB
+    monkeypatch.setattr(srv, "_ENV_API_KEY", "")
+    # Prevent local-mode auto-session so tests must authenticate explicitly
+    monkeypatch.setattr(db_mod, "is_local_mode", lambda: False)
 
 
 @pytest.fixture
@@ -89,7 +94,14 @@ async def mcp_client():
 
 # --- Login ---
 
+# The login tool is only registered when _show_login is True
+# (no AGENT_GTD_API_KEY at import time). Skip these tests when hidden.
+_needs_login_tools = pytest.mark.skipif(
+    not _show_login, reason="login tool not registered (API key in env)"
+)
 
+
+@_needs_login_tools
 async def test_login(mcp_client, api_key):
     result = await mcp_client.call_tool(
         "login",
@@ -104,6 +116,7 @@ async def test_login(mcp_client, api_key):
     assert data["agent_name"] == "test-agent"
 
 
+@_needs_login_tools
 async def test_login_invalid_key(mcp_client):
     with pytest.raises(ToolError, match="Invalid API key"):
         await mcp_client.call_tool(
@@ -113,25 +126,6 @@ async def test_login_invalid_key(mcp_client):
                 "agent_name": "test-agent",
             },
         )
-
-
-async def test_switch_project(mcp_client, api_key, user_id, project_id):
-    await mcp_client.call_tool(
-        "login",
-        {"api_key": api_key, "agent_name": "test-agent"},
-    )
-
-    db = await get_db()
-    p2 = await project_service.create_project(db, user_id, name="Project 2")
-
-    result = await mcp_client.call_tool(
-        "switch_project",
-        {"project_id": p2["id"]},
-    )
-    data = _parse_result(result)
-    assert data["status"] == "switched"
-    assert data["project_id"] == p2["id"]
-    assert data["project_name"] == "Project 2"
 
 
 async def test_tool_without_login(monkeypatch):
@@ -158,6 +152,17 @@ async def test_env_var_auto_login(api_key, monkeypatch):
         assert isinstance(data, list)
 
 
+async def test_login_tools_hidden_when_api_key_set():
+    """When AGENT_GTD_API_KEY is set at import, login tool is not registered."""
+    from agent_gtd.mcp_server import _ENV_API_KEY
+
+    if not _ENV_API_KEY:
+        pytest.skip("AGENT_GTD_API_KEY not set in environment")
+    tools = await mcp.list_tools()
+    tool_names = [t.name for t in tools]
+    assert "login" not in tool_names
+
+
 # --- Discovery (requires session for user_id) ---
 
 
@@ -181,11 +186,18 @@ async def test_list_projects_with_status_filter(registered_client, project_id):
 
 
 @pytest.fixture
-async def registered_client(mcp_client, api_key, project_id):
-    await mcp_client.call_tool(
-        "login",
-        {"api_key": api_key, "agent_name": "test-agent"},
-    )
+async def registered_client(mcp_client, api_key, project_id, monkeypatch):
+    import agent_gtd.mcp_server as srv
+
+    if _show_login:
+        await mcp_client.call_tool(
+            "login",
+            {"api_key": api_key, "agent_name": "test-agent"},
+        )
+    else:
+        # Auto-auth via env var — set key and agent name so _get_session picks them up
+        monkeypatch.setattr(srv, "_ENV_API_KEY", api_key)
+        monkeypatch.setattr(srv, "_ENV_AGENT_NAME", "test-agent")
     return mcp_client
 
 
@@ -601,16 +613,6 @@ async def test_get_note(registered_client, project_id):
 # --- Error branches for coverage ---
 
 
-async def test_switch_project_invalid(registered_client):
-    with pytest.raises(ToolError, match="Project not found"):
-        await registered_client.call_tool(
-            "switch_project",
-            {
-                "project_id": "nonexistent",
-            },
-        )
-
-
 async def test_get_item_not_found(registered_client):
     with pytest.raises(ToolError, match="not found"):
         await registered_client.call_tool("get_item", {"item_id": "nonexistent"})
@@ -682,22 +684,17 @@ async def test_get_note_not_found(registered_client):
 # --- Session isolation ---
 
 
-async def test_session_isolation(user_id, api_key):
+async def test_session_isolation(user_id, api_key, monkeypatch):
     """Two clients with different project_id filters see different items."""
+    import agent_gtd.mcp_server as srv
+
+    monkeypatch.setattr(srv, "_ENV_API_KEY", api_key)
+
     db = await get_db()
     p1 = await project_service.create_project(db, user_id, name="Project A")
     p2 = await project_service.create_project(db, user_id, name="Project B")
 
     async with Client(mcp) as client1, Client(mcp) as client2:
-        await client1.call_tool(
-            "login",
-            {"api_key": api_key, "agent_name": "agent-1"},
-        )
-        await client2.call_tool(
-            "login",
-            {"api_key": api_key, "agent_name": "agent-2"},
-        )
-
         await client1.call_tool(
             "add_item",
             {"title": "P1 Item", "status": "next_action", "project_id": p1["id"]},
