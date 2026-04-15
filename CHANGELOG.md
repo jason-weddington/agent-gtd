@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.47.0 (2026-04-15)
+
+### Features
+
+- **frontend**: Show labels as compact chips on item cards
+  ([`0de3f75`](https://github.com/jason-weddington/agent-gtd/commit/0de3f757fa023d0e791bdb44247c4e3d85e64a76))
+
+
 ## v1.46.1 (2026-04-15)
 
 ### Bug Fixes
