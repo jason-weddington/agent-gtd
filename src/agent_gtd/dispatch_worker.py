@@ -147,6 +147,161 @@ async def _cancel_remote_run(
 
 
 # ---------------------------------------------------------------------------
+# Startup reconciliation
+# ---------------------------------------------------------------------------
+
+
+async def reconcile_active_runs() -> int:
+    """Reconcile runs that were active when the server last stopped.
+
+    For each active run:
+    - If it has a remote_run_id, poll the dispatch service for actual status.
+      - Still running → resume polling.
+      - Terminal → update local status to match.
+      - Unreachable → mark as failed.
+    - If no remote_run_id (never dispatched remotely) → mark as failed.
+
+    Returns the number of runs reconciled.
+    """
+    from agent_gtd.database import get_db, row_to_dict
+
+    db = await get_db()
+    rows = await db.fetch(
+        "SELECT * FROM claude_runs WHERE status IN ($1, $2, $3)",
+        "pending",
+        "cloning",
+        "running",
+    )
+    if not rows:
+        return 0
+
+    now = datetime.now(UTC).isoformat()
+    reconciled = 0
+
+    for row in rows:
+        run = row_to_dict(row)
+        run_id = str(run["id"])
+        remote_id = str(run.get("remote_run_id", ""))
+
+        if not remote_id:
+            # Never made it to remote dispatch — mark as failed
+            await _update_run(
+                db,
+                run_id,
+                status="failed",
+                finished_at=now,
+                error_msg="Server restarted before dispatch completed",
+            )
+            reconciled += 1
+            continue
+
+        # Poll remote for actual status
+        try:
+            async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
+                remote = await _poll_remote_run(client, remote_id)
+        except Exception:
+            logger.warning(
+                "Cannot reach dispatch service for run %s (remote %s), marking failed",
+                run_id,
+                remote_id,
+            )
+            await _update_run(
+                db,
+                run_id,
+                status="failed",
+                finished_at=now,
+                error_msg="Dispatch service unreachable after restart",
+            )
+            reconciled += 1
+            continue
+
+        remote_status = remote.get("status", "")
+        if remote_status in _TERMINAL_STATUSES:
+            # Already finished — sync local status
+            local_status = _STATUS_MAP.get(remote_status, "failed")
+            error_msg = remote.get("error") or ""
+            await _update_run(
+                db,
+                run_id,
+                status=local_status,
+                finished_at=now,
+                error_msg=error_msg[:500] if error_msg else "",
+            )
+            logger.info(
+                "Reconciled run %s: remote=%s → local=%s",
+                run_id,
+                remote_status,
+                local_status,
+            )
+        else:
+            # Still running — resume polling
+            logger.info("Resuming polling for run %s (remote %s)", run_id, remote_id)
+            asyncio.create_task(_resume_polling(db, run, remote_id))
+
+        reconciled += 1
+
+    logger.info("Reconciled %d active run(s) after restart", reconciled)
+    return reconciled
+
+
+async def _resume_polling(
+    db: Any,
+    run: dict[str, Any],
+    remote_run_id: str,
+) -> None:
+    """Resume the poll loop for a run that was still active after restart."""
+    run_id = str(run["id"])
+    item_id = str(run["item_id"])
+    user_id = str(run["user_id"])
+
+    async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
+        try:
+            while True:
+                await asyncio.sleep(POLL_INTERVAL)
+                try:
+                    remote = await _poll_remote_run(client, remote_run_id)
+                except Exception:
+                    logger.warning(
+                        "Poll failed for resumed run %s (remote %s), will retry",
+                        run_id,
+                        remote_run_id,
+                    )
+                    continue
+
+                remote_status = remote.get("status", "")
+                if remote_status in _TERMINAL_STATUSES:
+                    break
+
+        except asyncio.CancelledError:
+            await _cancel_remote_run(client, remote_run_id)
+            await _update_run(
+                db,
+                run_id,
+                status="cancelled",
+                finished_at=datetime.now(UTC).isoformat(),
+            )
+            _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
+            return
+
+        # Map terminal status
+        finished = datetime.now(UTC).isoformat()
+        local_status = _STATUS_MAP.get(remote_status, "failed")
+        error_msg = remote.get("error") or ""
+
+        await _update_run(
+            db,
+            run_id,
+            status=local_status,
+            finished_at=finished,
+            error_msg=error_msg[:500] if error_msg else "",
+        )
+
+        event_type = "run_completed" if local_status == "success" else "run_failed"
+        _publish_run_event(db, user_id, run_id, item_id, run, event_type)
+        logger.info("Resumed run %s completed: %s", run_id, local_status)
+
+
+# ---------------------------------------------------------------------------
 # Single run executor
 # ---------------------------------------------------------------------------
 
@@ -197,7 +352,13 @@ async def execute_run(
 
         # --- Running ---
         now = datetime.now(UTC).isoformat()
-        await _update_run(db, run_id, status="running", started_at=now)
+        await _update_run(
+            db,
+            run_id,
+            status="running",
+            started_at=now,
+            remote_run_id=remote_run_id,
+        )
         _publish_run_event(db, user_id, run_id, item_id, run, "run_started")
 
         # --- Poll until terminal ---

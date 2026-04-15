@@ -137,6 +137,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         max_turns INTEGER NOT NULL DEFAULT 50,
         started_at TEXT,
         finished_at TEXT,
+        remote_run_id TEXT NOT NULL DEFAULT '',
         error_msg TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -153,6 +154,7 @@ _SCHEMA_STATEMENTS: list[str] = [
 _MIGRATIONS: list[str] = [
     "ALTER TABLE projects ADD COLUMN git_origin TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE projects ADD COLUMN kb_project_ref TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE claude_runs ADD COLUMN remote_run_id TEXT NOT NULL DEFAULT ''",
 ]
 
 

@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent_gtd.auth import get_current_user, get_local_user
-from agent_gtd.database import close_db, get_db, init_db, is_local_mode
+from agent_gtd.database import close_db, init_db, is_local_mode
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.mcp_server import mcp
 from agent_gtd.routes.auth_routes import router as auth_router
@@ -24,19 +24,21 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifecycle: init/close database."""
     import asyncio
 
-    from agent_gtd.dispatch_worker import dispatch_worker, shutdown_worker
-    from agent_gtd.services.dispatch_service import reconcile_orphans
+    from agent_gtd.dispatch_worker import (
+        dispatch_worker,
+        reconcile_active_runs,
+        shutdown_worker,
+    )
 
     await init_db()
     if is_local_mode():
         _app.dependency_overrides[get_current_user] = get_local_user
 
-    # Mark any runs left active from a prior crash as failed
-    pool = await get_db()
-    await reconcile_orphans(pool)
-
-    # Start background dispatch worker
+    # Start background dispatch worker first (reconciliation may re-enqueue runs)
     worker_task = asyncio.create_task(dispatch_worker())
+
+    # Reconcile runs that were active before the restart
+    await reconcile_active_runs()
 
     yield
 

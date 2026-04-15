@@ -265,10 +265,11 @@ async def test_cancel_nonexistent_run(
 # --- Reconciliation ---
 
 
-async def test_reconcile_orphans(client: AsyncClient, auth_headers: dict[str, str]):
-    """Orphan reconciliation marks active runs as failed."""
-    from agent_gtd.database import get_db
-    from agent_gtd.services.dispatch_service import reconcile_orphans
+async def test_reconcile_no_remote_id(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Runs without remote_run_id are marked failed on reconciliation."""
+    from agent_gtd.dispatch_worker import reconcile_active_runs
 
     project_id = await _create_project_with_origin(client, auth_headers)
     item_id = await _create_item_in_project(client, auth_headers, project_id)
@@ -281,14 +282,105 @@ async def test_reconcile_orphans(client: AsyncClient, auth_headers: dict[str, st
     run_id = res.json()["id"]
     assert res.json()["status"] == "pending"
 
-    db = await get_db()
-    count = await reconcile_orphans(db)
+    count = await reconcile_active_runs()
     assert count >= 1
 
-    # Run should be failed now
+    # No remote_run_id → never reached the dispatch service
     res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
     assert res.json()["status"] == "failed"
-    assert "Server restarted" in res.json()["error_msg"]
+    assert "before dispatch completed" in res.json()["error_msg"]
+
+
+async def test_reconcile_remote_terminal(
+    client: AsyncClient, auth_headers: dict[str, str], monkeypatch
+):
+    """Runs with a remote_run_id that finished are synced to the terminal status."""
+    import agent_gtd.dispatch_worker as dw
+    from agent_gtd.database import get_db
+    from agent_gtd.dispatch_worker import reconcile_active_runs
+
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    run_id = res.json()["id"]
+
+    # Simulate: run was dispatched and has a remote_run_id, status is "running"
+    db = await get_db()
+    await db.execute(
+        "UPDATE claude_runs SET status = 'running', remote_run_id = 'remote-123'"
+        " WHERE id = $1",
+        run_id,
+    )
+
+    # Mock the remote poll to return "succeeded"
+    async def mock_poll(client, remote_id):
+        return {"status": "succeeded", "error": None}
+
+    monkeypatch.setattr(dw, "_poll_remote_run", mock_poll)
+    monkeypatch.setattr(dw, "DISPATCH_SERVICE_URL", "http://fake:8100")
+
+    count = await reconcile_active_runs()
+    assert count >= 1
+
+    res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
+    assert res.json()["status"] == "success"
+
+
+async def test_reconcile_remote_still_running(
+    client: AsyncClient, auth_headers: dict[str, str], monkeypatch
+):
+    """Runs still active on remote are resumed (not marked failed)."""
+    import agent_gtd.dispatch_worker as dw
+    from agent_gtd.database import get_db
+    from agent_gtd.dispatch_worker import reconcile_active_runs
+
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    run_id = res.json()["id"]
+
+    # Simulate: run was dispatched and is running remotely
+    db = await get_db()
+    await db.execute(
+        "UPDATE claude_runs SET status = 'running', remote_run_id = 'remote-456'"
+        " WHERE id = $1",
+        run_id,
+    )
+
+    # Mock the remote poll to return "running"
+    async def mock_poll(client, remote_id):
+        return {"status": "running"}
+
+    monkeypatch.setattr(dw, "_poll_remote_run", mock_poll)
+    monkeypatch.setattr(dw, "DISPATCH_SERVICE_URL", "http://fake:8100")
+
+    # Patch _resume_polling to just record the call (don't actually poll forever)
+    resumed = []
+
+    async def mock_resume(db, run, remote_run_id):
+        resumed.append(remote_run_id)
+
+    monkeypatch.setattr(dw, "_resume_polling", mock_resume)
+
+    count = await reconcile_active_runs()
+    assert count >= 1
+
+    # Run should still be "running" — not marked as failed
+    res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
+    assert res.json()["status"] == "running"
+
+    # Resume polling was called
+    assert "remote-456" in resumed
 
 
 # --- Worker execute_run tests (remote dispatch) ---
