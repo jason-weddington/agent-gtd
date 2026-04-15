@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.43.0 (2026-04-15)
+
+### Features
+
+- **frontend**: Add inline editing to ItemDetailDrawer
+  ([`50b1756`](https://github.com/jason-weddington/agent-gtd/commit/50b17563853fb37af363b5387326010658b3bbf2))
+
+
 ## v1.42.0 (2026-04-15)
 
 ### Features
