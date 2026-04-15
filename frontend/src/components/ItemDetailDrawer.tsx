@@ -286,13 +286,24 @@ export default function ItemDetailDrawer({
   }
 
   const handleDispatch = async () => {
-    if (!item) return
+    if (!item || !localItem) return
     setDispatching(true)
     setDispatchError(null)
     try {
       const run = await api.items.dispatch(item.id)
       setActiveRun(run)
       setConfirmOpen(false)
+      // Move item to "active" so the UI reflects work is in progress
+      try {
+        const updated = await api.items.update(item.id, {
+          status: 'active',
+          version: localItem.version,
+        })
+        setLocalItem(updated)
+        onItemUpdated?.(updated)
+      } catch {
+        // Non-critical — dispatch already succeeded
+      }
     } catch (err) {
       setDispatchError(err instanceof ApiError ? err.detail : 'Dispatch failed')
     } finally {
