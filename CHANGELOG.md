@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.38.6 (2026-04-15)
+
+### Bug Fixes
+
+- **frontend**: Truncate long project descriptions in list view
+  ([`5d68eea`](https://github.com/jason-weddington/agent-gtd/commit/5d68eea85bdfdab18df05b87d7a6a6bb064a1357))
+
+
 ## v1.38.5 (2026-04-15)
 
 ### Bug Fixes
