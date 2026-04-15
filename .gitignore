@@ -46,3 +46,6 @@ frontend/dist/
 # Data
 data/
 .mcp.json
+
+# Deploy (contains host-specific details)
+deploy.sh
