@@ -288,8 +288,20 @@ export default function GtdItemList({
             >
               <ListItemText
                 primary={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="body1">{item.title}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, overflow: 'hidden' }}>
+                    <Tooltip title={item.title}>
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          minWidth: 0,
+                        }}
+                      >
+                        {item.title}
+                      </Typography>
+                    </Tooltip>
                     {item.projectId && projectMap[item.projectId] && (
                       <Chip
                         label={projectMap[item.projectId].name}
