@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box,
@@ -27,6 +27,7 @@ import {
   FormControlLabel,
   Checkbox,
   Divider,
+  InputAdornment,
 } from '@mui/material'
 import SendIcon from '@mui/icons-material/Send'
 import AddIcon from '@mui/icons-material/Add'
@@ -36,6 +37,8 @@ import DoneIcon from '@mui/icons-material/Done'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ViewListIcon from '@mui/icons-material/ViewList'
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
+import SearchIcon from '@mui/icons-material/Search'
+import ClearIcon from '@mui/icons-material/Clear'
 import { api, ApiError } from '../api'
 import type { Project, Item, Note, Comment, ItemStatus, Priority, ProjectStatus } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
@@ -133,6 +136,9 @@ export default function ProjectDetail() {
   // Show completed items toggle
   const [showCompleted, setShowCompleted] = useState(false)
 
+  // Search / filter
+  const [searchQuery, setSearchQuery] = useState('')
+
   // Delete confirmation
   const [deleteItemTarget, setDeleteItemTarget] = useState<Item | null>(null)
   const [deleteNoteTarget, setDeleteNoteTarget] = useState<Note | null>(null)
@@ -204,6 +210,11 @@ export default function ProjectDetail() {
     ]
     return () => { unsubs.forEach((u) => u()) }
   }, [onEvent])
+
+  // Clear search when project changes
+  useEffect(() => {
+    setSearchQuery('')
+  }, [projectId])
 
   const handleViewChange = (_: unknown, newView: 'list' | 'board' | null) => {
     if (!newView) return
@@ -331,6 +342,16 @@ export default function ProjectDetail() {
   }
 
   const visibleItems = showCompleted ? items : items.filter((i) => i.status !== 'done')
+
+  const filteredItems = useMemo(() => {
+    if (!searchQuery.trim()) return visibleItems
+    const q = searchQuery.toLowerCase()
+    return visibleItems.filter(
+      (item) =>
+        item.title.toLowerCase().includes(q) ||
+        item.description.toLowerCase().includes(q),
+    )
+  }, [visibleItems, searchQuery])
 
   // --- Notes ---
   const openCreateNote = () => {
@@ -516,6 +537,37 @@ export default function ProjectDetail() {
             </Button>
           </Box>
 
+          {itemView === 'list' && (
+            <TextField
+              size="small"
+              placeholder="Search items…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              sx={{ mb: 1, maxWidth: 400 }}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                  endAdornment: searchQuery ? (
+                    <InputAdornment position="end">
+                      <IconButton
+                        size="small"
+                        onClick={() => setSearchQuery('')}
+                        edge="end"
+                        aria-label="Clear search"
+                      >
+                        <ClearIcon fontSize="small" />
+                      </IconButton>
+                    </InputAdornment>
+                  ) : null,
+                },
+              }}
+            />
+          )}
+
           {itemView === 'board' ? (
             <KanbanBoard
               items={items}
@@ -524,15 +576,17 @@ export default function ProjectDetail() {
               onDeleteItem={setDeleteItemTarget}
               onAddItem={openCreateItemWithStatus}
             />
-          ) : visibleItems.length === 0 ? (
+          ) : filteredItems.length === 0 ? (
             <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
               {items.length === 0
                 ? 'No items in this project yet.'
-                : 'All items are completed.'}
+                : visibleItems.length === 0
+                  ? 'All items are completed.'
+                  : `No items match "${searchQuery}"`}
             </Typography>
           ) : (
             <List>
-              {visibleItems.map((item) => (
+              {filteredItems.map((item) => (
                 <ListItem
                   key={item.id}
                   onClick={() => setDrawerItem(item)}
