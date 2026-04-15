@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.44.0 (2026-04-15)
+
+### Features
+
+- Resilient dispatch run tracking across service restarts
+  ([`d944781`](https://github.com/jason-weddington/agent-gtd/commit/d94478131a884624e10001a7181d204872796416))
+
+
 ## v1.43.0 (2026-04-15)
 
 ### Features
