@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.46.1 (2026-04-15)
+
+### Bug Fixes
+
+- **frontend**: Truncate long item titles with ellipsis in list view
+  ([`bed462a`](https://github.com/jason-weddington/agent-gtd/commit/bed462a2658996f91ae34ec3b97008c8cd6fefeb))
+
+
 ## v1.46.0 (2026-04-15)
 
 ### Features
