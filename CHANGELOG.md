@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.48.0 (2026-04-15)
+
+### Features
+
+- **frontend**: Filter task list by label
+  ([`3b64424`](https://github.com/jason-weddington/agent-gtd/commit/3b64424559ac824587508e82770de787f3b95385))
+
+
 ## v1.47.0 (2026-04-15)
 
 ### Features
