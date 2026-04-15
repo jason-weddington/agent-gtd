@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.38.7 (2026-04-15)
+
+### Bug Fixes
+
+- **frontend**: Remove misleading "tab for options" hint from quick capture
+  ([`a6f1e36`](https://github.com/jason-weddington/agent-gtd/commit/a6f1e3601f17601f8cf5ebc471f67e98211ab7c7))
+
+
 ## v1.38.6 (2026-04-15)
 
 ### Bug Fixes
