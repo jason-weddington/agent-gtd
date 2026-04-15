@@ -172,6 +172,7 @@ export default function Layout() {
           p: 3,
           minHeight: 'calc(100vh - 64px)',
           transition: 'margin-left 225ms cubic-bezier(0, 0, 0.2, 1)',
+          overflowX: 'hidden',
         }}
       >
         <Outlet />
