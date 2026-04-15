@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.39.0 (2026-04-15)
+
+### Features
+
+- **frontend**: Show short item ID with copy-to-clipboard in card and detail views
+  ([`c14f63d`](https://github.com/jason-weddington/agent-gtd/commit/c14f63d370f234c81fff4eb6467260d5e0f177b8))
+
+
 ## v1.38.7 (2026-04-15)
 
 ### Bug Fixes
