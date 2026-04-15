@@ -10,6 +10,8 @@ import type { Item, ItemStatus } from '../types'
 
 /** Column definitions */
 const COLUMNS = [
+  { id: 'new', title: 'New', statuses: ['new'] as ItemStatus[] },
+  { id: 'ready', title: 'Ready', statuses: ['ready'] as ItemStatus[] },
   { id: 'next_action', title: 'To Do', statuses: ['next_action'] as ItemStatus[] },
   { id: 'in_progress', title: 'In Progress', statuses: ['active'] as ItemStatus[] },
   { id: 'review', title: 'Review', statuses: ['review'] as ItemStatus[] },
@@ -19,6 +21,8 @@ const COLUMNS = [
 
 /** Map a column ID to the default status when dropping into it */
 const COLUMN_DEFAULT_STATUS: Record<string, ItemStatus> = {
+  new: 'new',
+  ready: 'ready',
   next_action: 'next_action',
   in_progress: 'active',
   review: 'review',

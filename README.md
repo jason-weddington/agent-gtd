@@ -111,6 +111,52 @@ uv run pre-commit install --hook-type pre-commit --hook-type commit-msg \
   --hook-type post-commit --hook-type pre-push
 ```
 
+## Steering Your Agents
+
+Agent GTD uses a grooming workflow to maximize headless agent success rates. The key insight: agent productivity correlates directly with task clarity. Well-groomed tasks get one-shotted; vague tasks waste turns.
+
+### The Grooming Ritual
+
+All new tasks start in **New** status. Grooming moves them to **Ready**.
+
+A task is **Ready** when:
+- Acceptance criteria are clear and testable
+- Files to modify and patterns to follow are identified
+- Scope boundaries are explicit (what NOT to touch)
+- Verification steps are defined (how to test)
+- The task is not blocked by other work
+
+### The Lifecycle
+
+```
+New → Ready → To Do → In Progress → Review → Done
+         ↑ grooming    ↑ dispatch     ↑ agent     ↑ human
+```
+
+**Interactive sessions** (human + agent): Groom the backlog, review dispatched work, tackle ambiguous problems.
+
+**Headless dispatch**: Pick up Ready/To Do tasks and execute autonomously. Agents post progress comments and set status to Review when done.
+
+### Writing Good Task Descriptions
+
+```markdown
+## Problem
+What's wrong or missing (1-2 sentences)
+
+## Acceptance criteria
+- [ ] Specific, testable criteria
+- [ ] Each one independently verifiable
+
+## Files to modify
+- path/to/file.py — what to change
+
+## Pattern to follow
+Reference an existing implementation the agent can copy
+
+## Scope boundary
+Do NOT touch X, Y, Z
+```
+
 ## Tech Stack
 
 - **Backend:** FastAPI, asyncpg/aiosqlite, Pydantic v2, uvicorn

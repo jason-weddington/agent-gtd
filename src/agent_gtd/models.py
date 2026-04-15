@@ -21,6 +21,8 @@ class ItemStatus(StrEnum):
     """GTD item status."""
 
     INBOX = "inbox"
+    NEW = "new"
+    READY = "ready"
     NEXT_ACTION = "next_action"
     WAITING_FOR = "waiting_for"
     SCHEDULED = "scheduled"

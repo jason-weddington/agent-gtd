@@ -23,6 +23,8 @@ export interface ApiKeyInfo {
 export type ProjectStatus = 'active' | 'completed' | 'on_hold' | 'cancelled'
 export type ItemStatus =
   | 'inbox'
+  | 'new'
+  | 'ready'
   | 'next_action'
   | 'waiting_for'
   | 'someday_maybe'

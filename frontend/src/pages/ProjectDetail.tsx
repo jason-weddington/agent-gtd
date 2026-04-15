@@ -63,6 +63,8 @@ const STATUS_LABELS: Record<ProjectStatus, string> = {
 
 const ITEM_STATUS_LABELS: Record<ItemStatus, string> = {
   inbox: 'Inbox',
+  new: 'New',
+  ready: 'Ready',
   next_action: 'To Do',
   waiting_for: 'Waiting',
   someday_maybe: 'Someday',

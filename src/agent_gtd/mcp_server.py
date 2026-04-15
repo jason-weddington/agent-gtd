@@ -260,7 +260,7 @@ async def add_item(
     ctx: Context,
     description: str = "",
     priority: str = "normal",
-    status: str = "inbox",
+    status: str = "new",
     labels: list[str] | None = None,
     project_id: str | None = None,
 ) -> dict[str, Any]:
@@ -274,7 +274,7 @@ async def add_item(
         ctx: MCP context (injected automatically).
         description: Optional description.
         priority: Priority level (low, normal, high, urgent). Default: normal.
-        status: Item status. Default: inbox. Options: inbox,
+        status: Item status. Default: new. Options: inbox, new, ready,
             next_action, waiting_for, scheduled, someday_maybe,
             active, review, done, cancelled.
         labels: Optional list of labels/tags.
