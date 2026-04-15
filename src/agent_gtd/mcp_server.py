@@ -720,13 +720,6 @@ async def update_comment(
         raise ToolError(e.detail) from None
 
 
-async def _get_db() -> Any:
-    """Get the database pool (lazy import to avoid circular deps)."""
-    from agent_gtd.database import get_db
-
-    return await get_db()
-
-
 # --- Dispatch tools ---
 
 
@@ -755,23 +748,24 @@ async def dispatch_item(
     from agent_gtd.exceptions import RunActiveError
 
     session = await _get_session(ctx)
-    db = await _get_db()
     try:
-        from agent_gtd.services.dispatch_service import create_run
-
-        run = await create_run(db, session["user_id"], item_id, max_turns=max_turns)
+        run = await _backend.dispatch_item(
+            session["user_id"], item_id, max_turns=max_turns
+        )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except RunActiveError as e:
         raise ToolError(e.detail) from None
 
-    # Enqueue for background processing
-    try:
-        from agent_gtd.dispatch_worker import enqueue_run
+    # Enqueue for background processing (local mode only — HTTP mode
+    # enqueues server-side in the dispatch route)
+    if isinstance(_backend, LocalBackend):
+        try:
+            from agent_gtd.dispatch_worker import enqueue_run
 
-        enqueue_run(str(run["id"]))
-    except AssertionError:
-        pass  # Worker not started (e.g. local mode)
+            enqueue_run(str(run["id"]))
+        except AssertionError:
+            pass  # Worker not started
 
     return run
 
@@ -793,11 +787,8 @@ async def get_run_status(
         The run dict with current status.
     """
     session = await _get_session(ctx)
-    db = await _get_db()
     try:
-        from agent_gtd.services.dispatch_service import get_run
-
-        return await get_run(db, session["user_id"], run_id)
+        return await _backend.get_run(session["user_id"], run_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
@@ -821,10 +812,7 @@ async def list_runs(
         List of run dicts.
     """
     session = await _get_session(ctx)
-    db = await _get_db()
-    from agent_gtd.services.dispatch_service import list_runs as svc_list
-
-    return await svc_list(db, session["user_id"], item_id=item_id, status=status)
+    return await _backend.list_runs(session["user_id"], item_id=item_id, status=status)
 
 
 # --- Entry point ---

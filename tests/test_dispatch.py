@@ -170,6 +170,31 @@ async def test_list_item_runs(client: AsyncClient, auth_headers: dict[str, str])
     assert len(res.json()) == 1
 
 
+async def test_list_runs_cross_item(client: AsyncClient, auth_headers: dict[str, str]):
+    """GET /api/runs lists runs across all items."""
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_a = await _create_item_in_project(client, auth_headers, project_id, "Task A")
+    item_b = await _create_item_in_project(client, auth_headers, project_id, "Task B")
+
+    # Dispatch both
+    await client.post(f"/api/items/{item_a}/dispatch", json={}, headers=auth_headers)
+    await client.post(f"/api/items/{item_b}/dispatch", json={}, headers=auth_headers)
+
+    # Cross-item list
+    res = await client.get("/api/runs", headers=auth_headers)
+    assert res.status_code == 200
+    assert len(res.json()) == 2
+
+    # Filter by item
+    res = await client.get(
+        "/api/runs", params={"item_id": item_a}, headers=auth_headers
+    )
+    assert res.status_code == 200
+    runs = res.json()
+    assert len(runs) == 1
+    assert runs[0]["item_id"] == item_a
+
+
 # --- Get single run ---
 
 

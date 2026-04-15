@@ -126,6 +126,18 @@ async def list_item_runs(
     return [_run_response(r) for r in rows]
 
 
+@router.get("/api/runs", response_model=list[RunResponse])
+async def list_runs(
+    user: Annotated[User, Depends(get_current_user)],
+    item_id: str | None = None,
+    status: str | None = None,
+) -> list[RunResponse]:
+    """List dispatch runs, optionally filtered by item and/or status."""
+    db = await get_db()
+    rows = await dispatch_service.list_runs(db, user.id, item_id=item_id, status=status)
+    return [_run_response(r) for r in rows]
+
+
 @router.get("/api/runs/{run_id}", response_model=RunResponse)
 async def get_run(
     run_id: str,

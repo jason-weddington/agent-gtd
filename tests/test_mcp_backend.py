@@ -310,3 +310,71 @@ async def test_delete_comment(authed_backend: HttpBackend, project_id: str):
 async def test_create_comment_no_parent(authed_backend: HttpBackend):
     with pytest.raises(ToolError):
         await authed_backend.create_comment("", content_markdown="Orphan comment")
+
+
+# --- Dispatch ---
+
+
+@pytest.fixture(autouse=True)
+def _mock_dispatch_preflight():
+    """Skip the dispatch service health check in dispatch tests."""
+    from unittest.mock import AsyncMock, patch
+
+    with patch(
+        "agent_gtd.routes.dispatch_routes._check_dispatch_service",
+        new_callable=AsyncMock,
+    ):
+        yield
+
+
+async def _dispatch_project_and_item(
+    authed_backend: HttpBackend,
+) -> tuple[str, str]:
+    """Create a project with git_origin and an item in it."""
+    project = await authed_backend.create_project(
+        "", name="Dispatch Project", git_origin="git@github.com:test/repo.git"
+    )
+    item = await authed_backend.create_item(
+        "", title="Dispatch task", project_id=project["id"]
+    )
+    return project["id"], item["id"]
+
+
+async def test_dispatch_item_backend(authed_backend: HttpBackend):
+    _, item_id = await _dispatch_project_and_item(authed_backend)
+    run = await authed_backend.dispatch_item("", item_id)
+    assert run["item_id"] == item_id
+    assert run["status"] == "pending"
+
+
+async def test_get_run_backend(authed_backend: HttpBackend):
+    _, item_id = await _dispatch_project_and_item(authed_backend)
+    run = await authed_backend.dispatch_item("", item_id)
+    fetched = await authed_backend.get_run("", run["id"])
+    assert fetched["id"] == run["id"]
+
+
+async def test_list_runs_backend(authed_backend: HttpBackend):
+    _, item_id = await _dispatch_project_and_item(authed_backend)
+    await authed_backend.dispatch_item("", item_id)
+    runs = await authed_backend.list_runs("")
+    assert len(runs) == 1
+    assert runs[0]["item_id"] == item_id
+
+
+async def test_list_runs_filter_item(authed_backend: HttpBackend):
+    project = await authed_backend.create_project(
+        "", name="Multi Project", git_origin="git@github.com:test/repo.git"
+    )
+    item_a = await authed_backend.create_item(
+        "", title="Task A", project_id=project["id"]
+    )
+    item_b = await authed_backend.create_item(
+        "", title="Task B", project_id=project["id"]
+    )
+    await authed_backend.dispatch_item("", item_a["id"])
+    await authed_backend.dispatch_item("", item_b["id"])
+
+    runs = await authed_backend.list_runs("", item_id=item_a["id"])
+    assert len(runs) == 1
+    assert runs[0]["item_id"] == item_a["id"]

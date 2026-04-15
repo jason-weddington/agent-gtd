@@ -141,6 +141,20 @@ class McpBackend(Protocol):
 
     async def delete_comment(self, user_id: str, comment_id: str) -> None: ...
 
+    async def dispatch_item(
+        self, user_id: str, item_id: str, *, max_turns: int | None = None
+    ) -> dict[str, Any]: ...
+
+    async def get_run(self, user_id: str, run_id: str) -> dict[str, Any]: ...
+
+    async def list_runs(
+        self,
+        user_id: str,
+        *,
+        item_id: str | None = None,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]: ...
+
     async def close(self) -> None: ...
 
 
@@ -508,6 +522,35 @@ class LocalBackend:
 
         db = await get_db()
         await comment_service.delete_comment(db, user_id, comment_id)
+
+    async def dispatch_item(
+        self, user_id: str, item_id: str, *, max_turns: int | None = None
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services.dispatch_service import create_run
+
+        db = await get_db()
+        return await create_run(db, user_id, item_id, max_turns=max_turns)
+
+    async def get_run(self, user_id: str, run_id: str) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services.dispatch_service import get_run
+
+        db = await get_db()
+        return await get_run(db, user_id, run_id)
+
+    async def list_runs(
+        self,
+        user_id: str,
+        *,
+        item_id: str | None = None,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services.dispatch_service import list_runs
+
+        db = await get_db()
+        return await list_runs(db, user_id, item_id=item_id, status=status)
 
     async def close(self) -> None:
         pass
@@ -917,6 +960,44 @@ class HttpBackend:
             f"/api/comments/{comment_id}", headers=self._headers()
         )
         self._check(resp)
+
+    async def dispatch_item(
+        self, user_id: str, item_id: str, *, max_turns: int | None = None
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {}
+        if max_turns is not None:
+            body["max_turns"] = max_turns
+        resp = await self._client.post(
+            f"/api/items/{item_id}/dispatch", json=body, headers=self._headers()
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def get_run(self, user_id: str, run_id: str) -> dict[str, Any]:
+        resp = await self._client.get(f"/api/runs/{run_id}", headers=self._headers())
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def list_runs(
+        self,
+        user_id: str,
+        *,
+        item_id: str | None = None,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, str] = {}
+        if item_id is not None:
+            params["item_id"] = item_id
+        if status is not None:
+            params["status"] = status
+        resp = await self._client.get(
+            "/api/runs", params=params, headers=self._headers()
+        )
+        self._check(resp)
+        result: list[dict[str, Any]] = resp.json()
+        return result
 
     async def close(self) -> None:
         await self._client.aclose()
