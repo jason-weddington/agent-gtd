@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.48.1 (2026-04-15)
+
+### Bug Fixes
+
+- **frontend**: Prevent kanban board from causing page-level horizontal scroll
+  ([`d0b54b2`](https://github.com/jason-weddington/agent-gtd/commit/d0b54b2d06a55c2f4e6892da6c720dedf49d8f44))
+
+
 ## v1.48.0 (2026-04-15)
 
 ### Features
