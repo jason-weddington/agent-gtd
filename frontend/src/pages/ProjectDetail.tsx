@@ -141,6 +141,7 @@ export default function ProjectDetail() {
 
   // Search / filter
   const [searchQuery, setSearchQuery] = useState('')
+  const [selectedLabels, setSelectedLabels] = useState<string[]>([])
 
   // Delete confirmation
   const [deleteItemTarget, setDeleteItemTarget] = useState<Item | null>(null)
@@ -214,9 +215,10 @@ export default function ProjectDetail() {
     return () => { unsubs.forEach((u) => u()) }
   }, [onEvent])
 
-  // Clear search when project changes
+  // Clear search and label filter when project changes
   useEffect(() => {
     setSearchQuery('')
+    setSelectedLabels([])
   }, [projectId])
 
   const handleViewChange = (_: unknown, newView: 'list' | 'board' | null) => {
@@ -346,15 +348,33 @@ export default function ProjectDetail() {
 
   const visibleItems = showCompleted ? items : items.filter((i) => i.status !== 'done')
 
+  const allLabels = useMemo(() => {
+    const labelSet = new Set<string>()
+    for (const item of visibleItems) {
+      for (const label of item.labels) {
+        labelSet.add(label)
+      }
+    }
+    return Array.from(labelSet).sort()
+  }, [visibleItems])
+
   const filteredItems = useMemo(() => {
-    if (!searchQuery.trim()) return visibleItems
-    const q = searchQuery.toLowerCase()
-    return visibleItems.filter(
-      (item) =>
-        item.title.toLowerCase().includes(q) ||
-        item.description.toLowerCase().includes(q),
-    )
-  }, [visibleItems, searchQuery])
+    let result = visibleItems
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(
+        (item) =>
+          item.title.toLowerCase().includes(q) ||
+          item.description.toLowerCase().includes(q),
+      )
+    }
+    if (selectedLabels.length > 0) {
+      result = result.filter((item) =>
+        selectedLabels.some((label) => item.labels.includes(label)),
+      )
+    }
+    return result
+  }, [visibleItems, searchQuery, selectedLabels])
 
   // --- Notes ---
   const openCreateNote = () => {
@@ -541,34 +561,65 @@ export default function ProjectDetail() {
           </Box>
 
           {itemView === 'list' && (
-            <TextField
-              size="small"
-              placeholder="Search items…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              sx={{ mb: 1, maxWidth: 400 }}
-              slotProps={{
-                input: {
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon fontSize="small" color="action" />
-                    </InputAdornment>
-                  ),
-                  endAdornment: searchQuery ? (
-                    <InputAdornment position="end">
-                      <IconButton
-                        size="small"
-                        onClick={() => setSearchQuery('')}
-                        edge="end"
-                        aria-label="Clear search"
-                      >
-                        <ClearIcon fontSize="small" />
-                      </IconButton>
-                    </InputAdornment>
-                  ) : null,
-                },
-              }}
-            />
+            <>
+              <TextField
+                size="small"
+                placeholder="Search items…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                sx={{ mb: 1, maxWidth: 400 }}
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon fontSize="small" color="action" />
+                      </InputAdornment>
+                    ),
+                    endAdornment: searchQuery ? (
+                      <InputAdornment position="end">
+                        <IconButton
+                          size="small"
+                          onClick={() => setSearchQuery('')}
+                          edge="end"
+                          aria-label="Clear search"
+                        >
+                          <ClearIcon fontSize="small" />
+                        </IconButton>
+                      </InputAdornment>
+                    ) : null,
+                  },
+                }}
+              />
+              {allLabels.length > 0 && (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 1, alignItems: 'center' }}>
+                  {allLabels.map((label) => (
+                    <Chip
+                      key={label}
+                      label={label}
+                      size="small"
+                      onClick={() =>
+                        setSelectedLabels((prev) =>
+                          prev.includes(label)
+                            ? prev.filter((l) => l !== label)
+                            : [...prev, label],
+                        )
+                      }
+                      color={selectedLabels.includes(label) ? 'primary' : 'default'}
+                      variant={selectedLabels.includes(label) ? 'filled' : 'outlined'}
+                    />
+                  ))}
+                  {selectedLabels.length > 0 && (
+                    <Chip
+                      label="Clear filter"
+                      size="small"
+                      variant="outlined"
+                      onDelete={() => setSelectedLabels([])}
+                      onClick={() => setSelectedLabels([])}
+                    />
+                  )}
+                </Box>
+              )}
+            </>
           )}
 
           {itemView === 'board' ? (
@@ -585,7 +636,9 @@ export default function ProjectDetail() {
                 ? 'No items in this project yet.'
                 : visibleItems.length === 0
                   ? 'All items are completed.'
-                  : `No items match "${searchQuery}"`}
+                  : selectedLabels.length > 0 && !searchQuery.trim()
+                    ? 'No items match the selected labels.'
+                    : `No items match \u201c${searchQuery}\u201d`}
             </Typography>
           ) : (
             <List>
@@ -674,6 +727,23 @@ export default function ProjectDetail() {
                             )}
                           </Box>
                         )}
+                        {item.labels.map((label) => (
+                          <Chip
+                            key={label}
+                            label={label}
+                            size="small"
+                            color={selectedLabels.includes(label) ? 'primary' : 'default'}
+                            variant={selectedLabels.includes(label) ? 'filled' : 'outlined'}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedLabels((prev) =>
+                                prev.includes(label)
+                                  ? prev.filter((l) => l !== label)
+                                  : [...prev, label],
+                              )
+                            }}
+                          />
+                        ))}
                       </Box>
                     }
                   />

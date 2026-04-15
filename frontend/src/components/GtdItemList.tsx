@@ -72,6 +72,7 @@ export default function GtdItemList({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [selectedLabels, setSelectedLabels] = useState<string[]>([])
 
   // Edit dialog
   const [editTarget, setEditTarget] = useState<Item | null>(null)
@@ -131,16 +132,34 @@ export default function GtdItemList({
     return () => { unsubs.forEach((u) => u()) }
   }, [onEvent])
 
+  const allLabels = useMemo(() => {
+    const labelSet = new Set<string>()
+    for (const item of items) {
+      for (const label of item.labels) {
+        labelSet.add(label)
+      }
+    }
+    return Array.from(labelSet).sort()
+  }, [items])
+
   const filteredItems = useMemo(() => {
-    if (!search.trim()) return items
-    const q = search.toLowerCase()
-    return items.filter(
-      (item) =>
-        item.title.toLowerCase().includes(q) ||
-        item.description.toLowerCase().includes(q) ||
-        (item.projectId && projectMap[item.projectId]?.name.toLowerCase().includes(q)),
-    )
-  }, [items, search, projectMap])
+    let result = items
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      result = result.filter(
+        (item) =>
+          item.title.toLowerCase().includes(q) ||
+          item.description.toLowerCase().includes(q) ||
+          (item.projectId && projectMap[item.projectId]?.name.toLowerCase().includes(q)),
+      )
+    }
+    if (selectedLabels.length > 0) {
+      result = result.filter((item) =>
+        selectedLabels.some((label) => item.labels.includes(label)),
+      )
+    }
+    return result
+  }, [items, search, projectMap, selectedLabels])
 
   const handleCopyId = (id: string) => {
     void navigator.clipboard.writeText(id)
@@ -238,7 +257,7 @@ export default function GtdItemList({
             placeholder={`Search ${title.toLowerCase()}…`}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            sx={{ mb: 2, maxWidth: 400 }}
+            sx={{ mb: 1, maxWidth: 400 }}
             slotProps={{
               input: {
                 startAdornment: (
@@ -250,9 +269,41 @@ export default function GtdItemList({
             }}
           />
 
+          {allLabels.length > 0 && (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 2, alignItems: 'center' }}>
+              {allLabels.map((label) => (
+                <Chip
+                  key={label}
+                  label={label}
+                  size="small"
+                  onClick={() =>
+                    setSelectedLabels((prev) =>
+                      prev.includes(label)
+                        ? prev.filter((l) => l !== label)
+                        : [...prev, label],
+                    )
+                  }
+                  color={selectedLabels.includes(label) ? 'primary' : 'default'}
+                  variant={selectedLabels.includes(label) ? 'filled' : 'outlined'}
+                />
+              ))}
+              {selectedLabels.length > 0 && (
+                <Chip
+                  label="Clear filter"
+                  size="small"
+                  variant="outlined"
+                  onDelete={() => setSelectedLabels([])}
+                  onClick={() => setSelectedLabels([])}
+                />
+              )}
+            </Box>
+          )}
+
           {filteredItems.length === 0 ? (
             <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-              No items match &ldquo;{search}&rdquo;
+              {selectedLabels.length > 0
+                ? 'No items match the selected labels.'
+                : `No items match \u201c${search}\u201d`}
             </Typography>
           ) : (
         <List>
@@ -339,6 +390,23 @@ export default function GtdItemList({
                         )}
                       </Box>
                     )}
+                    {item.labels.map((label) => (
+                      <Chip
+                        key={label}
+                        label={label}
+                        size="small"
+                        color={selectedLabels.includes(label) ? 'primary' : 'default'}
+                        variant={selectedLabels.includes(label) ? 'filled' : 'outlined'}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedLabels((prev) =>
+                            prev.includes(label)
+                              ? prev.filter((l) => l !== label)
+                              : [...prev, label],
+                          )
+                        }}
+                      />
+                    ))}
                   </Box>
                 }
                 secondary={
