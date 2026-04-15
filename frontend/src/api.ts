@@ -132,6 +132,13 @@ export const api = {
   },
 
   runs: {
+    list: (params?: { status?: string; itemId?: string }) => {
+      const query = new URLSearchParams()
+      if (params?.status) query.set('status', params.status)
+      if (params?.itemId) query.set('item_id', params.itemId)
+      const qs = query.toString()
+      return request<Run[]>('GET', `/runs${qs ? `?${qs}` : ''}`)
+    },
     get: (id: string) => request<Run>('GET', `/runs/${id}`),
     cancel: (id: string) => request<void>('DELETE', `/runs/${id}`),
   },
