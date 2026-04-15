@@ -261,7 +261,7 @@ export default function QuickCapture({ open, onClose, activeProject, onCaptured 
             color="text.secondary"
             sx={{ mt: 1.5, display: 'block' }}
           >
-            {expanded ? 'Enter to save' : 'Tab for options'} &middot; Esc to close
+            Enter to save &middot; Esc to close
           </Typography>
         </Box>
       </Dialog>
