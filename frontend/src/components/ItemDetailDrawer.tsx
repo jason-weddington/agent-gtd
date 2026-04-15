@@ -241,7 +241,7 @@ export default function ItemDetailDrawer({
 
             {/* Description */}
             {item.description && (
-              <Box sx={{ px: 2, py: 1.5 }}>
+              <Box sx={{ px: 2, py: 1.5, maxHeight: '30vh', overflow: 'auto' }}>
                 <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap' }}>
                   {item.description}
                 </Typography>
