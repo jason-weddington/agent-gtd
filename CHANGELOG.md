@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.40.0 (2026-04-15)
+
+### Chores
+
+- Add deploy.sh to gitignore
+  ([`eb714c9`](https://github.com/jason-weddington/agent-gtd/commit/eb714c9b353bcecdaf244e95b6f4a27f004d5c90))
+
+### Features
+
+- **mcp**: Add delete_item tool
+  ([`10c354b`](https://github.com/jason-weddington/agent-gtd/commit/10c354b689b130be188490f66eafd1b650144d1e))
+
+
 ## v1.39.0 (2026-04-15)
 
 ### Features
