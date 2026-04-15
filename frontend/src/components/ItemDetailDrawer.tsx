@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -10,7 +11,11 @@ import {
   DialogTitle,
   Divider,
   Drawer,
+  FormControl,
   IconButton,
+  InputLabel,
+  MenuItem,
+  Select,
   TextField,
   Tooltip,
   Typography,
@@ -22,7 +27,7 @@ import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import { api, ApiError } from '../api'
-import type { Item, Comment, Run, RunStatus, ItemStatus, Priority } from '../types'
+import type { Item, Comment, Run, RunStatus, ItemStatus } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
 
 const DRAWER_WIDTH = 440
@@ -35,13 +40,6 @@ const STATUS_LABELS: Record<ItemStatus, string> = {
   active: 'In Progress',
   review: 'Review',
   done: 'Done',
-}
-
-const PRIORITY_COLORS: Record<Priority, 'default' | 'info' | 'warning' | 'error'> = {
-  low: 'default',
-  normal: 'info',
-  high: 'warning',
-  urgent: 'error',
 }
 
 const RUN_STATUS_COLORS: Record<RunStatus, 'default' | 'info' | 'success' | 'error' | 'warning'> = {
@@ -73,6 +71,7 @@ interface ItemDetailDrawerProps {
   item: Item | null
   onClose: () => void
   onEdit: (item: Item) => void
+  onItemUpdated?: (item: Item) => void
   projectName?: string
   projectGitOrigin?: string
 }
@@ -81,6 +80,7 @@ export default function ItemDetailDrawer({
   item,
   onClose,
   onEdit,
+  onItemUpdated,
   projectName,
   projectGitOrigin,
 }: ItemDetailDrawerProps) {
@@ -93,8 +93,34 @@ export default function ItemDetailDrawer({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [dispatchError, setDispatchError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+
+  // Local item state — stays in sync with prop, then updated optimistically on each inline save
+  const [localItem, setLocalItem] = useState<Item | null>(null)
+
+  // Inline edit state
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleValue, setTitleValue] = useState('')
+  const [editingDescription, setEditingDescription] = useState(false)
+  const [descriptionValue, setDescriptionValue] = useState('')
+  const [savingField, setSavingField] = useState<string | null>(null)
+  const [fieldError, setFieldError] = useState<string | null>(null)
+  const [addingLabel, setAddingLabel] = useState(false)
+  const [newLabel, setNewLabel] = useState('')
+
   const commentsEndRef = useRef<HTMLDivElement>(null)
   const { onEvent } = useEvents()
+
+  // Sync localItem and reset inline edit state whenever a new item is opened
+  useEffect(() => {
+    setLocalItem(item)
+    setEditingTitle(false)
+    setEditingDescription(false)
+    setTitleValue(item?.title ?? '')
+    setDescriptionValue(item?.description ?? '')
+    setFieldError(null)
+    setAddingLabel(false)
+    setNewLabel('')
+  }, [item])
 
   const loadComments = useCallback(async () => {
     if (!item) return
@@ -151,6 +177,100 @@ export default function ItemDetailDrawer({
     commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [comments.length])
 
+  // --- Inline save helper ---
+
+  const saveField = useCallback(
+    async (fieldKey: string, value: unknown) => {
+      if (!localItem) return
+      setSavingField(fieldKey)
+      setFieldError(null)
+      try {
+        const updated = await api.items.update(localItem.id, {
+          [fieldKey]: value,
+          version: localItem.version,
+        })
+        setLocalItem(updated)
+        onItemUpdated?.(updated)
+      } catch (err) {
+        setFieldError(
+          err instanceof ApiError
+            ? err.status === 409
+              ? 'This item was updated elsewhere — refresh to see the latest version.'
+              : err.detail
+            : 'Failed to update',
+        )
+      } finally {
+        setSavingField(null)
+      }
+    },
+    [localItem, onItemUpdated],
+  )
+
+  // --- Title handlers ---
+
+  const handleTitleSave = useCallback(async () => {
+    const trimmed = titleValue.trim()
+    setEditingTitle(false)
+    if (!trimmed || trimmed === localItem?.title) return
+    await saveField('title', trimmed)
+  }, [titleValue, localItem?.title, saveField])
+
+  const handleTitleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        void handleTitleSave()
+      }
+      if (e.key === 'Escape') {
+        setEditingTitle(false)
+        setTitleValue(localItem?.title ?? '')
+      }
+    },
+    [handleTitleSave, localItem?.title],
+  )
+
+  // --- Description handlers ---
+
+  const handleDescriptionSave = useCallback(async () => {
+    setEditingDescription(false)
+    if (descriptionValue === (localItem?.description ?? '')) return
+    await saveField('description', descriptionValue)
+  }, [descriptionValue, localItem?.description, saveField])
+
+  const handleDescriptionKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setEditingDescription(false)
+        setDescriptionValue(localItem?.description ?? '')
+      }
+    },
+    [localItem?.description],
+  )
+
+  // --- Label handlers ---
+
+  const handleAddLabel = useCallback(async () => {
+    if (!newLabel.trim() || !localItem) return
+    const trimmed = newLabel.trim()
+    setNewLabel('')
+    setAddingLabel(false)
+    if (localItem.labels.includes(trimmed)) return
+    await saveField('labels', [...localItem.labels, trimmed])
+  }, [newLabel, localItem, saveField])
+
+  const handleRemoveLabel = useCallback(
+    async (label: string) => {
+      if (!localItem) return
+      await saveField(
+        'labels',
+        localItem.labels.filter((l) => l !== label),
+      )
+    },
+    [localItem, saveField],
+  )
+
+  // --- Comment / dispatch handlers ---
+
   const handleSend = async () => {
     if (!item || !newComment.trim()) return
     setSaving(true)
@@ -189,6 +309,7 @@ export default function ItemDetailDrawer({
 
   const isRunActive = activeRun && ['pending', 'cloning', 'running'].includes(activeRun.status)
   const canDispatch = Boolean(projectGitOrigin) && !isRunActive
+  const isSaving = savingField !== null
 
   return (
     <>
@@ -206,15 +327,57 @@ export default function ItemDetailDrawer({
           },
         }}
       >
-        {item && (
+        {localItem && (
           <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             {/* Header */}
             <Box sx={{ p: 2, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-              <Box sx={{ flex: 1 }}>
-                <Typography variant="h6" sx={{ lineHeight: 1.3 }}>{item.title}</Typography>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                {/* Editable title */}
+                {editingTitle ? (
+                  <TextField
+                    value={titleValue}
+                    onChange={(e) => setTitleValue(e.target.value)}
+                    onBlur={() => void handleTitleSave()}
+                    onKeyDown={handleTitleKeyDown}
+                    variant="standard"
+                    fullWidth
+                    size="small"
+                    disabled={isSaving}
+                    autoFocus
+                    slotProps={{
+                      input: {
+                        sx: { fontSize: '1.25rem', fontWeight: 500, lineHeight: 1.3 },
+                      },
+                    }}
+                  />
+                ) : (
+                  <Typography
+                    variant="h6"
+                    sx={{
+                      lineHeight: 1.3,
+                      cursor: 'text',
+                      borderRadius: 0.5,
+                      px: 0.5,
+                      mx: -0.5,
+                      '&:hover': { bgcolor: 'action.hover' },
+                    }}
+                    onClick={() => {
+                      setEditingTitle(true)
+                      setTitleValue(localItem.title)
+                    }}
+                    title="Click to edit title"
+                  >
+                    {localItem.title}
+                    {savingField === 'title' && (
+                      <CircularProgress size={12} sx={{ ml: 1, verticalAlign: 'middle' }} />
+                    )}
+                  </Typography>
+                )}
+
+                {/* ID row */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25, mb: 0.5 }}>
                   <Typography variant="caption" color="text.disabled">
-                    #{item.id.slice(0, 8)}
+                    #{localItem.id.slice(0, 8)}
                   </Typography>
                   <Tooltip title={copied ? 'Copied!' : 'Copy ID'} placement="right">
                     <IconButton
@@ -231,14 +394,75 @@ export default function ItemDetailDrawer({
                     </IconButton>
                   </Tooltip>
                 </Box>
-                <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
-                  <Chip label={STATUS_LABELS[item.status]} size="small" variant="outlined" />
-                  <Chip label={item.priority} size="small" color={PRIORITY_COLORS[item.priority]} />
+
+                {/* Editable status + priority row */}
+                <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {/* Status select */}
+                  <FormControl size="small" disabled={isSaving}>
+                    <InputLabel
+                      id="drawer-status-label"
+                      sx={{ fontSize: '0.7rem', top: '-4px', '&.MuiInputLabel-shrink': { top: 0 } }}
+                    >
+                      Status
+                    </InputLabel>
+                    <Select
+                      labelId="drawer-status-label"
+                      value={localItem.status}
+                      label="Status"
+                      onChange={(e) => void saveField('status', e.target.value)}
+                      sx={{
+                        fontSize: '0.75rem',
+                        height: 28,
+                        '& .MuiSelect-select': { py: '2px', px: 1 },
+                      }}
+                    >
+                      {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                        <MenuItem key={value} value={value} sx={{ fontSize: '0.8rem' }}>
+                          {label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  {/* Priority select */}
+                  <FormControl size="small" disabled={isSaving}>
+                    <InputLabel
+                      id="drawer-priority-label"
+                      sx={{ fontSize: '0.7rem', top: '-4px', '&.MuiInputLabel-shrink': { top: 0 } }}
+                    >
+                      Priority
+                    </InputLabel>
+                    <Select
+                      labelId="drawer-priority-label"
+                      value={localItem.priority}
+                      label="Priority"
+                      onChange={(e) => void saveField('priority', e.target.value)}
+                      sx={{
+                        fontSize: '0.75rem',
+                        height: 28,
+                        '& .MuiSelect-select': { py: '2px', px: 1 },
+                        // Color tint based on priority
+                        ...(localItem.priority === 'urgent' && { color: 'error.main' }),
+                        ...(localItem.priority === 'high' && { color: 'warning.main' }),
+                      }}
+                    >
+                      <MenuItem value="low" sx={{ fontSize: '0.8rem' }}>Low</MenuItem>
+                      <MenuItem value="normal" sx={{ fontSize: '0.8rem' }}>Normal</MenuItem>
+                      <MenuItem value="high" sx={{ fontSize: '0.8rem' }}>High</MenuItem>
+                      <MenuItem value="urgent" sx={{ fontSize: '0.8rem' }}>Urgent</MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  {/* Static chips for project, due date, assigned to */}
                   {projectName && <Chip label={projectName} size="small" variant="outlined" />}
-                  {item.dueDate && <Chip label={item.dueDate} size="small" variant="outlined" />}
-                  {item.assignedTo && (
-                    <Chip label={`@ ${item.assignedTo}`} size="small" variant="outlined" />
+                  {localItem.dueDate && (
+                    <Chip label={localItem.dueDate} size="small" variant="outlined" />
                   )}
+                  {localItem.assignedTo && (
+                    <Chip label={`@ ${localItem.assignedTo}`} size="small" variant="outlined" />
+                  )}
+
+                  {/* Run status chip */}
                   {activeRun && (
                     <Chip
                       label={RUN_STATUS_LABELS[activeRun.status]}
@@ -248,8 +472,62 @@ export default function ItemDetailDrawer({
                     />
                   )}
                 </Box>
+
+                {/* Editable labels row */}
+                {(localItem.labels.length > 0 || addingLabel) && (
+                  <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {localItem.labels.map((label) => (
+                      <Chip
+                        key={label}
+                        label={label}
+                        size="small"
+                        variant="outlined"
+                        onDelete={isSaving ? undefined : () => void handleRemoveLabel(label)}
+                        disabled={savingField === 'labels'}
+                      />
+                    ))}
+                    {addingLabel && (
+                      <TextField
+                        size="small"
+                        value={newLabel}
+                        onChange={(e) => setNewLabel(e.target.value)}
+                        onBlur={() => void handleAddLabel()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            void handleAddLabel()
+                          }
+                          if (e.key === 'Escape') {
+                            setAddingLabel(false)
+                            setNewLabel('')
+                          }
+                        }}
+                        placeholder="Label…"
+                        autoFocus
+                        sx={{ width: 90, '& input': { py: '2px', fontSize: '0.75rem' } }}
+                        disabled={isSaving}
+                      />
+                    )}
+                  </Box>
+                )}
+
+                {/* Add label chip — shown when not already adding */}
+                {!addingLabel && (
+                  <Box sx={{ mt: 0.5 }}>
+                    <Chip
+                      label="+ Label"
+                      size="small"
+                      variant="outlined"
+                      onClick={() => setAddingLabel(true)}
+                      disabled={isSaving}
+                      sx={{ cursor: 'pointer', fontSize: '0.7rem' }}
+                    />
+                  </Box>
+                )}
               </Box>
-              {projectGitOrigin && item.status !== 'done' && (
+
+              {/* Action buttons */}
+              {projectGitOrigin && localItem.status !== 'done' && (
                 <IconButton
                   size="small"
                   onClick={() => setConfirmOpen(true)}
@@ -260,7 +538,11 @@ export default function ItemDetailDrawer({
                   <SmartToyOutlinedIcon fontSize="small" />
                 </IconButton>
               )}
-              <IconButton size="small" onClick={() => onEdit(item)} title="Edit">
+              <IconButton
+                size="small"
+                onClick={() => onEdit(localItem)}
+                title="Open in edit modal"
+              >
                 <EditIcon fontSize="small" />
               </IconButton>
               <IconButton size="small" onClick={onClose} title="Close">
@@ -268,22 +550,96 @@ export default function ItemDetailDrawer({
               </IconButton>
             </Box>
 
+            {/* Inline field error */}
+            {fieldError && (
+              <Alert
+                severity="error"
+                sx={{ mx: 2, mb: 1 }}
+                onClose={() => setFieldError(null)}
+              >
+                {fieldError}
+              </Alert>
+            )}
+
             <Divider />
 
-            {/* Description */}
-            {item.description && (
-              <Box sx={{ px: 2, py: 1.5, maxHeight: '30vh', overflow: 'auto' }}>
-                <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap' }}>
-                  {item.description}
+            {/* Editable description */}
+            <Box
+              sx={{
+                px: 2,
+                py: 1.5,
+                maxHeight: editingDescription ? 'none' : '30vh',
+                overflow: editingDescription ? 'visible' : 'auto',
+              }}
+            >
+              {editingDescription ? (
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={3}
+                  maxRows={12}
+                  value={descriptionValue}
+                  onChange={(e) => setDescriptionValue(e.target.value)}
+                  onBlur={() => void handleDescriptionSave()}
+                  onKeyDown={handleDescriptionKeyDown}
+                  variant="outlined"
+                  size="small"
+                  disabled={isSaving}
+                  placeholder="Add a description…"
+                  autoFocus
+                  helperText="Esc to cancel · Tab or click outside to save"
+                />
+              ) : localItem.description ? (
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{
+                    whiteSpace: 'pre-wrap',
+                    cursor: 'text',
+                    borderRadius: 0.5,
+                    p: 0.5,
+                    m: -0.5,
+                    '&:hover': { bgcolor: 'action.hover' },
+                  }}
+                  onClick={() => {
+                    setEditingDescription(true)
+                    setDescriptionValue(localItem.description)
+                  }}
+                  title="Click to edit description"
+                >
+                  {localItem.description}
+                  {savingField === 'description' && (
+                    <CircularProgress size={12} sx={{ ml: 1, verticalAlign: 'middle' }} />
+                  )}
                 </Typography>
-              </Box>
-            )}
+              ) : (
+                <Typography
+                  variant="body2"
+                  color="text.disabled"
+                  sx={{
+                    cursor: 'text',
+                    fontStyle: 'italic',
+                    borderRadius: 0.5,
+                    p: 0.5,
+                    m: -0.5,
+                    '&:hover': { bgcolor: 'action.hover' },
+                  }}
+                  onClick={() => {
+                    setEditingDescription(true)
+                    setDescriptionValue('')
+                  }}
+                  title="Click to add a description"
+                >
+                  Click to add a description…
+                </Typography>
+              )}
+            </Box>
 
             {/* Metadata */}
             <Box sx={{ px: 2, pb: 1 }}>
               <Typography variant="caption" color="text.secondary">
-                Created {new Date(item.createdAt).toLocaleDateString()}
-                {item.createdBy && ` by ${item.createdBy}`}
+                Created {new Date(localItem.createdAt).toLocaleDateString()}
+                {localItem.createdBy && ` by ${localItem.createdBy}`}
               </Typography>
             </Box>
 
@@ -382,7 +738,7 @@ export default function ItemDetailDrawer({
             Dispatch a headless agent to work on this task?
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            <strong>Task:</strong> {item?.title}
+            <strong>Task:</strong> {localItem?.title}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             <strong>Repo:</strong> {projectGitOrigin}
@@ -390,7 +746,7 @@ export default function ItemDetailDrawer({
           <Typography variant="body2" color="text.secondary">
             <strong>Max turns:</strong> server default
           </Typography>
-          {!item?.description && (
+          {!localItem?.description && (
             <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
               This task has no description. The agent will only have the title to work from.
             </Typography>

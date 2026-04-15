@@ -494,6 +494,10 @@ export default function GtdItemList({
         item={drawerItem}
         onClose={() => setDrawerItem(null)}
         onEdit={(item) => { setDrawerItem(null); openEdit(item) }}
+        onItemUpdated={(updated) => {
+          setDrawerItem(updated)
+          setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))
+        }}
         projectName={drawerItem?.projectId ? projectMap[drawerItem.projectId]?.name : undefined}
         projectGitOrigin={drawerItem?.projectId ? projectMap[drawerItem.projectId]?.gitOrigin : undefined}
       />

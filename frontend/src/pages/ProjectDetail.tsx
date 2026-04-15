@@ -1096,6 +1096,10 @@ export default function ProjectDetail() {
         item={drawerItem}
         onClose={() => setDrawerItem(null)}
         onEdit={(item) => { setDrawerItem(null); openEditItem(item) }}
+        onItemUpdated={(updated) => {
+          setDrawerItem(updated)
+          setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))
+        }}
         projectName={project.name}
         projectGitOrigin={project.gitOrigin}
       />
