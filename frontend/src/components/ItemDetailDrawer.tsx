@@ -12,12 +12,15 @@ import {
   Drawer,
   IconButton,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import CloseIcon from '@mui/icons-material/Close'
 import SendIcon from '@mui/icons-material/Send'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import CheckIcon from '@mui/icons-material/Check'
 import { api, ApiError } from '../api'
 import type { Item, Comment, Run, RunStatus, ItemStatus, Priority } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
@@ -88,6 +91,7 @@ export default function ItemDetailDrawer({
   const [dispatching, setDispatching] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [dispatchError, setDispatchError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
   const commentsEndRef = useRef<HTMLDivElement>(null)
   const { onEvent } = useEvents()
 
@@ -175,6 +179,13 @@ export default function ItemDetailDrawer({
     }
   }
 
+  const handleCopy = () => {
+    if (!item) return
+    void navigator.clipboard.writeText(item.id)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   const isRunActive = activeRun && ['pending', 'cloning', 'running'].includes(activeRun.status)
   const canDispatch = Boolean(projectGitOrigin) && !isRunActive
 
@@ -200,6 +211,25 @@ export default function ItemDetailDrawer({
             <Box sx={{ p: 2, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
               <Box sx={{ flex: 1 }}>
                 <Typography variant="h6" sx={{ lineHeight: 1.3 }}>{item.title}</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25, mb: 0.5 }}>
+                  <Typography variant="caption" color="text.disabled">
+                    #{item.id.slice(0, 8)}
+                  </Typography>
+                  <Tooltip title={copied ? 'Copied!' : 'Copy ID'} placement="right">
+                    <IconButton
+                      size="small"
+                      onClick={handleCopy}
+                      sx={{ p: 0.25 }}
+                      aria-label="Copy item ID"
+                    >
+                      {copied ? (
+                        <CheckIcon sx={{ fontSize: 14, color: 'success.main' }} />
+                      ) : (
+                        <ContentCopyIcon sx={{ fontSize: 14 }} />
+                      )}
+                    </IconButton>
+                  </Tooltip>
+                </Box>
                 <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
                   <Chip label={STATUS_LABELS[item.status]} size="small" variant="outlined" />
                   <Chip label={item.priority} size="small" color={PRIORITY_COLORS[item.priority]} />

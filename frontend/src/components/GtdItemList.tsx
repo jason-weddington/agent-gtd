@@ -20,11 +20,14 @@ import {
   Select,
   MenuItem,
   InputAdornment,
+  Tooltip,
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import DoneIcon from '@mui/icons-material/Done'
 import DeleteIcon from '@mui/icons-material/Delete'
 import SearchIcon from '@mui/icons-material/Search'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import CheckIcon from '@mui/icons-material/Check'
 import { api, ApiError } from '../api'
 import type { Item, Project, ItemStatus, Priority } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
@@ -83,6 +86,9 @@ export default function GtdItemList({
   // Detail drawer
   const [drawerItem, setDrawerItem] = useState<Item | null>(null)
 
+  // Copy ID feedback
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+
   const { onEvent } = useEvents()
   const loadDataRef = useRef<() => Promise<void>>(undefined)
 
@@ -132,6 +138,12 @@ export default function GtdItemList({
         (item.projectId && projectMap[item.projectId]?.name.toLowerCase().includes(q)),
     )
   }, [items, search, projectMap])
+
+  const handleCopyId = (id: string) => {
+    void navigator.clipboard.writeText(id)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId((prev) => (prev === id ? null : prev)), 2000)
+  }
 
   const openEdit = (item: Item) => {
     setEditTarget(item)
@@ -293,10 +305,32 @@ export default function GtdItemList({
                   </Box>
                 }
                 secondary={
-                  showWaitingOn && item.waitingOn
-                    ? `Waiting on: ${item.waitingOn}`
-                    : undefined
+                  <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Typography component="span" variant="caption" color="text.disabled">
+                      #{item.id.slice(0, 8)}
+                    </Typography>
+                    <Tooltip title={copiedId === item.id ? 'Copied!' : 'Copy ID'} placement="right">
+                      <IconButton
+                        size="small"
+                        onClick={(e) => { e.stopPropagation(); handleCopyId(item.id) }}
+                        sx={{ p: 0.25 }}
+                        aria-label="Copy item ID"
+                      >
+                        {copiedId === item.id ? (
+                          <CheckIcon sx={{ fontSize: 12, color: 'success.main' }} />
+                        ) : (
+                          <ContentCopyIcon sx={{ fontSize: 12 }} />
+                        )}
+                      </IconButton>
+                    </Tooltip>
+                    {showWaitingOn && item.waitingOn && (
+                      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                        Waiting on: {item.waitingOn}
+                      </Typography>
+                    )}
+                  </Box>
                 }
+                secondaryTypographyProps={{ component: 'div' }}
               />
             </ListItem>
           ))}
@@ -318,7 +352,32 @@ export default function GtdItemList({
           }
         }}
       >
-        <DialogTitle>Edit Item</DialogTitle>
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <span>Edit Item</span>
+            {editTarget && (
+              <>
+                <Typography component="span" variant="caption" color="text.disabled">
+                  #{editTarget.id.slice(0, 8)}
+                </Typography>
+                <Tooltip title={copiedId === editTarget.id ? 'Copied!' : 'Copy ID'} placement="right">
+                  <IconButton
+                    size="small"
+                    onClick={() => handleCopyId(editTarget.id)}
+                    sx={{ p: 0.25 }}
+                    aria-label="Copy item ID"
+                  >
+                    {copiedId === editTarget.id ? (
+                      <CheckIcon sx={{ fontSize: 14, color: 'success.main' }} />
+                    ) : (
+                      <ContentCopyIcon sx={{ fontSize: 14 }} />
+                    )}
+                  </IconButton>
+                </Tooltip>
+              </>
+            )}
+          </Box>
+        </DialogTitle>
         <DialogContent>
           <TextField
             fullWidth
