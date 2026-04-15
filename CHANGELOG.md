@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.41.0 (2026-04-15)
+
+### Features
+
+- **frontend**: Add search/filter box to task list in project detail view
+  ([`e8eed74`](https://github.com/jason-weddington/agent-gtd/commit/e8eed74f3feb8bc5fa52fbd52ceb4202e30b7175))
+
+
 ## v1.40.0 (2026-04-15)
 
 ### Chores
