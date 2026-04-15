@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.38.3 (2026-04-14)
+
+### Bug Fixes
+
+- Cap description height in item detail drawer
+  ([`5b099f7`](https://github.com/jason-weddington/agent-gtd/commit/5b099f78f2fbadd6faa82c22bb794479ab041a89))
+
+
 ## v1.38.2 (2026-04-14)
 
 ### Bug Fixes
