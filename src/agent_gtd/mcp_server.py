@@ -276,7 +276,7 @@ async def add_item(
         priority: Priority level (low, normal, high, urgent). Default: normal.
         status: Item status. Default: inbox. Options: inbox,
             next_action, waiting_for, scheduled, someday_maybe,
-            active, done, cancelled.
+            active, review, done, cancelled.
         labels: Optional list of labels/tags.
         project_id: Optional project to assign to. Ignored for inbox items.
 

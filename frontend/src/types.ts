@@ -27,6 +27,7 @@ export type ItemStatus =
   | 'waiting_for'
   | 'someday_maybe'
   | 'active'
+  | 'review'
   | 'done'
 export type Priority = 'low' | 'normal' | 'high' | 'urgent'
 

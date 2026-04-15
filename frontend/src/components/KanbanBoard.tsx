@@ -12,6 +12,7 @@ import type { Item, ItemStatus } from '../types'
 const COLUMNS = [
   { id: 'next_action', title: 'To Do', statuses: ['next_action'] as ItemStatus[] },
   { id: 'in_progress', title: 'In Progress', statuses: ['active'] as ItemStatus[] },
+  { id: 'review', title: 'Review', statuses: ['review'] as ItemStatus[] },
   { id: 'waiting_for', title: 'Waiting', statuses: ['waiting_for'] as ItemStatus[] },
   { id: 'someday', title: 'Someday', statuses: ['someday_maybe'] as ItemStatus[] },
 ]
@@ -20,6 +21,7 @@ const COLUMNS = [
 const COLUMN_DEFAULT_STATUS: Record<string, ItemStatus> = {
   next_action: 'next_action',
   in_progress: 'active',
+  review: 'review',
   waiting_for: 'waiting_for',
   someday: 'someday_maybe',
 }

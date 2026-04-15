@@ -26,6 +26,7 @@ class ItemStatus(StrEnum):
     SCHEDULED = "scheduled"
     SOMEDAY_MAYBE = "someday_maybe"
     ACTIVE = "active"
+    REVIEW = "review"
     DONE = "done"
     CANCELLED = "cancelled"
 

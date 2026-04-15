@@ -33,6 +33,7 @@ const STATUS_LABELS: Record<ItemStatus, string> = {
   waiting_for: 'Waiting',
   someday_maybe: 'Someday',
   active: 'In Progress',
+  review: 'Review',
   done: 'Done',
 }
 
