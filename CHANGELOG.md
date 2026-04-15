@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.38.5 (2026-04-15)
+
+### Bug Fixes
+
+- Route dispatch MCP tools through _backend abstraction
+  ([`6c191d0`](https://github.com/jason-weddington/agent-gtd/commit/6c191d0a482dbcf6ad926ef9fc3d0fb05fd43dce))
+
+
 ## v1.38.4 (2026-04-15)
 
 ### Bug Fixes
