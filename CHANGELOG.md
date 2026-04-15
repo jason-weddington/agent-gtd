@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.49.0 (2026-04-15)
+
+### Features
+
+- **frontend**: Add api.runs.list() method
+  ([`c57a32b`](https://github.com/jason-weddington/agent-gtd/commit/c57a32ba6ec3e3a568e92cac7ee5d99d5ee87711))
+
+
 ## v1.48.1 (2026-04-15)
 
 ### Bug Fixes
