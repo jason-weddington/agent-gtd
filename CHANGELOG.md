@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.42.0 (2026-04-15)
+
+### Features
+
+- Add "review" item status for agent-completed work awaiting merge
+  ([`291f7d9`](https://github.com/jason-weddington/agent-gtd/commit/291f7d9407b56617c3051897a73afb588236e939))
+
+
 ## v1.41.0 (2026-04-15)
 
 ### Features
