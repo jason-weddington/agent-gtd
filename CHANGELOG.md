@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.38.4 (2026-04-15)
+
+### Bug Fixes
+
+- Hide login tool when API key is set, remove switch_project
+  ([`c74b276`](https://github.com/jason-weddington/agent-gtd/commit/c74b2766e76afc1fe662a2b15bf44753833a3e48))
+
+
 ## v1.38.3 (2026-04-14)
 
 ### Bug Fixes
