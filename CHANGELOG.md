@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.46.0 (2026-04-15)
+
+### Features
+
+- Add "new" and "ready" item statuses for grooming workflow
+  ([`626b47d`](https://github.com/jason-weddington/agent-gtd/commit/626b47dfad541ec075f4ba37f949fd37a0658f56))
+
+
 ## v1.45.0 (2026-04-15)
 
 ### Features
