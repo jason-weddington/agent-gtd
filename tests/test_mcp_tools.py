@@ -435,6 +435,25 @@ async def test_complete_item(registered_client):
     assert data["completed_at"] is not None
 
 
+async def test_delete_item(registered_client):
+    created = await registered_client.call_tool("add_item", {"title": "Delete Me"})
+    item_id = _parse_result(created)["id"]
+
+    result = await registered_client.call_tool(
+        "delete_item",
+        {
+            "item_id": item_id,
+        },
+    )
+    data = _parse_result(result)
+    assert data["status"] == "deleted"
+    assert data["item_id"] == item_id
+
+    # Verify the item is gone
+    with pytest.raises(ToolError, match="not found"):
+        await registered_client.call_tool("get_item", {"item_id": item_id})
+
+
 async def test_claim_item(registered_client):
     created = await registered_client.call_tool("add_item", {"title": "Claim Me"})
     item_id = _parse_result(created)["id"]
@@ -634,6 +653,16 @@ async def test_complete_item_not_found(registered_client):
     with pytest.raises(ToolError, match="not found"):
         await registered_client.call_tool(
             "complete_item",
+            {
+                "item_id": "nonexistent",
+            },
+        )
+
+
+async def test_delete_item_not_found(registered_client):
+    with pytest.raises(ToolError, match="not found"):
+        await registered_client.call_tool(
+            "delete_item",
             {
                 "item_id": "nonexistent",
             },

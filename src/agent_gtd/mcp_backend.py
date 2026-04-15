@@ -77,6 +77,8 @@ class McpBackend(Protocol):
 
     async def complete_item(self, user_id: str, item_id: str) -> dict[str, Any]: ...
 
+    async def delete_item(self, user_id: str, item_id: str) -> dict[str, Any]: ...
+
     async def claim_item(
         self, user_id: str, item_id: str, agent_name: str
     ) -> dict[str, Any]: ...
@@ -356,6 +358,14 @@ class LocalBackend:
         row = await item_service.complete_item(db, user_id, item_id)
         pm = await self._build_project_map(user_id)
         return self._format_item(row, pm)
+
+    async def delete_item(self, user_id: str, item_id: str) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import item_service
+
+        db = await get_db()
+        await item_service.delete_item(db, user_id, item_id)
+        return {"status": "deleted", "item_id": item_id}
 
     async def claim_item(
         self, user_id: str, item_id: str, agent_name: str
@@ -786,6 +796,13 @@ class HttpBackend:
         item = resp.json()
         pm = await self._get_project_map()
         return self._enrich_item(item, pm)
+
+    async def delete_item(self, user_id: str, item_id: str) -> dict[str, Any]:
+        resp = await self._client.delete(
+            f"/api/items/{item_id}", headers=self._headers()
+        )
+        self._check(resp)
+        return {"status": "deleted", "item_id": item_id}
 
     async def claim_item(
         self, user_id: str, item_id: str, agent_name: str

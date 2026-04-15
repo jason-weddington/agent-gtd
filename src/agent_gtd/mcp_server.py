@@ -382,6 +382,33 @@ async def complete_item(
 
 
 @mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
+)
+async def delete_item(
+    item_id: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """Permanently delete an item.
+
+    This action is irreversible. The item and all its associated data will be
+    removed permanently.
+
+    Args:
+        item_id: ID of the item to delete.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        Confirmation dict with status and item_id.
+    """
+    session = await _get_session(ctx)
+
+    try:
+        return await _backend.delete_item(session["user_id"], item_id)
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+
+
+@mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def list_items(

@@ -153,6 +153,19 @@ async def test_complete_item(authed_backend: HttpBackend):
     assert done["completed_at"] is not None
 
 
+async def test_delete_item(authed_backend: HttpBackend):
+    item = await authed_backend.create_item("", title="To be deleted", status="active")
+    result = await authed_backend.delete_item("", item["id"])
+    assert result == {"status": "deleted", "item_id": item["id"]}
+    with pytest.raises(ToolError):
+        await authed_backend.get_item("", item["id"])
+
+
+async def test_delete_item_not_found(authed_backend: HttpBackend):
+    with pytest.raises(ToolError):
+        await authed_backend.delete_item("", "nonexistent")
+
+
 async def test_claim_and_release_item(authed_backend: HttpBackend):
     item = await authed_backend.create_item("", title="Claimable", status="active")
     claimed = await authed_backend.claim_item("", item["id"], "agent-1")
