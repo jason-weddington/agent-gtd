@@ -622,35 +622,57 @@ export default function ProjectDetail() {
                 >
                   <ListItemText
                     primary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, overflow: 'hidden' }}>
-                        <Typography
-                          variant="body1"
-                          sx={{
-                            textDecoration: item.status === 'done' ? 'line-through' : 'none',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            minWidth: 0,
-                          }}
-                        >
-                          {item.title}
-                        </Typography>
-                        <Chip
-                          label={ITEM_STATUS_LABELS[item.status]}
-                          size="small"
-                          variant="outlined"
-                        />
-                        <Chip
-                          label={item.priority}
-                          size="small"
-                          color={PRIORITY_COLORS[item.priority]}
-                        />
-                        {item.dueDate && (
+                      <Box>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, overflow: 'hidden' }}>
+                          <Typography
+                            variant="body1"
+                            sx={{
+                              textDecoration: item.status === 'done' ? 'line-through' : 'none',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              minWidth: 0,
+                            }}
+                          >
+                            {item.title}
+                          </Typography>
                           <Chip
-                            label={item.dueDate}
+                            label={ITEM_STATUS_LABELS[item.status]}
                             size="small"
                             variant="outlined"
                           />
+                          <Chip
+                            label={item.priority}
+                            size="small"
+                            color={PRIORITY_COLORS[item.priority]}
+                          />
+                          {item.dueDate && (
+                            <Chip
+                              label={item.dueDate}
+                              size="small"
+                              variant="outlined"
+                            />
+                          )}
+                        </Box>
+                        {item.labels.length > 0 && (
+                          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.25, flexWrap: 'wrap' }}>
+                            {item.labels.slice(0, 4).map((label) => (
+                              <Chip
+                                key={label}
+                                label={label}
+                                size="small"
+                                sx={{ height: 20, fontSize: '0.7rem' }}
+                              />
+                            ))}
+                            {item.labels.length > 4 && (
+                              <Chip
+                                label={`+${item.labels.length - 4} more`}
+                                size="small"
+                                variant="outlined"
+                                sx={{ height: 20, fontSize: '0.7rem' }}
+                              />
+                            )}
+                          </Box>
                         )}
                       </Box>
                     }

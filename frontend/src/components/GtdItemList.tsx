@@ -288,34 +288,56 @@ export default function GtdItemList({
             >
               <ListItemText
                 primary={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, overflow: 'hidden' }}>
-                    <Tooltip title={item.title}>
-                      <Typography
-                        variant="body1"
-                        sx={{
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          minWidth: 0,
-                        }}
-                      >
-                        {item.title}
-                      </Typography>
-                    </Tooltip>
-                    {item.projectId && projectMap[item.projectId] && (
+                  <Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, overflow: 'hidden' }}>
+                      <Tooltip title={item.title}>
+                        <Typography
+                          variant="body1"
+                          sx={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            minWidth: 0,
+                          }}
+                        >
+                          {item.title}
+                        </Typography>
+                      </Tooltip>
+                      {item.projectId && projectMap[item.projectId] && (
+                        <Chip
+                          label={projectMap[item.projectId].name}
+                          size="small"
+                          variant="outlined"
+                        />
+                      )}
                       <Chip
-                        label={projectMap[item.projectId].name}
+                        label={item.priority}
                         size="small"
-                        variant="outlined"
+                        color={PRIORITY_COLORS[item.priority]}
                       />
-                    )}
-                    <Chip
-                      label={item.priority}
-                      size="small"
-                      color={PRIORITY_COLORS[item.priority]}
-                    />
-                    {item.dueDate && (
-                      <Chip label={item.dueDate} size="small" variant="outlined" />
+                      {item.dueDate && (
+                        <Chip label={item.dueDate} size="small" variant="outlined" />
+                      )}
+                    </Box>
+                    {item.labels.length > 0 && (
+                      <Box sx={{ display: 'flex', gap: 0.5, mt: 0.25, flexWrap: 'wrap' }}>
+                        {item.labels.slice(0, 4).map((label) => (
+                          <Chip
+                            key={label}
+                            label={label}
+                            size="small"
+                            sx={{ height: 20, fontSize: '0.7rem' }}
+                          />
+                        ))}
+                        {item.labels.length > 4 && (
+                          <Chip
+                            label={`+${item.labels.length - 4} more`}
+                            size="small"
+                            variant="outlined"
+                            sx={{ height: 20, fontSize: '0.7rem' }}
+                          />
+                        )}
+                      </Box>
                     )}
                   </Box>
                 }
