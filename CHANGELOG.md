@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.51.0 (2026-04-16)
+
+### Features
+
+- **frontend**: Add quick project switcher modal (Cmd+Shift+P)
+  ([`a7a9de8`](https://github.com/jason-weddington/agent-gtd/commit/a7a9de83fa18bfe7f88b9ee552e7182ae14166a5))
+
+
 ## v1.50.1 (2026-04-16)
 
 ### Bug Fixes
