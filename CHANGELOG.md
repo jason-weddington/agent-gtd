@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.61.0 (2026-04-16)
+
+### Features
+
+- **frontend**: Replace Working spinner chip with pulsing robot icon
+  ([`eee4548`](https://github.com/jason-weddington/agent-gtd/commit/eee4548baa79b97c0ad49579c7cab0eaf9b284af))
+
+
 ## v1.60.4 (2026-04-16)
 
 ### Bug Fixes
