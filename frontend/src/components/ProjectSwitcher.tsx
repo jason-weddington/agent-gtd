@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useHotkeys } from 'react-hotkeys-hook'
 import {
@@ -24,6 +24,7 @@ export default function ProjectSwitcher() {
   const [search, setSearch] = useState('')
   // null = not yet loaded (shows spinner), [] = loaded but empty
   const [projects, setProjects] = useState<Project[] | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   // Global Cmd+Shift+P / Ctrl+Shift+P shortcut
   useHotkeys(
@@ -85,6 +86,7 @@ export default function ProjectSwitcher() {
       onClose={handleClose}
       fullWidth
       maxWidth="sm"
+      TransitionProps={{ onEntered: () => inputRef.current?.focus() }}
       slotProps={{
         paper: {
           sx: {
@@ -104,6 +106,7 @@ export default function ProjectSwitcher() {
         <TextField
           fullWidth
           autoFocus
+          inputRef={inputRef}
           placeholder="Switch to project…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
