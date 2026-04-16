@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.56.2 (2026-04-16)
+
+### Bug Fixes
+
+- **frontend**: Align status dropdown choices with kanban columns
+  ([`19af743`](https://github.com/jason-weddington/agent-gtd/commit/19af743a190560bdc5f77197fd14dc46a3d526c6))
+
+
 ## v1.56.1 (2026-04-16)
 
 ### Bug Fixes
