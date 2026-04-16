@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.60.4 (2026-04-16)
+
+### Bug Fixes
+
+- **frontend**: Improve drawer header spacing between ID, dropdowns, and labels
+  ([`fc9cbc1`](https://github.com/jason-weddington/agent-gtd/commit/fc9cbc1a03dfd9d64a8c136bd88adce6c54c0c83))
+
+
 ## v1.60.3 (2026-04-16)
 
 ### Bug Fixes
