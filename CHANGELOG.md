@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.62.0 (2026-04-16)
+
+### Features
+
+- **frontend**: D and Shift+D keyboard shortcuts to dispatch from drawer
+  ([`d167c24`](https://github.com/jason-weddington/agent-gtd/commit/d167c245a40b481f88fa9ca6e33c6abc184520d2))
+
+
 ## v1.61.2 (2026-04-16)
 
 ### Bug Fixes
