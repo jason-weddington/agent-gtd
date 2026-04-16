@@ -27,7 +27,7 @@ import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import { api, ApiError } from '../api'
-import type { Item, Comment, Project, Run, RunStatus, ItemStatus } from '../types'
+import type { Item, Comment, Project, Run, ItemStatus } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
 
 const DRAWER_WIDTH = 440
@@ -50,25 +50,6 @@ const STATUS_LABELS: Partial<Record<ItemStatus, string>> = {
   done: 'Done',
 }
 
-const RUN_STATUS_COLORS: Record<RunStatus, 'default' | 'info' | 'success' | 'error' | 'warning'> = {
-  pending: 'default',
-  cloning: 'info',
-  running: 'info',
-  success: 'success',
-  failed: 'error',
-  timeout: 'error',
-  cancelled: 'warning',
-}
-
-const RUN_STATUS_LABELS: Record<RunStatus, string> = {
-  pending: 'Queued',
-  cloning: 'Cloning',
-  running: 'Working',
-  success: 'Done',
-  failed: 'Failed',
-  timeout: 'Timeout',
-  cancelled: 'Cancelled',
-}
 
 function isAgentComment(c: Comment): boolean {
   const by = c.createdBy.toLowerCase()
@@ -518,15 +499,6 @@ export default function ItemDetailDrawer({
                     <Chip label={`@ ${localItem.assignedTo}`} size="small" variant="outlined" />
                   )}
 
-                  {/* Run status chip */}
-                  {isRunActive && activeRun && (
-                    <Chip
-                      label={isRunActive && activeRun.mode === 'plan' ? 'Planning...' : RUN_STATUS_LABELS[activeRun.status]}
-                      size="small"
-                      color={RUN_STATUS_COLORS[activeRun.status]}
-                      icon={isRunActive ? <CircularProgress size={12} /> : undefined}
-                    />
-                  )}
                 </Box>
 
                 {/* Editable labels row */}
@@ -594,7 +566,16 @@ export default function ItemDetailDrawer({
                   title={canDispatch ? 'Send to Claude' : isRunActive ? 'Agent is working' : 'No git origin'}
                   color="secondary"
                 >
-                  <SmartToyOutlinedIcon fontSize="small" />
+                  <SmartToyOutlinedIcon
+                    fontSize="small"
+                    sx={isRunActive ? {
+                      animation: 'pulse-green 2s ease-in-out infinite',
+                      '@keyframes pulse-green': {
+                        '0%, 100%': { color: 'inherit' },
+                        '50%': { color: 'success.main' },
+                      },
+                    } : undefined}
+                  />
                 </IconButton>
               )}
               <IconButton
