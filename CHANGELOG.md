@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.63.0 (2026-04-16)
+
+### Features
+
+- Per-project agent activity log
+  ([`c79a824`](https://github.com/jason-weddington/agent-gtd/commit/c79a8245cba5eb1c039080a6dd4459ad21245523))
+
+
 ## v1.62.0 (2026-04-16)
 
 ### Features
