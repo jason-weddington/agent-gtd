@@ -67,6 +67,8 @@ export default function ProjectSwitcher() {
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
+      e.preventDefault()
+      e.stopPropagation()
       if (filteredProjects.length === 1) {
         handleSelect(filteredProjects[0])
       }
