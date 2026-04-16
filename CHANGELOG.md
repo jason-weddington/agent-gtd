@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.60.1 (2026-04-16)
+
+### Bug Fixes
+
+- **frontend**: Truncate project description before action buttons in list view
+  ([`2e8ff8d`](https://github.com/jason-weddington/agent-gtd/commit/2e8ff8d0ddab95406265f51fc91d5a2a361369e1))
+
+
 ## v1.60.0 (2026-04-16)
 
 ### Features
