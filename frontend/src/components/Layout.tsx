@@ -25,6 +25,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useQuickCapture } from '../contexts/QuickCaptureContext'
 import Sidebar from './Sidebar'
 import ProjectSwitcher from './ProjectSwitcher'
+import ActiveRunsIndicator from './ActiveRunsIndicator'
 
 export default function Layout() {
   const { mode, toggleTheme } = useThemeMode()
@@ -80,6 +81,8 @@ export default function Layout() {
               <BoltIcon />
             </IconButton>
           </Tooltip>
+
+          <ActiveRunsIndicator />
 
           <Tooltip title={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
             <IconButton color="inherit" onClick={toggleTheme} sx={{ mr: 1 }}>
