@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.49.1 (2026-04-15)
+
+### Bug Fixes
+
+- **frontend**: Merge To Do column into Ready on kanban board
+  ([`7b85d98`](https://github.com/jason-weddington/agent-gtd/commit/7b85d98d7c26a44c435331238511670df1f188b5))
+
+### Chores
+
+- Bump default max_turns from 50 to 100
+  ([`727038d`](https://github.com/jason-weddington/agent-gtd/commit/727038d7e9c7020d53ef963a485ae1b2c513f692))
+
+
 ## v1.49.0 (2026-04-15)
 
 ### Features
