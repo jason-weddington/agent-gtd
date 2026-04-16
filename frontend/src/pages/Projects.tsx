@@ -338,29 +338,11 @@ export default function Projects() {
                     key={project.id}
                     disablePadding
                     divider={index < filteredProjects.length - 1}
-                    secondaryAction={
-                      <Box sx={{ display: 'flex', gap: 0.5 }}>
-                        <IconButton size="small" onClick={(e) => openEdit(project, e)}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                        {project.status !== 'completed' && (
-                          <IconButton size="small" onClick={(e) => handleComplete(project, e)} title="Complete">
-                            <DoneIcon fontSize="small" />
-                          </IconButton>
-                        )}
-                        <IconButton
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setDeleteTarget(project)
-                          }}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
-                    }
                   >
-                    <ListItemButton onClick={() => navigate(`/projects/${project.id}`)} sx={{ pr: 14 }}>
+                    <ListItemButton
+                      onClick={() => navigate(`/projects/${project.id}`)}
+                      sx={{ flexGrow: 1, minWidth: 0, overflow: 'hidden' }}
+                    >
                       <ListItemText
                         sx={{ overflow: 'hidden', minWidth: 0 }}
                         primary={
@@ -386,6 +368,25 @@ export default function Projects() {
                         secondaryTypographyProps={{ sx: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}
                       />
                     </ListItemButton>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0, pr: 1 }}>
+                      <IconButton size="small" onClick={(e) => openEdit(project, e)}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                      {project.status !== 'completed' && (
+                        <IconButton size="small" onClick={(e) => handleComplete(project, e)} title="Complete">
+                          <DoneIcon fontSize="small" />
+                        </IconButton>
+                      )}
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDeleteTarget(project)
+                        }}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
                   </ListItem>
                 ))}
               </List>
