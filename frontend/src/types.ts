@@ -96,6 +96,7 @@ export interface Run {
   featureBranch: string
   workspaceDir: string
   maxTurns: number
+  mode: string
   startedAt: string | null
   finishedAt: string | null
   errorMsg: string

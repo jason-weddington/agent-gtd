@@ -93,6 +93,7 @@ export default function ItemDetailDrawer({
   const [activeRun, setActiveRun] = useState<Run | null>(null)
   const [dispatching, setDispatching] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [dispatchMode, setDispatchMode] = useState<'build' | 'plan'>('build')
   const [dispatchError, setDispatchError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -292,9 +293,10 @@ export default function ItemDetailDrawer({
     setDispatching(true)
     setDispatchError(null)
     try {
-      const run = await api.items.dispatch(item.id)
+      const run = await api.items.dispatch(item.id, { mode: dispatchMode })
       setActiveRun(run)
       setConfirmOpen(false)
+      setDispatchMode('build')
     } catch (err) {
       setDispatchError(err instanceof ApiError ? err.detail : 'Dispatch failed')
     } finally {
@@ -467,7 +469,7 @@ export default function ItemDetailDrawer({
                   {/* Run status chip */}
                   {activeRun && (
                     <Chip
-                      label={RUN_STATUS_LABELS[activeRun.status]}
+                      label={isRunActive && activeRun.mode === 'plan' ? 'Planning...' : RUN_STATUS_LABELS[activeRun.status]}
                       size="small"
                       color={RUN_STATUS_COLORS[activeRun.status]}
                       icon={isRunActive ? <CircularProgress size={12} /> : undefined}
@@ -745,8 +747,26 @@ export default function ItemDetailDrawer({
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             <strong>Repo:</strong> {projectGitOrigin}
           </Typography>
-          <Typography variant="body2" color="text.secondary">
-            <strong>Max turns:</strong> server default
+          <Box sx={{ display: 'flex', gap: 1, mt: 1.5, mb: 1 }}>
+            <Button
+              variant={dispatchMode === 'build' ? 'contained' : 'outlined'}
+              size="small"
+              onClick={() => setDispatchMode('build')}
+            >
+              Build
+            </Button>
+            <Button
+              variant={dispatchMode === 'plan' ? 'contained' : 'outlined'}
+              size="small"
+              onClick={() => setDispatchMode('plan')}
+            >
+              Plan
+            </Button>
+          </Box>
+          <Typography variant="caption" color="text.secondary">
+            {dispatchMode === 'build'
+              ? 'Agent will implement the task and push a branch for review.'
+              : 'Agent will groom the task: read codebase, write acceptance criteria, identify files.'}
           </Typography>
           {!localItem?.description && (
             <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
@@ -767,7 +787,7 @@ export default function ItemDetailDrawer({
             disabled={dispatching}
             startIcon={dispatching ? <CircularProgress size={16} /> : <SmartToyOutlinedIcon />}
           >
-            Dispatch
+            {dispatchMode === 'plan' ? 'Plan' : 'Dispatch'}
           </Button>
         </DialogActions>
       </Dialog>

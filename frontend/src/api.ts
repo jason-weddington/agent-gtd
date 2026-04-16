@@ -126,7 +126,7 @@ export const api = {
     comments: (id: string) => request<Comment[]>('GET', `/items/${id}/comments`),
     createComment: (id: string, data: { contentMarkdown: string }) =>
       request<Comment>('POST', `/items/${id}/comments`, data),
-    dispatch: (id: string, data?: { maxTurns?: number }) =>
+    dispatch: (id: string, data?: { maxTurns?: number; mode?: string }) =>
       request<Run>('POST', `/items/${id}/dispatch`, data ?? {}),
     runs: (id: string) => request<Run[]>('GET', `/items/${id}/runs`),
   },
