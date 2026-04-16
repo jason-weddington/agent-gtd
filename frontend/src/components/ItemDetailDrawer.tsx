@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useHotkeys } from 'react-hotkeys-hook'
 import {
   Alert,
   Box,
@@ -281,14 +282,14 @@ export default function ItemDetailDrawer({
     }
   }
 
-  const handleDispatch = async () => {
+  const handleDispatch = useCallback(async (mode: 'build' | 'plan' = dispatchMode) => {
     if (!item || !localItem) return
     setDispatching(true)
     setDispatchError(null)
     try {
       const maxTurns = getDispatchMaxTurns()
       const run = await api.items.dispatch(item.id, {
-        mode: dispatchMode,
+        mode,
         ...(maxTurns !== undefined ? { maxTurns } : {}),
       })
       setActiveRun(run)
@@ -299,7 +300,7 @@ export default function ItemDetailDrawer({
     } finally {
       setDispatching(false)
     }
-  }
+  }, [item, localItem, dispatchMode])
 
   const handleCopy = () => {
     if (!item) return
@@ -311,6 +312,24 @@ export default function ItemDetailDrawer({
   const isRunActive = activeRun && ['pending', 'cloning', 'running'].includes(activeRun.status)
   const canDispatch = Boolean(projectGitOrigin) && !isRunActive
   const isSaving = savingField !== null
+
+  // Keyboard shortcuts: D = dispatch build, Shift+D = dispatch plan
+  useHotkeys('d', () => {
+    if (!item || !canDispatch) return
+    void handleDispatch('build')
+  }, {
+    enabled: Boolean(item),
+    enableOnFormTags: false,
+  }, [item, canDispatch, handleDispatch])
+
+  useHotkeys('shift+d', (e) => {
+    e.preventDefault()
+    if (!item || !canDispatch) return
+    void handleDispatch('plan')
+  }, {
+    enabled: Boolean(item),
+    enableOnFormTags: false,
+  }, [item, canDispatch, handleDispatch])
 
   return (
     <>
@@ -822,7 +841,7 @@ export default function ItemDetailDrawer({
           <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
-            onClick={handleDispatch}
+            onClick={() => void handleDispatch(dispatchMode)}
             disabled={dispatching}
             startIcon={dispatching ? <CircularProgress size={16} /> : <SmartToyOutlinedIcon />}
           >
