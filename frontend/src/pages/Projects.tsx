@@ -383,7 +383,7 @@ export default function Projects() {
                           </Box>
                         }
                         secondary={project.description || undefined}
-                        secondaryTypographyProps={{ noWrap: true }}
+                        secondaryTypographyProps={{ sx: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}
                       />
                     </ListItemButton>
                   </ListItem>
