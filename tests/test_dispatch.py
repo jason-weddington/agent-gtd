@@ -236,6 +236,41 @@ async def test_list_runs_cross_item(client: AsyncClient, auth_headers: dict[str,
     assert runs[0]["item_id"] == item_a
 
 
+async def test_list_runs_by_project_id(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """GET /api/runs?project_id=X returns only runs for that project."""
+    project_a = await _create_project_with_origin(client, auth_headers, "Project A")
+    project_b = await _create_project_with_origin(client, auth_headers, "Project B")
+
+    item_a = await _create_item_in_project(client, auth_headers, project_a, "Task in A")
+    item_b = await _create_item_in_project(client, auth_headers, project_b, "Task in B")
+
+    # Dispatch one item per project
+    await client.post(f"/api/items/{item_a}/dispatch", json={}, headers=auth_headers)
+    await client.post(f"/api/items/{item_b}/dispatch", json={}, headers=auth_headers)
+
+    # Filter by project A — should only see the run for item_a
+    res = await client.get(
+        "/api/runs", params={"project_id": project_a}, headers=auth_headers
+    )
+    assert res.status_code == 200
+    runs = res.json()
+    assert len(runs) == 1
+    assert runs[0]["project_id"] == project_a
+    assert runs[0]["item_id"] == item_a
+
+    # Filter by project B — should only see the run for item_b
+    res = await client.get(
+        "/api/runs", params={"project_id": project_b}, headers=auth_headers
+    )
+    assert res.status_code == 200
+    runs = res.json()
+    assert len(runs) == 1
+    assert runs[0]["project_id"] == project_b
+    assert runs[0]["item_id"] == item_b
+
+
 # --- Get single run ---
 
 

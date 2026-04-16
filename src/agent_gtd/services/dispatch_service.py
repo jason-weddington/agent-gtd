@@ -132,15 +132,19 @@ async def list_runs(
     user_id: str,
     *,
     item_id: str | None = None,
+    project_id: str | None = None,
     status: str | None = None,
 ) -> list[dict[str, Any]]:
-    """List runs, optionally filtered by item and/or status."""
+    """List runs, optionally filtered by item, project, and/or status."""
     clauses = ["user_id = $1"]
     params: list[object] = [user_id]
 
     if item_id is not None:
         params.append(item_id)
         clauses.append(f"item_id = ${len(params)}")
+    if project_id is not None:
+        params.append(project_id)
+        clauses.append(f"project_id = ${len(params)}")
     if status is not None:
         params.append(status)
         clauses.append(f"status = ${len(params)}")

@@ -28,6 +28,13 @@ import {
   Checkbox,
   Divider,
   InputAdornment,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Tooltip,
 } from '@mui/material'
 import SendIcon from '@mui/icons-material/Send'
 import AddIcon from '@mui/icons-material/Add'
@@ -40,7 +47,7 @@ import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
 import SearchIcon from '@mui/icons-material/Search'
 import ClearIcon from '@mui/icons-material/Clear'
 import { api, ApiError } from '../api'
-import type { Project, Item, Note, Comment, ItemStatus, Priority, ProjectStatus } from '../types'
+import type { Project, Item, Note, Comment, Run, RunStatus, ItemStatus, Priority, ProjectStatus } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
 import { useQuickCapture } from '../contexts/QuickCaptureContext'
 import KanbanBoard from '../components/KanbanBoard'
@@ -89,6 +96,7 @@ export default function ProjectDetail() {
   const [items, setItems] = useState<Item[]>([])
   const [notes, setNotes] = useState<Note[]>([])
   const [comments, setComments] = useState<Comment[]>([])
+  const [runs, setRuns] = useState<Run[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState(0)
@@ -161,18 +169,20 @@ export default function ProjectDetail() {
   const loadData = useCallback(async () => {
     if (!projectId) return
     try {
-      const [proj, projItems, projNotes, projComments, activeProjects] = await Promise.all([
+      const [proj, projItems, projNotes, projComments, activeProjects, projRuns] = await Promise.all([
         api.projects.get(projectId),
         api.projects.items(projectId),
         api.projects.notes(projectId),
         api.projects.comments(projectId),
         api.projects.list({ status: 'active' }),
+        api.runs.list({ projectId }),
       ])
       setProject(proj)
       setItems(projItems)
       setNotes(projNotes)
       setComments(projComments)
       setAllProjects(activeProjects)
+      setRuns(projRuns)
       setError(null)
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
@@ -218,6 +228,9 @@ export default function ProjectDetail() {
       onEvent('comment_created', () => { loadDataRef.current?.() }),
       onEvent('comment_updated', () => { loadDataRef.current?.() }),
       onEvent('comment_deleted', () => { loadDataRef.current?.() }),
+      onEvent('run_started', () => { loadDataRef.current?.() }),
+      onEvent('run_completed', () => { loadDataRef.current?.() }),
+      onEvent('run_failed', () => { loadDataRef.current?.() }),
     ]
     return () => { unsubs.forEach((u) => u()) }
   }, [onEvent])
@@ -490,6 +503,29 @@ export default function ProjectDetail() {
     }
   }
 
+  // --- Activity tab helpers ---
+  const RUN_STATUS_COLORS: Record<RunStatus, 'default' | 'info' | 'primary' | 'success' | 'error' | 'warning'> = {
+    pending: 'default',
+    cloning: 'info',
+    running: 'primary',
+    success: 'success',
+    failed: 'error',
+    timeout: 'warning',
+    cancelled: 'default',
+  }
+
+  const formatDuration = (startedAt: string | null, finishedAt: string | null): string => {
+    if (!startedAt) return '—'
+    const start = new Date(startedAt).getTime()
+    const end = finishedAt ? new Date(finishedAt).getTime() : Date.now()
+    const seconds = Math.floor((end - start) / 1000)
+    if (seconds < 60) return `${seconds}s`
+    const minutes = Math.floor(seconds / 60)
+    if (minutes < 60) return `${minutes}m ${seconds % 60}s`
+    const hours = Math.floor(minutes / 60)
+    return `${hours}h ${minutes % 60}m`
+  }
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
@@ -539,6 +575,7 @@ export default function ProjectDetail() {
         <Tab label={`Items (${visibleItems.length})`} />
         <Tab label={`Notes (${notes.length})`} />
         <Tab label={`Comments (${comments.length})`} />
+        <Tab label={`Activity (${runs.length})`} />
       </Tabs>
 
       {/* Items Tab */}
@@ -900,6 +937,112 @@ export default function ProjectDetail() {
               {savingComment ? <CircularProgress size={20} /> : <SendIcon />}
             </IconButton>
           </Box>
+        </Box>
+      )}
+
+      {/* Activity Tab */}
+      {tab === 3 && (
+        <Box>
+          {runs.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+              No agent runs in this project yet.
+            </Typography>
+          ) : (
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Item</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Branch</TableCell>
+                    <TableCell>Started</TableCell>
+                    <TableCell>Finished</TableCell>
+                    <TableCell>Duration</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {runs.map((run) => {
+                    const item = items.find((i) => i.id === run.itemId)
+                    const itemTitle = item?.title ?? `Item ${run.itemId.slice(0, 8)}`
+                    const isFailed = run.status === 'failed' || run.status === 'timeout'
+                    return (
+                      <TableRow
+                        key={run.id}
+                        onClick={() => {
+                          if (item) setDrawerItem(item)
+                        }}
+                        sx={{
+                          cursor: item ? 'pointer' : 'default',
+                          '&:hover': item ? { bgcolor: 'action.hover' } : {},
+                          bgcolor: isFailed
+                            ? (theme) =>
+                                theme.palette.mode === 'dark'
+                                  ? 'rgba(211,47,47,0.15)'
+                                  : 'rgba(211,47,47,0.07)'
+                            : undefined,
+                        }}
+                      >
+                        <TableCell>
+                          <Typography variant="body2">{itemTitle}</Typography>
+                          {run.errorMsg && (
+                            <Tooltip title={run.errorMsg} placement="bottom-start">
+                              <Typography
+                                variant="caption"
+                                color="error"
+                                sx={{
+                                  display: 'block',
+                                  maxWidth: 260,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {run.errorMsg}
+                              </Typography>
+                            </Tooltip>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={run.status}
+                            size="small"
+                            color={RUN_STATUS_COLORS[run.status]}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Typography
+                            variant="caption"
+                            sx={{ fontFamily: 'monospace', fontSize: '0.72rem' }}
+                          >
+                            {run.featureBranch || '—'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="caption">
+                            {run.startedAt
+                              ? new Date(run.startedAt).toLocaleString()
+                              : '—'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="caption">
+                            {run.finishedAt
+                              ? new Date(run.finishedAt).toLocaleString()
+                              : '—'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="caption">
+                            {formatDuration(run.startedAt, run.finishedAt)}
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
         </Box>
       )}
 

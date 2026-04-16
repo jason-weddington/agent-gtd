@@ -132,10 +132,11 @@ export const api = {
   },
 
   runs: {
-    list: (params?: { status?: string; itemId?: string }) => {
+    list: (params?: { status?: string; itemId?: string; projectId?: string }) => {
       const query = new URLSearchParams()
       if (params?.status) query.set('status', params.status)
       if (params?.itemId) query.set('item_id', params.itemId)
+      if (params?.projectId) query.set('project_id', params.projectId)
       const qs = query.toString()
       return request<Run[]>('GET', `/runs${qs ? `?${qs}` : ''}`)
     },
