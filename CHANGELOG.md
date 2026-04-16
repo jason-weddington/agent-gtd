@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.61.2 (2026-04-16)
+
+### Bug Fixes
+
+- **frontend**: Replace absolute-positioned action buttons with flex layout
+  ([`0f0ced8`](https://github.com/jason-weddington/agent-gtd/commit/0f0ced8c2313342f9f282f6f299fd0f5b7f42249))
+
+
 ## v1.61.1 (2026-04-16)
 
 ### Bug Fixes
