@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.61.1 (2026-04-16)
+
+### Bug Fixes
+
+- **frontend**: Add right padding to project list rows for action buttons
+  ([`a0d0a78`](https://github.com/jason-weddington/agent-gtd/commit/a0d0a7812ebccbe5879a46cd346289fd911676f8))
+
+
 ## v1.61.0 (2026-04-16)
 
 ### Features
