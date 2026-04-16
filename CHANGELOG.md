@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.56.0 (2026-04-16)
+
+### Features
+
+- **frontend**: Pulsing progress bar and icon animation on active runs
+  ([`e0ce641`](https://github.com/jason-weddington/agent-gtd/commit/e0ce641899d78f409b0123fbc8df4ed93b5e1bf1))
+
+
 ## v1.55.0 (2026-04-16)
 
 ### Features
