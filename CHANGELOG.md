@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.52.0 (2026-04-16)
+
+### Features
+
+- **frontend**: Wire ActiveRunsIndicator into Layout toolbar
+  ([`78e03aa`](https://github.com/jason-weddington/agent-gtd/commit/78e03aa99d79225abd05960db84455f3d608e6ba))
+
+
 ## v1.51.0 (2026-04-16)
 
 ### Features
