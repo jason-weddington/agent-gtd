@@ -275,7 +275,7 @@ export default function ProjectDetail() {
     setEditingItem(null)
     setItemTitle('')
     setItemDescription('')
-    setItemStatus('next_action')
+    setItemStatus('new')
     setItemPriority('normal')
     setItemDueDate('')
     setItemDialogOpen(true)
@@ -1012,8 +1012,10 @@ export default function ProjectDetail() {
               onChange={(e) => setItemStatus(e.target.value as ItemStatus)}
               label="Status"
             >
-              <MenuItem value="next_action">To Do</MenuItem>
+              <MenuItem value="new">New</MenuItem>
+              <MenuItem value="ready">Ready</MenuItem>
               <MenuItem value="active">In Progress</MenuItem>
+              <MenuItem value="review">Review</MenuItem>
               <MenuItem value="waiting_for">Waiting</MenuItem>
               <MenuItem value="someday_maybe">Someday</MenuItem>
               <MenuItem value="done">Done</MenuItem>

@@ -32,15 +32,14 @@ import { useEvents } from '../contexts/EventStreamContext'
 
 const DRAWER_WIDTH = 440
 
-const STATUS_LABELS: Record<ItemStatus, string> = {
+const STATUS_LABELS: Partial<Record<ItemStatus, string>> = {
   inbox: 'Inbox',
   new: 'New',
   ready: 'Ready',
-  next_action: 'To Do',
-  waiting_for: 'Waiting',
-  someday_maybe: 'Someday',
   active: 'In Progress',
   review: 'Review',
+  waiting_for: 'Waiting',
+  someday_maybe: 'Someday',
   done: 'Done',
 }
 
