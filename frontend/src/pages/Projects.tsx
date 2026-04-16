@@ -360,7 +360,7 @@ export default function Projects() {
                       </Box>
                     }
                   >
-                    <ListItemButton onClick={() => navigate(`/projects/${project.id}`)}>
+                    <ListItemButton onClick={() => navigate(`/projects/${project.id}`)} sx={{ pr: 14 }}>
                       <ListItemText
                         sx={{ overflow: 'hidden', minWidth: 0 }}
                         primary={
