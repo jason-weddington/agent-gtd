@@ -508,7 +508,7 @@ export default function ItemDetailDrawer({
                   )}
 
                   {/* Run status chip */}
-                  {activeRun && (
+                  {isRunActive && activeRun && (
                     <Chip
                       label={isRunActive && activeRun.mode === 'plan' ? 'Planning...' : RUN_STATUS_LABELS[activeRun.status]}
                       size="small"
