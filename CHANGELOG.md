@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.53.0 (2026-04-16)
+
+### Features
+
+- Add dispatch mode parameter (plan vs build) end-to-end
+  ([`c9f3f52`](https://github.com/jason-weddington/agent-gtd/commit/c9f3f5262e8d7d5965b215a880c1748d95f6e0f3))
+
+
 ## v1.52.0 (2026-04-16)
 
 ### Features
