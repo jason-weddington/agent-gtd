@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.57.0 (2026-04-16)
+
+### Features
+
+- **frontend**: Add project selector to item edit modal and drawer
+  ([`c4b32b4`](https://github.com/jason-weddington/agent-gtd/commit/c4b32b46a8870e5dab2b8391dd30a18adcf8297d))
+
+
 ## v1.56.2 (2026-04-16)
 
 ### Bug Fixes
