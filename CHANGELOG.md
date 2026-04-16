@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.55.0 (2026-04-16)
+
+### Features
+
+- **frontend**: Dispatch button with Plan/Build mode toggle
+  ([`19bfd1c`](https://github.com/jason-weddington/agent-gtd/commit/19bfd1c418cb39b5ea04a1b4e802415fc34f874c))
+
+
 ## v1.54.0 (2026-04-16)
 
 ### Features
