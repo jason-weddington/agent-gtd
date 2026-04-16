@@ -119,7 +119,11 @@ export default function ProjectDetail() {
   const [itemStatus, setItemStatus] = useState<ItemStatus>('active')
   const [itemPriority, setItemPriority] = useState<Priority>('normal')
   const [itemDueDate, setItemDueDate] = useState('')
+  const [itemProjectId, setItemProjectId] = useState<string>('')
   const [savingItem, setSavingItem] = useState(false)
+
+  // Active projects for project selector
+  const [allProjects, setAllProjects] = useState<Project[]>([])
 
   // Note dialog
   const [noteDialogOpen, setNoteDialogOpen] = useState(false)
@@ -156,16 +160,18 @@ export default function ProjectDetail() {
   const loadData = useCallback(async () => {
     if (!projectId) return
     try {
-      const [proj, projItems, projNotes, projComments] = await Promise.all([
+      const [proj, projItems, projNotes, projComments, activeProjects] = await Promise.all([
         api.projects.get(projectId),
         api.projects.items(projectId),
         api.projects.notes(projectId),
         api.projects.comments(projectId),
+        api.projects.list({ status: 'active' }),
       ])
       setProject(proj)
       setItems(projItems)
       setNotes(projNotes)
       setComments(projComments)
+      setAllProjects(activeProjects)
       setError(null)
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
@@ -288,6 +294,7 @@ export default function ProjectDetail() {
     setItemStatus(item.status)
     setItemPriority(item.priority)
     setItemDueDate(item.dueDate ?? '')
+    setItemProjectId(item.projectId ?? projectId ?? '')
     setItemComments([])
     setNewItemComment('')
     setItemDialogOpen(true)
@@ -305,6 +312,7 @@ export default function ProjectDetail() {
           status: itemStatus,
           priority: itemPriority,
           dueDate: itemDueDate || null,
+          projectId: itemProjectId || null,
         })
       } else {
         await api.projects.createItem(projectId, {
@@ -1044,6 +1052,25 @@ export default function ProjectDetail() {
             type="date"
             slotProps={{ inputLabel: { shrink: true } }}
           />
+          {editingItem && (
+            <FormControl fullWidth margin="normal" size="small">
+              <InputLabel>Project</InputLabel>
+              <Select
+                value={itemProjectId}
+                onChange={(e) => setItemProjectId(e.target.value)}
+                label="Project"
+              >
+                <MenuItem value="">
+                  <em>None (Inbox)</em>
+                </MenuItem>
+                {allProjects.map((p) => (
+                  <MenuItem key={p.id} value={p.id}>
+                    {p.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
           {editingItem && (
             <>
               <Divider sx={{ my: 2 }} />

@@ -27,7 +27,7 @@ import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import { api, ApiError } from '../api'
-import type { Item, Comment, Run, RunStatus, ItemStatus } from '../types'
+import type { Item, Comment, Project, Run, RunStatus, ItemStatus } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
 
 const DRAWER_WIDTH = 440
@@ -108,6 +108,7 @@ export default function ItemDetailDrawer({
   const [fieldError, setFieldError] = useState<string | null>(null)
   const [addingLabel, setAddingLabel] = useState(false)
   const [newLabel, setNewLabel] = useState('')
+  const [allProjects, setAllProjects] = useState<Project[]>([])
 
   const commentsEndRef = useRef<HTMLDivElement>(null)
   const { onEvent } = useEvents()
@@ -123,6 +124,11 @@ export default function ItemDetailDrawer({
     setAddingLabel(false)
     setNewLabel('')
   }, [item])
+
+  // Load active projects once for the project dropdown
+  useEffect(() => {
+    api.projects.list({ status: 'active' }).then(setAllProjects).catch(() => {})
+  }, [])
 
   const loadComments = useCallback(async () => {
     if (!item) return
@@ -456,8 +462,44 @@ export default function ItemDetailDrawer({
                     </Select>
                   </FormControl>
 
-                  {/* Static chips for project, due date, assigned to */}
-                  {projectName && <Chip label={projectName} size="small" variant="outlined" />}
+                  {/* Project select */}
+                  <FormControl size="small" disabled={isSaving}>
+                    <InputLabel
+                      id="drawer-project-label"
+                      sx={{ fontSize: '0.7rem', top: '-4px', '&.MuiInputLabel-shrink': { top: 0 } }}
+                    >
+                      Project
+                    </InputLabel>
+                    <Select
+                      labelId="drawer-project-label"
+                      value={localItem.projectId ?? ''}
+                      label="Project"
+                      onChange={(e) => void saveField('projectId', e.target.value || null)}
+                      sx={{
+                        fontSize: '0.75rem',
+                        height: 28,
+                        '& .MuiSelect-select': { py: '2px', px: 1 },
+                        minWidth: 100,
+                      }}
+                    >
+                      <MenuItem value="" sx={{ fontSize: '0.8rem' }}>
+                        <em>None</em>
+                      </MenuItem>
+                      {/* Include current project even if inactive (not in active list) */}
+                      {localItem.projectId && !allProjects.some((p) => p.id === localItem.projectId) && (
+                        <MenuItem value={localItem.projectId} sx={{ fontSize: '0.8rem' }}>
+                          {projectName ?? localItem.projectId}
+                        </MenuItem>
+                      )}
+                      {allProjects.map((p) => (
+                        <MenuItem key={p.id} value={p.id} sx={{ fontSize: '0.8rem' }}>
+                          {p.name}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  {/* Static chips for due date, assigned to */}
                   {localItem.dueDate && (
                     <Chip label={localItem.dueDate} size="small" variant="outlined" />
                   )}
