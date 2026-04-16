@@ -144,7 +144,12 @@ class McpBackend(Protocol):
     async def delete_comment(self, user_id: str, comment_id: str) -> None: ...
 
     async def dispatch_item(
-        self, user_id: str, item_id: str, *, max_turns: int | None = None
+        self,
+        user_id: str,
+        item_id: str,
+        *,
+        max_turns: int | None = None,
+        mode: str = "build",
     ) -> dict[str, Any]: ...
 
     async def get_run(self, user_id: str, run_id: str) -> dict[str, Any]: ...
@@ -534,13 +539,18 @@ class LocalBackend:
         await comment_service.delete_comment(db, user_id, comment_id)
 
     async def dispatch_item(
-        self, user_id: str, item_id: str, *, max_turns: int | None = None
+        self,
+        user_id: str,
+        item_id: str,
+        *,
+        max_turns: int | None = None,
+        mode: str = "build",
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services.dispatch_service import create_run
 
         db = await get_db()
-        return await create_run(db, user_id, item_id, max_turns=max_turns)
+        return await create_run(db, user_id, item_id, max_turns=max_turns, mode=mode)
 
     async def get_run(self, user_id: str, run_id: str) -> dict[str, Any]:
         from agent_gtd.database import get_db
@@ -979,9 +989,14 @@ class HttpBackend:
         self._check(resp)
 
     async def dispatch_item(
-        self, user_id: str, item_id: str, *, max_turns: int | None = None
+        self,
+        user_id: str,
+        item_id: str,
+        *,
+        max_turns: int | None = None,
+        mode: str = "build",
     ) -> dict[str, Any]:
-        body: dict[str, Any] = {}
+        body: dict[str, Any] = {"mode": mode}
         if max_turns is not None:
             body["max_turns"] = max_turns
         resp = await self._client.post(

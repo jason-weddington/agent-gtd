@@ -135,6 +135,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         workspace_dir TEXT NOT NULL DEFAULT '',
         pid INTEGER,
         max_turns INTEGER NOT NULL DEFAULT 100,
+        mode TEXT NOT NULL DEFAULT 'build',
         started_at TEXT,
         finished_at TEXT,
         remote_run_id TEXT NOT NULL DEFAULT '',
@@ -155,6 +156,7 @@ _MIGRATIONS: list[str] = [
     "ALTER TABLE projects ADD COLUMN git_origin TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE projects ADD COLUMN kb_project_ref TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE claude_runs ADD COLUMN remote_run_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE claude_runs ADD COLUMN mode TEXT NOT NULL DEFAULT 'build'",
 ]
 
 

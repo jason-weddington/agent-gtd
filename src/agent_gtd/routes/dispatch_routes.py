@@ -28,6 +28,7 @@ def _run_response(row: dict[str, object]) -> RunResponse:
         feature_branch=str(row.get("feature_branch", "")),
         workspace_dir=str(row.get("workspace_dir", "")),
         max_turns=int(str(row.get("max_turns", 50))),
+        mode=str(row.get("mode", "build")),
         started_at=(
             datetime.fromisoformat(str(row["started_at"]))
             if row.get("started_at")
@@ -93,7 +94,7 @@ async def dispatch_item(
     db = await get_db()
     try:
         row = await dispatch_service.create_run(
-            db, user.id, item_id, max_turns=body.max_turns
+            db, user.id, item_id, max_turns=body.max_turns, mode=body.mode
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from None

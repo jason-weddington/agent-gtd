@@ -69,6 +69,22 @@ async def test_dispatch_item(client: AsyncClient, auth_headers: dict[str, str]):
     assert run["project_id"] == project_id
     assert run["feature_branch"].startswith("feat/")
     assert run["max_turns"] == 100
+    assert run["mode"] == "build"  # default mode
+
+
+async def test_dispatch_plan_mode(client: AsyncClient, auth_headers: dict[str, str]):
+    """Dispatching with mode=plan stores and returns plan mode."""
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={"mode": "plan"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    run = res.json()
+    assert run["mode"] == "plan"
 
 
 async def test_dispatch_custom_turns(client: AsyncClient, auth_headers: dict[str, str]):
@@ -496,7 +512,7 @@ async def test_execute_run_success(
     # Mock the remote dispatch functions directly
     poll_count = 0
 
-    async def mock_dispatch_to_remote(client, item_id, max_turns):
+    async def mock_dispatch_to_remote(client, item_id, max_turns, mode="build"):
         return {"id": "remote-123", "status": "pending"}
 
     async def mock_poll(client, remote_run_id):
@@ -514,6 +530,7 @@ async def test_execute_run_success(
     res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
     assert res.json()["status"] == "success"
     assert res.json()["finished_at"] is not None
+    assert res.json()["mode"] == "build"
 
 
 async def test_execute_run_remote_failure(
@@ -548,7 +565,7 @@ async def test_execute_run_remote_failure(
     proj_row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     project = row_to_dict(proj_row)
 
-    async def mock_dispatch_to_remote(client, item_id, max_turns):
+    async def mock_dispatch_to_remote(client, item_id, max_turns, mode="build"):
         return {"id": "remote-456", "status": "pending"}
 
     async def mock_poll(client, remote_run_id):

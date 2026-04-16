@@ -757,6 +757,7 @@ async def dispatch_item(
     item_id: str,
     ctx: Context,
     max_turns: int | None = None,
+    mode: str = "build",
 ) -> dict[str, Any]:
     """Dispatch a headless Claude Code agent to work on an item.
 
@@ -768,6 +769,9 @@ async def dispatch_item(
         item_id: ID of the item to dispatch.
         ctx: MCP context (injected automatically).
         max_turns: Maximum agent turns. Omit for server default.
+        mode: Dispatch mode — "build" (implement and push branch) or
+            "plan" (groom task: write acceptance criteria, identify files,
+            ask clarifying questions). Default: "build".
 
     Returns:
         The created run dict with status and branch name.
@@ -777,7 +781,7 @@ async def dispatch_item(
     session = await _get_session(ctx)
     try:
         run = await _backend.dispatch_item(
-            session["user_id"], item_id, max_turns=max_turns
+            session["user_id"], item_id, max_turns=max_turns, mode=mode
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None

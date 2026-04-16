@@ -35,6 +35,7 @@ async def create_run(
     item_id: str,
     *,
     max_turns: int | None = None,
+    mode: str = "build",
 ) -> dict[str, Any]:
     """Create a new dispatch run for an item.
 
@@ -78,8 +79,8 @@ async def create_run(
     await db.execute(
         "INSERT INTO claude_runs"
         " (id, item_id, project_id, user_id, status, feature_branch,"
-        "  max_turns, created_at, updated_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        "  max_turns, mode, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         run_id,
         item_id,
         project_id,
@@ -87,6 +88,7 @@ async def create_run(
         "pending",
         branch,
         effective_max_turns,
+        mode,
         now,
         now,
     )

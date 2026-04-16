@@ -103,11 +103,12 @@ async def _dispatch_to_remote(
     client: httpx.AsyncClient,
     item_id: str,
     max_turns: int,
+    mode: str = "build",
 ) -> dict[str, Any]:
     """POST /dispatch to the remote service. Returns the remote run dict."""
     resp = await client.post(
         f"{DISPATCH_SERVICE_URL}/dispatch",
-        json={"item_id": item_id, "max_turns": max_turns},
+        json={"item_id": item_id, "max_turns": max_turns, "mode": mode},
         headers=_dispatch_headers(),
         timeout=30.0,
     )
@@ -321,6 +322,7 @@ async def execute_run(
     item_id = str(run["item_id"])
     user_id = str(run["user_id"])
     max_turns = int(str(run["max_turns"]))
+    mode = str(run.get("mode", "build"))
 
     if not DISPATCH_SERVICE_URL:
         await _update_run(
@@ -336,7 +338,7 @@ async def execute_run(
     async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
         # --- Dispatch to remote ---
         try:
-            remote_run = await _dispatch_to_remote(client, item_id, max_turns)
+            remote_run = await _dispatch_to_remote(client, item_id, max_turns, mode)
             remote_run_id = remote_run["id"]
         except Exception as e:
             logger.exception("Failed to dispatch run %s to remote service", run_id)

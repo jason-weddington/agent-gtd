@@ -379,6 +379,7 @@ class CreateRunRequest(BaseModel):
     """Dispatch a Claude Code agent for an item."""
 
     max_turns: int | None = None
+    mode: str = "build"
 
 
 class RunResponse(BaseModel):
@@ -391,6 +392,7 @@ class RunResponse(BaseModel):
     feature_branch: str
     workspace_dir: str
     max_turns: int
+    mode: str
     started_at: datetime | None
     finished_at: datetime | None
     error_msg: str
