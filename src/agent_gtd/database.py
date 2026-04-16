@@ -134,7 +134,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         feature_branch TEXT NOT NULL DEFAULT '',
         workspace_dir TEXT NOT NULL DEFAULT '',
         pid INTEGER,
-        max_turns INTEGER NOT NULL DEFAULT 50,
+        max_turns INTEGER NOT NULL DEFAULT 100,
         started_at TEXT,
         finished_at TEXT,
         remote_run_id TEXT NOT NULL DEFAULT '',

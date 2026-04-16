@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 DISPATCH_SERVICE_URL = os.environ.get("DISPATCH_SERVICE_URL", "")
 DISPATCH_SERVICE_API_KEY = os.environ.get("DISPATCH_SERVICE_API_KEY", "")
-DEFAULT_MAX_TURNS = int(os.environ.get("DISPATCH_DEFAULT_MAX_TURNS", "50"))
+DEFAULT_MAX_TURNS = int(os.environ.get("DISPATCH_DEFAULT_MAX_TURNS", "100"))
 MAX_CONCURRENT = 3
 POLL_INTERVAL = 15  # seconds between status polls
 

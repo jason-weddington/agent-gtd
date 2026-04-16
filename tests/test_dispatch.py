@@ -68,7 +68,7 @@ async def test_dispatch_item(client: AsyncClient, auth_headers: dict[str, str]):
     assert run["item_id"] == item_id
     assert run["project_id"] == project_id
     assert run["feature_branch"].startswith("feat/")
-    assert run["max_turns"] == 50
+    assert run["max_turns"] == 100
 
 
 async def test_dispatch_custom_turns(client: AsyncClient, auth_headers: dict[str, str]):
