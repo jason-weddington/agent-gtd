@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.58.0 (2026-04-16)
+
+### Features
+
+- **frontend**: Click active run navigates to project and opens drawer
+  ([`3e1a50c`](https://github.com/jason-weddington/agent-gtd/commit/3e1a50c9cc226b5b6abd8ddb818086531cd34cfc))
+
+
 ## v1.57.0 (2026-04-16)
 
 ### Features
