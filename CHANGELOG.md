@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.54.0 (2026-04-16)
+
+### Features
+
+- Set item status to active on dispatch (backend)
+  ([`aafe19b`](https://github.com/jason-weddington/agent-gtd/commit/aafe19bdf266a6feeca1412d4fe9042006d9cc29))
+
+
 ## v1.53.0 (2026-04-16)
 
 ### Features
