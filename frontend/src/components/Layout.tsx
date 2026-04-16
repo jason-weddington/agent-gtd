@@ -24,6 +24,7 @@ import { useThemeMode } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import { useQuickCapture } from '../contexts/QuickCaptureContext'
 import Sidebar from './Sidebar'
+import ProjectSwitcher from './ProjectSwitcher'
 
 export default function Layout() {
   const { mode, toggleTheme } = useThemeMode()
@@ -138,6 +139,8 @@ export default function Layout() {
       </AppBar>
 
       <Sidebar open={sidebarOpen} />
+
+      <ProjectSwitcher />
 
       <Box
         component="main"
