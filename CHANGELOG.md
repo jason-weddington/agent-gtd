@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.56.1 (2026-04-16)
+
+### Bug Fixes
+
+- **frontend**: Reliable focus on project switcher open
+  ([`895806b`](https://github.com/jason-weddington/agent-gtd/commit/895806b1f3b7e9ecec05dd5a69379c921f2fc023))
+
+
 ## v1.56.0 (2026-04-16)
 
 ### Features
