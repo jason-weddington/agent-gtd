@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.60.2 (2026-04-16)
+
+### Bug Fixes
+
+- **frontend**: Prevent project switcher Enter from triggering actions on target page
+  ([`800b9e6`](https://github.com/jason-weddington/agent-gtd/commit/800b9e68b8b41e0a9f31a160d13bb8e2d1b75bc5))
+
+
 ## v1.60.1 (2026-04-16)
 
 ### Bug Fixes
