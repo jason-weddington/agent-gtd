@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { useHotkeys } from 'react-hotkeys-hook'
 import {
   Drawer,
   List,
@@ -65,6 +66,21 @@ interface SidebarProps {
 export default function Sidebar({ open }: SidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
+
+  // Collect all nav items in order for shortcut mapping
+  const allNavItems = NAV_SECTIONS.flatMap((s) => s.items)
+
+  useHotkeys(
+    allNavItems.map((item) => `meta+${item.shortcut}`).join(', '),
+    (e) => {
+      e.preventDefault()
+      const key = (e as KeyboardEvent).key
+      const digit = parseInt(key, 10)
+      const item = allNavItems.find((i) => i.shortcut === digit)
+      if (item) navigate(item.path)
+    },
+    { enableOnFormTags: false },
+  )
 
   const isSelected = (path: string) => {
     if (path === '/') return location.pathname === '/'
