@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.50.0 (2026-04-16)
+
+### Features
+
+- **frontend**: Create ActiveRunsIndicator component
+  ([`c45e15c`](https://github.com/jason-weddington/agent-gtd/commit/c45e15c1b379eea00a165c2a4cab24e1feff1c00))
+
+
 ## v1.49.1 (2026-04-15)
 
 ### Bug Fixes
