@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.50.1 (2026-04-16)
+
+### Bug Fixes
+
+- **frontend**: Register left nav keyboard shortcuts in Sidebar
+  ([`f30276b`](https://github.com/jason-weddington/agent-gtd/commit/f30276bb3a404dbd5e2e12dcd705260be58011b8))
+
+
 ## v1.50.0 (2026-04-16)
 
 ### Features
