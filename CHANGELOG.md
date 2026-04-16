@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.58.1 (2026-04-16)
+
+### Bug Fixes
+
+- **frontend**: Hide run status chip after agent finishes
+  ([`d155093`](https://github.com/jason-weddington/agent-gtd/commit/d155093b4d68fdeb790cb79062995c07a9e7ba31))
+
+
 ## v1.58.0 (2026-04-16)
 
 ### Features
