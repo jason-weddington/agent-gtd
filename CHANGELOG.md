@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.60.3 (2026-04-16)
+
+### Bug Fixes
+
+- **frontend**: Change nav shortcuts from Cmd+N to Cmd+Shift+N
+  ([`f31e932`](https://github.com/jason-weddington/agent-gtd/commit/f31e9324a73b8cbbd76da35cfcbbe43cf7e85448))
+
+
 ## v1.60.2 (2026-04-16)
 
 ### Bug Fixes
