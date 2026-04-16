@@ -14,7 +14,7 @@ from typing import Any
 from agent_gtd.database import row_to_dict
 from agent_gtd.db_types import DbPool
 from agent_gtd.exceptions import NotFoundError, RunActiveError
-from agent_gtd.services.item_service import get_item
+from agent_gtd.services.item_service import get_item, update_item
 from agent_gtd.services.project_service import get_project
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,15 @@ async def create_run(
 
     row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
     assert row is not None  # noqa: S101
+
+    # Set item status to active — backend owns this, regardless of dispatch origin
+    try:
+        await update_item(db, user_id, item_id, status="active")
+    except Exception:
+        logger.exception(
+            "Failed to set item %s status to active after dispatch", item_id
+        )
+
     return row_to_dict(row)
 
 

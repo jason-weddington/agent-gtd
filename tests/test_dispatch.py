@@ -72,6 +72,31 @@ async def test_dispatch_item(client: AsyncClient, auth_headers: dict[str, str]):
     assert run["mode"] == "build"  # default mode
 
 
+async def test_dispatch_sets_item_status_active(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Dispatching an item sets the item status to active."""
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    # Verify initial status is not active
+    res = await client.get(f"/api/items/{item_id}", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["status"] != "active"
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+
+    # Item status should now be active
+    res = await client.get(f"/api/items/{item_id}", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["status"] == "active"
+
+
 async def test_dispatch_plan_mode(client: AsyncClient, auth_headers: dict[str, str]):
     """Dispatching with mode=plan stores and returns plan mode."""
     project_id = await _create_project_with_origin(client, auth_headers)
