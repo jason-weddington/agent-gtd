@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.60.0 (2026-04-16)
+
+### Features
+
+- **frontend**: Agent dispatch settings with max turns config
+  ([`c4110dd`](https://github.com/jason-weddington/agent-gtd/commit/c4110dd27c7c2ffbdd826ed5a77fe1fdd444e998))
+
+
 ## v1.59.0 (2026-04-16)
 
 ### Features
