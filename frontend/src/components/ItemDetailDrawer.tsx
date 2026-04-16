@@ -575,7 +575,10 @@ export default function ItemDetailDrawer({
               {projectGitOrigin && localItem.status !== 'done' && (
                 <IconButton
                   size="small"
-                  onClick={() => setConfirmOpen(true)}
+                  onClick={() => {
+                    setDispatchMode(localItem?.status === 'new' ? 'plan' : 'build')
+                    setConfirmOpen(true)
+                  }}
                   disabled={!canDispatch}
                   title={canDispatch ? 'Send to Claude' : isRunActive ? 'Agent is working' : 'No git origin'}
                   color="secondary"
