@@ -28,10 +28,27 @@ import { useAuth } from '../contexts/AuthContext'
 import { api } from '../api'
 import type { ApiKeyInfo } from '../types'
 
+function getInitialMaxTurns(): number {
+  const stored = localStorage.getItem('agent_gtd-dispatch-max-turns')
+  const parsed = stored ? parseInt(stored, 10) : NaN
+  return !isNaN(parsed) && parsed >= 10 && parsed <= 500 ? parsed : 100
+}
+
 export default function Settings() {
   const { mode, toggleTheme } = useThemeMode()
   const { user } = useAuth()
   const [version, setVersion] = useState<string | null>(null)
+
+  // Agent Dispatch settings
+  const [dispatchMaxTurns, setDispatchMaxTurns] = useState<number>(getInitialMaxTurns)
+
+  const handleMaxTurnsChange = (raw: string) => {
+    const v = parseInt(raw, 10)
+    if (isNaN(v)) return
+    const clamped = Math.max(10, Math.min(500, v))
+    setDispatchMaxTurns(clamped)
+    localStorage.setItem('agent_gtd-dispatch-max-turns', String(clamped))
+  }
 
   // API key state
   const [apiKeys, setApiKeys] = useState<ApiKeyInfo[]>([])
@@ -193,6 +210,30 @@ export default function Settings() {
           >
             Create API Key
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card sx={{ border: 1, borderColor: 'divider', mb: 3 }}>
+        <CardContent>
+          <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600 }}>
+            Agent Dispatch
+          </Typography>
+          <Divider sx={{ my: 1 }} />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Configure defaults for autonomous agent runs.
+          </Typography>
+          <TextField
+            label="Default max turns"
+            type="number"
+            size="small"
+            value={dispatchMaxTurns}
+            onChange={(e) => handleMaxTurnsChange(e.target.value)}
+            slotProps={{ htmlInput: { min: 10, max: 500 } }}
+            sx={{ width: 180 }}
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            More engine-specific settings coming soon.
+          </Typography>
         </CardContent>
       </Card>
 

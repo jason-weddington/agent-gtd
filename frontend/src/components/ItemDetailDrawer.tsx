@@ -32,6 +32,13 @@ import { useEvents } from '../contexts/EventStreamContext'
 
 const DRAWER_WIDTH = 440
 
+function getDispatchMaxTurns(): number | undefined {
+  const stored = localStorage.getItem('agent_gtd-dispatch-max-turns')
+  if (!stored) return undefined
+  const v = parseInt(stored, 10)
+  return !isNaN(v) ? v : undefined
+}
+
 const STATUS_LABELS: Partial<Record<ItemStatus, string>> = {
   inbox: 'Inbox',
   new: 'New',
@@ -298,7 +305,11 @@ export default function ItemDetailDrawer({
     setDispatching(true)
     setDispatchError(null)
     try {
-      const run = await api.items.dispatch(item.id, { mode: dispatchMode })
+      const maxTurns = getDispatchMaxTurns()
+      const run = await api.items.dispatch(item.id, {
+        mode: dispatchMode,
+        ...(maxTurns !== undefined ? { maxTurns } : {}),
+      })
       setActiveRun(run)
       setConfirmOpen(false)
       setDispatchMode('build')
@@ -790,6 +801,9 @@ export default function ItemDetailDrawer({
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             <strong>Repo:</strong> {projectGitOrigin}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            <strong>Max turns:</strong> {getDispatchMaxTurns() ?? 'server default'}
           </Typography>
           <Box sx={{ display: 'flex', gap: 1, mt: 1.5, mb: 1 }}>
             <Button
