@@ -395,7 +395,7 @@ export default function ItemDetailDrawer({
                 )}
 
                 {/* ID row */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25, mb: 0.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25, mb: 1 }}>
                   <Typography variant="caption" color="text.disabled">
                     #{localItem.id.slice(0, 8)}
                   </Typography>
@@ -416,7 +416,7 @@ export default function ItemDetailDrawer({
                 </Box>
 
                 {/* Editable status + priority row */}
-                <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
                   {/* Status select */}
                   <FormControl size="small" disabled={isSaving}>
                     <InputLabel
@@ -531,7 +531,7 @@ export default function ItemDetailDrawer({
 
                 {/* Editable labels row */}
                 {(localItem.labels.length > 0 || addingLabel) && (
-                  <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap', alignItems: 'center' }}>
                     {localItem.labels.map((label) => (
                       <Chip
                         key={label}
@@ -569,7 +569,7 @@ export default function ItemDetailDrawer({
 
                 {/* Add label chip — shown when not already adding */}
                 {!addingLabel && (
-                  <Box sx={{ mt: 0.5 }}>
+                  <Box sx={{ mt: 1 }}>
                     <Chip
                       label="+ Label"
                       size="small"
