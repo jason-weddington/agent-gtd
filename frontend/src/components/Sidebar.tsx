@@ -71,7 +71,7 @@ export default function Sidebar({ open }: SidebarProps) {
   const allNavItems = NAV_SECTIONS.flatMap((s) => s.items)
 
   useHotkeys(
-    allNavItems.map((item) => `meta+${item.shortcut}`).join(', '),
+    allNavItems.map((item) => `meta+shift+${item.shortcut}`).join(', '),
     (e) => {
       e.preventDefault()
       const key = (e as KeyboardEvent).key
@@ -129,7 +129,7 @@ export default function Sidebar({ open }: SidebarProps) {
                   variant="caption"
                   sx={{ color: 'text.disabled', fontSize: '0.7rem', fontFamily: 'monospace' }}
                 >
-                  {'\u2318'}{item.shortcut}
+                  {'\u2318\u21E7'}{item.shortcut}
                 </Typography>
               </ListItemButton>
             ))}
