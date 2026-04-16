@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.59.0 (2026-04-16)
+
+### Features
+
+- **frontend**: Default dispatch mode to Plan for new items
+  ([`d7f4957`](https://github.com/jason-weddington/agent-gtd/commit/d7f49573d484df2b165abbadbe07ebfbe523795f))
+
+
 ## v1.58.1 (2026-04-16)
 
 ### Bug Fixes
