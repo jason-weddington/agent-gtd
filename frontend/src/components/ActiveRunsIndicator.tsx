@@ -161,7 +161,7 @@ export default function ActiveRunsIndicator() {
                 key={run.id}
                 onClick={() => {
                   setAnchorEl(null)
-                  navigate(`/projects/${run.projectId}`)
+                  navigate(`/projects/${run.projectId}?item=${run.itemId}`)
                 }}
               >
                 <Box

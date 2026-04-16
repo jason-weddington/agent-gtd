@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Box,
   Typography,
@@ -83,6 +83,7 @@ const PRIORITY_COLORS: Record<Priority, 'default' | 'info' | 'warning' | 'error'
 export default function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [project, setProject] = useState<Project | null>(null)
   const [items, setItems] = useState<Item[]>([])
@@ -226,6 +227,19 @@ export default function ProjectDetail() {
     setSearchQuery('')
     setSelectedLabels([])
   }, [projectId])
+
+  // Open item drawer when navigating here with ?item=<id> query param
+  useEffect(() => {
+    const itemId = searchParams.get('item')
+    if (itemId && items.length > 0) {
+      const item = items.find((i) => i.id === itemId)
+      if (item) {
+        setDrawerItem(item)
+        searchParams.delete('item')
+        setSearchParams(searchParams, { replace: true })
+      }
+    }
+  }, [searchParams, items, setDrawerItem, setSearchParams])
 
   const handleViewChange = (_: unknown, newView: 'list' | 'board' | null) => {
     if (!newView) return
