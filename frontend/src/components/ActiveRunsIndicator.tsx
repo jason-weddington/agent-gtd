@@ -3,6 +3,7 @@ import {
   Badge,
   Box,
   IconButton,
+  LinearProgress,
   Menu,
   MenuItem,
   Tooltip,
@@ -117,7 +118,15 @@ export default function ActiveRunsIndicator() {
           aria-label="Active agent runs"
         >
           <Badge badgeContent={count} color="primary" invisible={count === 0}>
-            <SmartToyOutlinedIcon />
+            <SmartToyOutlinedIcon
+              sx={count > 0 ? {
+                animation: 'pulse-green 2s ease-in-out infinite',
+                '@keyframes pulse-green': {
+                  '0%, 100%': { color: 'inherit' },
+                  '50%': { color: 'success.main' },
+                },
+              } : undefined}
+            />
           </Badge>
         </IconButton>
       </Tooltip>
@@ -134,6 +143,9 @@ export default function ActiveRunsIndicator() {
           },
         }}
       >
+        {count > 0 && (
+          <LinearProgress color="success" sx={{ height: 2 }} />
+        )}
         {runs.length === 0 ? (
           <MenuItem disabled>
             <Typography variant="body2" color="text.secondary">
