@@ -17,6 +17,7 @@ from agent_gtd.routes.event_routes import router as event_router
 from agent_gtd.routes.item_routes import router as item_router
 from agent_gtd.routes.note_routes import router as note_router
 from agent_gtd.routes.project_routes import router as project_router
+from agent_gtd.routes.settings_routes import router as settings_router
 
 
 @asynccontextmanager
@@ -68,6 +69,7 @@ app.include_router(note_router)
 app.include_router(comment_router)
 app.include_router(dispatch_router)
 app.include_router(event_router)
+app.include_router(settings_router)
 
 app.mount("/mcp", mcp_app)
 

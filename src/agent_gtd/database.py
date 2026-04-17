@@ -161,6 +161,13 @@ _SCHEMA_STATEMENTS: list[str] = [
     "ON item_dependencies(item_id)",
     "CREATE INDEX IF NOT EXISTS ix_item_dependencies_blocker "
     "ON item_dependencies(blocker_item_id)",
+    """
+    CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
 ]
 
 # Idempotent column additions for existing databases.
@@ -171,6 +178,13 @@ _MIGRATIONS: list[str] = [
     "ALTER TABLE projects ADD COLUMN kb_project_ref TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE claude_runs ADD COLUMN remote_run_id TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE claude_runs ADD COLUMN mode TEXT NOT NULL DEFAULT 'build'",
+    """
+    CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
 ]
 
 

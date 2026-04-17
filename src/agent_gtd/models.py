@@ -399,6 +399,12 @@ class CreateRunRequest(BaseModel):
     mode: str = "build"
 
 
+class MaxConcurrentRequest(BaseModel):
+    """Request body for updating the dispatch concurrency cap."""
+
+    value: int
+
+
 class RunResponse(BaseModel):
     """Claude dispatch run data returned from API."""
 

@@ -34,6 +34,12 @@ function getInitialMaxTurns(): number {
   return !isNaN(parsed) && parsed >= 10 && parsed <= 500 ? parsed : 100
 }
 
+function clampInt(raw: string, min: number, max: number): number {
+  const v = parseInt(raw, 10)
+  if (isNaN(v)) return min
+  return Math.max(min, Math.min(max, v))
+}
+
 export default function Settings() {
   const { mode, toggleTheme } = useThemeMode()
   const { user } = useAuth()
@@ -41,6 +47,7 @@ export default function Settings() {
 
   // Agent Dispatch settings
   const [dispatchMaxTurns, setDispatchMaxTurns] = useState<number>(getInitialMaxTurns)
+  const [maxConcurrent, setMaxConcurrent] = useState<number>(6)
 
   const handleMaxTurnsChange = (raw: string) => {
     const v = parseInt(raw, 10)
@@ -48,6 +55,15 @@ export default function Settings() {
     const clamped = Math.max(10, Math.min(500, v))
     setDispatchMaxTurns(clamped)
     localStorage.setItem('agent_gtd-dispatch-max-turns', String(clamped))
+  }
+
+  const saveMaxConcurrent = async () => {
+    try {
+      const res = await api.settings.setMaxConcurrent(maxConcurrent)
+      setMaxConcurrent(res.value)
+    } catch {
+      // handled by api client
+    }
   }
 
   // API key state
@@ -60,6 +76,7 @@ export default function Settings() {
 
   useEffect(() => {
     api.config.get().then((cfg) => setVersion(cfg.version)).catch(() => {})
+    api.settings.getMaxConcurrent().then((res) => setMaxConcurrent(res.value)).catch(() => {})
   }, [])
 
   const loadApiKeys = useCallback(() => {
@@ -222,18 +239,34 @@ export default function Settings() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Configure defaults for autonomous agent runs.
           </Typography>
-          <TextField
-            label="Default max turns"
-            type="number"
-            size="small"
-            value={dispatchMaxTurns}
-            onChange={(e) => handleMaxTurnsChange(e.target.value)}
-            slotProps={{ htmlInput: { min: 10, max: 500 } }}
-            sx={{ width: 180 }}
-          />
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-            More engine-specific settings coming soon.
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
+            <Box>
+              <TextField
+                label="Default max turns"
+                type="number"
+                size="small"
+                value={dispatchMaxTurns}
+                onChange={(e) => handleMaxTurnsChange(e.target.value)}
+                slotProps={{ htmlInput: { min: 10, max: 500 } }}
+                sx={{ width: 180 }}
+              />
+            </Box>
+            <Box>
+              <TextField
+                label="Max concurrent runs"
+                type="number"
+                size="small"
+                value={maxConcurrent}
+                onChange={(e) => setMaxConcurrent(clampInt(e.target.value, 1, 20))}
+                onBlur={() => saveMaxConcurrent()}
+                slotProps={{ htmlInput: { min: 1, max: 20 } }}
+                sx={{ width: 180 }}
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                Takes effect after service restart.
+              </Typography>
+            </Box>
+          </Box>
         </CardContent>
       </Card>
 

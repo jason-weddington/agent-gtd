@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 DISPATCH_SERVICE_URL = os.environ.get("DISPATCH_SERVICE_URL", "")
 DISPATCH_SERVICE_API_KEY = os.environ.get("DISPATCH_SERVICE_API_KEY", "")
 DEFAULT_MAX_TURNS = int(os.environ.get("DISPATCH_DEFAULT_MAX_TURNS", "100"))
-MAX_CONCURRENT = int(os.environ.get("DISPATCH_MAX_CONCURRENT", "6"))
+_MAX_CONCURRENT_DEFAULT = int(os.environ.get("DISPATCH_MAX_CONCURRENT", "6"))
 POLL_INTERVAL = 15  # seconds between status polls
 
 # Status mapping: remote dispatch API -> local run statuses
@@ -426,13 +426,26 @@ def get_dispatch_queue() -> asyncio.Queue[str]:
     return _dispatch_queue
 
 
+async def _resolve_max_concurrent() -> int:
+    """Read the concurrency cap from DB, falling back to env var then literal 6."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services import settings_service
+
+    db = await get_db()
+    val = await settings_service.get_setting(db, "dispatch.max_concurrent")
+    if val is None:
+        return _MAX_CONCURRENT_DEFAULT
+    return max(1, int(val))
+
+
 async def dispatch_worker() -> None:
     """Background worker that drains the dispatch queue."""
     global _dispatch_queue, _semaphore
     _dispatch_queue = asyncio.Queue()
-    _semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+    _max = await _resolve_max_concurrent()
+    _semaphore = asyncio.Semaphore(_max)
 
-    logger.info("Dispatch worker started (max %d concurrent)", MAX_CONCURRENT)
+    logger.info("Dispatch worker started (max %d concurrent)", _max)
 
     while True:
         run_id = await _dispatch_queue.get()

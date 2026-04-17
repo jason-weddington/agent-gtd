@@ -166,6 +166,13 @@ export const api = {
       request<Comment>('PATCH', `/comments/${id}`, data),
     delete: (id: string) => request<void>('DELETE', `/comments/${id}`),
   },
+
+  settings: {
+    getMaxConcurrent: () =>
+      request<{ value: number }>('GET', '/settings/dispatch/max-concurrent'),
+    setMaxConcurrent: (value: number) =>
+      request<{ value: number }>('PATCH', '/settings/dispatch/max-concurrent', { value }),
+  },
 }
 
 export { ApiError }
