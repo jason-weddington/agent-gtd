@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.65.1 (2026-04-17)
+
+### Bug Fixes
+
+- **frontend**: Change shortcut help overlay trigger from Cmd+/ to ?
+  ([`1dcae06`](https://github.com/jason-weddington/agent-gtd/commit/1dcae06950c477cb725f4ea710235359117b92fa))
+
+
 ## v1.65.0 (2026-04-16)
 
 ### Features
