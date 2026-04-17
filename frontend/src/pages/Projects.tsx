@@ -85,7 +85,10 @@ export default function Projects() {
   const loadProjects = useCallback(async () => {
     try {
       const data = await api.projects.list()
-      setProjects(data)
+      const sorted = [...data].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+      )
+      setProjects(sorted)
       setError(null)
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : 'Failed to load projects')
