@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.64.0 (2026-04-16)
+
+### Features
+
+- **frontend**: Slide drawer up and away when dispatching
+  ([`3468fdd`](https://github.com/jason-weddington/agent-gtd/commit/3468fdd3ccf03d37ec954b19d971e42a6382c1f4))
+
+
 ## v1.63.1 (2026-04-16)
 
 ### Bug Fixes
