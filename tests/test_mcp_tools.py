@@ -287,7 +287,8 @@ async def test_add_item(registered_client):
     assert data["priority"] == "high"
     assert data["labels"] == ["urgent"]
     assert data["created_by"] == "test-agent"
-    # Default status is "inbox" -> project-less, no project_name
+    assert data["status"] == "new"
+    # Default status is "new" -> project-less, no project_name
     assert "project_name" not in data
 
 

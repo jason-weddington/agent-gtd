@@ -294,7 +294,7 @@ async def test_project_scoped_items(
     assert res.json()[0]["title"] == "Project task"
 
 
-async def test_project_scoped_item_defaults_to_next_action(
+async def test_project_scoped_item_defaults_to_new(
     client: AsyncClient, auth_headers: dict[str, str], project_id: str
 ):
     res = await client.post(
@@ -303,7 +303,7 @@ async def test_project_scoped_item_defaults_to_next_action(
         headers=auth_headers,
     )
     assert res.status_code == 201
-    assert res.json()["status"] == "next_action"
+    assert res.json()["status"] == "new"
 
 
 async def test_project_scoped_items_not_found(

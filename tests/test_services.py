@@ -240,6 +240,7 @@ async def test_create_project_item(user_id, project_id):
         db, user_id, project_id, title="Project Item"
     )
     assert row["project_id"] == project_id
+    assert row["status"] == "new"
 
 
 async def test_list_items_filter_assigned_to(user_id, project_id):
