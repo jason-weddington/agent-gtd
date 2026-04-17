@@ -62,14 +62,24 @@ function ShortcutSection({ heading, rows }: ShortcutSectionProps) {
   )
 }
 
-export default function KeyboardShortcutsHelp() {
-  const [open, setOpen] = useState(false)
+interface KeyboardShortcutsHelpProps {
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}
+
+export default function KeyboardShortcutsHelp({ open: openProp, onOpenChange }: KeyboardShortcutsHelpProps = {}) {
+  const [internalOpen, setInternalOpen] = useState(false)
+
+  const open = openProp !== undefined ? openProp : internalOpen
+  const setOpen = onOpenChange !== undefined
+    ? onOpenChange
+    : setInternalOpen
 
   useHotkeys(
     'shift+slash',
     (e) => {
       e.preventDefault()
-      setOpen((prev) => !prev)
+      setOpen(!open)
     },
     { enableOnFormTags: false },
   )

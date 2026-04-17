@@ -35,6 +35,7 @@ export default function Layout() {
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
   useHotkeys('escape', () => {
     // Don't navigate if a dialog is open
@@ -76,6 +77,21 @@ export default function Layout() {
               Agent GTD
             </Typography>
           </Box>
+
+          <Typography
+            variant="caption"
+            onClick={() => setShortcutsOpen(true)}
+            sx={{
+              color: 'rgba(255,255,255,0.5)',
+              mr: 1.5,
+              display: { xs: 'none', md: 'block' },
+              userSelect: 'none',
+              cursor: 'pointer',
+              '&:hover': { color: 'rgba(255,255,255,0.8)' },
+            }}
+          >
+            shift+?
+          </Typography>
 
           <Tooltip title="Quick capture (Cmd+K)">
             <IconButton color="inherit" onClick={openCapture} sx={{ mr: 1 }}>
@@ -145,7 +161,7 @@ export default function Layout() {
       <Sidebar open={sidebarOpen} />
 
       <ProjectSwitcher />
-      <KeyboardShortcutsHelp />
+      <KeyboardShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
 
       <Box
         component="main"
