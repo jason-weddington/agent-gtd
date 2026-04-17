@@ -13,6 +13,7 @@ from agent_gtd.exceptions import (
     VersionConflictError,
 )
 from agent_gtd.models import (
+    BlockerSummary,
     ClaimItemRequest,
     CreateItemRequest,
     InboxCaptureRequest,
@@ -97,6 +98,35 @@ async def create_item(
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None
     return _item_response(row)
+
+
+@router.get("/items/search", response_model=list[BlockerSummary])
+async def search_items(
+    user: Annotated[User, Depends(get_current_user)],
+    q: Annotated[str, Query(min_length=2, max_length=100)],
+    limit: Annotated[int, Query(ge=1, le=25)] = 10,
+) -> list[BlockerSummary]:
+    """Typeahead search across the user's items by title.
+
+    Excludes done items. Prefix matches rank above substring matches.
+    Useful for the blocker picker and other quick-jump features.
+    """
+    db = await get_db()
+    rows = await item_service.search_items(db, user.id, q, limit)
+    return [
+        BlockerSummary(
+            id=str(row["id"]),
+            title=str(row["title"]),
+            status=ItemStatus(str(row["status"])),
+            project_id=(
+                str(row["project_id"]) if row["project_id"] is not None else None
+            ),
+            project_name=(
+                str(row["project_name"]) if row["project_name"] is not None else None
+            ),
+        )
+        for row in rows
+    ]
 
 
 @router.get("/items/{item_id}", response_model=ItemResponse)

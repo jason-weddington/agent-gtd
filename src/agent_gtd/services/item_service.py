@@ -420,6 +420,42 @@ async def create_project_item(
     )
 
 
+async def search_items(
+    db: DbPool,
+    user_id: str,
+    q: str,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Search items by title for the calling user.
+
+    Returns a list of lightweight dicts suitable for BlockerSummary.
+    Excludes done items. Prefix matches rank above substring matches.
+
+    Args:
+        db: Database pool.
+        user_id: Owner user ID — only their items are returned.
+        q: Search query (case-insensitive substring match on title).
+        limit: Maximum number of results (default 10, max 25).
+    """
+    # Pass q twice: once for the WHERE filter, once for the ORDER BY prefix rank.
+    # Using $3 / $4 separately keeps positional params compatible with the SQLite
+    # adapter (which maps each $N to its own ? placeholder).
+    sql = """
+        SELECT i.id, i.title, i.status, i.project_id, p.name AS project_name
+        FROM items i
+        LEFT JOIN projects p ON p.id = i.project_id
+        WHERE i.user_id = $1
+          AND LOWER(i.title) LIKE '%' || LOWER($2) || '%'
+          AND i.status <> 'done'
+        ORDER BY
+          (LOWER(i.title) LIKE LOWER($3) || '%') DESC,
+          i.updated_at DESC
+        LIMIT $4
+    """
+    rows = await db.fetch(sql, user_id, q, q, limit)
+    return [row_to_dict(r) for r in rows]
+
+
 def item_row_to_response_dict(row: dict[str, Any]) -> dict[str, Any]:
     """Convert a raw item row dict to a response-friendly dict with decoded labels."""
     return {

@@ -247,6 +247,16 @@ class ProjectResponse(BaseModel):
 # --- Item Schemas ---
 
 
+class BlockerSummary(BaseModel):
+    """Lightweight item summary used in blocker picker and search results."""
+
+    id: str
+    title: str
+    status: ItemStatus
+    project_id: str | None
+    project_name: str | None
+
+
 class CreateItemRequest(BaseModel):
     """Create a new item."""
 
