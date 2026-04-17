@@ -89,7 +89,7 @@ export default function QuickCapture({ open, onClose, activeProject, onCaptured 
       if (useProject || (expanded && (projectId || status !== 'inbox' || priority !== 'normal'))) {
         const data: Record<string, unknown> = {
           title: trimmed,
-          status: useProject && !expanded ? 'next_action' : status,
+          status: useProject && !expanded ? 'new' : status,
           priority,
         }
         data.projectId = useProject ? activeProject.id : projectId || undefined
