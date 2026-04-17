@@ -64,18 +64,20 @@ export default function Layout() {
             <MenuIcon />
           </IconButton>
 
-          <Box
-            onClick={() => navigate('/')}
-            sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flexGrow: 1 }}
-          >
-            <AppsIcon sx={{ mr: 1, color: 'primary.light' }} />
-            <Typography
-              variant="h6"
-              component="div"
-              sx={{ fontWeight: 700, letterSpacing: -0.5 }}
+          <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
+            <Box
+              onClick={() => navigate('/')}
+              sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
             >
-              Agent GTD
-            </Typography>
+              <AppsIcon sx={{ mr: 1, color: 'primary.light' }} />
+              <Typography
+                variant="h6"
+                component="div"
+                sx={{ fontWeight: 700, letterSpacing: -0.5 }}
+              >
+                Agent GTD
+              </Typography>
+            </Box>
           </Box>
 
           <Typography
