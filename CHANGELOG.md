@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.67.1 (2026-04-17)
+
+### Bug Fixes
+
+- **frontend**: Quick-capture to project defaults status to 'new' (not 'next_action')
+  ([`e75a286`](https://github.com/jason-weddington/agent-gtd/commit/e75a286ab4f7c92597b288f478d1cea1ce5995a1))
+
+
 ## v1.67.0 (2026-04-17)
 
 ### Features
