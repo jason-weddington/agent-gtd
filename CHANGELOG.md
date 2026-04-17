@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.65.3 (2026-04-17)
+
+### Bug Fixes
+
+- **frontend**: Pin minWidth on drawer status/priority/project dropdowns
+  ([`48e8f43`](https://github.com/jason-weddington/agent-gtd/commit/48e8f436d6678e33c87d22906087119014cf058a))
+
+
 ## v1.65.2 (2026-04-17)
 
 ### Bug Fixes
