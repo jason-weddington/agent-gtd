@@ -19,10 +19,10 @@ import type { Run, Item, Project } from '../types'
 
 const POLL_INTERVAL_MS = 15000
 
-function formatElapsed(startedAt: string | null): string {
+function formatElapsed(startedAt: string | null, now: number): string {
   if (!startedAt) return '–'
   const elapsedSec = Math.floor(
-    (Date.now() - new Date(startedAt).getTime()) / 1000,
+    (now - new Date(startedAt).getTime()) / 1000,
   )
   if (elapsedSec < 60) return `${elapsedSec}s`
   if (elapsedSec < 3600) return `${Math.floor(elapsedSec / 60)}m`
@@ -43,6 +43,7 @@ function formatElapsed(startedAt: string | null): string {
 export default function ActiveRunsIndicator() {
   const [runs, setRuns] = useState<Run[]>([])
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+  const [now, setNow] = useState(() => Date.now())
   const [itemMap, setItemMap] = useState<Record<string, Item>>({})
   const [projectMap, setProjectMap] = useState<Record<string, Project>>({})
   // Refs track which IDs we've already fetched so enrichment calls are idempotent
@@ -95,6 +96,12 @@ export default function ActiveRunsIndicator() {
     const interval = setInterval(loadRuns, POLL_INTERVAL_MS)
     return () => clearInterval(interval)
   }, [loadRuns])
+
+  // Tick every second so elapsed times update in real time
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(interval)
+  }, [])
 
   // React to SSE events so the count updates in real time
   useEffect(() => {
@@ -237,7 +244,7 @@ export default function ActiveRunsIndicator() {
                     </Box>
                     <Typography variant="caption" color="text.secondary" noWrap>
                       {project?.name ?? run.projectId}
-                      {!isQueued && ` · ${formatElapsed(run.startedAt)}`}
+                      {!isQueued && ` · ${formatElapsed(run.startedAt, now)}`}
                     </Typography>
                   </Box>
                 </Box>
