@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.67.0 (2026-04-17)
+
+### Features
+
+- **dispatch**: Bump MAX_CONCURRENT from 3 to 6, expose as env var
+  ([`7bb3f3b`](https://github.com/jason-weddington/agent-gtd/commit/7bb3f3b5729f50e59d6a10b841f3557c4f18ba64))
+
+
 ## v1.66.0 (2026-04-17)
 
 ### Features
