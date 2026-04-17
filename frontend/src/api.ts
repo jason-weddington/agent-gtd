@@ -1,4 +1,4 @@
-import type { ApiKeyInfo, AuthResponse, Comment, Item, Note, Project, Run, UserResponse } from './types'
+import type { ApiKeyInfo, AuthResponse, BlockerSummary, Comment, Item, Note, Project, Run, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -129,6 +129,15 @@ export const api = {
     dispatch: (id: string, data?: { maxTurns?: number; mode?: string }) =>
       request<Run>('POST', `/items/${id}/dispatch`, data ?? {}),
     runs: (id: string) => request<Run[]>('GET', `/items/${id}/runs`),
+    search: (q: string, limit = 10) =>
+      request<BlockerSummary[]>('GET', `/items/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+    blockers: {
+      list: (id: string) => request<BlockerSummary[]>('GET', `/items/${id}/blockers`),
+      add: (id: string, blockerItemId: string) =>
+        request<BlockerSummary>('POST', `/items/${id}/blockers`, { blockerItemId }),
+      remove: (id: string, blockerItemId: string) =>
+        request<void>('DELETE', `/items/${id}/blockers/${blockerItemId}`),
+    },
   },
 
   runs: {

@@ -61,6 +61,7 @@ export interface Item {
   waitingOn: string
   sortOrder: number
   labels: string[]
+  blockers?: BlockerSummary[]
   version: number
   createdAt: string
   updatedAt: string
@@ -84,6 +85,14 @@ export interface Comment {
   createdBy: string
   createdAt: string
   updatedAt: string
+}
+
+export interface BlockerSummary {
+  id: string
+  title: string
+  status: ItemStatus
+  projectId: string | null
+  projectName: string | null
 }
 
 export type RunStatus = 'pending' | 'cloning' | 'running' | 'success' | 'failed' | 'timeout' | 'cancelled'
