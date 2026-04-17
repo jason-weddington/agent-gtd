@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.66.0 (2026-04-17)
+
+### Features
+
+- **frontend**: Remove Inbox from status dropdowns in drawer and edit dialogs
+  ([`28f9546`](https://github.com/jason-weddington/agent-gtd/commit/28f95467e331912de965be74d64331242245836a))
+
+
 ## v1.65.4 (2026-04-17)
 
 ### Bug Fixes
