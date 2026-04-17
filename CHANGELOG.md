@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.65.0 (2026-04-16)
+
+### Features
+
+- **frontend**: Keyboard shortcuts help overlay (Cmd+/)
+  ([`245cef4`](https://github.com/jason-weddington/agent-gtd/commit/245cef4a39c44faebc00c9a511cb5b7a8085dc9a))
+
+
 ## v1.64.0 (2026-04-16)
 
 ### Features
