@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.65.2 (2026-04-17)
+
+### Bug Fixes
+
+- **frontend**: Remove Someday column from kanban board
+  ([`07e52f5`](https://github.com/jason-weddington/agent-gtd/commit/07e52f519322be48310c02f8c2b63d526a79244d))
+
+
 ## v1.65.1 (2026-04-17)
 
 ### Bug Fixes
