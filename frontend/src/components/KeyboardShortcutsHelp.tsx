@@ -20,7 +20,7 @@ const NAVIGATION_SHORTCUTS: ShortcutRow[] = [
 const GLOBAL_SHORTCUTS: ShortcutRow[] = [
   { keys: '\u2318K', description: 'Quick capture' },
   { keys: '\u2318\u21E7P', description: 'Project switcher' },
-  { keys: '\u2318/', description: 'Show keyboard shortcuts' },
+  { keys: '?', description: 'Show keyboard shortcuts' },
 ]
 
 interface ShortcutSectionProps {
@@ -66,7 +66,7 @@ export default function KeyboardShortcutsHelp() {
   const [open, setOpen] = useState(false)
 
   useHotkeys(
-    'meta+/, ctrl+/',
+    'shift+slash',
     (e) => {
       e.preventDefault()
       setOpen((prev) => !prev)
