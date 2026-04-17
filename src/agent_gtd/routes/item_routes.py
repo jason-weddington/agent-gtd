@@ -30,7 +30,10 @@ from agent_gtd.services import item_service
 router = APIRouter(prefix="/api", tags=["items"])
 
 
-def _item_response(row: dict[str, object]) -> ItemResponse:
+def _item_response(
+    row: dict[str, object],
+    blockers: list[BlockerSummary] | None = None,
+) -> ItemResponse:
     return ItemResponse(
         id=str(row["id"]),
         project_id=str(row["project_id"]) if row["project_id"] is not None else None,
@@ -50,6 +53,7 @@ def _item_response(row: dict[str, object]) -> ItemResponse:
         version=int(str(row["version"])),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
+        blockers=blockers if blockers is not None else [],
     )
 
 
@@ -140,9 +144,22 @@ async def get_item(
     db = await get_db()
     try:
         row = await item_service.get_item(db, user.id, item_id)
+        blocker_rows = await item_service.list_blockers(db, user.id, item_id)
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Item not found") from None
-    return _item_response(row)
+    blockers = [
+        BlockerSummary(
+            id=str(b["id"]),
+            title=str(b["title"]),
+            status=ItemStatus(str(b["status"])),
+            project_id=str(b["project_id"]) if b["project_id"] is not None else None,
+            project_name=str(b["project_name"])
+            if b["project_name"] is not None
+            else None,
+        )
+        for b in blocker_rows
+    ]
+    return _item_response(row, blockers=blockers)
 
 
 @router.patch("/items/{item_id}", response_model=ItemResponse)

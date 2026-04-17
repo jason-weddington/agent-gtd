@@ -107,7 +107,76 @@ async def test_get_item(client: AsyncClient, auth_headers: dict[str, str]):
 
     res = await client.get(f"/api/items/{item_id}", headers=auth_headers)
     assert res.status_code == 200
-    assert res.json()["title"] == "Task"
+    data = res.json()
+    assert data["title"] == "Task"
+    assert data["blockers"] == []
+
+
+async def test_get_item_includes_blockers(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Single-item GET should return the blockers array populated."""
+    # Create two items
+    res = await client.post(
+        "/api/items", json={"title": "Blocked"}, headers=auth_headers
+    )
+    assert res.status_code == 201
+    item_id = res.json()["id"]
+
+    res = await client.post(
+        "/api/items", json={"title": "Blocker"}, headers=auth_headers
+    )
+    assert res.status_code == 201
+    blocker_id = res.json()["id"]
+
+    # Add blocker relationship
+    res = await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": blocker_id},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+
+    # Single-item GET should return populated blockers
+    res = await client.get(f"/api/items/{item_id}", headers=auth_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["blockers"]) == 1
+    assert data["blockers"][0]["id"] == blocker_id
+    assert data["blockers"][0]["title"] == "Blocker"
+    assert data["blockers"][0]["status"] == "inbox"
+    assert data["blockers"][0]["project_id"] is None
+
+
+async def test_list_items_blockers_empty(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """List endpoint should return blockers: [] (no N+1 join)."""
+    res = await client.post(
+        "/api/items", json={"title": "Item A"}, headers=auth_headers
+    )
+    assert res.status_code == 201
+    item_id = res.json()["id"]
+
+    res = await client.post(
+        "/api/items", json={"title": "Item B"}, headers=auth_headers
+    )
+    assert res.status_code == 201
+    blocker_id = res.json()["id"]
+
+    # Add a blocker so it would show up if list was joining
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": blocker_id},
+        headers=auth_headers,
+    )
+
+    # List endpoint should return empty blockers (no N+1)
+    res = await client.get("/api/items", headers=auth_headers)
+    assert res.status_code == 200
+    items = res.json()
+    for item in items:
+        assert item["blockers"] == []
 
 
 async def test_get_item_not_found(client: AsyncClient, auth_headers: dict[str, str]):

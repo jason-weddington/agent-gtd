@@ -290,8 +290,11 @@ class LocalBackend:
 
         db = await get_db()
         row = await item_service.get_item(db, user_id, item_id)
+        blocker_rows = await item_service.list_blockers(db, user_id, item_id)
         pm = await self._build_project_map(user_id)
-        return self._format_item(row, pm)
+        result = self._format_item(row, pm)
+        result["blockers"] = blocker_rows
+        return result
 
     async def create_item(
         self,

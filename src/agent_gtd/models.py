@@ -327,6 +327,7 @@ class ItemResponse(BaseModel):
     version: int
     created_at: datetime
     updated_at: datetime
+    blockers: list[BlockerSummary] = []
 
 
 # --- Note Schemas ---
