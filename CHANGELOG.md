@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.65.4 (2026-04-17)
+
+### Bug Fixes
+
+- **frontend**: Disable MUI drawer exit transition during dispatch slide-up
+  ([`3304998`](https://github.com/jason-weddington/agent-gtd/commit/330499852072a6fd127ff0618635959023b1ebd2))
+
+
 ## v1.65.3 (2026-04-17)
 
 ### Bug Fixes
