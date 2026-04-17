@@ -146,8 +146,16 @@ async def list_runs(
         params.append(project_id)
         clauses.append(f"project_id = ${len(params)}")
     if status is not None:
-        params.append(status)
-        clauses.append(f"status = ${len(params)}")
+        statuses = [s.strip() for s in status.split(",") if s.strip()]
+        if len(statuses) == 1:
+            params.append(statuses[0])
+            clauses.append(f"status = ${len(params)}")
+        else:
+            placeholders = ", ".join(
+                f"${len(params) + i + 1}" for i in range(len(statuses))
+            )
+            params.extend(statuses)
+            clauses.append(f"status IN ({placeholders})")
 
     where = " AND ".join(clauses)
     rows = await db.fetch(

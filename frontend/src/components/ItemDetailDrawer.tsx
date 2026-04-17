@@ -25,6 +25,7 @@ import EditIcon from '@mui/icons-material/Edit'
 import CloseIcon from '@mui/icons-material/Close'
 import SendIcon from '@mui/icons-material/Send'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
+import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import { api, ApiError } from '../api'
@@ -317,6 +318,7 @@ export default function ItemDetailDrawer({
   }
 
   const isRunActive = activeRun && ['pending', 'cloning', 'running'].includes(activeRun.status)
+  const isRunQueued = activeRun?.status === 'pending'
   const canDispatch = Boolean(projectGitOrigin) && !isRunActive
   const isSaving = savingField !== null
 
@@ -602,27 +604,47 @@ export default function ItemDetailDrawer({
 
               {/* Action buttons */}
               {projectGitOrigin && localItem.status !== 'done' && (
-                <IconButton
-                  size="small"
-                  onClick={() => {
-                    setDispatchMode(localItem?.status === 'new' ? 'plan' : 'build')
-                    setConfirmOpen(true)
-                  }}
-                  disabled={!canDispatch}
-                  title={canDispatch ? 'Send to Claude' : isRunActive ? 'Agent is working' : 'No git origin'}
-                  color="secondary"
+                <Tooltip
+                  title={
+                    canDispatch
+                      ? 'Send to Claude'
+                      : isRunQueued
+                        ? 'Queued — waiting for a free slot (capped at 6 concurrent runs)'
+                        : isRunActive
+                          ? 'Agent is working'
+                          : 'No git origin'
+                  }
                 >
-                  <SmartToyOutlinedIcon
-                    fontSize="small"
-                    sx={isRunActive ? {
-                      animation: 'pulse-green 2s ease-in-out infinite',
-                      '@keyframes pulse-green': {
-                        '0%, 100%': { color: 'inherit' },
-                        '50%': { color: 'success.main' },
-                      },
-                    } : undefined}
-                  />
-                </IconButton>
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setDispatchMode(localItem?.status === 'new' ? 'plan' : 'build')
+                        setConfirmOpen(true)
+                      }}
+                      disabled={!canDispatch}
+                      color="secondary"
+                    >
+                      {isRunQueued ? (
+                        <HourglassEmptyIcon
+                          fontSize="small"
+                          sx={{ color: 'text.disabled' }}
+                        />
+                      ) : (
+                        <SmartToyOutlinedIcon
+                          fontSize="small"
+                          sx={isRunActive ? {
+                            animation: 'pulse-green 2s ease-in-out infinite',
+                            '@keyframes pulse-green': {
+                              '0%, 100%': { color: 'inherit' },
+                              '50%': { color: 'success.main' },
+                            },
+                          } : undefined}
+                        />
+                      )}
+                    </IconButton>
+                  </span>
+                </Tooltip>
               )}
               <IconButton
                 size="small"

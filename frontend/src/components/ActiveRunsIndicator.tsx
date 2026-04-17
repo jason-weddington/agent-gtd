@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Badge,
   Box,
+  Chip,
   IconButton,
   LinearProgress,
   Menu,
@@ -10,6 +11,7 @@ import {
   Typography,
 } from '@mui/material'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
+import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useEvents } from '../contexts/EventStreamContext'
@@ -28,11 +30,14 @@ function formatElapsed(startedAt: string | null): string {
 }
 
 /**
- * Header indicator that shows how many agent runs are currently active.
- * Clicking the icon opens a menu listing each active run with its item title,
+ * Header indicator that shows how many agent runs are currently active or queued.
+ * Clicking the icon opens a menu listing each run with its item title,
  * project name, and elapsed time. Each entry navigates to the project page.
  *
- * Polls api.runs.list({ status: 'running' }) every 15 seconds and reacts
+ * Running runs are shown with a pulsing robot icon; queued (pending) runs are
+ * shown with an hourglass and a "Queued" chip explaining the concurrency cap.
+ *
+ * Polls api.runs.list({ status: 'pending,running' }) every 15 seconds and reacts
  * to SSE run_started / run_completed / run_failed events in real time.
  */
 export default function ActiveRunsIndicator() {
@@ -50,7 +55,7 @@ export default function ActiveRunsIndicator() {
   // rule doesn't consider this a direct setState call chain from within the effect.
   const loadRuns = useCallback(() => {
     void api.runs
-      .list({ status: 'running' })
+      .list({ status: 'pending,running' })
       .then((activeRuns) => {
         setRuns(activeRuns)
 
@@ -101,25 +106,33 @@ export default function ActiveRunsIndicator() {
     return () => unsubs.forEach((u) => u())
   }, [onEvent, loadRuns])
 
-  const count = runs.length
+  const runningRuns = runs.filter((r) => r.status !== 'pending')
+  const pendingRuns = runs.filter((r) => r.status === 'pending')
+  const runningCount = runningRuns.length
+  const pendingCount = pendingRuns.length
+  const totalCount = runningCount + pendingCount
+
+  function buildTooltip(): string {
+    if (totalCount === 0) return 'No active runs'
+    const parts: string[] = []
+    if (runningCount > 0)
+      parts.push(`${runningCount} running`)
+    if (pendingCount > 0)
+      parts.push(`${pendingCount} queued`)
+    return parts.join(', ')
+  }
 
   return (
     <>
-      <Tooltip
-        title={
-          count > 0
-            ? `${count} active agent run${count !== 1 ? 's' : ''}`
-            : 'No active runs'
-        }
-      >
+      <Tooltip title={buildTooltip()}>
         <IconButton
           color="inherit"
           onClick={(e) => setAnchorEl(e.currentTarget)}
           aria-label="Active agent runs"
         >
-          <Badge badgeContent={count} color="primary" invisible={count === 0}>
+          <Badge badgeContent={totalCount} color="primary" invisible={totalCount === 0}>
             <SmartToyOutlinedIcon
-              sx={count > 0 ? {
+              sx={runningCount > 0 ? {
                 animation: 'pulse-green 2s ease-in-out infinite',
                 '@keyframes pulse-green': {
                   '0%, 100%': { color: 'inherit' },
@@ -143,10 +156,10 @@ export default function ActiveRunsIndicator() {
           },
         }}
       >
-        {count > 0 && (
+        {runningCount > 0 && (
           <LinearProgress color="success" sx={{ height: 2 }} />
         )}
-        {runs.length === 0 ? (
+        {totalCount === 0 ? (
           <MenuItem disabled>
             <Typography variant="body2" color="text.secondary">
               No active runs
@@ -156,6 +169,7 @@ export default function ActiveRunsIndicator() {
           runs.map((run) => {
             const item = itemMap[run.itemId]
             const project = projectMap[run.projectId]
+            const isQueued = run.status === 'pending'
             return (
               <MenuItem
                 key={run.id}
@@ -167,19 +181,65 @@ export default function ActiveRunsIndicator() {
                 <Box
                   sx={{
                     display: 'flex',
-                    flexDirection: 'column',
-                    gap: 0.25,
+                    alignItems: 'flex-start',
+                    gap: 1,
                     py: 0.5,
+                    width: '100%',
                     overflow: 'hidden',
                   }}
                 >
-                  <Typography variant="body2" fontWeight={500} noWrap>
-                    {item?.title ?? run.featureBranch}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" noWrap>
-                    {project?.name ?? run.projectId} ·{' '}
-                    {formatElapsed(run.startedAt)}
-                  </Typography>
+                  <Tooltip
+                    title={
+                      isQueued
+                        ? 'Queued — waiting for a free slot (capped at 6 concurrent runs)'
+                        : 'Running'
+                    }
+                    placement="left"
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.25 }}>
+                      {isQueued ? (
+                        <HourglassEmptyIcon
+                          fontSize="small"
+                          sx={{ color: 'text.disabled', fontSize: 16 }}
+                        />
+                      ) : (
+                        <SmartToyOutlinedIcon
+                          fontSize="small"
+                          sx={{
+                            fontSize: 16,
+                            animation: 'pulse-green-row 2s ease-in-out infinite',
+                            '@keyframes pulse-green-row': {
+                              '0%, 100%': { color: 'text.secondary' },
+                              '50%': { color: 'success.main' },
+                            },
+                          }}
+                        />
+                      )}
+                    </Box>
+                  </Tooltip>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                      <Typography variant="body2" fontWeight={500} noWrap sx={{ flex: 1 }}>
+                        {item?.title ?? run.featureBranch}
+                      </Typography>
+                      {isQueued && (
+                        <Chip
+                          label="Queued"
+                          size="small"
+                          sx={{
+                            height: 18,
+                            fontSize: '0.65rem',
+                            bgcolor: 'action.selected',
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      {project?.name ?? run.projectId}
+                      {!isQueued && ` · ${formatElapsed(run.startedAt)}`}
+                    </Typography>
+                  </Box>
                 </Box>
               </MenuItem>
             )

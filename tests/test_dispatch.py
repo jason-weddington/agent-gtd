@@ -211,6 +211,60 @@ async def test_list_item_runs(client: AsyncClient, auth_headers: dict[str, str])
     assert len(res.json()) == 1
 
 
+async def test_list_runs_multi_status(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """GET /api/runs?status=pending,running returns runs with either status."""
+    from agent_gtd.database import get_db
+
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_a = await _create_item_in_project(client, auth_headers, project_id, "Task A")
+    item_b = await _create_item_in_project(client, auth_headers, project_id, "Task B")
+
+    # Dispatch both — they start as pending
+    res_a = await client.post(
+        f"/api/items/{item_a}/dispatch", json={}, headers=auth_headers
+    )
+    run_a_id = res_a.json()["id"]
+
+    res_b = await client.post(
+        f"/api/items/{item_b}/dispatch", json={}, headers=auth_headers
+    )
+    run_b_id = res_b.json()["id"]
+
+    # Manually advance run_b to "running"
+    db = await get_db()
+    from datetime import UTC, datetime
+
+    await db.execute(
+        "UPDATE claude_runs SET status = 'running', started_at = $1 WHERE id = $2",
+        datetime.now(UTC).isoformat(),
+        run_b_id,
+    )
+
+    # CSV filter should return both
+    res = await client.get(
+        "/api/runs", params={"status": "pending,running"}, headers=auth_headers
+    )
+    assert res.status_code == 200
+    run_ids = {r["id"] for r in res.json()}
+    assert run_a_id in run_ids
+    assert run_b_id in run_ids
+
+    # Single-status filter still works
+    res = await client.get(
+        "/api/runs", params={"status": "pending"}, headers=auth_headers
+    )
+    assert res.status_code == 200
+    assert all(r["status"] == "pending" for r in res.json())
+
+    res = await client.get(
+        "/api/runs", params={"status": "running"}, headers=auth_headers
+    )
+    assert res.status_code == 200
+    assert all(r["status"] == "running" for r in res.json())
+
+
 async def test_list_runs_cross_item(client: AsyncClient, auth_headers: dict[str, str]):
     """GET /api/runs lists runs across all items."""
     project_id = await _create_project_with_origin(client, auth_headers)
