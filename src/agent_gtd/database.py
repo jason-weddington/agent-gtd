@@ -147,6 +147,20 @@ _SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_claude_runs_user_id ON claude_runs(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_claude_runs_item_id ON claude_runs(item_id)",
     "CREATE INDEX IF NOT EXISTS idx_claude_runs_status ON claude_runs(status)",
+    """
+    CREATE TABLE IF NOT EXISTS item_dependencies (
+        id TEXT PRIMARY KEY,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        blocker_item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        UNIQUE (item_id, blocker_item_id),
+        CHECK (item_id <> blocker_item_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_item_dependencies_item "
+    "ON item_dependencies(item_id)",
+    "CREATE INDEX IF NOT EXISTS ix_item_dependencies_blocker "
+    "ON item_dependencies(blocker_item_id)",
 ]
 
 # Idempotent column additions for existing databases.

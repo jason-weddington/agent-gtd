@@ -63,6 +63,109 @@ async def test_ensure_local_user_creates_user_and_project():
     await pool.close()
 
 
+async def test_item_dependencies_table_exists():
+    """item_dependencies table and indexes are created by _SCHEMA_STATEMENTS."""
+    from agent_gtd.sqlite_pool import SqlitePool
+
+    pool = SqlitePool()
+    async with pool.acquire() as conn:
+        for stmt in db_mod._SCHEMA_STATEMENTS:
+            await conn.execute(stmt)
+
+    # Table is queryable (proves it exists).
+    rows = await pool.fetch("SELECT * FROM item_dependencies")
+    assert rows == []
+
+    # Confirm the table name appears in sqlite_master.
+    tables = await pool.fetch(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='item_dependencies'"
+    )
+    assert len(tables) == 1
+    assert tables[0]["name"] == "item_dependencies"
+
+    await pool.close()
+
+
+async def test_item_dependencies_constraints():
+    """UNIQUE and CHECK constraints on item_dependencies are enforced."""
+    import uuid
+
+    from agent_gtd.sqlite_pool import SqlitePool
+
+    pool = SqlitePool()
+    async with pool.acquire() as conn:
+        for stmt in db_mod._SCHEMA_STATEMENTS:
+            await conn.execute(stmt)
+
+    now = "2026-01-01T00:00:00+00:00"
+    user_id = str(uuid.uuid4())
+    item_a = str(uuid.uuid4())
+    item_b = str(uuid.uuid4())
+
+    # Seed a user so FK constraints pass.
+    await pool.execute(
+        "INSERT INTO users (id, email, hashed_password, created_at) "
+        "VALUES ($1, $2, $3, $4)",
+        user_id,
+        "u@test.com",
+        "x",
+        now,
+    )
+    # Seed two items (project_id nullable).
+    for item_id in (item_a, item_b):
+        await pool.execute(
+            "INSERT INTO items "
+            "(id, project_id, user_id, title, created_at, updated_at) "
+            "VALUES ($1, $2, $3, $4, $5, $6)",
+            item_id,
+            None,
+            user_id,
+            "t",
+            now,
+            now,
+        )
+
+    dep_id = str(uuid.uuid4())
+    await pool.execute(
+        "INSERT INTO item_dependencies (id, item_id, blocker_item_id, created_at) "
+        "VALUES ($1, $2, $3, $4)",
+        dep_id,
+        item_a,
+        item_b,
+        now,
+    )
+
+    # UNIQUE: duplicate (item_a, item_b) must fail.
+    import pytest
+
+    # Use a broad catch: sqlite raises IntegrityError, asyncpg raises
+    # UniqueViolationError — both subclass Exception.
+    with pytest.raises(Exception):  # noqa: B017
+        await pool.execute(
+            "INSERT INTO item_dependencies "
+            "(id, item_id, blocker_item_id, created_at) "
+            "VALUES ($1, $2, $3, $4)",
+            str(uuid.uuid4()),
+            item_a,
+            item_b,
+            now,
+        )
+
+    # CHECK: self-block must fail.
+    with pytest.raises(Exception):  # noqa: B017
+        await pool.execute(
+            "INSERT INTO item_dependencies "
+            "(id, item_id, blocker_item_id, created_at) "
+            "VALUES ($1, $2, $3, $4)",
+            str(uuid.uuid4()),
+            item_a,
+            item_a,
+            now,
+        )
+
+    await pool.close()
+
+
 async def test_ensure_local_user_idempotent():
     from agent_gtd.sqlite_pool import SqlitePool
 
