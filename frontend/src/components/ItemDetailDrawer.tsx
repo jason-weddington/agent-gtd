@@ -345,6 +345,7 @@ export default function ItemDetailDrawer({
         open={Boolean(item)}
         onClose={dispatchAnimating ? undefined : onClose}
         variant="temporary"
+        transitionDuration={dispatchAnimating ? 0 : undefined}
         sx={{
           '& .MuiDrawer-paper': {
             width: DRAWER_WIDTH,
