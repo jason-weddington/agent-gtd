@@ -11,6 +11,7 @@ from agent_gtd.event_bus import get_event_bus
 from agent_gtd.exceptions import (
     AlreadyClaimedError,
     NotFoundError,
+    ValidationError,
     VersionConflictError,
 )
 from agent_gtd.models import ItemStatus, Priority
@@ -462,3 +463,158 @@ def item_row_to_response_dict(row: dict[str, Any]) -> dict[str, Any]:
         **row,
         "labels": decode_json_list(str(row["labels"])),
     }
+
+
+# --- Blocker service functions ---
+
+
+async def _would_create_cycle(db: DbPool, item_id: str, blocker_item_id: str) -> bool:
+    """Return True if adding the blocker would create a dependency cycle.
+
+    Performs a BFS from blocker_item_id through the item_dependencies graph.
+    If item_id is reachable as a transitive blocker, a cycle would be created.
+    """
+    visited: set[str] = {blocker_item_id}
+    queue: list[str] = [blocker_item_id]
+    while queue:
+        current = queue.pop()
+        rows = await db.fetch(
+            "SELECT blocker_item_id FROM item_dependencies WHERE item_id = $1",
+            current,
+        )
+        for r in rows:
+            bid = str(r["blocker_item_id"])
+            if bid == item_id:
+                return True
+            if bid not in visited:
+                visited.add(bid)
+                queue.append(bid)
+    return False
+
+
+async def _blocker_summary_row(db: DbPool, blocker_item_id: str) -> dict[str, Any]:
+    """Fetch a single item as a blocker summary dict (joins with projects)."""
+    row = await db.fetchrow(
+        """
+        SELECT i.id, i.title, i.status, i.project_id, p.name AS project_name
+        FROM items i
+        LEFT JOIN projects p ON p.id = i.project_id
+        WHERE i.id = $1
+        """,
+        blocker_item_id,
+    )
+    assert row is not None  # noqa: S101
+    return row_to_dict(row)
+
+
+async def add_blocker(
+    db: DbPool,
+    user_id: str,
+    item_id: str,
+    blocker_item_id: str,
+) -> dict[str, Any]:
+    """Add a blocker relationship.
+
+    Idempotent: if the relationship already exists it is returned silently.
+
+    Args:
+        db: Database pool.
+        user_id: Owner user ID — both items must belong to this user.
+        item_id: The item being blocked.
+        blocker_item_id: The item that blocks it.
+
+    Raises:
+        NotFoundError: If either item doesn't exist or isn't owned by user.
+        ValidationError: If item_id == blocker_item_id (self-block).
+        ValidationError: If adding the blocker would create a dependency cycle.
+    """
+    if item_id == blocker_item_id:
+        raise ValidationError("an item cannot block itself")
+
+    # Verify both items belong to the user (raises NotFoundError otherwise).
+    await get_item(db, user_id, item_id)
+    await get_item(db, user_id, blocker_item_id)
+
+    # Idempotent: return existing silently.
+    existing = await db.fetchrow(
+        "SELECT id FROM item_dependencies WHERE item_id = $1 AND blocker_item_id = $2",
+        item_id,
+        blocker_item_id,
+    )
+    if existing is not None:
+        return await _blocker_summary_row(db, blocker_item_id)
+
+    # Cycle detection.
+    if await _would_create_cycle(db, item_id, blocker_item_id):
+        raise ValidationError("adding this blocker would create a cycle")
+
+    dep_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO item_dependencies (id, item_id, blocker_item_id, created_at)"
+        " VALUES ($1, $2, $3, $4)",
+        dep_id,
+        item_id,
+        blocker_item_id,
+        now,
+    )
+    return await _blocker_summary_row(db, blocker_item_id)
+
+
+async def remove_blocker(
+    db: DbPool,
+    user_id: str,
+    item_id: str,
+    blocker_item_id: str,
+) -> None:
+    """Remove a blocker relationship.
+
+    No-op if the relationship doesn't exist.
+
+    Args:
+        db: Database pool.
+        user_id: Owner user ID — item_id must belong to this user.
+        item_id: The blocked item.
+        blocker_item_id: The blocker to remove.
+
+    Raises:
+        NotFoundError: If item_id doesn't exist or isn't owned by user.
+    """
+    await get_item(db, user_id, item_id)  # verifies ownership
+    await db.execute(
+        "DELETE FROM item_dependencies WHERE item_id = $1 AND blocker_item_id = $2",
+        item_id,
+        blocker_item_id,
+    )
+
+
+async def list_blockers(
+    db: DbPool,
+    user_id: str,
+    item_id: str,
+) -> list[dict[str, Any]]:
+    """Return blockers of an item as lightweight summaries (joined with projects).
+
+    Each entry has: id, title, status, project_id, project_name.
+
+    Args:
+        db: Database pool.
+        user_id: Owner user ID — item_id must belong to this user.
+        item_id: The item whose blockers to list.
+
+    Raises:
+        NotFoundError: If item_id doesn't exist or isn't owned by user.
+    """
+    await get_item(db, user_id, item_id)  # verifies ownership
+    rows = await db.fetch(
+        """
+        SELECT i.id, i.title, i.status, i.project_id, p.name AS project_name
+        FROM item_dependencies d
+        JOIN items i ON i.id = d.blocker_item_id
+        LEFT JOIN projects p ON p.id = i.project_id
+        WHERE d.item_id = $1
+        ORDER BY d.created_at
+        """,
+        item_id,
+    )
+    return [row_to_dict(r) for r in rows]

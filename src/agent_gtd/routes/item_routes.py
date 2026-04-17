@@ -10,9 +10,11 @@ from agent_gtd.database import decode_json_list, get_db
 from agent_gtd.exceptions import (
     AlreadyClaimedError,
     NotFoundError,
+    ValidationError,
     VersionConflictError,
 )
 from agent_gtd.models import (
+    AddBlockerRequest,
     BlockerSummary,
     ClaimItemRequest,
     CreateItemRequest,
@@ -313,3 +315,72 @@ async def create_project_item(
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None
     return _item_response(row)
+
+
+# --- Blocker endpoints ---
+
+
+def _blocker_summary(row: dict[str, object]) -> BlockerSummary:
+    return BlockerSummary(
+        id=str(row["id"]),
+        title=str(row["title"]),
+        status=ItemStatus(str(row["status"])),
+        project_id=str(row["project_id"]) if row["project_id"] is not None else None,
+        project_name=(
+            str(row["project_name"]) if row["project_name"] is not None else None
+        ),
+    )
+
+
+@router.post(
+    "/items/{item_id}/blockers",
+    response_model=BlockerSummary,
+    status_code=201,
+)
+async def add_blocker(
+    item_id: str,
+    body: AddBlockerRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> BlockerSummary:
+    """Add a blocker to an item.
+
+    Returns the blocker item as a BlockerSummary. Idempotent — if the
+    relationship already exists, it is returned silently without error.
+    Both items must belong to the authenticated user.
+    """
+    db = await get_db()
+    try:
+        row = await item_service.add_blocker(db, user.id, item_id, body.blocker_item_id)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Item not found") from None
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=e.detail) from None
+    return _blocker_summary(row)
+
+
+@router.delete("/items/{item_id}/blockers/{blocker_item_id}", status_code=204)
+async def remove_blocker(
+    item_id: str,
+    blocker_item_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+) -> None:
+    """Remove a blocker from an item. No-op if the relationship doesn't exist."""
+    db = await get_db()
+    try:
+        await item_service.remove_blocker(db, user.id, item_id, blocker_item_id)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Item not found") from None
+
+
+@router.get("/items/{item_id}/blockers", response_model=list[BlockerSummary])
+async def list_blockers(
+    item_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+) -> list[BlockerSummary]:
+    """List all blockers for an item."""
+    db = await get_db()
+    try:
+        rows = await item_service.list_blockers(db, user.id, item_id)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Item not found") from None
+    return [_blocker_summary(r) for r in rows]

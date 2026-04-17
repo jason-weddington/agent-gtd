@@ -75,3 +75,11 @@ class RunActiveError(AgentGTDError):
         self.item_id = item_id
         self.run_id = run_id
         super().__init__(f"Item {item_id} already has an active run: {run_id}")
+
+
+class ValidationError(AgentGTDError):
+    """A domain validation rule was violated."""
+
+    def __init__(self, detail: str) -> None:
+        """Initialize with a human-readable detail message."""
+        super().__init__(detail)

@@ -257,6 +257,12 @@ class BlockerSummary(BaseModel):
     project_name: str | None
 
 
+class AddBlockerRequest(BaseModel):
+    """Request to add a blocker to an item."""
+
+    blocker_item_id: str
+
+
 class CreateItemRequest(BaseModel):
     """Create a new item."""
 
