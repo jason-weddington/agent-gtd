@@ -13,6 +13,7 @@ import {
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
 import type { Item, Project, ItemStatus } from '../../types'
+import { STATUS_CHIP_LABEL, STATUS_CHIP_COLOR } from './statusChip'
 
 const PRIORITY_COLORS: Record<string, 'default' | 'info' | 'warning' | 'error'> = {
   low: 'default',
@@ -124,6 +125,12 @@ export default function ReviewItemRow({
               <Chip label={projectMap[item.projectId].name} size="small" variant="outlined" />
             )}
             <Chip label={item.priority} size="small" color={PRIORITY_COLORS[item.priority]} />
+            <Chip
+              label={STATUS_CHIP_LABEL[item.status] ?? item.status}
+              size="small"
+              color={STATUS_CHIP_COLOR[item.status] ?? 'default'}
+              variant="outlined"
+            />
             <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
               {formatRelativeAge(item.createdAt)}
             </Typography>

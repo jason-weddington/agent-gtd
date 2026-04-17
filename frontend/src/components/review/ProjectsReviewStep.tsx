@@ -13,7 +13,6 @@ import FolderIcon from '@mui/icons-material/Folder'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import CheckIcon from '@mui/icons-material/Check'
 import SnoozeIcon from '@mui/icons-material/Snooze'
-import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import DoneAllIcon from '@mui/icons-material/DoneAll'
 import ReviewItemRow, { type ReviewAction } from './ReviewItemRow'
 import type { Item, Project } from '../../types'
@@ -107,10 +106,18 @@ export default function ProjectsReviewStep({
 
   const project = projects[projectIndex]
   const allItems = projectItems[project.id] ?? []
-  // Filter out completed items for the review
-  const items = allItems.filter((i) => i.status !== 'done')
-  const hasNextAction = items.some((i) => i.status === 'next_action')
-  const isStuck = !hasNextAction && items.length > 0
+  // Open items: exclude terminal (done) and someday (someday belongs to step 5 only)
+  const openItems = allItems.filter(
+    (i) => i.status !== 'done' && i.status !== 'someday_maybe',
+  )
+  const hasMomentum = openItems.some(
+    (i) =>
+      i.status === 'new' ||
+      i.status === 'ready' ||
+      i.status === 'next_action' ||
+      i.status === 'active',
+  )
+  const isStalled = openItems.length > 0 && !hasMomentum
   const isCurrentReviewed = reviewedSet.has(projectIndex)
 
   const handleAdd = async () => {
@@ -135,31 +142,19 @@ export default function ProjectsReviewStep({
     }
   }
 
-  const getItemActions = (item: Item): ReviewAction[] => {
-    const actions: ReviewAction[] = [
-      {
-        label: 'Done',
-        icon: <CheckIcon fontSize="small" />,
-        color: 'success',
-        onClick: () => onDone(item.id),
-      },
-    ]
-    if (item.status === 'next_action') {
-      actions.push({
-        label: 'Shelve',
-        icon: <SnoozeIcon fontSize="small" />,
-        onClick: () => onUpdateStatus(item.id, 'someday_maybe'),
-      })
-    }
-    if (item.status === 'someday_maybe' || item.status === 'waiting_for') {
-      actions.push({
-        label: 'Activate',
-        icon: <PlayArrowIcon fontSize="small" />,
-        onClick: () => onUpdateStatus(item.id, 'next_action'),
-      })
-    }
-    return actions
-  }
+  const getItemActions = (item: Item): ReviewAction[] => [
+    {
+      label: 'Done',
+      icon: <CheckIcon fontSize="small" />,
+      color: 'success',
+      onClick: () => onDone(item.id),
+    },
+    {
+      label: 'Someday',
+      icon: <SnoozeIcon fontSize="small" />,
+      onClick: () => onUpdateStatus(item.id, 'someday_maybe'),
+    },
+  ]
 
   return (
     <>
@@ -180,38 +175,36 @@ export default function ProjectsReviewStep({
           variant="outlined"
           sx={{
             p: 2,
-            borderLeft: isStuck ? 3 : 1,
-            borderLeftColor: isStuck ? 'warning.main' : 'divider',
+            borderLeft: isStalled ? 3 : 1,
+            borderLeftColor: isStalled ? 'warning.main' : 'divider',
           }}
         >
           {/* Project header */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
             <Typography variant="h6" sx={{ flex: 1 }}>{project.name}</Typography>
             <Chip
-              label={`${items.length} item${items.length !== 1 ? 's' : ''}`}
+              label={`${openItems.length} item${openItems.length !== 1 ? 's' : ''}`}
               size="small"
               variant="outlined"
             />
-            {isStuck && (
+            {isStalled && (
               <Chip
                 icon={<WarningAmberIcon />}
-                label="No next action"
+                label="Stalled"
                 size="small"
                 color="warning"
+                title="No actionable items — everything is in review, waiting, or parked"
               />
-            )}
-            {hasNextAction && (
-              <Chip label="Has next action" size="small" color="success" />
             )}
           </Box>
 
-          {/* Items (excluding done/cancelled) */}
-          {items.length === 0 ? (
+          {/* Items (excluding done/cancelled/someday) */}
+          {openItems.length === 0 ? (
             <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
               No open items in this project.
             </Typography>
           ) : (
-            items.map((item) => (
+            openItems.map((item) => (
               <ReviewItemRow
                 key={item.id}
                 item={item}
@@ -244,7 +237,7 @@ export default function ProjectsReviewStep({
             {confirmComplete ? (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Typography variant="body2" color="text.secondary">
-                  Complete project{items.length > 0 ? ` and ${items.length} open item${items.length !== 1 ? 's' : ''}` : ''}?
+                  Complete project{openItems.length > 0 ? ` and ${openItems.length} open item${openItems.length !== 1 ? 's' : ''}` : ''}?
                 </Typography>
                 <Button
                   size="small"
