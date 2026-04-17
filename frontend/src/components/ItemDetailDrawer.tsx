@@ -460,7 +460,9 @@ export default function ItemDetailDrawer({
                         '& .MuiSelect-select': { py: '2px', px: 1 },
                       }}
                     >
-                      {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                      {Object.entries(STATUS_LABELS)
+                        .filter(([value]) => value !== 'inbox')
+                        .map(([value, label]) => (
                         <MenuItem key={value} value={value} sx={{ fontSize: '0.8rem' }}>
                           {label}
                         </MenuItem>

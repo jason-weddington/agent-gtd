@@ -510,7 +510,9 @@ export default function GtdItemList({
               onChange={(e) => setEditStatus(e.target.value as ItemStatus)}
               label="Status"
             >
-              {Object.entries(ITEM_STATUS_LABELS).map(([value, label]) => (
+              {Object.entries(ITEM_STATUS_LABELS)
+                .filter(([value]) => value !== 'inbox')
+                .map(([value, label]) => (
                 <MenuItem key={value} value={value}>
                   {label}
                 </MenuItem>
