@@ -455,6 +455,7 @@ export default function ItemDetailDrawer({
                       sx={{
                         fontSize: '0.75rem',
                         height: 28,
+                        minWidth: 100,
                         '& .MuiSelect-select': { py: '2px', px: 1 },
                       }}
                     >
@@ -482,6 +483,7 @@ export default function ItemDetailDrawer({
                       sx={{
                         fontSize: '0.75rem',
                         height: 28,
+                        minWidth: 80,
                         '& .MuiSelect-select': { py: '2px', px: 1 },
                         // Color tint based on priority
                         ...(localItem.priority === 'urgent' && { color: 'error.main' }),
@@ -511,8 +513,8 @@ export default function ItemDetailDrawer({
                       sx={{
                         fontSize: '0.75rem',
                         height: 28,
+                        minWidth: 120,
                         '& .MuiSelect-select': { py: '2px', px: 1 },
-                        minWidth: 100,
                       }}
                     >
                       <MenuItem value="" sx={{ fontSize: '0.8rem' }}>
