@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.63.1 (2026-04-16)
+
+### Bug Fixes
+
+- Default new project items to status "new" not "next_action"
+  ([`5865ddb`](https://github.com/jason-weddington/agent-gtd/commit/5865ddb66798468806804dd482ebb4b8962fe88a))
+
+
 ## v1.63.0 (2026-04-16)
 
 ### Features
