@@ -137,6 +137,16 @@ export default function ItemDetailDrawer({
     api.projects.list({ status: 'active' }).then(setAllProjects).catch(() => {})
   }, [])
 
+  // Reset the dispatch-animation flag once the drawer has actually closed.
+  // Keeping it true through the close keeps MUI's transitionDuration at 0 so
+  // the default right-slide exit doesn't play after our CSS slide-up.
+  useEffect(() => {
+    if (!item && dispatchAnimating) {
+      const t = setTimeout(() => setDispatchAnimating(false), 100)
+      return () => clearTimeout(t)
+    }
+  }, [item, dispatchAnimating])
+
   // Load blockers and reset expanded state when switching to a different item.
   // Uses itemIdRef to distinguish a new-item open from an inline-save update
   // (both change the `item` reference, but only the former changes the ID).
@@ -341,10 +351,12 @@ export default function ItemDetailDrawer({
       setActiveRun(run)
       setConfirmOpen(false)
       setDispatchMode('build')
-      // Slide drawer up and away, then close
+      // Slide drawer up and away, then close. Keep dispatchAnimating=true
+      // through the close so MUI's transitionDuration stays 0 and it doesn't
+      // replay its default right-slide exit. The flag is reset by the
+      // useEffect below once `item` goes null.
       setDispatchAnimating(true)
       setTimeout(() => {
-        setDispatchAnimating(false)
         onClose()
       }, 380)
     } catch (err) {
