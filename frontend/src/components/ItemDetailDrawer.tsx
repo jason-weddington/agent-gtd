@@ -31,6 +31,7 @@ import CheckIcon from '@mui/icons-material/Check'
 import { api, ApiError } from '../api'
 import type { Item, Comment, Project, Run, ItemStatus } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
+import { BlockerPicker } from './BlockerPicker'
 
 const DRAWER_WIDTH = 440
 
@@ -100,13 +101,28 @@ export default function ItemDetailDrawer({
   const [addingLabel, setAddingLabel] = useState(false)
   const [newLabel, setNewLabel] = useState('')
   const [allProjects, setAllProjects] = useState<Project[]>([])
+  const [blockerExpanded, setBlockerExpanded] = useState(false)
+  const [loadingBlockers, setLoadingBlockers] = useState(false)
 
   const commentsEndRef = useRef<HTMLDivElement>(null)
+  const itemIdRef = useRef<string | undefined>(undefined)
   const { onEvent } = useEvents()
 
-  // Sync localItem and reset inline edit state whenever a new item is opened
+  // Sync localItem and reset inline edit state whenever the item prop changes.
+  // When the same item is updated via an inline save, preserve any locally-loaded
+  // blockers that the PATCH response does not include.
   useEffect(() => {
-    setLocalItem(item)
+    setLocalItem((prev) => {
+      if (!item) return null
+      const isSameItem = item.id === prev?.id
+      const blockers =
+        item.blockers !== undefined
+          ? item.blockers
+          : isSameItem
+            ? prev?.blockers
+            : undefined
+      return { ...item, blockers }
+    })
     setEditingTitle(false)
     setEditingDescription(false)
     setTitleValue(item?.title ?? '')
@@ -120,6 +136,34 @@ export default function ItemDetailDrawer({
   useEffect(() => {
     api.projects.list({ status: 'active' }).then(setAllProjects).catch(() => {})
   }, [])
+
+  // Load blockers and reset expanded state when switching to a different item.
+  // Uses itemIdRef to distinguish a new-item open from an inline-save update
+  // (both change the `item` reference, but only the former changes the ID).
+  useEffect(() => {
+    const isNewItem = item?.id !== itemIdRef.current
+    itemIdRef.current = item?.id
+
+    if (!isNewItem) return
+
+    setBlockerExpanded(false)
+    if (!item || item.blockers !== undefined) return
+
+    let cancelled = false
+    setLoadingBlockers(true)
+    void api.items.blockers.list(item.id)
+      .then((bs) => {
+        if (!cancelled) {
+          setLocalItem((prev) => {
+            if (!prev || prev.id !== item.id) return prev
+            return { ...prev, blockers: bs }
+          })
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoadingBlockers(false) })
+    return () => { cancelled = true }
+  }, [item])
 
   const loadComments = useCallback(async () => {
     if (!item) return
@@ -598,6 +642,49 @@ export default function ItemDetailDrawer({
                       disabled={isSaving}
                       sx={{ cursor: 'pointer', fontSize: '0.7rem' }}
                     />
+                  </Box>
+                )}
+
+                {/* Blocked by section */}
+                {(localItem.blockers?.length ?? 0) === 0 && !blockerExpanded ? (
+                  <Box sx={{ mt: 0.5 }}>
+                    <Button
+                      size="small"
+                      onClick={() => setBlockerExpanded(true)}
+                      disabled={isSaving}
+                      sx={{
+                        fontSize: '0.7rem',
+                        px: 0.5,
+                        py: 0,
+                        color: 'text.secondary',
+                        textTransform: 'none',
+                        minHeight: 0,
+                      }}
+                    >
+                      + Add blocker
+                    </Button>
+                  </Box>
+                ) : (
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Blocked by
+                    </Typography>
+                    <Box sx={{ mt: 0.5 }}>
+                      {loadingBlockers ? (
+                        <CircularProgress size={16} />
+                      ) : (
+                        <BlockerPicker
+                          itemId={localItem.id}
+                          blockers={localItem.blockers ?? []}
+                          onChange={(newBlockers) => {
+                            const updated = { ...localItem, blockers: newBlockers }
+                            setLocalItem(updated)
+                            onItemUpdated?.(updated)
+                          }}
+                          disabled={isSaving}
+                        />
+                      )}
+                    </Box>
                   </Box>
                 )}
               </Box>

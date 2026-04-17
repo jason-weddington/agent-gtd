@@ -28,10 +28,13 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import SearchIcon from '@mui/icons-material/Search'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
+import LockIcon from '@mui/icons-material/Lock'
 import { api, ApiError } from '../api'
-import type { Item, Project, ItemStatus, Priority } from '../types'
+import type { Item, Project, ItemStatus, Priority, BlockerSummary } from '../types'
+import { hasUnresolvedBlockers } from '../utils'
 import { useEvents } from '../contexts/EventStreamContext'
 import ItemDetailDrawer from './ItemDetailDrawer'
+import { BlockerPicker } from './BlockerPicker'
 
 const ITEM_STATUS_LABELS: Partial<Record<ItemStatus, string>> = {
   inbox: 'Inbox',
@@ -80,6 +83,7 @@ export default function GtdItemList({
   const [editStatus, setEditStatus] = useState<ItemStatus>('next_action')
   const [editPriority, setEditPriority] = useState<Priority>('normal')
   const [editProjectId, setEditProjectId] = useState<string>('')
+  const [editBlockers, setEditBlockers] = useState<BlockerSummary[]>([])
   const [saving, setSaving] = useState(false)
 
   // Delete confirmation
@@ -173,6 +177,10 @@ export default function GtdItemList({
     setEditStatus(item.status)
     setEditPriority(item.priority)
     setEditProjectId(item.projectId ?? '')
+    setEditBlockers(item.blockers ?? [])
+    if (item.blockers === undefined) {
+      void api.items.blockers.list(item.id).then(setEditBlockers).catch(() => {})
+    }
   }
 
   const handleSave = async () => {
@@ -353,6 +361,13 @@ export default function GtdItemList({
                           {item.title}
                         </Typography>
                       </Tooltip>
+                      {hasUnresolvedBlockers(item.blockers) && (
+                        <Tooltip
+                          title={`Blocked by ${(item.blockers ?? []).filter((b) => b.status !== 'done').length} other item(s)`}
+                        >
+                          <LockIcon sx={{ fontSize: 14, color: 'warning.main', flexShrink: 0 }} />
+                        </Tooltip>
+                      )}
                       {item.projectId && projectMap[item.projectId] && (
                         <Chip
                           label={projectMap[item.projectId].name}
@@ -532,6 +547,19 @@ export default function GtdItemList({
               <MenuItem value="urgent">Urgent</MenuItem>
             </Select>
           </FormControl>
+          <Box sx={{ mt: 1, mb: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+              Blocked by
+            </Typography>
+            {editTarget && (
+              <BlockerPicker
+                itemId={editTarget.id}
+                blockers={editBlockers}
+                onChange={setEditBlockers}
+                disabled={saving}
+              />
+            )}
+          </Box>
           <FormControl fullWidth margin="normal" size="small">
             <InputLabel>Project</InputLabel>
             <Select

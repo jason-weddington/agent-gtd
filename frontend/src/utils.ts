@@ -17,3 +17,14 @@ export function convertKeys(obj: unknown, fn: (s: string) => string): unknown {
   }
   return obj
 }
+
+/**
+ * Returns true if the given blockers array contains at least one item
+ * whose status is not 'done'.  Accepts a generic shape so it can be
+ * called without importing the full BlockerSummary type.
+ */
+export function hasUnresolvedBlockers(
+  blockers: ReadonlyArray<{ status: string }> | undefined,
+): boolean {
+  return (blockers ?? []).some((b) => b.status !== 'done')
+}
