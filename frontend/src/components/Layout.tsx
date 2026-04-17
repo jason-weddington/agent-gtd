@@ -25,6 +25,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useQuickCapture } from '../contexts/QuickCaptureContext'
 import Sidebar from './Sidebar'
 import ProjectSwitcher from './ProjectSwitcher'
+import KeyboardShortcutsHelp from './KeyboardShortcutsHelp'
 import ActiveRunsIndicator from './ActiveRunsIndicator'
 
 export default function Layout() {
@@ -144,6 +145,7 @@ export default function Layout() {
       <Sidebar open={sidebarOpen} />
 
       <ProjectSwitcher />
+      <KeyboardShortcutsHelp />
 
       <Box
         component="main"
