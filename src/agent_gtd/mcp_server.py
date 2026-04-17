@@ -12,6 +12,7 @@ from mcp.types import ToolAnnotations
 from agent_gtd.exceptions import (
     AlreadyClaimedError,
     NotFoundError,
+    ValidationError,
     VersionConflictError,
 )
 from agent_gtd.mcp_backend import LocalBackend, create_backend
@@ -517,6 +518,92 @@ async def release_item(
 
     try:
         return await _backend.release_item(session["user_id"], item_id)
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+
+
+# --- Blocker tools ---
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+async def add_blocker(
+    item_id: str,
+    blocker_item_id: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """Mark item_id as blocked by blocker_item_id.
+
+    Idempotent — if the relationship already exists, returns it silently.
+    Both items must belong to the authenticated user.
+    Fails if the relationship would create a dependency cycle.
+
+    Args:
+        item_id: ID of the item being blocked.
+        blocker_item_id: ID of the item that blocks it.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        The blocker as a BlockerSummary dict: id, title, status,
+        project_id, project_name.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.add_blocker(session["user_id"], item_id, blocker_item_id)
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+    except ValidationError as e:
+        raise ToolError(e.detail) from None
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
+)
+async def remove_blocker(
+    item_id: str,
+    blocker_item_id: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """Remove a blocker relationship.
+
+    No-op if the relationship doesn't exist.
+
+    Args:
+        item_id: ID of the blocked item.
+        blocker_item_id: ID of the blocker to remove.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        Confirmation dict with ok=True.
+    """
+    session = await _get_session(ctx)
+    try:
+        await _backend.remove_blocker(session["user_id"], item_id, blocker_item_id)
+        return {"ok": True}
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
+)
+async def list_blockers(
+    item_id: str,
+    ctx: Context,
+) -> list[dict[str, Any]]:
+    """List the blockers for an item.
+
+    Args:
+        item_id: ID of the item whose blockers to list.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        List of blocker dicts: id, title, status, project_id, project_name.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.list_blockers(session["user_id"], item_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 

@@ -162,6 +162,26 @@ class McpBackend(Protocol):
         status: str | None = None,
     ) -> list[dict[str, Any]]: ...
 
+    async def add_blocker(
+        self,
+        user_id: str,
+        item_id: str,
+        blocker_item_id: str,
+    ) -> dict[str, Any]: ...
+
+    async def remove_blocker(
+        self,
+        user_id: str,
+        item_id: str,
+        blocker_item_id: str,
+    ) -> None: ...
+
+    async def list_blockers(
+        self,
+        user_id: str,
+        item_id: str,
+    ) -> list[dict[str, Any]]: ...
+
     async def close(self) -> None: ...
 
 
@@ -574,6 +594,41 @@ class LocalBackend:
 
         db = await get_db()
         return await list_runs(db, user_id, item_id=item_id, status=status)
+
+    async def add_blocker(
+        self,
+        user_id: str,
+        item_id: str,
+        blocker_item_id: str,
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import item_service
+
+        db = await get_db()
+        return await item_service.add_blocker(db, user_id, item_id, blocker_item_id)
+
+    async def remove_blocker(
+        self,
+        user_id: str,
+        item_id: str,
+        blocker_item_id: str,
+    ) -> None:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import item_service
+
+        db = await get_db()
+        await item_service.remove_blocker(db, user_id, item_id, blocker_item_id)
+
+    async def list_blockers(
+        self,
+        user_id: str,
+        item_id: str,
+    ) -> list[dict[str, Any]]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import item_service
+
+        db = await get_db()
+        return await item_service.list_blockers(db, user_id, item_id)
 
     async def close(self) -> None:
         pass
@@ -1029,6 +1084,46 @@ class HttpBackend:
             params["status"] = status
         resp = await self._client.get(
             "/api/runs", params=params, headers=self._headers()
+        )
+        self._check(resp)
+        result: list[dict[str, Any]] = resp.json()
+        return result
+
+    async def add_blocker(
+        self,
+        user_id: str,
+        item_id: str,
+        blocker_item_id: str,
+    ) -> dict[str, Any]:
+        resp = await self._client.post(
+            f"/api/items/{item_id}/blockers",
+            json={"blocker_item_id": blocker_item_id},
+            headers=self._headers(),
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def remove_blocker(
+        self,
+        user_id: str,
+        item_id: str,
+        blocker_item_id: str,
+    ) -> None:
+        resp = await self._client.delete(
+            f"/api/items/{item_id}/blockers/{blocker_item_id}",
+            headers=self._headers(),
+        )
+        self._check(resp)
+
+    async def list_blockers(
+        self,
+        user_id: str,
+        item_id: str,
+    ) -> list[dict[str, Any]]:
+        resp = await self._client.get(
+            f"/api/items/{item_id}/blockers",
+            headers=self._headers(),
         )
         self._check(resp)
         result: list[dict[str, Any]] = resp.json()

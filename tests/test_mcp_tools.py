@@ -854,3 +854,164 @@ async def test_update_comment_not_found(registered_client):
             "update_comment",
             {"comment_id": "nonexistent", "content_markdown": "Nope"},
         )
+
+
+# --- Blockers ---
+
+
+async def test_add_blocker(registered_client):
+    task = await registered_client.call_tool("add_item", {"title": "Task"})
+    task_id = _parse_result(task)["id"]
+    blocker = await registered_client.call_tool("add_item", {"title": "Blocker"})
+    blocker_id = _parse_result(blocker)["id"]
+
+    result = await registered_client.call_tool(
+        "add_blocker",
+        {"item_id": task_id, "blocker_item_id": blocker_id},
+    )
+    data = _parse_result(result)
+    assert data["id"] == blocker_id
+    assert data["title"] == "Blocker"
+    assert "status" in data
+    assert "project_id" in data
+
+
+async def test_add_blocker_idempotent(registered_client):
+    """Adding the same blocker twice returns the same result without error."""
+    task = await registered_client.call_tool("add_item", {"title": "Task"})
+    task_id = _parse_result(task)["id"]
+    blocker = await registered_client.call_tool("add_item", {"title": "Blocker"})
+    blocker_id = _parse_result(blocker)["id"]
+
+    await registered_client.call_tool(
+        "add_blocker",
+        {"item_id": task_id, "blocker_item_id": blocker_id},
+    )
+    result = await registered_client.call_tool(
+        "add_blocker",
+        {"item_id": task_id, "blocker_item_id": blocker_id},
+    )
+    data = _parse_result(result)
+    assert data["id"] == blocker_id
+
+
+async def test_add_blocker_self_block(registered_client):
+    task = await registered_client.call_tool("add_item", {"title": "Self"})
+    task_id = _parse_result(task)["id"]
+
+    with pytest.raises(ToolError, match="cannot block itself"):
+        await registered_client.call_tool(
+            "add_blocker",
+            {"item_id": task_id, "blocker_item_id": task_id},
+        )
+
+
+async def test_add_blocker_cycle(registered_client):
+    """Adding a blocker that would create a cycle raises ToolError."""
+    a = await registered_client.call_tool("add_item", {"title": "A"})
+    a_id = _parse_result(a)["id"]
+    b = await registered_client.call_tool("add_item", {"title": "B"})
+    b_id = _parse_result(b)["id"]
+
+    # A is blocked by B
+    await registered_client.call_tool(
+        "add_blocker",
+        {"item_id": a_id, "blocker_item_id": b_id},
+    )
+    # B blocked by A would create a cycle
+    with pytest.raises(ToolError, match="cycle"):
+        await registered_client.call_tool(
+            "add_blocker",
+            {"item_id": b_id, "blocker_item_id": a_id},
+        )
+
+
+async def test_add_blocker_item_not_found(registered_client):
+    with pytest.raises(ToolError, match="not found"):
+        await registered_client.call_tool(
+            "add_blocker",
+            {"item_id": "nonexistent", "blocker_item_id": "also-nonexistent"},
+        )
+
+
+async def test_list_blockers(registered_client):
+    task = await registered_client.call_tool("add_item", {"title": "Task"})
+    task_id = _parse_result(task)["id"]
+    blocker = await registered_client.call_tool("add_item", {"title": "Blocker"})
+    blocker_id = _parse_result(blocker)["id"]
+
+    await registered_client.call_tool(
+        "add_blocker",
+        {"item_id": task_id, "blocker_item_id": blocker_id},
+    )
+
+    result = await registered_client.call_tool("list_blockers", {"item_id": task_id})
+    data = _parse_result(result)
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["id"] == blocker_id
+    assert data[0]["title"] == "Blocker"
+    assert "status" in data[0]
+    assert "project_id" in data[0]
+
+
+async def test_list_blockers_empty(registered_client):
+    task = await registered_client.call_tool("add_item", {"title": "No Blockers"})
+    task_id = _parse_result(task)["id"]
+
+    result = await registered_client.call_tool("list_blockers", {"item_id": task_id})
+    data = _parse_result(result)
+    assert data == []
+
+
+async def test_list_blockers_not_found(registered_client):
+    with pytest.raises(ToolError, match="not found"):
+        await registered_client.call_tool("list_blockers", {"item_id": "nonexistent"})
+
+
+async def test_remove_blocker(registered_client):
+    task = await registered_client.call_tool("add_item", {"title": "Task"})
+    task_id = _parse_result(task)["id"]
+    blocker = await registered_client.call_tool("add_item", {"title": "Blocker"})
+    blocker_id = _parse_result(blocker)["id"]
+
+    await registered_client.call_tool(
+        "add_blocker",
+        {"item_id": task_id, "blocker_item_id": blocker_id},
+    )
+
+    result = await registered_client.call_tool(
+        "remove_blocker",
+        {"item_id": task_id, "blocker_item_id": blocker_id},
+    )
+    data = _parse_result(result)
+    assert data["ok"] is True
+
+    # Verify gone
+    blockers = _parse_result(
+        await registered_client.call_tool("list_blockers", {"item_id": task_id})
+    )
+    assert blockers == []
+
+
+async def test_remove_blocker_noop(registered_client):
+    """Removing a non-existent blocker relationship is a no-op (returns ok)."""
+    task = await registered_client.call_tool("add_item", {"title": "Task"})
+    task_id = _parse_result(task)["id"]
+    blocker = await registered_client.call_tool("add_item", {"title": "Blocker"})
+    blocker_id = _parse_result(blocker)["id"]
+
+    result = await registered_client.call_tool(
+        "remove_blocker",
+        {"item_id": task_id, "blocker_item_id": blocker_id},
+    )
+    data = _parse_result(result)
+    assert data["ok"] is True
+
+
+async def test_remove_blocker_item_not_found(registered_client):
+    with pytest.raises(ToolError, match="not found"):
+        await registered_client.call_tool(
+            "remove_blocker",
+            {"item_id": "nonexistent", "blocker_item_id": "also-nonexistent"},
+        )
