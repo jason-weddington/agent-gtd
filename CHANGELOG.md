@@ -2,6 +2,72 @@
 
 <!-- version list -->
 
+## v1.68.0 (2026-04-17)
+
+### Bug Fixes
+
+- **frontend**: Align review inbox triage statuses with kanban
+  ([`1edb400`](https://github.com/jason-weddington/agent-gtd/commit/1edb400529dda60beba99b4367f6c7f3b502b6b3))
+
+- **frontend**: Narrow header brand click target to title text only
+  ([`234e2c1`](https://github.com/jason-weddington/agent-gtd/commit/234e2c1ed7e28e9a526487f1d0cecc4fb8bbd0ca))
+
+- **frontend**: Prevent MUI right-slide after dispatch slide-up
+  ([`84dc012`](https://github.com/jason-weddington/agent-gtd/commit/84dc012c4110855b0df5f64054d05d1768667cc3))
+
+- **frontend**: Sort project list alphabetically case-insensitive
+  ([`91d05a5`](https://github.com/jason-weddington/agent-gtd/commit/91d05a508ac03a042a31026f6ca2bc5e44b78729))
+
+- **frontend**: Tick elapsed time live in ActiveRunsIndicator
+  ([`6a2ea1f`](https://github.com/jason-weddington/agent-gtd/commit/6a2ea1fa81fe39829a8333aca4e9804c6d4e5512))
+
+### Chores
+
+- Decouple release from deploy
+  ([`42ce061`](https://github.com/jason-weddington/agent-gtd/commit/42ce06190a9f9179c262dfffeea0414274fecb4e))
+
+- Gitignore .claude workspace state
+  ([`b3ecb00`](https://github.com/jason-weddington/agent-gtd/commit/b3ecb005c86c6a823e88b014166a52bb4873bdb8))
+
+- Relax coverage floor 93.4 -> 93 to absorb per-run fluctuation
+  ([`56151f3`](https://github.com/jason-weddington/agent-gtd/commit/56151f3433bdeb6b81aa17bb0e279f4e68f19c57))
+
+### Features
+
+- Surface dispatch max-concurrent in Settings (Agent Dispatch section)
+  ([`686208c`](https://github.com/jason-weddington/agent-gtd/commit/686208ccfa18801a5aba7d8de8b06202a6b1ee2d))
+
+- **api**: Blockers service + routes with cycle detection
+  ([`f659b5e`](https://github.com/jason-weddington/agent-gtd/commit/f659b5e8a84585626c6ec88ca7d6478b8b25b845))
+
+- **api**: Item typeahead search endpoint /api/items/search
+  ([`f2e6115`](https://github.com/jason-weddington/agent-gtd/commit/f2e6115bb3c67260353a8b9204e0cdbd32c48c98))
+
+- **api**: Populate blockers on single-item GET responses
+  ([`fe689cd`](https://github.com/jason-weddington/agent-gtd/commit/fe689cd11deb592f1c17e88b43c63dc25573f535))
+
+- **db**: Add item_dependencies table schema and migration
+  ([`230adb8`](https://github.com/jason-weddington/agent-gtd/commit/230adb858f21b22eb839bea306ff70a466c1be44))
+
+- **frontend**: BlockerPicker component + API client + types
+  ([`3e67d23`](https://github.com/jason-weddington/agent-gtd/commit/3e67d230cbf50f54402f291920f8e4a8e2088017))
+
+- **frontend**: Rationalize Projects-review step
+  ([`19a496f`](https://github.com/jason-weddington/agent-gtd/commit/19a496f66830a2c39de21911806bd37acf0ed53e))
+
+- **frontend**: Shortcut hint caption in header
+  ([`24f2016`](https://github.com/jason-weddington/agent-gtd/commit/24f201677cf146fb2a6d1b77fe22700cc8532f09))
+
+- **frontend**: Show queued dispatch runs in header + drawer
+  ([`9da3e09`](https://github.com/jason-weddington/agent-gtd/commit/9da3e099e8e09bce3bcf163827b051bfabcfa90f))
+
+- **frontend**: Wire BlockerPicker into ItemDetailDrawer and GtdItemList edit dialog
+  ([`67e714a`](https://github.com/jason-weddington/agent-gtd/commit/67e714a68ced32f79ab0b672ee7bc608baeea8d4))
+
+- **mcp**: Blockers MCP tools (add_blocker, remove_blocker, list_blockers)
+  ([`0e8bffc`](https://github.com/jason-weddington/agent-gtd/commit/0e8bffc92a61222358f49f1dc9dafd3f526d6931))
+
+
 ## v1.67.1 (2026-04-17)
 
 ### Bug Fixes
