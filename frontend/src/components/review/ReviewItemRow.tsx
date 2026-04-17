@@ -66,7 +66,7 @@ export default function ReviewItemRow({
   onTriageToggle,
 }: ReviewItemRowProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [triageStatus, setTriageStatus] = useState<ItemStatus>('next_action')
+  const [triageStatus, setTriageStatus] = useState<ItemStatus>('ready')
   const [triageProjectId, setTriageProjectId] = useState('')
 
   const isTriageOpen = triageOpenId === item.id
@@ -179,8 +179,10 @@ export default function ReviewItemRow({
                 onChange={(e) => setTriageStatus(e.target.value as ItemStatus)}
                 label="Status"
               >
-                <MenuItem value="next_action">To Do</MenuItem>
+                <MenuItem value="new">New</MenuItem>
+                <MenuItem value="ready">Ready</MenuItem>
                 <MenuItem value="active">In Progress</MenuItem>
+                <MenuItem value="review">Review</MenuItem>
                 <MenuItem value="waiting_for">Waiting</MenuItem>
                 <MenuItem value="someday_maybe">Someday</MenuItem>
               </Select>
@@ -204,7 +206,7 @@ export default function ReviewItemRow({
               onClick={() => {
                 triageConfig.onTriage(item.id, triageStatus, triageProjectId || null)
                 onTriageToggle?.(null)
-                setTriageStatus('next_action')
+                setTriageStatus('ready')
                 setTriageProjectId('')
               }}
             >
