@@ -84,6 +84,7 @@ export default function ItemDetailDrawer({
   const [dispatchMode, setDispatchMode] = useState<'build' | 'plan'>('build')
   const [dispatchError, setDispatchError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [dispatchAnimating, setDispatchAnimating] = useState(false)
 
   // Local item state — stays in sync with prop, then updated optimistically on each inline save
   const [localItem, setLocalItem] = useState<Item | null>(null)
@@ -295,6 +296,12 @@ export default function ItemDetailDrawer({
       setActiveRun(run)
       setConfirmOpen(false)
       setDispatchMode('build')
+      // Slide drawer up and away, then close
+      setDispatchAnimating(true)
+      setTimeout(() => {
+        setDispatchAnimating(false)
+        onClose()
+      }, 380)
     } catch (err) {
       setDispatchError(err instanceof ApiError ? err.detail : 'Dispatch failed')
     } finally {
@@ -336,7 +343,7 @@ export default function ItemDetailDrawer({
       <Drawer
         anchor="right"
         open={Boolean(item)}
-        onClose={onClose}
+        onClose={dispatchAnimating ? undefined : onClose}
         variant="temporary"
         sx={{
           '& .MuiDrawer-paper': {
@@ -344,7 +351,22 @@ export default function ItemDetailDrawer({
             boxSizing: 'border-box',
             top: '64px',
             height: 'calc(100% - 64px)',
+            ...(dispatchAnimating && {
+              animation: 'dispatchSlideUp 380ms cubic-bezier(0.4, 0, 1, 1) forwards',
+            }),
           },
+          ...(dispatchAnimating && {
+            '@keyframes dispatchSlideUp': {
+              '0%':   { transform: 'translateX(0)',    opacity: 1 },
+              '100%': { transform: 'translateY(-110%)', opacity: 0 },
+            },
+          }),
+          ...(dispatchAnimating && {
+            '& .MuiBackdrop-root': {
+              opacity: '0 !important',
+              transition: 'none !important',
+            },
+          }),
         }}
       >
         {localItem && (
