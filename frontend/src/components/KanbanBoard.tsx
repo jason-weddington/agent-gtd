@@ -15,7 +15,6 @@ const COLUMNS = [
   { id: 'in_progress', title: 'In Progress', statuses: ['active'] as ItemStatus[] },
   { id: 'review', title: 'Review', statuses: ['review'] as ItemStatus[] },
   { id: 'waiting_for', title: 'Waiting', statuses: ['waiting_for'] as ItemStatus[] },
-  { id: 'someday', title: 'Someday', statuses: ['someday_maybe'] as ItemStatus[] },
 ]
 
 /** Map a column ID to the default status when dropping into it */
@@ -25,7 +24,6 @@ const COLUMN_DEFAULT_STATUS: Record<string, ItemStatus> = {
   in_progress: 'active',
   review: 'review',
   waiting_for: 'waiting_for',
-  someday: 'someday_maybe',
 }
 
 /** Compute the midpoint sortOrder between two items, or at start/end */
