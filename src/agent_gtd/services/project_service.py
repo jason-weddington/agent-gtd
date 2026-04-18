@@ -13,14 +13,61 @@ from agent_gtd.exceptions import NotFoundError
 logger = logging.getLogger(__name__)
 
 
+async def accessible_project_ids(db: DbPool, user_id: str) -> list[str]:
+    """Return all project IDs accessible to the user: owned + shared.
+
+    A project is accessible if the user owns it (projects.user_id) or
+    is listed in project_members.
+
+    Args:
+        db: Database pool.
+        user_id: The calling user's ID.
+
+    Returns:
+        List of project ID strings the user can see.
+    """
+    rows = await db.fetch(
+        "SELECT id FROM projects WHERE user_id = $1 "
+        "UNION "
+        "SELECT project_id FROM project_members WHERE user_id = $2",
+        user_id,
+        user_id,
+    )
+    return [str(r["id"]) for r in rows]
+
+
 async def verify_project_ownership(db: DbPool, project_id: str, user_id: str) -> None:
-    """Verify that a project exists and belongs to the user.
+    """Verify that a project exists and belongs to the user (owner check).
+
+    Owner-only: use this for delete/update-metadata operations.
 
     Raises:
         NotFoundError: If the project doesn't exist or isn't owned by user.
     """
     row = await db.fetchrow(
         "SELECT id FROM projects WHERE id = $1 AND user_id = $2",
+        project_id,
+        user_id,
+    )
+    if row is None:
+        raise NotFoundError("Project", project_id)
+
+
+async def verify_project_access(db: DbPool, project_id: str, user_id: str) -> None:
+    """Verify that a project exists and is accessible to the user.
+
+    Accessible = owned by the user OR user is a project member.
+    Use this for read/write-to-children operations.
+
+    Raises:
+        NotFoundError: If the project doesn't exist or isn't accessible.
+    """
+    row = await db.fetchrow(
+        "SELECT id FROM projects WHERE id = $1 AND "
+        "(user_id = $2 OR EXISTS "
+        "(SELECT 1 FROM project_members WHERE project_id = $3 AND user_id = $4))",
+        project_id,
+        user_id,
         project_id,
         user_id,
     )
@@ -35,9 +82,17 @@ async def list_projects(
     status: str | None = None,
     area: str | None = None,
 ) -> list[dict[str, Any]]:
-    """List projects for a user, with optional filters."""
-    clauses = ["user_id = $1"]
-    params: list[object] = [user_id]
+    """List projects for a user, with optional filters.
+
+    Returns both owned projects and projects the user is a member of.
+    """
+    # Base: accessible projects (owned OR member).  $1 and $2 are both user_id;
+    # using two separate params keeps the $N-to-? mapping simple for SQLite.
+    clauses = [
+        "(user_id = $1 OR id IN "
+        "(SELECT project_id FROM project_members WHERE user_id = $2))"
+    ]
+    params: list[object] = [user_id, user_id]
 
     if status is not None:
         clauses.append(f"status = ${len(params) + 1}")
@@ -109,11 +164,17 @@ async def create_project(
 async def get_project(db: DbPool, user_id: str, project_id: str) -> dict[str, Any]:
     """Get a single project by ID.
 
+    Returns the project if the user owns it or is a member of it.
+
     Raises:
-        NotFoundError: If the project doesn't exist or isn't owned by user.
+        NotFoundError: If the project doesn't exist or isn't accessible.
     """
     row = await db.fetchrow(
-        "SELECT * FROM projects WHERE id = $1 AND user_id = $2",
+        "SELECT * FROM projects WHERE id = $1 AND "
+        "(user_id = $2 OR EXISTS "
+        "(SELECT 1 FROM project_members WHERE project_id = $3 AND user_id = $4))",
+        project_id,
+        user_id,
         project_id,
         user_id,
     )

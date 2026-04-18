@@ -9,23 +9,19 @@ from agent_gtd.database import row_to_dict
 from agent_gtd.db_types import DbPool
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.exceptions import NotFoundError
-from agent_gtd.services.project_service import verify_project_ownership
+from agent_gtd.services.item_service import get_item
+from agent_gtd.services.project_service import verify_project_access
 
 logger = logging.getLogger(__name__)
 
 
-async def _verify_item_ownership(
-    db: DbPool, item_id: str, user_id: str
-) -> dict[str, Any]:
-    """Verify an item exists and is owned by the user. Returns the item row."""
-    row = await db.fetchrow(
-        "SELECT * FROM items WHERE id = $1 AND user_id = $2",
-        item_id,
-        user_id,
-    )
-    if row is None:
-        raise NotFoundError("Item", item_id)
-    return row_to_dict(row)
+async def _verify_item_access(db: DbPool, item_id: str, user_id: str) -> dict[str, Any]:
+    """Verify an item is accessible to the user. Returns the item row.
+
+    An item is accessible if it is in a project the user can access (owned or
+    shared), or is a project-less inbox item owned by the user.
+    """
+    return await get_item(db, user_id, item_id)
 
 
 async def _resolve_project_id(
@@ -59,20 +55,16 @@ async def list_comments(
         NotFoundError: If the project/item doesn't exist or isn't owned by user.
     """
     if project_id:
-        await verify_project_ownership(db, project_id, user_id)
+        await verify_project_access(db, project_id, user_id)
         rows = await db.fetch(
-            "SELECT * FROM comments WHERE project_id = $1 AND user_id = $2 "
-            "ORDER BY created_at ASC",
+            "SELECT * FROM comments WHERE project_id = $1 ORDER BY created_at ASC",
             project_id,
-            user_id,
         )
     elif item_id:
-        await _verify_item_ownership(db, item_id, user_id)
+        await _verify_item_access(db, item_id, user_id)
         rows = await db.fetch(
-            "SELECT * FROM comments WHERE item_id = $1 AND user_id = $2 "
-            "ORDER BY created_at ASC",
+            "SELECT * FROM comments WHERE item_id = $1 ORDER BY created_at ASC",
             item_id,
-            user_id,
         )
     else:
         rows = await db.fetch(
@@ -99,9 +91,9 @@ async def create_comment(
         NotFoundError: If the parent doesn't exist or isn't owned by user.
     """
     if project_id:
-        await verify_project_ownership(db, project_id, user_id)
+        await verify_project_access(db, project_id, user_id)
     if item_id:
-        await _verify_item_ownership(db, item_id, user_id)
+        await _verify_item_access(db, item_id, user_id)
 
     now = datetime.now(UTC).isoformat()
     comment_id = str(uuid.uuid4())

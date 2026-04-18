@@ -15,7 +15,7 @@ from agent_gtd.exceptions import (
     VersionConflictError,
 )
 from agent_gtd.models import ItemStatus, Priority
-from agent_gtd.services.project_service import verify_project_ownership
+from agent_gtd.services.project_service import verify_project_access
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +29,20 @@ async def list_items(
     priority: str | None = None,
     assigned_to: str | None = None,
 ) -> list[dict[str, Any]]:
-    """List items for a user, with optional filters."""
-    clauses = ["user_id = $1"]
-    params: list[object] = [user_id]
+    """List items for a user, with optional filters.
+
+    Returns the user's own project-less (inbox) items plus all items in any
+    project the user can access (owned or shared).  Items with no project are
+    always private to their owner.
+    """
+    # Base access filter.  $1/$2/$3 are all user_id; separate param slots keep
+    # the SQLite $N-to-? conversion correct.
+    clauses = [
+        "((user_id = $1 AND project_id IS NULL) OR project_id IN "
+        "(SELECT id FROM projects WHERE user_id = $2 "
+        "UNION SELECT project_id FROM project_members WHERE user_id = $3))"
+    ]
+    params: list[object] = [user_id, user_id, user_id]
 
     if status is not None:
         params.append(status)
@@ -76,7 +87,7 @@ async def create_item(
         NotFoundError: If project_id is given but doesn't exist or isn't owned by user.
     """
     if project_id is not None:
-        await verify_project_ownership(db, project_id, user_id)
+        await verify_project_access(db, project_id, user_id)
 
     now = datetime.now(UTC).isoformat()
     item_id = str(uuid.uuid4())
@@ -127,12 +138,20 @@ async def create_item(
 async def get_item(db: DbPool, user_id: str, item_id: str) -> dict[str, Any]:
     """Get a single item by ID.
 
+    Accessible if the item is in a project the user can access (owned or
+    shared), or is a project-less (inbox) item owned by the user.
+
     Raises:
-        NotFoundError: If the item doesn't exist or isn't owned by user.
+        NotFoundError: If the item doesn't exist or isn't accessible.
     """
     row = await db.fetchrow(
-        "SELECT * FROM items WHERE id = $1 AND user_id = $2",
+        "SELECT * FROM items WHERE id = $1 AND "
+        "((user_id = $2 AND project_id IS NULL) OR project_id IN "
+        "(SELECT id FROM projects WHERE user_id = $3 "
+        "UNION SELECT project_id FROM project_members WHERE user_id = $4))",
         item_id,
+        user_id,
+        user_id,
         user_id,
     )
     if row is None:
@@ -204,7 +223,7 @@ async def update_item(
 
     if project_id_set:
         if project_id is not None:
-            await verify_project_ownership(db, str(project_id), user_id)
+            await verify_project_access(db, str(project_id), user_id)
         params.append(project_id)
         updates.append(f"project_id = ${len(params)}")
 
@@ -376,9 +395,9 @@ async def list_project_items(
     """List items for a specific project.
 
     Raises:
-        NotFoundError: If the project doesn't exist or isn't owned by user.
+        NotFoundError: If the project doesn't exist or isn't accessible.
     """
-    await verify_project_ownership(db, project_id, user_id)
+    await verify_project_access(db, project_id, user_id)
     return await list_items(db, user_id, project_id=project_id)
 
 
@@ -401,9 +420,9 @@ async def create_project_item(
     """Create an item in a specific project.
 
     Raises:
-        NotFoundError: If the project doesn't exist or isn't owned by user.
+        NotFoundError: If the project doesn't exist or isn't accessible.
     """
-    await verify_project_ownership(db, project_id, user_id)
+    await verify_project_access(db, project_id, user_id)
     return await create_item(
         db,
         user_id,

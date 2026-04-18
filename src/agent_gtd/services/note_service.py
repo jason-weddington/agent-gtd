@@ -9,7 +9,7 @@ from agent_gtd.database import decode_json_list, encode_json_list, row_to_dict
 from agent_gtd.db_types import DbPool
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.exceptions import NotFoundError
-from agent_gtd.services.project_service import verify_project_ownership
+from agent_gtd.services.project_service import verify_project_access
 
 logger = logging.getLogger(__name__)
 
@@ -19,24 +19,33 @@ async def list_project_notes(
 ) -> list[dict[str, Any]]:
     """List notes for a specific project.
 
+    Returns all notes in the project (not just the caller's own) so that
+    members can see notes created by other collaborators.
+
     Raises:
-        NotFoundError: If the project doesn't exist or isn't owned by user.
+        NotFoundError: If the project doesn't exist or isn't accessible.
     """
-    await verify_project_ownership(db, project_id, user_id)
+    await verify_project_access(db, project_id, user_id)
 
     rows = await db.fetch(
-        "SELECT * FROM notes WHERE project_id = $1 AND user_id = $2 "
-        "ORDER BY updated_at DESC",
+        "SELECT * FROM notes WHERE project_id = $1 ORDER BY updated_at DESC",
         project_id,
-        user_id,
     )
     return [row_to_dict(r) for r in rows]
 
 
 async def list_user_notes(db: DbPool, user_id: str) -> list[dict[str, Any]]:
-    """List all notes for a user across all projects."""
+    """List all notes across all projects accessible to the user.
+
+    Includes notes in owned projects and notes in projects where the user is
+    a member, regardless of who authored the individual notes.
+    """
     rows = await db.fetch(
-        "SELECT * FROM notes WHERE user_id = $1 ORDER BY updated_at DESC",
+        "SELECT * FROM notes WHERE project_id IN "
+        "(SELECT id FROM projects WHERE user_id = $1 "
+        "UNION SELECT project_id FROM project_members WHERE user_id = $2) "
+        "ORDER BY updated_at DESC",
+        user_id,
         user_id,
     )
     return [row_to_dict(r) for r in rows]
@@ -54,9 +63,9 @@ async def create_note(
     """Create a note in a project.
 
     Raises:
-        NotFoundError: If the project doesn't exist or isn't owned by user.
+        NotFoundError: If the project doesn't exist or isn't accessible.
     """
-    await verify_project_ownership(db, project_id, user_id)
+    await verify_project_access(db, project_id, user_id)
 
     now = datetime.now(UTC).isoformat()
     note_id = str(uuid.uuid4())
@@ -99,12 +108,17 @@ async def create_note(
 async def get_note(db: DbPool, user_id: str, note_id: str) -> dict[str, Any]:
     """Get a single note by ID.
 
+    Accessible if the note belongs to a project the user can access.
+
     Raises:
-        NotFoundError: If the note doesn't exist or isn't owned by user.
+        NotFoundError: If the note doesn't exist or isn't accessible.
     """
     row = await db.fetchrow(
-        "SELECT * FROM notes WHERE id = $1 AND user_id = $2",
+        "SELECT * FROM notes WHERE id = $1 AND project_id IN "
+        "(SELECT id FROM projects WHERE user_id = $2 "
+        "UNION SELECT project_id FROM project_members WHERE user_id = $3)",
         note_id,
+        user_id,
         user_id,
     )
     if row is None:
