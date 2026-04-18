@@ -166,6 +166,39 @@ async def test_item_dependencies_constraints():
     await pool.close()
 
 
+async def test_project_members_table_exists():
+    """project_members table and indexes are created by _SCHEMA_STATEMENTS."""
+    from agent_gtd.sqlite_pool import SqlitePool
+
+    pool = SqlitePool()
+    async with pool.acquire() as conn:
+        for stmt in db_mod._SCHEMA_STATEMENTS:
+            await conn.execute(stmt)
+
+    # Table is queryable (proves it exists).
+    rows = await pool.fetch("SELECT * FROM project_members")
+    assert rows == []
+
+    # Confirm the table name appears in sqlite_master.
+    tables = await pool.fetch(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='project_members'"
+    )
+    assert len(tables) == 1
+    assert tables[0]["name"] == "project_members"
+
+    # Confirm both indexes exist in sqlite_master.
+    indexes = await pool.fetch(
+        "SELECT name FROM sqlite_master WHERE type='index' "
+        "AND tbl_name='project_members' "
+        "AND name IN ('ix_project_members_user', 'ix_project_members_project')"
+    )
+    index_names = {row["name"] for row in indexes}
+    assert "ix_project_members_user" in index_names
+    assert "ix_project_members_project" in index_names
+
+    await pool.close()
+
+
 async def test_ensure_local_user_idempotent():
     from agent_gtd.sqlite_pool import SqlitePool
 
