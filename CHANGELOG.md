@@ -2,6 +2,46 @@
 
 <!-- version list -->
 
+## v1.69.0 (2026-04-18)
+
+### Chores
+
+- Relax coverage floor 93.3 -> 93 to absorb rounding fluctuation
+  ([`aee3500`](https://github.com/jason-weddington/agent-gtd/commit/aee35002d61d31057b8f735e7aa51c665bc1dfba))
+
+### Features
+
+- Engine + agent_name surfaced in dispatch settings
+  ([`edaf790`](https://github.com/jason-weddington/agent-gtd/commit/edaf7909d0513c80d7f3494f90c483ce72efbc5c))
+
+- Per-user dispatch config + owner-only dispatch guard
+  ([`1ef51ed`](https://github.com/jason-weddington/agent-gtd/commit/1ef51ed89a1a93687e00a4ef24d24f5f878d4f39))
+
+- **api**: Scope queries to accessible (owned + shared) projects
+  ([`cb581fd`](https://github.com/jason-weddington/agent-gtd/commit/cb581fdc4f39e7ba12e9ee89e091997d9ec2a4b2))
+
+- **api**: Search scoping + blocker sandboxing for shared projects
+  ([`0623c53`](https://github.com/jason-weddington/agent-gtd/commit/0623c53a407fcbcdd5216832d31fd3c73ec05068))
+
+- **api**: Settings returns service_api_key_preview instead of configured bool
+  ([`0d9c1b3`](https://github.com/jason-weddington/agent-gtd/commit/0d9c1b3b332cf4c926a9c8ba64672366ead34f35))
+
+- **api**: Share management endpoints + MCP tools
+  ([`8b41176`](https://github.com/jason-weddington/agent-gtd/commit/8b4117640346e9957424de59ae98de0f10ec9f8a))
+
+- **db**: Add project_members table + indexes
+  ([`232094a`](https://github.com/jason-weddington/agent-gtd/commit/232094a78185a744e328fe5301f735bb812d884c))
+
+- **frontend**: Masked API key preview — write-only field behavior
+  ([`982f3a2`](https://github.com/jason-weddington/agent-gtd/commit/982f3a25d0b802b3d9da3a80cdb39d60d527fcb6))
+
+- **frontend**: Shared-project UI — share tab, handshake, shared-with-you, attribution
+  ([`17b5740`](https://github.com/jason-weddington/agent-gtd/commit/17b5740ca9f414b91db783d111de2cecf7d44f8c))
+
+- **mcp**: Board_state snapshot on project-scoped tool responses
+  ([`16113b7`](https://github.com/jason-weddington/agent-gtd/commit/16113b758cc1e9f33304d260d9edf2c519652a4a))
+
+
 ## v1.68.0 (2026-04-17)
 
 ### Bug Fixes
