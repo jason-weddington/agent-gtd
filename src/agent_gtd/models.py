@@ -431,6 +431,26 @@ class MaxConcurrentRequest(BaseModel):
     value: int
 
 
+class DispatchSettingsResponse(BaseModel):
+    """Full dispatch settings returned from GET /api/settings/dispatch."""
+
+    engine: str
+    agent_name: str
+    max_concurrent: int
+    service_url: str
+    service_api_key_configured: bool
+
+
+class UpdateDispatchSettingsRequest(BaseModel):
+    """Body for PATCH /api/settings/dispatch — per-user dispatch config.
+
+    Only provided fields are updated; omit a field to leave it unchanged.
+    """
+
+    service_url: str | None = None
+    service_api_key: str | None = None
+
+
 class RunResponse(BaseModel):
     """Claude dispatch run data returned from API."""
 

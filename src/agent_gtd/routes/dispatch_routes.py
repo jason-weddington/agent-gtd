@@ -2,17 +2,17 @@
 
 import logging
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
-from agent_gtd import dispatch_worker
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
 from agent_gtd.exceptions import NotFoundError, RunActiveError
 from agent_gtd.models import CreateRunRequest, RunResponse, RunStatus, User
 from agent_gtd.services import dispatch_service
+from agent_gtd.services.settings_service import get_dispatch_config
 
 logger = logging.getLogger(__name__)
 
@@ -45,19 +45,21 @@ def _run_response(row: dict[str, object]) -> RunResponse:
     )
 
 
-async def _check_dispatch_service() -> None:
-    """Pre-flight check: verify the dispatch service is reachable."""
-    if not dispatch_worker.DISPATCH_SERVICE_URL:
+async def _check_dispatch_service(db: Any, user_id: str) -> None:
+    """Pre-flight check: verify dispatch is configured and the service is reachable."""
+    settings = await get_dispatch_config(db, user_id)
+    if not settings:
         raise HTTPException(
             status_code=503,
             detail="Dispatch service not configured",
         )
+    url = settings["url"]
+    api_key = settings["api_key"]
     try:
         async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
-            key = dispatch_worker.DISPATCH_SERVICE_API_KEY
             resp = await client.get(
-                f"{dispatch_worker.DISPATCH_SERVICE_URL}/health",
-                headers={"Authorization": f"Bearer {key}"},
+                f"{url}/health",
+                headers={"Authorization": f"Bearer {api_key}"},
                 timeout=5.0,
             )
             if resp.status_code != 200:
@@ -87,11 +89,33 @@ async def dispatch_item(
     body: CreateRunRequest,
     user: Annotated[User, Depends(get_current_user)],
 ) -> RunResponse:
-    """Dispatch a Claude Code agent to work on an item."""
-    # Pre-flight: ensure dispatch service is reachable before creating a run
-    await _check_dispatch_service()
+    """Dispatch a Claude Code agent to work on an item.
 
+    Only the project owner may dispatch agents.  Project-less (inbox) items
+    are always dispatchable by their owner.
+    """
     db = await get_db()
+
+    # --- Ownership guard ---
+    # Fetch the item's project_id without an access filter (we need the raw
+    # project_id to check ownership, even for members who can read the item).
+    item_check = await db.fetchrow(
+        "SELECT project_id FROM items WHERE id = $1", item_id
+    )
+    if item_check is not None and item_check["project_id"] is not None:
+        project_check = await db.fetchrow(
+            "SELECT user_id FROM projects WHERE id = $1",
+            item_check["project_id"],
+        )
+        if project_check is not None and str(project_check["user_id"]) != user.id:
+            raise HTTPException(
+                status_code=403,
+                detail="only the project owner can dispatch agents",
+            )
+
+    # Pre-flight: ensure dispatch service is configured and reachable
+    await _check_dispatch_service(db, user.id)
+
     try:
         row = await dispatch_service.create_run(
             db, user.id, item_id, max_turns=body.max_turns, mode=body.mode

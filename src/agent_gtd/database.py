@@ -182,6 +182,16 @@ _SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX IF NOT EXISTS ix_project_members_user ON project_members(user_id)",
     "CREATE INDEX IF NOT EXISTS ix_project_members_project "
     "ON project_members(project_id)",
+    """
+    CREATE TABLE IF NOT EXISTS user_settings (
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, key)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_user_settings_user ON user_settings(user_id)",
 ]
 
 # Idempotent column additions for existing databases.
@@ -210,6 +220,16 @@ _MIGRATIONS: list[str] = [
     "CREATE INDEX IF NOT EXISTS ix_project_members_user ON project_members(user_id)",
     "CREATE INDEX IF NOT EXISTS ix_project_members_project "
     "ON project_members(project_id)",
+    """
+    CREATE TABLE IF NOT EXISTS user_settings (
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, key)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_user_settings_user ON user_settings(user_id)",
 ]
 
 

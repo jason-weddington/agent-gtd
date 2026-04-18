@@ -51,3 +51,11 @@ async def project_id(client: AsyncClient, auth_headers: dict[str, str]) -> str:
         headers=auth_headers,
     )
     return res.json()["id"]
+
+
+@pytest.fixture
+async def user_id(client: AsyncClient, auth_headers: dict[str, str]) -> str:
+    """Return the authenticated test user's ID."""
+    res = await client.get("/api/auth/me", headers=auth_headers)
+    assert res.status_code == 200
+    return res.json()["id"]

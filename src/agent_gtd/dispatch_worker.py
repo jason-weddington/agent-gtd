@@ -19,8 +19,6 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
-DISPATCH_SERVICE_URL = os.environ.get("DISPATCH_SERVICE_URL", "")
-DISPATCH_SERVICE_API_KEY = os.environ.get("DISPATCH_SERVICE_API_KEY", "")
 DEFAULT_MAX_TURNS = int(os.environ.get("DISPATCH_DEFAULT_MAX_TURNS", "100"))
 _MAX_CONCURRENT_DEFAULT = int(os.environ.get("DISPATCH_MAX_CONCURRENT", "6"))
 POLL_INTERVAL = 15  # seconds between status polls
@@ -95,21 +93,20 @@ def _publish_run_event(
 # ---------------------------------------------------------------------------
 
 
-def _dispatch_headers() -> dict[str, str]:
-    return {"Authorization": f"Bearer {DISPATCH_SERVICE_API_KEY}"}
-
-
 async def _dispatch_to_remote(
     client: httpx.AsyncClient,
     item_id: str,
     max_turns: int,
     mode: str = "build",
+    *,
+    url: str,
+    api_key: str,
 ) -> dict[str, Any]:
     """POST /dispatch to the remote service. Returns the remote run dict."""
     resp = await client.post(
-        f"{DISPATCH_SERVICE_URL}/dispatch",
+        f"{url}/dispatch",
         json={"item_id": item_id, "max_turns": max_turns, "mode": mode},
-        headers=_dispatch_headers(),
+        headers={"Authorization": f"Bearer {api_key}"},
         timeout=30.0,
     )
     resp.raise_for_status()
@@ -120,11 +117,14 @@ async def _dispatch_to_remote(
 async def _poll_remote_run(
     client: httpx.AsyncClient,
     remote_run_id: str,
+    *,
+    url: str,
+    api_key: str,
 ) -> dict[str, Any]:
     """GET /runs/{id} from the remote service. Returns the remote run dict."""
     resp = await client.get(
-        f"{DISPATCH_SERVICE_URL}/runs/{remote_run_id}",
-        headers=_dispatch_headers(),
+        f"{url}/runs/{remote_run_id}",
+        headers={"Authorization": f"Bearer {api_key}"},
         timeout=15.0,
     )
     resp.raise_for_status()
@@ -135,12 +135,15 @@ async def _poll_remote_run(
 async def _cancel_remote_run(
     client: httpx.AsyncClient,
     remote_run_id: str,
+    *,
+    url: str,
+    api_key: str,
 ) -> None:
     """POST /runs/{id}/cancel on the remote service."""
     try:
         await client.post(
-            f"{DISPATCH_SERVICE_URL}/runs/{remote_run_id}/cancel",
-            headers=_dispatch_headers(),
+            f"{url}/runs/{remote_run_id}/cancel",
+            headers={"Authorization": f"Bearer {api_key}"},
             timeout=15.0,
         )
     except Exception:
@@ -165,6 +168,7 @@ async def reconcile_active_runs() -> int:
     Returns the number of runs reconciled.
     """
     from agent_gtd.database import get_db, row_to_dict
+    from agent_gtd.services.settings_service import get_dispatch_config
 
     db = await get_db()
     rows = await db.fetch(
@@ -183,6 +187,7 @@ async def reconcile_active_runs() -> int:
         run = row_to_dict(row)
         run_id = str(run["id"])
         remote_id = str(run.get("remote_run_id", ""))
+        user_id = str(run["user_id"])
 
         if not remote_id:
             # Never made it to remote dispatch — mark as failed
@@ -196,10 +201,28 @@ async def reconcile_active_runs() -> int:
             reconciled += 1
             continue
 
+        # Look up the run owner's dispatch config
+        settings = await get_dispatch_config(db, user_id)
+        if not settings:
+            await _update_run(
+                db,
+                run_id,
+                status="failed",
+                finished_at=now,
+                error_msg="Dispatch not configured for this user",
+            )
+            reconciled += 1
+            continue
+
+        dispatch_url = settings["url"]
+        dispatch_api_key = settings["api_key"]
+
         # Poll remote for actual status
         try:
             async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
-                remote = await _poll_remote_run(client, remote_id)
+                remote = await _poll_remote_run(
+                    client, remote_id, url=dispatch_url, api_key=dispatch_api_key
+                )
         except Exception:
             logger.warning(
                 "Cannot reach dispatch service for run %s (remote %s), marking failed",
@@ -237,7 +260,11 @@ async def reconcile_active_runs() -> int:
         else:
             # Still running — resume polling
             logger.info("Resuming polling for run %s (remote %s)", run_id, remote_id)
-            asyncio.create_task(_resume_polling(db, run, remote_id))
+            asyncio.create_task(
+                _resume_polling(
+                    db, run, remote_id, url=dispatch_url, api_key=dispatch_api_key
+                )
+            )
 
         reconciled += 1
 
@@ -249,6 +276,9 @@ async def _resume_polling(
     db: Any,
     run: dict[str, Any],
     remote_run_id: str,
+    *,
+    url: str,
+    api_key: str,
 ) -> None:
     """Resume the poll loop for a run that was still active after restart."""
     run_id = str(run["id"])
@@ -260,7 +290,9 @@ async def _resume_polling(
             while True:
                 await asyncio.sleep(POLL_INTERVAL)
                 try:
-                    remote = await _poll_remote_run(client, remote_run_id)
+                    remote = await _poll_remote_run(
+                        client, remote_run_id, url=url, api_key=api_key
+                    )
                 except Exception:
                     logger.warning(
                         "Poll failed for resumed run %s (remote %s), will retry",
@@ -274,7 +306,7 @@ async def _resume_polling(
                     break
 
         except asyncio.CancelledError:
-            await _cancel_remote_run(client, remote_run_id)
+            await _cancel_remote_run(client, remote_run_id, url=url, api_key=api_key)
             await _update_run(
                 db,
                 run_id,
@@ -315,30 +347,47 @@ async def execute_run(
 ) -> None:
     """Execute a dispatch run by forwarding to the remote dispatch service.
 
+    Looks up the run owner's dispatch config from ``user_settings``.  If not
+    configured, the run is immediately marked failed with a clear message.
+
     Updates the local run row as it progresses. The remote service handles
     cloning, Claude invocation, and posting comments to the GTD API.
     """
+    from agent_gtd.services.settings_service import get_dispatch_config
+
     run_id = str(run["id"])
     item_id = str(run["item_id"])
     user_id = str(run["user_id"])
     max_turns = int(str(run["max_turns"]))
     mode = str(run.get("mode", "build"))
 
-    if not DISPATCH_SERVICE_URL:
+    # Resolve per-user dispatch config
+    settings = await get_dispatch_config(db, user_id)
+    if not settings:
         await _update_run(
             db,
             run_id,
             status="failed",
             finished_at=datetime.now(UTC).isoformat(),
-            error_msg="DISPATCH_SERVICE_URL not configured",
+            error_msg="Dispatch not configured for this user",
         )
         _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
         return
 
+    dispatch_url = settings["url"]
+    dispatch_api_key = settings["api_key"]
+
     async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
         # --- Dispatch to remote ---
         try:
-            remote_run = await _dispatch_to_remote(client, item_id, max_turns, mode)
+            remote_run = await _dispatch_to_remote(
+                client,
+                item_id,
+                max_turns,
+                mode,
+                url=dispatch_url,
+                api_key=dispatch_api_key,
+            )
             remote_run_id = remote_run["id"]
         except Exception as e:
             logger.exception("Failed to dispatch run %s to remote service", run_id)
@@ -369,7 +418,12 @@ async def execute_run(
                 await asyncio.sleep(POLL_INTERVAL)
 
                 try:
-                    remote = await _poll_remote_run(client, remote_run_id)
+                    remote = await _poll_remote_run(
+                        client,
+                        remote_run_id,
+                        url=dispatch_url,
+                        api_key=dispatch_api_key,
+                    )
                 except Exception:
                     logger.warning(
                         "Poll failed for run %s (remote %s), will retry",
@@ -384,7 +438,9 @@ async def execute_run(
 
         except asyncio.CancelledError:
             # Local cancellation — forward to remote
-            await _cancel_remote_run(client, remote_run_id)
+            await _cancel_remote_run(
+                client, remote_run_id, url=dispatch_url, api_key=dispatch_api_key
+            )
             await _update_run(
                 db,
                 run_id,

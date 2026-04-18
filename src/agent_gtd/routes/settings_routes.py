@@ -1,13 +1,18 @@
 """App settings API routes."""
 
 import os
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
-from agent_gtd.models import MaxConcurrentRequest, User
+from agent_gtd.models import (
+    DispatchSettingsResponse,
+    MaxConcurrentRequest,
+    UpdateDispatchSettingsRequest,
+    User,
+)
 from agent_gtd.services import settings_service
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -15,6 +20,33 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 _MAX_CONCURRENT_KEY = "dispatch.max_concurrent"
 _MIN_VALUE = 1
 _MAX_VALUE = 20
+
+
+async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsResponse:
+    """Construct a DispatchSettingsResponse from DB state."""
+    val = await settings_service.get_setting(db, _MAX_CONCURRENT_KEY)
+    max_concurrent = (
+        int(val)
+        if val is not None
+        else int(os.environ.get("DISPATCH_MAX_CONCURRENT", "6"))
+    )
+
+    service_url = (
+        await settings_service.get_user_setting(db, user_id, "dispatch.service_url")
+        or ""
+    )
+
+    api_key = await settings_service.get_user_setting(
+        db, user_id, "dispatch.service_api_key"
+    )
+
+    return DispatchSettingsResponse(
+        engine="claude",
+        agent_name="",
+        max_concurrent=max_concurrent,
+        service_url=service_url,
+        service_api_key_configured=bool(api_key),
+    )
 
 
 @router.get("/dispatch/max-concurrent")
@@ -50,3 +82,40 @@ async def set_max_concurrent(
     db = await get_db()
     await settings_service.set_setting(db, _MAX_CONCURRENT_KEY, str(body.value))
     return {"value": body.value}
+
+
+@router.get("/dispatch", response_model=DispatchSettingsResponse)
+async def get_dispatch_settings(
+    user: Annotated[User, Depends(get_current_user)],
+) -> DispatchSettingsResponse:
+    """Return the caller's current dispatch settings.
+
+    The ``service_api_key`` is never returned — only ``service_api_key_configured``
+    (bool) is exposed to indicate whether a key has been stored.
+    """
+    db = await get_db()
+    return await _build_dispatch_response(db, user.id)
+
+
+@router.patch("/dispatch", response_model=DispatchSettingsResponse)
+async def update_dispatch_settings(
+    body: UpdateDispatchSettingsRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> DispatchSettingsResponse:
+    """Update the caller's per-user dispatch configuration.
+
+    Only provided fields are modified.  The ``service_api_key`` is stored
+    as-is in ``user_settings`` and never returned in responses.
+    """
+    db = await get_db()
+
+    if body.service_url is not None:
+        await settings_service.set_user_setting(
+            db, user.id, "dispatch.service_url", body.service_url
+        )
+    if body.service_api_key is not None:
+        await settings_service.set_user_setting(
+            db, user.id, "dispatch.service_api_key", body.service_api_key
+        )
+
+    return await _build_dispatch_response(db, user.id)
