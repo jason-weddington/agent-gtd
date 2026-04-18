@@ -43,6 +43,30 @@ async def get_user_setting(db: Any, user_id: str, key: str) -> str | None:
     return str(row["value"]) if row else None
 
 
+async def get_user_setting_last4(db: Any, user_id: str, key: str) -> str:
+    """Return the last 4 chars of a per-user setting value, or '' if unset.
+
+    Uses a custom SQL query so this function is literally incapable of
+    returning more than 4 characters — a defense-in-depth guarantee for
+    the settings API's read path.
+
+    Compatible with both PostgreSQL (asyncpg) and the SQLite fallback; uses
+    a CASE expression instead of GREATEST/MAX(a,b) which differ across
+    dialects.
+    """
+    row = await db.fetchrow(
+        "SELECT SUBSTR(value, "
+        "CASE WHEN LENGTH(value) > 4 THEN LENGTH(value) - 3 ELSE 1 END"
+        ") AS last4 "
+        "FROM user_settings WHERE user_id = $1 AND key = $2",
+        user_id,
+        key,
+    )
+    if row is None:
+        return ""
+    return str(row["last4"])
+
+
 async def set_user_setting(db: Any, user_id: str, key: str, value: str) -> None:
     """Persist a per-user setting value (upsert)."""
     now = datetime.now(UTC).isoformat()

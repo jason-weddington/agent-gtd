@@ -170,7 +170,7 @@ async def test_get_dispatch_settings_defaults(
     assert data["agent_name"] == ""
     assert data["max_concurrent"] == 6
     assert data["service_url"] == ""
-    assert data["service_api_key_configured"] is False
+    assert data["service_api_key_preview"] == ""
 
 
 @pytest.mark.asyncio
@@ -192,9 +192,9 @@ async def test_get_dispatch_settings_never_leaks_api_key(
     assert res.status_code == 200
     data = res.json()
 
-    # Key presence is indicated by the boolean, never exposed directly
+    # Full key is never exposed; only a masked preview is returned
     assert "service_api_key" not in data or data.get("service_api_key") is None
-    assert data["service_api_key_configured"] is True
+    assert data["service_api_key_preview"] == "****-key"
     assert "super-secret-key" not in str(data)
 
 
@@ -211,14 +211,14 @@ async def test_patch_dispatch_settings_service_url(
     assert res.status_code == 200
     data = res.json()
     assert data["service_url"] == "https://dispatch.example.com"
-    assert data["service_api_key_configured"] is False  # key not set yet
+    assert data["service_api_key_preview"] == ""  # key not set yet
 
 
 @pytest.mark.asyncio
 async def test_patch_dispatch_settings_api_key_shows_configured(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    """PATCH with service_api_key sets configured=True without leaking the value."""
+    """PATCH with service_api_key returns masked preview without leaking the value."""
     res = await client.patch(
         "/api/settings/dispatch",
         json={
@@ -229,7 +229,8 @@ async def test_patch_dispatch_settings_api_key_shows_configured(
     )
     assert res.status_code == 200
     data = res.json()
-    assert data["service_api_key_configured"] is True
+    # "my-secret" last 4 chars = "cret"
+    assert data["service_api_key_preview"] == "****cret"
     assert "my-secret" not in str(data)
 
 
@@ -303,8 +304,8 @@ async def test_patch_dispatch_settings_partial_update(
     assert res.status_code == 200
     data = res.json()
     assert data["service_url"] == "https://updated.example.com"
-    # API key should still be configured
-    assert data["service_api_key_configured"] is True
+    # API key should still be previewed (not cleared)
+    assert data["service_api_key_preview"] == "****-key"
 
 
 @pytest.mark.asyncio
@@ -331,7 +332,7 @@ async def test_dispatch_config_is_per_user(
     assert res_b_get.status_code == 200
     data_b = res_b_get.json()
     assert data_b["service_url"] == ""
-    assert data_b["service_api_key_configured"] is False
+    assert data_b["service_api_key_preview"] == ""
 
 
 @pytest.mark.asyncio
@@ -349,3 +350,174 @@ async def test_patch_dispatch_settings_unauthenticated(client: AsyncClient) -> N
         json={"service_url": "https://example.com"},
     )
     assert res.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# service_api_key_preview field
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_dispatch_settings_preview_empty_when_no_key(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """GET returns service_api_key_preview='' when no key has been stored."""
+    res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["service_api_key_preview"] == ""
+
+
+@pytest.mark.asyncio
+async def test_get_dispatch_settings_preview_last4_after_patch(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """GET returns ****XXXX preview (last 4 chars of key) after PATCH stores a key."""
+    await client.patch(
+        "/api/settings/dispatch",
+        json={
+            "service_url": "http://pironman01:8100",
+            "service_api_key": "abcd1234XYZjL54",  # gitleaks:allow
+        },
+        headers=auth_headers,
+    )
+    res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["service_api_key_preview"] == "****jL54"
+    # Full key must never appear anywhere in the response
+    assert "abcd1234XYZjL54" not in str(data)
+
+
+@pytest.mark.asyncio
+async def test_get_dispatch_settings_preview_not_in_full_key(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """GET response never contains the full stored API key value."""
+    fake_key = "my-top-secret-key-9999"  # gitleaks:allow
+    await client.patch(
+        "/api/settings/dispatch",
+        json={"service_url": "https://example.com", "service_api_key": fake_key},
+        headers=auth_headers,
+    )
+    res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert res.status_code == 200
+    assert fake_key not in str(res.json())
+
+
+@pytest.mark.asyncio
+async def test_patch_omit_key_leaves_preview_unchanged(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH without service_api_key leaves the existing key and preview unchanged."""
+    # Store an initial key
+    await client.patch(
+        "/api/settings/dispatch",
+        json={
+            "service_url": "https://example.com",
+            "service_api_key": "abcd1234XYZjL54",  # gitleaks:allow
+        },
+        headers=auth_headers,
+    )
+    first_res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    first_preview = first_res.json()["service_api_key_preview"]
+    assert first_preview == "****jL54"
+
+    # Patch only the URL — key should be untouched
+    await client.patch(
+        "/api/settings/dispatch",
+        json={"service_url": "https://updated.example.com"},
+        headers=auth_headers,
+    )
+    second_res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert second_res.json()["service_api_key_preview"] == first_preview
+
+
+@pytest.mark.asyncio
+async def test_get_user_setting_last4_returns_exactly_4_chars(
+    auth_headers: dict[str, str],
+    client: AsyncClient,
+) -> None:
+    """get_user_setting_last4 returns exactly 4 chars for a key longer than 4 chars."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services import settings_service
+
+    # Get the authenticated user's ID
+    me = await client.get("/api/auth/me", headers=auth_headers)
+    uid = me.json()["id"]
+
+    db = await get_db()
+
+    # Store a 10-char value directly
+    await settings_service.set_user_setting(
+        db, uid, "dispatch.service_api_key", "1234567890"
+    )
+
+    last4 = await settings_service.get_user_setting_last4(
+        db, uid, "dispatch.service_api_key"
+    )
+    assert last4 == "7890"
+    assert len(last4) == 4
+
+
+@pytest.mark.asyncio
+async def test_get_user_setting_last4_returns_full_value_when_short(
+    auth_headers: dict[str, str],
+    client: AsyncClient,
+) -> None:
+    """get_user_setting_last4 returns the full value when it is shorter than 4 chars."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services import settings_service
+
+    me = await client.get("/api/auth/me", headers=auth_headers)
+    uid = me.json()["id"]
+    db = await get_db()
+
+    await settings_service.set_user_setting(db, uid, "dispatch.service_api_key", "ab")
+    last4 = await settings_service.get_user_setting_last4(
+        db, uid, "dispatch.service_api_key"
+    )
+    assert last4 == "ab"
+
+
+@pytest.mark.asyncio
+async def test_get_user_setting_last4_empty_when_missing(
+    auth_headers: dict[str, str],
+    client: AsyncClient,
+) -> None:
+    """get_user_setting_last4 returns '' when no value is stored."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services import settings_service
+
+    me = await client.get("/api/auth/me", headers=auth_headers)
+    uid = me.json()["id"]
+    db = await get_db()
+
+    result = await settings_service.get_user_setting_last4(
+        db, uid, "dispatch.service_api_key"
+    )
+    assert result == ""
+
+
+@pytest.mark.asyncio
+async def test_get_user_setting_last4_not_full_value(
+    auth_headers: dict[str, str],
+    client: AsyncClient,
+) -> None:
+    """get_user_setting_last4 never returns the full value for a long key."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services import settings_service
+
+    me = await client.get("/api/auth/me", headers=auth_headers)
+    uid = me.json()["id"]
+    db = await get_db()
+
+    full_key = "abcd1234XYZjL54"  # gitleaks:allow
+    await settings_service.set_user_setting(
+        db, uid, "dispatch.service_api_key", full_key
+    )
+
+    last4 = await settings_service.get_user_setting_last4(
+        db, uid, "dispatch.service_api_key"
+    )
+    assert last4 == "jL54"
+    assert last4 != full_key

@@ -36,16 +36,17 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
         or ""
     )
 
-    api_key = await settings_service.get_user_setting(
+    last4 = await settings_service.get_user_setting_last4(
         db, user_id, "dispatch.service_api_key"
     )
+    preview = f"****{last4}" if last4 else ""
 
     return DispatchSettingsResponse(
         engine="claude",
         agent_name="",
         max_concurrent=max_concurrent,
         service_url=service_url,
-        service_api_key_configured=bool(api_key),
+        service_api_key_preview=preview,
     )
 
 
@@ -90,8 +91,8 @@ async def get_dispatch_settings(
 ) -> DispatchSettingsResponse:
     """Return the caller's current dispatch settings.
 
-    The ``service_api_key`` is never returned — only ``service_api_key_configured``
-    (bool) is exposed to indicate whether a key has been stored.
+    The ``service_api_key`` is never returned — only ``service_api_key_preview``
+    (masked last 4 chars, e.g. ``****jL54``) is exposed, or ``""`` when unset.
     """
     db = await get_db()
     return await _build_dispatch_response(db, user.id)

@@ -438,7 +438,7 @@ class DispatchSettingsResponse(BaseModel):
     agent_name: str
     max_concurrent: int
     service_url: str
-    service_api_key_configured: bool
+    service_api_key_preview: str = ""
 
 
 class UpdateDispatchSettingsRequest(BaseModel):
