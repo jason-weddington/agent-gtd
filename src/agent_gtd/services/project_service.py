@@ -324,7 +324,16 @@ async def add_project_member(
             "user_id": member_user_id,
             "email": member_email_str,
             "added_at": str(existing["added_at"]),
+            "blockers_purged": 0,
         }
+
+    # Detect first-share transition BEFORE insert so idempotent re-adds don't
+    # trigger a repeat purge.
+    prior_count = await db.fetchrow(
+        "SELECT COUNT(*) AS cnt FROM project_members WHERE project_id = $1",
+        project_id,
+    )
+    is_first_member = prior_count is not None and int(prior_count["cnt"]) == 0
 
     now = datetime.now(UTC).isoformat()
     await db.execute(
@@ -335,10 +344,40 @@ async def add_project_member(
         now,
     )
 
+    # Purge cross-project blocker edges touching this project on first share.
+    # After that, add_blocker enforces same-project so no new edges can form.
+    blockers_purged = 0
+    if is_first_member:
+        rows = await db.fetch(
+            """
+            SELECT id.id
+            FROM item_dependencies id
+            JOIN items a ON id.item_id = a.id
+            JOIN items b ON id.blocker_item_id = b.id
+            WHERE (a.project_id = $1 OR b.project_id = $2)
+              AND COALESCE(a.project_id, '') <> COALESCE(b.project_id, '')
+            """,
+            project_id,
+            project_id,
+        )
+        for row in rows:
+            await db.execute(
+                "DELETE FROM item_dependencies WHERE id = $1",
+                str(row["id"]),
+            )
+        blockers_purged = len(rows)
+        if blockers_purged > 0:
+            logger.info(
+                "Purged %d cross-project blocker(s) when project %s was shared",
+                blockers_purged,
+                project_id,
+            )
+
     return {
         "user_id": member_user_id,
         "email": member_email_str,
         "added_at": now,
+        "blockers_purged": blockers_purged,
     }
 
 

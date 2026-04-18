@@ -2,12 +2,15 @@
 
 import contextlib
 import json
+import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from agent_gtd.db_types import DbPool
+
+logger = logging.getLogger(__name__)
 
 _pool: DbPool | None = None
 
@@ -277,6 +280,36 @@ async def ensure_local_user(db: DbPool) -> None:
     )
 
 
+async def _sweep_cross_project_blockers(pool: DbPool) -> None:
+    """One-time defensive cleanup: remove blocker edges that cross project boundaries.
+
+    Before the same-project invariant was introduced, ``add_blocker`` allowed
+    edges between items in different projects.  This migration finds any such
+    rows and deletes them so that sharing a project cannot accidentally expose
+    private item titles through leftover dependency edges.
+
+    The migration is idempotent: after the first run there are no cross-project
+    edges left, so subsequent runs query and find nothing to delete.
+    """
+    rows = await pool.fetch(
+        """
+        SELECT id.id
+        FROM item_dependencies id
+        JOIN items a ON id.item_id = a.id
+        JOIN items b ON id.blocker_item_id = b.id
+        WHERE COALESCE(a.project_id, '') <> COALESCE(b.project_id, '')
+        """
+    )
+    count = len(rows)
+    if count > 0:
+        for row in rows:
+            await pool.execute(
+                "DELETE FROM item_dependencies WHERE id = $1",
+                str(row["id"]),
+            )
+        logger.info("Startup migration: purged %d cross-project blocker edge(s)", count)
+
+
 async def init_db() -> None:
     """Create tables if they don't exist."""
     pool = await get_db()
@@ -286,6 +319,8 @@ async def init_db() -> None:
         for stmt in _MIGRATIONS:
             with contextlib.suppress(Exception):
                 await conn.execute(stmt)
+
+    await _sweep_cross_project_blockers(pool)
 
     if is_local_mode():
         await ensure_local_user(pool)

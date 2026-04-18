@@ -1,7 +1,23 @@
 """Tests for GET /api/items/search endpoint."""
 
+from datetime import UTC, datetime
+
 import pytest
 from httpx import AsyncClient
+
+from agent_gtd.database import get_db
+
+
+async def _add_member(project_id: str, user_id: str) -> None:
+    """Add a project member directly via SQL."""
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO project_members (project_id, user_id, added_at)"
+        " VALUES ($1, $2, $3)",
+        project_id,
+        user_id,
+        datetime.now(UTC).isoformat(),
+    )
 
 
 async def test_search_returns_matching_items(
@@ -289,3 +305,111 @@ async def test_search_valid_limit_values(
         headers=auth_headers,
     )
     assert res.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Sharing-aware search scoping
+# ---------------------------------------------------------------------------
+
+
+async def test_search_does_not_leak_private_project_items(client: AsyncClient):
+    """User B cannot find items in User A's private projects by exact title."""
+    # Register users A and B
+    res_a = await client.post(
+        "/api/auth/register",
+        json={"email": "search_a@example.com", "password": "pass123"},
+    )
+    headers_a = {"Authorization": f"Bearer {res_a.json()['token']}"}
+    res_b = await client.post(
+        "/api/auth/register",
+        json={"email": "search_b@example.com", "password": "pass123"},
+    )
+    headers_b = {"Authorization": f"Bearer {res_b.json()['token']}"}
+
+    # User A creates a project (private — not shared with B)
+    proj_res = await client.post(
+        "/api/projects",
+        json={"name": "A Private Project"},
+        headers=headers_a,
+    )
+    proj_id = proj_res.json()["id"]
+
+    # User A creates an item in the private project
+    await client.post(
+        f"/api/projects/{proj_id}/items",
+        json={"title": "Top Secret Plan", "status": "next_action"},
+        headers=headers_a,
+    )
+
+    # User B searches — must not see User A's private item
+    res = await client.get(
+        "/api/items/search",
+        params={"q": "Top Secret Plan"},
+        headers=headers_b,
+    )
+    assert res.status_code == 200
+    assert res.json() == [], "User B should not find items in A's private project"
+
+
+async def test_search_finds_items_in_shared_project(client: AsyncClient):
+    """User B CAN find items in a project that User A shared with B."""
+    # Register users A and B
+    res_a = await client.post(
+        "/api/auth/register",
+        json={"email": "shared_search_a@example.com", "password": "pass123"},
+    )
+    headers_a = {"Authorization": f"Bearer {res_a.json()['token']}"}
+    user_b_res = await client.post(
+        "/api/auth/register",
+        json={"email": "shared_search_b@example.com", "password": "pass123"},
+    )
+    headers_b = {"Authorization": f"Bearer {user_b_res.json()['token']}"}
+    user_b_id = user_b_res.json()["user"]["id"]
+
+    # User A creates a project and shares it with B
+    proj_res = await client.post(
+        "/api/projects",
+        json={"name": "Shared Project"},
+        headers=headers_a,
+    )
+    proj_id = proj_res.json()["id"]
+    await _add_member(proj_id, user_b_id)
+
+    # User A creates an item in the shared project
+    await client.post(
+        f"/api/projects/{proj_id}/items",
+        json={"title": "Collaborative Task", "status": "next_action"},
+        headers=headers_a,
+    )
+
+    # User B searches — must see the shared item
+    res = await client.get(
+        "/api/items/search",
+        params={"q": "Collaborative Task"},
+        headers=headers_b,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data) == 1, "User B should find the item in the shared project"
+    assert data[0]["title"] == "Collaborative Task"
+
+
+async def test_search_own_inbox_still_findable(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Own inbox (project-less) items are always findable by their owner."""
+    await client.post(
+        "/api/items",
+        json={"title": "My inbox thought", "status": "inbox"},
+        headers=auth_headers,
+    )
+    res = await client.get(
+        "/api/items/search",
+        params={"q": "inbox thought"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data) == 1
+    assert data[0]["title"] == "My inbox thought"
+    assert data[0]["project_id"] is None

@@ -446,33 +446,41 @@ async def search_items(
     q: str,
     limit: int = 10,
 ) -> list[dict[str, Any]]:
-    """Search items by title for the calling user.
+    """Search items by title across all projects accessible to the caller.
 
     Returns a list of lightweight dicts suitable for BlockerSummary.
-    Excludes done items. Prefix matches rank above substring matches.
+    Includes the caller's own inbox items and items in any project the user
+    owns or is a member of. Excludes done items. Prefix matches rank above
+    substring matches.
 
     Args:
         db: Database pool.
-        user_id: Owner user ID — only their items are returned.
+        user_id: Calling user ID — only accessible items are returned.
         q: Search query (case-insensitive substring match on title).
         limit: Maximum number of results (default 10, max 25).
     """
-    # Pass q twice: once for the WHERE filter, once for the ORDER BY prefix rank.
-    # Using $3 / $4 separately keeps positional params compatible with the SQLite
-    # adapter (which maps each $N to its own ? placeholder).
+    # $1/$2/$3 are all user_id (inbox check, owned projects, member projects).
+    # $4/$5 are the search query (filter + prefix-rank). $6 is limit.
+    # Using separate param slots keeps the SQLite $N-to-? mapping correct.
     sql = """
         SELECT i.id, i.title, i.status, i.project_id, p.name AS project_name
         FROM items i
         LEFT JOIN projects p ON p.id = i.project_id
-        WHERE i.user_id = $1
-          AND LOWER(i.title) LIKE '%' || LOWER($2) || '%'
+        WHERE (
+            (i.user_id = $1 AND i.project_id IS NULL)
+            OR i.project_id IN (
+                SELECT id FROM projects WHERE user_id = $2
+                UNION SELECT project_id FROM project_members WHERE user_id = $3
+            )
+        )
+          AND LOWER(i.title) LIKE '%' || LOWER($4) || '%'
           AND i.status <> 'done'
         ORDER BY
-          (LOWER(i.title) LIKE LOWER($3) || '%') DESC,
+          (LOWER(i.title) LIKE LOWER($5) || '%') DESC,
           i.updated_at DESC
-        LIMIT $4
+        LIMIT $6
     """
-    rows = await db.fetch(sql, user_id, q, q, limit)
+    rows = await db.fetch(sql, user_id, user_id, user_id, q, q, limit)
     return [row_to_dict(r) for r in rows]
 
 
@@ -550,9 +558,21 @@ async def add_blocker(
     if item_id == blocker_item_id:
         raise ValidationError("an item cannot block itself")
 
-    # Verify both items belong to the user (raises NotFoundError otherwise).
-    await get_item(db, user_id, item_id)
-    await get_item(db, user_id, blocker_item_id)
+    # Verify both items are accessible to the user (raises NotFoundError otherwise).
+    item_row = await get_item(db, user_id, item_id)
+    blocker_row = await get_item(db, user_id, blocker_item_id)
+
+    # Same-project enforcement: both items must belong to the same project (or
+    # both be inbox items with no project).  Cross-project blocker edges are
+    # disallowed because they can leak private item titles across sharing
+    # boundaries when either project is later shared with other users.
+    item_pid = item_row.get("project_id")
+    blocker_pid = blocker_row.get("project_id")
+    if item_pid != blocker_pid:
+        raise ValidationError(
+            "cross-project blockers are not allowed; "
+            "both items must be in the same project"
+        )
 
     # Idempotent: return existing silently.
     existing = await db.fetchrow(

@@ -39,8 +39,8 @@ async def test_add_blocker_success(client: AsyncClient, auth_headers: dict[str, 
 async def test_add_blocker_with_project(
     client: AsyncClient, auth_headers: dict[str, str], project_id: str
 ):
-    """Blocker summary includes project info when the blocker is in a project."""
-    # Create blocker item in a project
+    """Blocker summary includes project info when both items are in the same project."""
+    # Both the blocked item and the blocker must be in the same project.
     res = await client.post(
         f"/api/projects/{project_id}/items",
         json={"title": "Blocker in project"},
@@ -49,7 +49,13 @@ async def test_add_blocker_with_project(
     assert res.status_code == 201
     blocker_id = res.json()["id"]
 
-    item_id = await _create_item(client, auth_headers, "Needs blocker")
+    res = await client.post(
+        f"/api/projects/{project_id}/items",
+        json={"title": "Needs blocker (same project)"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    item_id = res.json()["id"]
 
     res = await client.post(
         f"/api/items/{item_id}/blockers",
@@ -210,7 +216,7 @@ async def test_list_blockers_returns_summary_with_project_info(
     client: AsyncClient, auth_headers: dict[str, str], project_id: str
 ):
     """list_blockers returns joined summary including project info."""
-    # Blocker in a project
+    # Both items must be in the same project (same-project invariant).
     res = await client.post(
         f"/api/projects/{project_id}/items",
         json={"title": "Blocker task"},
@@ -219,7 +225,13 @@ async def test_list_blockers_returns_summary_with_project_info(
     assert res.status_code == 201
     blocker_id = res.json()["id"]
 
-    item_id = await _create_item(client, auth_headers, "Main task")
+    res = await client.post(
+        f"/api/projects/{project_id}/items",
+        json={"title": "Main task"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    item_id = res.json()["id"]
 
     # Add blocker
     await client.post(
@@ -401,7 +413,7 @@ async def test_add_blocker_allows_non_cycle_fan(
     non_cycle_scenario: list[tuple[str, str]],
 ):
     """Non-cyclic graphs with multiple edges are allowed."""
-    # Create items named a, b, c
+    # Create items named a, b, c (all inbox — same "project" = None)
     ids: dict[str, str] = {}
     for name in {"a", "b", "c"}:
         ids[name] = await _create_item(client, auth_headers, name)
@@ -416,3 +428,118 @@ async def test_add_blocker_allows_non_cycle_fan(
             f"Expected 201 for {item_key}→{blocker_key}, "
             f"got {res.status_code}: {res.json()}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Same-project enforcement (cross-project blocker rejection)
+# ---------------------------------------------------------------------------
+
+
+async def _create_project_item(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str, title: str
+) -> str:
+    """Helper: create an item in a specific project and return its ID."""
+    res = await client.post(
+        f"/api/projects/{project_id}/items",
+        json={"title": title},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    return res.json()["id"]
+
+
+async def test_add_blocker_rejects_cross_project_edges(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """add_blocker rejects edges between items in different projects."""
+    # Create two separate projects
+    proj_a_res = await client.post(
+        "/api/projects", json={"name": "Project A"}, headers=auth_headers
+    )
+    proj_a = proj_a_res.json()["id"]
+    proj_b_res = await client.post(
+        "/api/projects", json={"name": "Project B"}, headers=auth_headers
+    )
+    proj_b = proj_b_res.json()["id"]
+
+    item_in_a = await _create_project_item(client, auth_headers, proj_a, "Task in A")
+    item_in_b = await _create_project_item(client, auth_headers, proj_b, "Task in B")
+
+    res = await client.post(
+        f"/api/items/{item_in_a}/blockers",
+        json={"blocker_item_id": item_in_b},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    detail = res.json()["detail"]
+    assert "cross-project" in detail.lower()
+    assert "same project" in detail.lower()
+
+
+async def test_add_blocker_same_project_still_works(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Existing same-project blocker edges continue to work unchanged."""
+    item_a = await _create_project_item(client, auth_headers, project_id, "Task A")
+    item_b = await _create_project_item(client, auth_headers, project_id, "Task B")
+
+    res = await client.post(
+        f"/api/items/{item_a}/blockers",
+        json={"blocker_item_id": item_b},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["id"] == item_b
+
+
+async def test_add_blocker_inbox_to_inbox_allowed(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Inbox-to-inbox blocker (both project-less, same user) is allowed."""
+    item_a = await _create_item(client, auth_headers, "Inbox A")
+    item_b = await _create_item(client, auth_headers, "Inbox B")
+
+    res = await client.post(
+        f"/api/items/{item_a}/blockers",
+        json={"blocker_item_id": item_b},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+
+
+async def test_add_blocker_inbox_to_project_rejected(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Inbox item → project item blocker edge is rejected (cross-project)."""
+    inbox_item = await _create_item(client, auth_headers, "Inbox item")
+    project_item = await _create_project_item(
+        client, auth_headers, project_id, "Project item"
+    )
+
+    # inbox → project: rejected
+    res = await client.post(
+        f"/api/items/{inbox_item}/blockers",
+        json={"blocker_item_id": project_item},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert "cross-project" in res.json()["detail"].lower()
+
+
+async def test_add_blocker_project_to_inbox_rejected(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Project item → inbox item blocker edge is rejected (cross-project)."""
+    project_item = await _create_project_item(
+        client, auth_headers, project_id, "Project item"
+    )
+    inbox_item = await _create_item(client, auth_headers, "Inbox item")
+
+    # project → inbox: rejected
+    res = await client.post(
+        f"/api/items/{project_item}/blockers",
+        json={"blocker_item_id": inbox_item},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert "cross-project" in res.json()["detail"].lower()

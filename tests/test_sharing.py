@@ -9,6 +9,7 @@ Covers the access matrix:
 - Share management API (task 3): REST endpoints + service functions
 """
 
+import uuid
 from datetime import UTC, datetime
 
 import pytest
@@ -793,3 +794,157 @@ async def test_rest_list_members_excludes_owner(
     emails = [m["email"] for m in res.json()]
     assert "owner_api@example.com" not in emails
     assert "member_api@example.com" in emails
+
+
+# ---------------------------------------------------------------------------
+# add_project_member: blocker purge on share
+# ---------------------------------------------------------------------------
+
+
+async def test_add_project_member_purges_cross_project_blockers(
+    user_a, user_b, project_p
+):
+    """Sharing a project with existing cross-project blockers purges them.
+
+    Before the same-project invariant was introduced, blockers could cross
+    project boundaries.  When the project is shared, those legacy edges are
+    purged so the new member cannot infer private item titles from blocker info.
+    """
+    db = await get_db()
+
+    # Create an inbox item for user A (no project)
+    inbox_item = await item_service.inbox_capture(
+        db, user_a.id, "A's private inbox item"
+    )
+
+    # Manually insert a cross-project blocker edge (simulating pre-invariant data)
+    # The edge goes: project_p item (item_i) is blocked by inbox item
+    project_item = await item_service.create_item(
+        db, user_a.id, title="Project task", project_id=project_p["id"]
+    )
+    dep_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO item_dependencies (id, item_id, blocker_item_id, created_at)"
+        " VALUES ($1, $2, $3, $4)",
+        dep_id,
+        project_item["id"],  # in project_p
+        inbox_item["id"],  # in no project (inbox)
+        now,
+    )
+
+    # Verify the cross-project edge exists
+    dep = await db.fetchrow("SELECT id FROM item_dependencies WHERE id = $1", dep_id)
+    assert dep is not None, "Cross-project blocker edge should exist before sharing"
+
+    # Share the project — should purge the cross-project edge
+    result = await project_service.add_project_member(
+        db, user_a.id, project_p["id"], user_b.email
+    )
+    assert result["blockers_purged"] == 1
+
+    # The cross-project edge must be gone
+    dep_after = await db.fetchrow(
+        "SELECT id FROM item_dependencies WHERE id = $1", dep_id
+    )
+    assert dep_after is None, (
+        "Cross-project blocker edge should be purged after sharing"
+    )
+
+
+async def test_add_project_member_second_member_does_not_repurge(
+    user_a, user_b, project_p
+):
+    """Adding a second member to an already-shared project does NOT re-purge blockers.
+
+    The purge only happens on the first share (private → shared transition).
+    Once a project is shared, add_blocker enforces the same-project invariant
+    so no new cross-project edges can be created.
+    """
+    db = await get_db()
+    user_c = await register_user("user_c_sharing@example.com", "password123")
+
+    # First share: add user_b as member
+    result_first = await project_service.add_project_member(
+        db, user_a.id, project_p["id"], user_b.email
+    )
+    assert result_first["blockers_purged"] == 0  # no cross-project blockers exist
+
+    # Create a same-project blocker (valid under the invariant)
+    item_x = await item_service.create_item(
+        db, user_a.id, title="Item X", project_id=project_p["id"]
+    )
+    item_y = await item_service.create_item(
+        db, user_a.id, title="Item Y", project_id=project_p["id"]
+    )
+    await item_service.add_blocker(db, user_a.id, item_x["id"], item_y["id"])
+
+    # Second share: add user_c as member — must NOT purge the valid same-project edge
+    result_second = await project_service.add_project_member(
+        db, user_a.id, project_p["id"], user_c.email
+    )
+    assert result_second["blockers_purged"] == 0
+
+    # The same-project edge must still exist
+    blockers = await item_service.list_blockers(db, user_a.id, item_x["id"])
+    assert len(blockers) == 1
+    assert blockers[0]["id"] == item_y["id"]
+
+
+async def test_add_project_member_purge_leaves_same_project_edges(
+    user_a, user_b, project_p
+):
+    """The on-share purge deletes only cross-project edges; same-project edges survive."""  # noqa: E501
+    db = await get_db()
+
+    # Create two items in project_p
+    item_x = await item_service.create_item(
+        db, user_a.id, title="Item X in P", project_id=project_p["id"]
+    )
+    item_y = await item_service.create_item(
+        db, user_a.id, title="Item Y in P", project_id=project_p["id"]
+    )
+
+    # Manually insert a same-project blocker (valid edge)
+    dep_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO item_dependencies (id, item_id, blocker_item_id, created_at)"
+        " VALUES ($1, $2, $3, $4)",
+        dep_id,
+        item_x["id"],
+        item_y["id"],
+        now,
+    )
+
+    # Create an inbox item for user A
+    inbox_item = await item_service.inbox_capture(db, user_a.id, "Inbox straggler")
+
+    # Manually insert a cross-project blocker edge (legacy bad data)
+    cross_dep_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO item_dependencies (id, item_id, blocker_item_id, created_at)"
+        " VALUES ($1, $2, $3, $4)",
+        cross_dep_id,
+        item_x["id"],
+        inbox_item["id"],  # different project (inbox)
+        now,
+    )
+
+    # Share the project
+    result = await project_service.add_project_member(
+        db, user_a.id, project_p["id"], user_b.email
+    )
+    assert result["blockers_purged"] == 1  # only the cross-project edge
+
+    # Same-project edge survives
+    same_dep = await db.fetchrow(
+        "SELECT id FROM item_dependencies WHERE id = $1", dep_id
+    )
+    assert same_dep is not None, "Same-project blocker edge must not be purged"
+
+    # Cross-project edge is gone
+    cross_dep = await db.fetchrow(
+        "SELECT id FROM item_dependencies WHERE id = $1", cross_dep_id
+    )
+    assert cross_dep is None, "Cross-project blocker edge must be purged"
