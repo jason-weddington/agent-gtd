@@ -1015,3 +1015,137 @@ async def test_remove_blocker_item_not_found(registered_client):
             "remove_blocker",
             {"item_id": "nonexistent", "blocker_item_id": "also-nonexistent"},
         )
+
+
+# --- Sharing (member management) ---
+
+
+@pytest.fixture
+async def other_user(user_id):
+    """A second user to add as project member."""
+    return await register_user("member_mcp@example.com", "testpass123")
+
+
+async def test_share_project(registered_client, project_id, other_user):
+    """share_project adds a member and returns member summary."""
+    result = await registered_client.call_tool(
+        "share_project",
+        {"project_id": project_id, "email": "member_mcp@example.com"},
+    )
+    data = _parse_result(result)
+    assert data["email"] == "member_mcp@example.com"
+    assert "user_id" in data
+    assert "added_at" in data
+
+
+async def test_share_project_not_found(registered_client):
+    """share_project raises ToolError when project doesn't exist."""
+    with pytest.raises(ToolError, match="not found"):
+        await registered_client.call_tool(
+            "share_project",
+            {"project_id": "nonexistent", "email": "member_mcp@example.com"},
+        )
+
+
+async def test_share_project_unknown_email(registered_client, project_id):
+    """share_project raises ToolError when email doesn't match any user."""
+    with pytest.raises(ToolError, match="not found"):
+        await registered_client.call_tool(
+            "share_project",
+            {"project_id": project_id, "email": "nobody@example.com"},
+        )
+
+
+async def test_share_project_idempotent(registered_client, project_id, other_user):
+    """share_project is idempotent — second call returns existing membership."""
+    first = _parse_result(
+        await registered_client.call_tool(
+            "share_project",
+            {"project_id": project_id, "email": "member_mcp@example.com"},
+        )
+    )
+    second = _parse_result(
+        await registered_client.call_tool(
+            "share_project",
+            {"project_id": project_id, "email": "member_mcp@example.com"},
+        )
+    )
+    assert first["user_id"] == second["user_id"]
+    assert first["added_at"] == second["added_at"]
+
+
+async def test_list_project_members_empty(registered_client, project_id):
+    """list_project_members returns empty list when no members."""
+    result = await registered_client.call_tool(
+        "list_project_members",
+        {"project_id": project_id},
+    )
+    data = _parse_result(result)
+    assert data == []
+
+
+async def test_list_project_members(registered_client, project_id, other_user):
+    """list_project_members returns members after share_project."""
+    await registered_client.call_tool(
+        "share_project",
+        {"project_id": project_id, "email": "member_mcp@example.com"},
+    )
+    result = await registered_client.call_tool(
+        "list_project_members",
+        {"project_id": project_id},
+    )
+    data = _parse_result(result)
+    assert len(data) == 1
+    assert data[0]["email"] == "member_mcp@example.com"
+
+
+async def test_list_project_members_not_found(registered_client):
+    """list_project_members raises ToolError for nonexistent project."""
+    with pytest.raises(ToolError, match="not found"):
+        await registered_client.call_tool(
+            "list_project_members",
+            {"project_id": "nonexistent"},
+        )
+
+
+async def test_unshare_project(registered_client, project_id, other_user):
+    """unshare_project removes a member and returns {ok: true}."""
+    await registered_client.call_tool(
+        "share_project",
+        {"project_id": project_id, "email": "member_mcp@example.com"},
+    )
+
+    result = await registered_client.call_tool(
+        "unshare_project",
+        {"project_id": project_id, "email": "member_mcp@example.com"},
+    )
+    data = _parse_result(result)
+    assert data["ok"] is True
+
+    # Member is gone
+    members = _parse_result(
+        await registered_client.call_tool(
+            "list_project_members",
+            {"project_id": project_id},
+        )
+    )
+    assert members == []
+
+
+async def test_unshare_project_noop(registered_client, project_id, other_user):
+    """unshare_project is a no-op when user is not a member."""
+    result = await registered_client.call_tool(
+        "unshare_project",
+        {"project_id": project_id, "email": "member_mcp@example.com"},
+    )
+    data = _parse_result(result)
+    assert data["ok"] is True
+
+
+async def test_unshare_project_not_found(registered_client):
+    """unshare_project raises ToolError for nonexistent project."""
+    with pytest.raises(ToolError, match="not found"):
+        await registered_client.call_tool(
+            "unshare_project",
+            {"project_id": "nonexistent", "email": "member_mcp@example.com"},
+        )

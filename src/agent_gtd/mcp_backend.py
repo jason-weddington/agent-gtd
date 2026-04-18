@@ -182,6 +182,26 @@ class McpBackend(Protocol):
         item_id: str,
     ) -> list[dict[str, Any]]: ...
 
+    async def add_project_member(
+        self,
+        user_id: str,
+        project_id: str,
+        email: str,
+    ) -> dict[str, Any]: ...
+
+    async def remove_project_member(
+        self,
+        user_id: str,
+        project_id: str,
+        email: str,
+    ) -> None: ...
+
+    async def list_project_members(
+        self,
+        user_id: str,
+        project_id: str,
+    ) -> list[dict[str, Any]]: ...
+
     async def close(self) -> None: ...
 
 
@@ -629,6 +649,48 @@ class LocalBackend:
 
         db = await get_db()
         return await item_service.list_blockers(db, user_id, item_id)
+
+    async def add_project_member(
+        self,
+        user_id: str,
+        project_id: str,
+        email: str,
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import project_service
+
+        db = await get_db()
+        return await project_service.add_project_member(db, user_id, project_id, email)
+
+    async def remove_project_member(
+        self,
+        user_id: str,
+        project_id: str,
+        email: str,
+    ) -> None:
+        from agent_gtd.database import get_db
+        from agent_gtd.exceptions import NotFoundError
+        from agent_gtd.services import project_service
+
+        db = await get_db()
+        row = await db.fetchrow("SELECT id FROM users WHERE email = $1", email)
+        if row is None:
+            raise NotFoundError("User", email)
+        member_user_id = str(row["id"])
+        await project_service.remove_project_member(
+            db, user_id, project_id, member_user_id
+        )
+
+    async def list_project_members(
+        self,
+        user_id: str,
+        project_id: str,
+    ) -> list[dict[str, Any]]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import project_service
+
+        db = await get_db()
+        return await project_service.list_project_members(db, user_id, project_id)
 
     async def close(self) -> None:
         pass
@@ -1123,6 +1185,50 @@ class HttpBackend:
     ) -> list[dict[str, Any]]:
         resp = await self._client.get(
             f"/api/items/{item_id}/blockers",
+            headers=self._headers(),
+        )
+        self._check(resp)
+        result: list[dict[str, Any]] = resp.json()
+        return result
+
+    async def add_project_member(
+        self,
+        user_id: str,
+        project_id: str,
+        email: str,
+    ) -> dict[str, Any]:
+        resp = await self._client.post(
+            f"/api/projects/{project_id}/members",
+            json={"email": email},
+            headers=self._headers(),
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def remove_project_member(
+        self,
+        user_id: str,
+        project_id: str,
+        email: str,
+    ) -> None:
+        members = await self.list_project_members(user_id, project_id)
+        member = next((m for m in members if m["email"] == email), None)
+        if member is None:
+            return
+        resp = await self._client.delete(
+            f"/api/projects/{project_id}/members/{member['user_id']}",
+            headers=self._headers(),
+        )
+        self._check(resp)
+
+    async def list_project_members(
+        self,
+        user_id: str,
+        project_id: str,
+    ) -> list[dict[str, Any]]:
+        resp = await self._client.get(
+            f"/api/projects/{project_id}/members",
             headers=self._headers(),
         )
         self._check(resp)

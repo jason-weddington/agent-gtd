@@ -7,9 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
-from agent_gtd.exceptions import NotFoundError
+from agent_gtd.exceptions import NotFoundError, ValidationError
 from agent_gtd.models import (
+    AddMemberRequest,
     CreateProjectRequest,
+    MemberSummary,
     ProjectResponse,
     ProjectStatus,
     UpdateProjectRequest,
@@ -121,3 +123,62 @@ async def delete_project(
         await project_service.delete_project(db, user.id, project_id)
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None
+
+
+def _member_response(row: dict[str, object]) -> MemberSummary:
+    return MemberSummary(
+        user_id=str(row["user_id"]),
+        email=str(row["email"]),
+        added_at=datetime.fromisoformat(str(row["added_at"])),
+    )
+
+
+@router.post("/{project_id}/members", response_model=MemberSummary, status_code=201)
+async def add_project_member(
+    project_id: str,
+    body: AddMemberRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> MemberSummary:
+    """Add a member to a project by email (owner-only, idempotent)."""
+    db = await get_db()
+    try:
+        row = await project_service.add_project_member(
+            db, user.id, project_id, body.email
+        )
+    except NotFoundError:
+        raise HTTPException(
+            status_code=404, detail="Project or user not found"
+        ) from None
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.detail) from None
+    return _member_response(row)
+
+
+@router.delete("/{project_id}/members/{member_user_id}", status_code=204)
+async def remove_project_member(
+    project_id: str,
+    member_user_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+) -> None:
+    """Remove a member from a project (owner-only, no-op if not a member)."""
+    db = await get_db()
+    try:
+        await project_service.remove_project_member(
+            db, user.id, project_id, member_user_id
+        )
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found") from None
+
+
+@router.get("/{project_id}/members", response_model=list[MemberSummary])
+async def list_project_members(
+    project_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+) -> list[MemberSummary]:
+    """List members of a project (accessible to owner and any member)."""
+    db = await get_db()
+    try:
+        rows = await project_service.list_project_members(db, user.id, project_id)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found") from None
+    return [_member_response(r) for r in rows]

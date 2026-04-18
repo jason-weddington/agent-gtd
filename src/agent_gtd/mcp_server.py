@@ -218,6 +218,91 @@ async def add_project(
     )
 
 
+# --- Project member tools ---
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+async def share_project(
+    project_id: str,
+    email: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """Share a project with a user by email. Caller must own the project.
+
+    Idempotent: if the user is already a member, returns the existing
+    membership without error.
+
+    Args:
+        project_id: ID of the project to share.
+        email: Email address of the user to add.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        Member summary dict: user_id, email, added_at.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.add_project_member(session["user_id"], project_id, email)
+    except (NotFoundError, ValidationError) as e:
+        raise ToolError(e.detail) from None
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+async def unshare_project(
+    project_id: str,
+    email: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """Remove a user from a project by email. Caller must own the project.
+
+    No-op if the user is not currently a member.
+
+    Args:
+        project_id: ID of the project.
+        email: Email address of the user to remove.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        {"ok": true}
+    """
+    session = await _get_session(ctx)
+    try:
+        await _backend.remove_project_member(session["user_id"], project_id, email)
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+    return {"ok": True}
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
+)
+async def list_project_members(
+    project_id: str,
+    ctx: Context,
+) -> list[dict[str, Any]]:
+    """List the members of a project.
+
+    Accessible to the project owner and any member. Does not include
+    the owner in the results.
+
+    Args:
+        project_id: ID of the project.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        List of member dicts: user_id, email, added_at.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.list_project_members(session["user_id"], project_id)
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+
+
 # --- Item tools ---
 
 

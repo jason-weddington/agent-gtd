@@ -8,7 +8,7 @@ from typing import Any
 from agent_gtd.database import row_to_dict
 from agent_gtd.db_types import DbPool
 from agent_gtd.event_bus import get_event_bus
-from agent_gtd.exceptions import NotFoundError
+from agent_gtd.exceptions import NotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -273,3 +273,135 @@ async def delete_project(db: DbPool, user_id: str, project_id: str) -> None:
         )
     except Exception:
         logger.exception("Failed to publish project_deleted event")
+
+
+async def add_project_member(
+    db: DbPool,
+    owner_user_id: str,
+    project_id: str,
+    member_email: str,
+) -> dict[str, Any]:
+    """Add a user to a project by email (owner-only, idempotent).
+
+    If the user is already a member, returns the existing membership without
+    creating a duplicate (idempotent).
+
+    Args:
+        db: Database pool.
+        owner_user_id: Calling user's ID — must be the project owner.
+        project_id: ID of the project to share.
+        member_email: Email address of the user to add.
+
+    Returns:
+        Dict with user_id, email, and added_at.
+
+    Raises:
+        NotFoundError: If the project doesn't exist or caller isn't owner.
+        NotFoundError: If member_email doesn't match any registered user.
+        ValidationError: If trying to add the project owner as a member.
+    """
+    await verify_project_ownership(db, project_id, owner_user_id)
+
+    user_row = await db.fetchrow(
+        "SELECT id, email FROM users WHERE email = $1", member_email
+    )
+    if user_row is None:
+        raise NotFoundError("User", member_email)
+
+    member_user_id = str(user_row["id"])
+    member_email_str = str(user_row["email"])
+
+    if member_user_id == owner_user_id:
+        raise ValidationError("Cannot add the project owner as a member")
+
+    existing = await db.fetchrow(
+        "SELECT added_at FROM project_members WHERE project_id = $1 AND user_id = $2",
+        project_id,
+        member_user_id,
+    )
+    if existing is not None:
+        return {
+            "user_id": member_user_id,
+            "email": member_email_str,
+            "added_at": str(existing["added_at"]),
+        }
+
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO project_members (project_id, user_id, added_at)"
+        " VALUES ($1, $2, $3)",
+        project_id,
+        member_user_id,
+        now,
+    )
+
+    return {
+        "user_id": member_user_id,
+        "email": member_email_str,
+        "added_at": now,
+    }
+
+
+async def remove_project_member(
+    db: DbPool,
+    owner_user_id: str,
+    project_id: str,
+    member_user_id: str,
+) -> None:
+    """Remove a member from a project (owner-only, no-op if not a member).
+
+    Args:
+        db: Database pool.
+        owner_user_id: Calling user's ID — must be the project owner.
+        project_id: ID of the project.
+        member_user_id: ID of the user to remove.
+
+    Raises:
+        NotFoundError: If the project doesn't exist or caller isn't owner.
+    """
+    await verify_project_ownership(db, project_id, owner_user_id)
+    await db.execute(
+        "DELETE FROM project_members WHERE project_id = $1 AND user_id = $2",
+        project_id,
+        member_user_id,
+    )
+
+
+async def list_project_members(
+    db: DbPool,
+    user_id: str,
+    project_id: str,
+) -> list[dict[str, Any]]:
+    """List members of a project (accessible to owner and any member).
+
+    Does NOT include the owner in the result.
+
+    Args:
+        db: Database pool.
+        user_id: Calling user's ID — must be owner or member.
+        project_id: ID of the project.
+
+    Returns:
+        List of dicts with user_id, email, added_at.
+
+    Raises:
+        NotFoundError: If caller can't access the project.
+    """
+    await verify_project_access(db, project_id, user_id)
+
+    rows = await db.fetch(
+        "SELECT pm.user_id, u.email, pm.added_at"
+        " FROM project_members pm"
+        " JOIN users u ON u.id = pm.user_id"
+        " WHERE pm.project_id = $1"
+        " ORDER BY pm.added_at",
+        project_id,
+    )
+    return [
+        {
+            "user_id": str(r["user_id"]),
+            "email": str(r["email"]),
+            "added_at": str(r["added_at"]),
+        }
+        for r in rows
+    ]

@@ -1,9 +1,10 @@
 """Pydantic v2 domain models for Agent GTD."""
 
+import re
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 # --- Enums ---
 
@@ -242,6 +243,31 @@ class ProjectResponse(BaseModel):
     kb_project_ref: str
     created_at: datetime
     updated_at: datetime
+
+
+# --- Member Schemas ---
+
+
+class MemberSummary(BaseModel):
+    """Project member data returned from API."""
+
+    user_id: str
+    email: str
+    added_at: datetime
+
+
+class AddMemberRequest(BaseModel):
+    """Add a member to a project by email."""
+
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        """Validate basic email shape."""
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", v.strip()):
+            raise ValueError("Invalid email format")
+        return v.strip().lower()
 
 
 # --- Item Schemas ---

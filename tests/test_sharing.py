@@ -6,6 +6,7 @@ Covers the access matrix:
 - Owner-only ops (delete project, update metadata) remain restricted to User A
 - Removing B from project_members reverses all access
 - B's items keep created_by after removal
+- Share management API (task 3): REST endpoints + service functions
 """
 
 from datetime import UTC, datetime
@@ -14,7 +15,7 @@ import pytest
 
 from agent_gtd.auth import register_user
 from agent_gtd.database import get_db
-from agent_gtd.exceptions import NotFoundError
+from agent_gtd.exceptions import NotFoundError, ValidationError
 from agent_gtd.services import (
     comment_service,
     item_service,
@@ -480,3 +481,315 @@ async def test_member_items_keep_created_by_after_removal(user_a, user_b, projec
     # B can no longer see it
     with pytest.raises(NotFoundError):
         await item_service.get_item(db, user_b.id, item_id)
+
+
+# ---------------------------------------------------------------------------
+# Share management service functions (task 3)
+# ---------------------------------------------------------------------------
+
+
+async def test_add_project_member_service(user_a, user_b, project_p):
+    """Owner can add a member by email via service function."""
+    db = await get_db()
+    result = await project_service.add_project_member(
+        db, user_a.id, project_p["id"], "user_b_sharing@example.com"
+    )
+    assert result["user_id"] == user_b.id
+    assert result["email"] == "user_b_sharing@example.com"
+    assert "added_at" in result
+
+
+async def test_add_project_member_idempotent(user_a, user_b, project_p):
+    """Adding a member twice is idempotent — returns existing membership."""
+    db = await get_db()
+    first = await project_service.add_project_member(
+        db, user_a.id, project_p["id"], "user_b_sharing@example.com"
+    )
+    second = await project_service.add_project_member(
+        db, user_a.id, project_p["id"], "user_b_sharing@example.com"
+    )
+    assert first["user_id"] == second["user_id"]
+    assert first["added_at"] == second["added_at"]
+
+    # Only one record in the table
+    rows = await project_service.list_project_members(db, user_a.id, project_p["id"])
+    assert len(rows) == 1
+
+
+async def test_add_project_member_not_owner(user_a, user_b, project_p):
+    """Non-owner cannot add members (raises NotFoundError)."""
+    db = await get_db()
+    with pytest.raises(NotFoundError):
+        await project_service.add_project_member(
+            db, user_b.id, project_p["id"], "user_a_sharing@example.com"
+        )
+
+
+async def test_add_project_member_unknown_email(user_a, project_p):
+    """Adding unknown email raises NotFoundError."""
+    db = await get_db()
+    with pytest.raises(NotFoundError):
+        await project_service.add_project_member(
+            db, user_a.id, project_p["id"], "nobody@example.com"
+        )
+
+
+async def test_add_project_member_owner_self(user_a, project_p):
+    """Owner cannot add themselves as member (raises ValidationError)."""
+    db = await get_db()
+    with pytest.raises(ValidationError):
+        await project_service.add_project_member(
+            db, user_a.id, project_p["id"], "user_a_sharing@example.com"
+        )
+
+
+async def test_remove_project_member_service(user_a, user_b, project_p):
+    """Owner can remove a member; no-op if not a member."""
+    db = await get_db()
+    await project_service.add_project_member(
+        db, user_a.id, project_p["id"], "user_b_sharing@example.com"
+    )
+
+    # Member has access before removal
+    await project_service.verify_project_access(db, project_p["id"], user_b.id)
+
+    await project_service.remove_project_member(
+        db, user_a.id, project_p["id"], user_b.id
+    )
+
+    # No access after removal
+    with pytest.raises(NotFoundError):
+        await project_service.verify_project_access(db, project_p["id"], user_b.id)
+
+
+async def test_remove_project_member_noop(user_a, user_b, project_p):
+    """Removing someone who isn't a member is a no-op (no error)."""
+    db = await get_db()
+    # Should not raise
+    await project_service.remove_project_member(
+        db, user_a.id, project_p["id"], user_b.id
+    )
+
+
+async def test_remove_project_member_not_owner(user_a, user_b, project_p):
+    """Non-owner cannot remove members."""
+    db = await get_db()
+    await add_member(project_p["id"], user_b.id)
+    with pytest.raises(NotFoundError):
+        await project_service.remove_project_member(
+            db, user_b.id, project_p["id"], user_a.id
+        )
+
+
+async def test_list_project_members_service(user_a, user_b, project_p):
+    """list_project_members returns all members, excluding the owner."""
+    db = await get_db()
+    await project_service.add_project_member(
+        db, user_a.id, project_p["id"], "user_b_sharing@example.com"
+    )
+    members = await project_service.list_project_members(db, user_a.id, project_p["id"])
+    assert len(members) == 1
+    assert members[0]["user_id"] == user_b.id
+    assert members[0]["email"] == "user_b_sharing@example.com"
+    # Owner is not in the list
+    user_ids = [m["user_id"] for m in members]
+    assert user_a.id not in user_ids
+
+
+async def test_list_project_members_accessible_to_member(user_a, user_b, project_p):
+    """Members can list the project members (not owner-only)."""
+    db = await get_db()
+    await add_member(project_p["id"], user_b.id)
+    # B calls list (not owner)
+    members = await project_service.list_project_members(db, user_b.id, project_p["id"])
+    assert len(members) == 1
+    assert members[0]["user_id"] == user_b.id
+
+
+async def test_list_project_members_non_member_denied(user_a, user_b, project_p):
+    """Non-member cannot list members (raises NotFoundError)."""
+    db = await get_db()
+    # B is not a member
+    with pytest.raises(NotFoundError):
+        await project_service.list_project_members(db, user_b.id, project_p["id"])
+
+
+# ---------------------------------------------------------------------------
+# Share management REST endpoints (task 3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def owner_client():
+    """HTTP client with user_a authenticated."""
+    from httpx import ASGITransport, AsyncClient
+
+    from agent_gtd.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        res = await c.post(
+            "/api/auth/register",
+            json={"email": "owner_api@example.com", "password": "testpass"},
+        )
+        token = res.json()["token"]
+        c.headers.update({"Authorization": f"Bearer {token}"})
+        yield c
+
+
+@pytest.fixture
+async def member_client():
+    """HTTP client with user_b authenticated."""
+    from httpx import ASGITransport, AsyncClient
+
+    from agent_gtd.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        res = await c.post(
+            "/api/auth/register",
+            json={"email": "member_api@example.com", "password": "testpass"},
+        )
+        token = res.json()["token"]
+        c.headers.update({"Authorization": f"Bearer {token}"})
+        yield c
+
+
+@pytest.fixture
+async def api_project(owner_client):
+    """Create a project via the API and return its data."""
+    res = await owner_client.post(
+        "/api/projects",
+        json={"name": "API Project"},
+    )
+    assert res.status_code == 201
+    return res.json()
+
+
+async def test_rest_add_member(owner_client, member_client, api_project):
+    """POST /api/projects/{id}/members returns 201 with member summary."""
+    res = await owner_client.post(
+        f"/api/projects/{api_project['id']}/members",
+        json={"email": "member_api@example.com"},
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["email"] == "member_api@example.com"
+    assert "user_id" in data
+    assert "added_at" in data
+
+
+async def test_rest_add_member_not_owner(member_client, api_project):
+    """Non-owner gets 404 when trying to add a member."""
+    res = await member_client.post(
+        f"/api/projects/{api_project['id']}/members",
+        json={"email": "member_api@example.com"},
+    )
+    assert res.status_code == 404
+
+
+async def test_rest_add_member_unknown_email(owner_client, api_project):
+    """Adding unknown email returns 404."""
+    res = await owner_client.post(
+        f"/api/projects/{api_project['id']}/members",
+        json={"email": "nobody@example.com"},
+    )
+    assert res.status_code == 404
+
+
+async def test_rest_add_member_invalid_email(owner_client, api_project):
+    """Malformed email returns 422 from Pydantic validation."""
+    res = await owner_client.post(
+        f"/api/projects/{api_project['id']}/members",
+        json={"email": "not-an-email"},
+    )
+    assert res.status_code == 422
+
+
+async def test_rest_add_member_idempotent(owner_client, member_client, api_project):
+    """Adding the same member twice returns 201 both times (idempotent)."""
+    for _ in range(2):
+        res = await owner_client.post(
+            f"/api/projects/{api_project['id']}/members",
+            json={"email": "member_api@example.com"},
+        )
+        assert res.status_code == 201
+
+
+async def test_rest_remove_member(owner_client, member_client, api_project):
+    """DELETE /api/projects/{id}/members/{user_id} returns 204."""
+    add_res = await owner_client.post(
+        f"/api/projects/{api_project['id']}/members",
+        json={"email": "member_api@example.com"},
+    )
+    member_user_id = add_res.json()["user_id"]
+
+    res = await owner_client.delete(
+        f"/api/projects/{api_project['id']}/members/{member_user_id}"
+    )
+    assert res.status_code == 204
+
+    # Member no longer sees the project
+    list_res = await member_client.get("/api/projects")
+    ids = [p["id"] for p in list_res.json()]
+    assert api_project["id"] not in ids
+
+
+async def test_rest_remove_member_not_owner(owner_client, member_client, api_project):
+    """Non-owner gets 404 when trying to remove a member."""
+    add_res = await owner_client.post(
+        f"/api/projects/{api_project['id']}/members",
+        json={"email": "member_api@example.com"},
+    )
+    member_user_id = add_res.json()["user_id"]
+
+    res = await member_client.delete(
+        f"/api/projects/{api_project['id']}/members/{member_user_id}"
+    )
+    assert res.status_code == 404
+
+
+async def test_rest_list_members_owner(owner_client, member_client, api_project):
+    """GET /api/projects/{id}/members returns the member list for the owner."""
+    add_res = await owner_client.post(
+        f"/api/projects/{api_project['id']}/members",
+        json={"email": "member_api@example.com"},
+    )
+    assert add_res.status_code == 201
+    res = await owner_client.get(f"/api/projects/{api_project['id']}/members")
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data) == 1
+    assert data[0]["email"] == "member_api@example.com"
+
+
+async def test_rest_list_members_accessible_to_member(
+    owner_client, member_client, api_project
+):
+    """Members can call GET /api/projects/{id}/members."""
+    await owner_client.post(
+        f"/api/projects/{api_project['id']}/members",
+        json={"email": "member_api@example.com"},
+    )
+    res = await member_client.get(f"/api/projects/{api_project['id']}/members")
+    assert res.status_code == 200
+
+
+async def test_rest_list_members_non_member_denied(member_client, api_project):
+    """Non-member gets 404 on GET /api/projects/{id}/members."""
+    res = await member_client.get(f"/api/projects/{api_project['id']}/members")
+    assert res.status_code == 404
+
+
+async def test_rest_list_members_excludes_owner(
+    owner_client, member_client, api_project
+):
+    """GET /api/projects/{id}/members does not include the owner."""
+    await owner_client.post(
+        f"/api/projects/{api_project['id']}/members",
+        json={"email": "member_api@example.com"},
+    )
+    res = await owner_client.get(f"/api/projects/{api_project['id']}/members")
+    emails = [m["email"] for m in res.json()]
+    assert "owner_api@example.com" not in emails
+    assert "member_api@example.com" in emails
