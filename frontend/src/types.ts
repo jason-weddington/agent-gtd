@@ -45,6 +45,18 @@ export interface Project {
   kbProjectRef: string
   createdAt: string
   updatedAt: string
+  /** Present for shared-with-me projects; absent for owned projects. */
+  ownerEmail?: string
+  /** True if the calling user owns this project. Undefined = treat as owner (solo context). */
+  isOwner?: boolean
+  /** Number of members (excluding owner). 0 or absent = unshared project. */
+  memberCount?: number
+}
+
+export interface MemberSummary {
+  userId: string
+  email: string
+  addedAt: string
 }
 
 export interface Item {

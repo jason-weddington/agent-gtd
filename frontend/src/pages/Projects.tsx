@@ -36,6 +36,8 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import SearchIcon from '@mui/icons-material/Search'
 import ViewModuleIcon from '@mui/icons-material/ViewModule'
 import ViewListIcon from '@mui/icons-material/ViewList'
+import PeopleIcon from '@mui/icons-material/People'
+import PeopleOutlineIcon from '@mui/icons-material/PeopleOutline'
 import { api, ApiError } from '../api'
 import type { Project, ProjectStatus } from '../types'
 
@@ -101,16 +103,39 @@ export default function Projects() {
     loadProjects()
   }, [loadProjects])
 
-  const filteredProjects = useMemo(() => {
-    if (!search.trim()) return projects
+  const ownedProjects = useMemo(
+    () => projects.filter((p) => p.isOwner !== false),
+    [projects],
+  )
+  const sharedProjects = useMemo(
+    () => projects.filter((p) => p.isOwner === false),
+    [projects],
+  )
+
+  const filteredOwned = useMemo(() => {
+    if (!search.trim()) return ownedProjects
     const q = search.toLowerCase()
-    return projects.filter(
+    return ownedProjects.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.description.toLowerCase().includes(q) ||
         p.area.toLowerCase().includes(q),
     )
-  }, [projects, search])
+  }, [ownedProjects, search])
+
+  const filteredShared = useMemo(() => {
+    if (!search.trim()) return sharedProjects
+    const q = search.toLowerCase()
+    return sharedProjects.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.description.toLowerCase().includes(q) ||
+        p.area.toLowerCase().includes(q),
+    )
+  }, [sharedProjects, search])
+
+  // Keep backward-compat for the "no projects" empty state
+  const filteredProjects = useMemo(() => [...filteredOwned, ...filteredShared], [filteredOwned, filteredShared])
 
   const handleViewChange = (_: React.MouseEvent<HTMLElement>, newView: ViewMode | null) => {
     if (newView) {
@@ -265,135 +290,279 @@ export default function Projects() {
             <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
               No projects match &ldquo;{search}&rdquo;
             </Typography>
-          ) : viewMode === 'cards' ? (
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-                gap: 2,
-              }}
-            >
-              {filteredProjects.map((project) => (
-                <Card key={project.id} sx={{ border: 1, borderColor: 'divider' }}>
-                  <CardActionArea onClick={() => navigate(`/projects/${project.id}`)}>
-                    <CardContent>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                        <Typography variant="h6" noWrap sx={{ flex: 1 }}>
-                          {project.name}
-                        </Typography>
-                        <Chip
-                          label={STATUS_LABELS[project.status]}
-                          color={STATUS_COLORS[project.status]}
-                          size="small"
-                          sx={{ ml: 1 }}
-                        />
-                      </Box>
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          minHeight: '2.4em',
-                        }}
-                      >
-                        {project.description || 'No description'}
-                      </Typography>
-                      {project.area && (
-                        <Chip
-                          label={project.area}
-                          size="small"
-                          variant="outlined"
-                          sx={{ mt: 1 }}
-                        />
-                      )}
-                    </CardContent>
-                  </CardActionArea>
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1, pb: 0.5 }}>
-                    <IconButton size="small" onClick={(e) => openEdit(project, e)}>
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                    {project.status !== 'completed' && (
-                      <IconButton size="small" onClick={(e) => handleComplete(project, e)} title="Complete">
-                        <DoneIcon fontSize="small" />
-                      </IconButton>
-                    )}
-                    <IconButton
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setDeleteTarget(project)
-                      }}
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                </Card>
-              ))}
-            </Box>
           ) : (
-            <Card sx={{ border: 1, borderColor: 'divider' }}>
-              <List disablePadding>
-                {filteredProjects.map((project, index) => (
-                  <ListItem
-                    key={project.id}
-                    disablePadding
-                    divider={index < filteredProjects.length - 1}
-                  >
-                    <ListItemButton
-                      onClick={() => navigate(`/projects/${project.id}`)}
-                      sx={{ flexGrow: 1, minWidth: 0, overflow: 'hidden' }}
-                    >
-                      <ListItemText
-                        sx={{ overflow: 'hidden', minWidth: 0 }}
-                        primary={
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography variant="body1" noWrap>
-                              {project.name}
-                            </Typography>
+            <>
+              {/* ── Your projects ── */}
+              {filteredOwned.length > 0 && viewMode === 'cards' && (
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+                    gap: 2,
+                    mb: filteredShared.length > 0 ? 3 : 0,
+                  }}
+                >
+                  {filteredOwned.map((project) => (
+                    <Card key={project.id} sx={{ border: 1, borderColor: 'divider' }}>
+                      <CardActionArea onClick={() => navigate(`/projects/${project.id}`)}>
+                        <CardContent>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, alignItems: 'flex-start' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
+                              <Typography variant="h6" noWrap sx={{ flex: 1 }}>
+                                {project.name}
+                              </Typography>
+                              {(project.memberCount ?? 0) > 0 && (
+                                <Tooltip title={`Shared with ${project.memberCount}`}>
+                                  <IconButton
+                                    size="small"
+                                    onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}?tab=share`) }}
+                                    sx={{ color: 'primary.main', p: 0.25 }}
+                                  >
+                                    <PeopleIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                            </Box>
                             <Chip
                               label={STATUS_LABELS[project.status]}
                               color={STATUS_COLORS[project.status]}
                               size="small"
+                              sx={{ ml: 1, flexShrink: 0 }}
                             />
-                            {project.area && (
-                              <Chip
-                                label={project.area}
-                                size="small"
-                                variant="outlined"
-                              />
-                            )}
                           </Box>
-                        }
-                        secondary={project.description || undefined}
-                        secondaryTypographyProps={{ sx: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}
-                      />
-                    </ListItemButton>
-                    <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0, pr: 1 }}>
-                      <IconButton size="small" onClick={(e) => openEdit(project, e)}>
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                      {project.status !== 'completed' && (
-                        <IconButton size="small" onClick={(e) => handleComplete(project, e)} title="Complete">
-                          <DoneIcon fontSize="small" />
+                          <Typography
+                            variant="body2"
+                            color="text.secondary"
+                            sx={{
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              minHeight: '2.4em',
+                            }}
+                          >
+                            {project.description || 'No description'}
+                          </Typography>
+                          {project.area && (
+                            <Chip
+                              label={project.area}
+                              size="small"
+                              variant="outlined"
+                              sx={{ mt: 1 }}
+                            />
+                          )}
+                        </CardContent>
+                      </CardActionArea>
+                      <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1, pb: 0.5 }}>
+                        <IconButton size="small" onClick={(e) => openEdit(project, e)}>
+                          <EditIcon fontSize="small" />
                         </IconButton>
-                      )}
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setDeleteTarget(project)
-                        }}
+                        {project.status !== 'completed' && (
+                          <IconButton size="small" onClick={(e) => handleComplete(project, e)} title="Complete">
+                            <DoneIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDeleteTarget(project)
+                          }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    </Card>
+                  ))}
+                </Box>
+              )}
+
+              {filteredOwned.length > 0 && viewMode === 'list' && (
+                <Card sx={{ border: 1, borderColor: 'divider', mb: filteredShared.length > 0 ? 3 : 0 }}>
+                  <List disablePadding>
+                    {filteredOwned.map((project, index) => (
+                      <ListItem
+                        key={project.id}
+                        disablePadding
+                        divider={index < filteredOwned.length - 1}
                       >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
+                        <ListItemButton
+                          onClick={() => navigate(`/projects/${project.id}`)}
+                          sx={{ flexGrow: 1, minWidth: 0, overflow: 'hidden' }}
+                        >
+                          <ListItemText
+                            sx={{ overflow: 'hidden', minWidth: 0 }}
+                            primary={
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="body1" noWrap>
+                                  {project.name}
+                                </Typography>
+                                {(project.memberCount ?? 0) > 0 && (
+                                  <Tooltip title={`Shared with ${project.memberCount}`}>
+                                    <PeopleIcon
+                                      fontSize="small"
+                                      sx={{ color: 'primary.main', flexShrink: 0, cursor: 'pointer' }}
+                                      onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}?tab=share`) }}
+                                    />
+                                  </Tooltip>
+                                )}
+                                <Chip
+                                  label={STATUS_LABELS[project.status]}
+                                  color={STATUS_COLORS[project.status]}
+                                  size="small"
+                                />
+                                {project.area && (
+                                  <Chip
+                                    label={project.area}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                )}
+                              </Box>
+                            }
+                            secondary={project.description || undefined}
+                            secondaryTypographyProps={{ sx: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}
+                          />
+                        </ListItemButton>
+                        <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0, pr: 1 }}>
+                          <IconButton size="small" onClick={(e) => openEdit(project, e)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                          {project.status !== 'completed' && (
+                            <IconButton size="small" onClick={(e) => handleComplete(project, e)} title="Complete">
+                              <DoneIcon fontSize="small" />
+                            </IconButton>
+                          )}
+                          <IconButton
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setDeleteTarget(project)
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      </ListItem>
+                    ))}
+                  </List>
+                </Card>
+              )}
+
+              {/* ── Shared with you ── */}
+              {filteredShared.length > 0 && (
+                <>
+                  <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
+                    Shared with you
+                  </Typography>
+                  {viewMode === 'cards' ? (
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+                        gap: 2,
+                      }}
+                    >
+                      {filteredShared.map((project) => (
+                        <Card key={project.id} sx={{ border: 1, borderColor: 'divider' }}>
+                          <CardActionArea onClick={() => navigate(`/projects/${project.id}`)}>
+                            <CardContent>
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, alignItems: 'flex-start' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
+                                  <Tooltip title={`Shared by ${project.ownerEmail ?? 'someone'}`}>
+                                    <PeopleOutlineIcon fontSize="small" sx={{ color: 'text.secondary', flexShrink: 0 }} />
+                                  </Tooltip>
+                                  <Typography variant="h6" noWrap sx={{ flex: 1 }}>
+                                    {project.name}
+                                  </Typography>
+                                </Box>
+                                <Chip
+                                  label={STATUS_LABELS[project.status]}
+                                  color={STATUS_COLORS[project.status]}
+                                  size="small"
+                                  sx={{ ml: 1, flexShrink: 0 }}
+                                />
+                              </Box>
+                              <Typography
+                                variant="body2"
+                                color="text.secondary"
+                                sx={{
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                  minHeight: '2.4em',
+                                }}
+                              >
+                                {project.description || 'No description'}
+                              </Typography>
+                              {project.ownerEmail && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                  by {project.ownerEmail}
+                                </Typography>
+                              )}
+                              {project.area && (
+                                <Chip
+                                  label={project.area}
+                                  size="small"
+                                  variant="outlined"
+                                  sx={{ mt: 0.5 }}
+                                />
+                              )}
+                            </CardContent>
+                          </CardActionArea>
+                        </Card>
+                      ))}
                     </Box>
-                  </ListItem>
-                ))}
-              </List>
-            </Card>
+                  ) : (
+                    <Card sx={{ border: 1, borderColor: 'divider' }}>
+                      <List disablePadding>
+                        {filteredShared.map((project, index) => (
+                          <ListItem
+                            key={project.id}
+                            disablePadding
+                            divider={index < filteredShared.length - 1}
+                          >
+                            <ListItemButton
+                              onClick={() => navigate(`/projects/${project.id}`)}
+                              sx={{ flexGrow: 1, minWidth: 0, overflow: 'hidden' }}
+                            >
+                              <ListItemText
+                                sx={{ overflow: 'hidden', minWidth: 0 }}
+                                primary={
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Tooltip title={`Shared by ${project.ownerEmail ?? 'someone'}`}>
+                                      <PeopleOutlineIcon fontSize="small" sx={{ color: 'text.secondary', flexShrink: 0 }} />
+                                    </Tooltip>
+                                    <Typography variant="body1" noWrap>
+                                      {project.name}
+                                    </Typography>
+                                    <Chip
+                                      label={STATUS_LABELS[project.status]}
+                                      color={STATUS_COLORS[project.status]}
+                                      size="small"
+                                    />
+                                    {project.area && (
+                                      <Chip
+                                        label={project.area}
+                                        size="small"
+                                        variant="outlined"
+                                      />
+                                    )}
+                                  </Box>
+                                }
+                                secondary={project.ownerEmail ? `Shared by ${project.ownerEmail}` : project.description || undefined}
+                                secondaryTypographyProps={{ sx: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}
+                              />
+                            </ListItemButton>
+                          </ListItem>
+                        ))}
+                      </List>
+                    </Card>
+                  )}
+                </>
+              )}
+            </>
           )}
         </>
       )}

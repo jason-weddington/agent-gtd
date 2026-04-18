@@ -361,6 +361,15 @@ export default function GtdItemList({
                           {item.title}
                         </Typography>
                       </Tooltip>
+                      {item.projectId &&
+                        ((projectMap[item.projectId]?.memberCount ?? 0) > 0 ||
+                          projectMap[item.projectId]?.isOwner === false) &&
+                        item.createdBy &&
+                        item.createdBy !== 'human' && (
+                          <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                            by {item.createdBy}
+                          </Typography>
+                        )}
                       {hasUnresolvedBlockers(item.blockers) && (
                         <Tooltip
                           title={`Blocked by ${(item.blockers ?? []).filter((b) => b.status !== 'done').length} other item(s)`}
@@ -633,6 +642,17 @@ export default function GtdItemList({
         }}
         projectName={drawerItem?.projectId ? projectMap[drawerItem.projectId]?.name : undefined}
         projectGitOrigin={drawerItem?.projectId ? projectMap[drawerItem.projectId]?.gitOrigin : undefined}
+        projectIsOwner={
+          drawerItem?.projectId
+            ? projectMap[drawerItem.projectId]?.isOwner !== false
+            : true
+        }
+        showAttribution={
+          drawerItem?.projectId
+            ? ((projectMap[drawerItem.projectId]?.memberCount ?? 0) > 0 ||
+               projectMap[drawerItem.projectId]?.isOwner === false)
+            : false
+        }
       />
     </Box>
   )

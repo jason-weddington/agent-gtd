@@ -66,6 +66,10 @@ interface ItemDetailDrawerProps {
   onItemUpdated?: (item: Item) => void
   projectName?: string
   projectGitOrigin?: string
+  /** Whether the current user owns the project. Defaults to true (solo context). */
+  projectIsOwner?: boolean
+  /** Whether to show item attribution (createdBy email). */
+  showAttribution?: boolean
 }
 
 export default function ItemDetailDrawer({
@@ -75,6 +79,8 @@ export default function ItemDetailDrawer({
   onItemUpdated,
   projectName,
   projectGitOrigin,
+  projectIsOwner = true,
+  showAttribution = false,
 }: ItemDetailDrawerProps) {
   const [comments, setComments] = useState<Comment[]>([])
   const [newComment, setNewComment] = useState('')
@@ -87,6 +93,7 @@ export default function ItemDetailDrawer({
   const [dispatchError, setDispatchError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [dispatchAnimating, setDispatchAnimating] = useState(false)
+  const [dispatchConfigured, setDispatchConfigured] = useState<boolean | null>(null)
 
   // Local item state — stays in sync with prop, then updated optimistically on each inline save
   const [localItem, setLocalItem] = useState<Item | null>(null)
@@ -135,6 +142,16 @@ export default function ItemDetailDrawer({
   // Load active projects once for the project dropdown
   useEffect(() => {
     api.projects.list({ status: 'active' }).then(setAllProjects).catch(() => {})
+  }, [])
+
+  // Load dispatch config once on mount
+  useEffect(() => {
+    api.settings.getDispatch().then((cfg) => {
+      setDispatchConfigured(cfg.serviceApiKeyConfigured && cfg.serviceUrl !== '')
+    }).catch(() => {
+      // If endpoint doesn't exist yet, treat as unconfigured but don't block dispatch
+      setDispatchConfigured(null)
+    })
   }, [])
 
   // Reset the dispatch-animation flag once the drawer has actually closed.
@@ -375,8 +392,19 @@ export default function ItemDetailDrawer({
 
   const isRunActive = activeRun && ['pending', 'cloning', 'running'].includes(activeRun.status)
   const isRunQueued = activeRun?.status === 'pending'
-  const canDispatch = Boolean(projectGitOrigin) && !isRunActive
+  // dispatchConfigured: null = unknown (endpoint not available), treat as ok
+  const isDispatchConfigured = dispatchConfigured !== false
+  const canDispatch = Boolean(projectGitOrigin) && !isRunActive && isDispatchConfigured && projectIsOwner
   const isSaving = savingField !== null
+
+  function getDispatchTooltip(): string {
+    if (!projectIsOwner) return 'Only the project owner can dispatch agents.'
+    if (dispatchConfigured === false) return 'Configure dispatch in Settings → Agent Dispatch.'
+    if (isRunQueued) return 'Queued — waiting for a free slot (capped at 6 concurrent runs)'
+    if (isRunActive) return 'Agent is working'
+    if (!projectGitOrigin) return 'No git origin'
+    return 'Send to Claude'
+  }
 
   // Keyboard shortcuts: D = dispatch build, Shift+D = dispatch plan
   useHotkeys('d', () => {
@@ -703,17 +731,7 @@ export default function ItemDetailDrawer({
 
               {/* Action buttons */}
               {projectGitOrigin && localItem.status !== 'done' && (
-                <Tooltip
-                  title={
-                    canDispatch
-                      ? 'Send to Claude'
-                      : isRunQueued
-                        ? 'Queued — waiting for a free slot (capped at 6 concurrent runs)'
-                        : isRunActive
-                          ? 'Agent is working'
-                          : 'No git origin'
-                  }
-                >
+                <Tooltip title={getDispatchTooltip()}>
                   <span>
                     <IconButton
                       size="small"
@@ -846,7 +864,9 @@ export default function ItemDetailDrawer({
             <Box sx={{ px: 2, pb: 1 }}>
               <Typography variant="caption" color="text.secondary">
                 Created {new Date(localItem.createdAt).toLocaleDateString()}
-                {localItem.createdBy && ` by ${localItem.createdBy}`}
+                {showAttribution && localItem.createdBy && localItem.createdBy !== 'human'
+                  ? ` by ${localItem.createdBy}`
+                  : ''}
               </Typography>
             </Box>
 

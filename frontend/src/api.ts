@@ -1,4 +1,4 @@
-import type { ApiKeyInfo, AuthResponse, BlockerSummary, Comment, Item, Note, Project, Run, UserResponse } from './types'
+import type { ApiKeyInfo, AuthResponse, BlockerSummary, Comment, Item, MemberSummary, Note, Project, Run, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -104,6 +104,13 @@ export const api = {
     comments: (id: string) => request<Comment[]>('GET', `/projects/${id}/comments`),
     createComment: (id: string, data: { contentMarkdown: string }) =>
       request<Comment>('POST', `/projects/${id}/comments`, data),
+    members: {
+      list: (id: string) => request<MemberSummary[]>('GET', `/projects/${id}/members`),
+      add: (id: string, email: string) =>
+        request<MemberSummary & { blockersPurged?: number }>('POST', `/projects/${id}/members`, { email }),
+      remove: (id: string, userId: string) =>
+        request<void>('DELETE', `/projects/${id}/members/${userId}`),
+    },
   },
 
   items: {
@@ -172,6 +179,10 @@ export const api = {
       request<{ value: number }>('GET', '/settings/dispatch/max-concurrent'),
     setMaxConcurrent: (value: number) =>
       request<{ value: number }>('PATCH', '/settings/dispatch/max-concurrent', { value }),
+    getDispatch: () =>
+      request<{ serviceUrl: string; serviceApiKeyConfigured: boolean }>('GET', '/settings/dispatch'),
+    updateDispatch: (data: { serviceUrl?: string; serviceApiKey?: string }) =>
+      request<{ serviceUrl: string; serviceApiKeyConfigured: boolean }>('PATCH', '/settings/dispatch', data),
   },
 }
 

@@ -48,6 +48,10 @@ export default function Settings() {
   // Agent Dispatch settings
   const [dispatchMaxTurns, setDispatchMaxTurns] = useState<number>(getInitialMaxTurns)
   const [maxConcurrent, setMaxConcurrent] = useState<number>(6)
+  const [dispatchServiceUrl, setDispatchServiceUrl] = useState('')
+  const [dispatchApiKeyInput, setDispatchApiKeyInput] = useState('')
+  const [dispatchApiKeyConfigured, setDispatchApiKeyConfigured] = useState(false)
+  const [savingDispatch, setSavingDispatch] = useState(false)
 
   const handleMaxTurnsChange = (raw: string) => {
     const v = parseInt(raw, 10)
@@ -66,6 +70,22 @@ export default function Settings() {
     }
   }
 
+  const saveDispatchSettings = async (fields: { serviceUrl?: string; serviceApiKey?: string }) => {
+    setSavingDispatch(true)
+    try {
+      const res = await api.settings.updateDispatch(fields)
+      setDispatchServiceUrl(res.serviceUrl)
+      setDispatchApiKeyConfigured(res.serviceApiKeyConfigured)
+      if (fields.serviceApiKey !== undefined) {
+        setDispatchApiKeyInput('')
+      }
+    } catch {
+      // handled by api client
+    } finally {
+      setSavingDispatch(false)
+    }
+  }
+
   // API key state
   const [apiKeys, setApiKeys] = useState<ApiKeyInfo[]>([])
   const [newApiKey, setNewApiKey] = useState<{ key: string; name: string } | null>(null)
@@ -77,6 +97,10 @@ export default function Settings() {
   useEffect(() => {
     api.config.get().then((cfg) => setVersion(cfg.version)).catch(() => {})
     api.settings.getMaxConcurrent().then((res) => setMaxConcurrent(res.value)).catch(() => {})
+    api.settings.getDispatch().then((res) => {
+      setDispatchServiceUrl(res.serviceUrl)
+      setDispatchApiKeyConfigured(res.serviceApiKeyConfigured)
+    }).catch(() => {})
   }, [])
 
   const loadApiKeys = useCallback(() => {
@@ -239,6 +263,35 @@ export default function Settings() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Configure defaults for autonomous agent runs.
           </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 2, maxWidth: 400 }}>
+            <TextField
+              label="Dispatch service URL"
+              type="url"
+              size="small"
+              value={dispatchServiceUrl}
+              onChange={(e) => setDispatchServiceUrl(e.target.value)}
+              onBlur={() => {
+                if (!savingDispatch) void saveDispatchSettings({ serviceUrl: dispatchServiceUrl })
+              }}
+              placeholder="https://dispatch.example.com"
+              fullWidth
+            />
+            <TextField
+              label="Dispatch service API key"
+              type="password"
+              size="small"
+              value={dispatchApiKeyInput}
+              onChange={(e) => setDispatchApiKeyInput(e.target.value)}
+              onBlur={() => {
+                if (!savingDispatch && dispatchApiKeyInput.trim()) {
+                  void saveDispatchSettings({ serviceApiKey: dispatchApiKeyInput })
+                }
+              }}
+              placeholder={dispatchApiKeyConfigured ? '●●●●●●●● (configured)' : 'Not configured'}
+              fullWidth
+              helperText="Leave blank to keep the existing key. Never shown after saving."
+            />
+          </Box>
           <Box sx={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
             <Box>
               <TextField

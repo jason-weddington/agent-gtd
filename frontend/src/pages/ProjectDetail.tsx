@@ -53,6 +53,7 @@ import { useQuickCapture } from '../contexts/QuickCaptureContext'
 import KanbanBoard from '../components/KanbanBoard'
 import NoteEditor from '../components/NoteEditor'
 import ItemDetailDrawer from '../components/ItemDetailDrawer'
+import ShareTab from '../components/ShareTab'
 
 const STATUS_COLORS: Record<ProjectStatus, 'success' | 'default' | 'warning' | 'error'> = {
   active: 'success',
@@ -99,7 +100,11 @@ export default function ProjectDetail() {
   const [runs, setRuns] = useState<Run[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState(0)
+  const [tab, setTab] = useState(() => {
+    // Support ?tab=share deep link
+    const params = new URLSearchParams(window.location.search)
+    return params.get('tab') === 'share' ? 4 : 0
+  })
 
   // Project comment input
   const [newComment, setNewComment] = useState('')
@@ -576,6 +581,7 @@ export default function ProjectDetail() {
         <Tab label={`Notes (${notes.length})`} />
         <Tab label={`Comments (${comments.length})`} />
         <Tab label={`Activity (${runs.length})`} />
+        <Tab label="Share" />
       </Tabs>
 
       {/* Items Tab */}
@@ -748,6 +754,11 @@ export default function ProjectDetail() {
                           >
                             {item.title}
                           </Typography>
+                          {((project.memberCount ?? 0) > 0 || project.isOwner === false) && item.createdBy && item.createdBy !== 'human' && (
+                            <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                              by {item.createdBy}
+                            </Typography>
+                          )}
                           <Chip
                             label={ITEM_STATUS_LABELS[item.status]}
                             size="small"
@@ -938,6 +949,15 @@ export default function ProjectDetail() {
             </IconButton>
           </Box>
         </Box>
+      )}
+
+      {/* Share Tab */}
+      {tab === 4 && (
+        <ShareTab
+          projectId={project.id}
+          isOwner={project.isOwner !== false}
+          ownerEmail={project.ownerEmail}
+        />
       )}
 
       {/* Activity Tab */}
@@ -1382,6 +1402,8 @@ export default function ProjectDetail() {
         }}
         projectName={project.name}
         projectGitOrigin={project.gitOrigin}
+        projectIsOwner={project.isOwner !== false}
+        showAttribution={(project.memberCount ?? 0) > 0 || project.isOwner === false}
       />
     </Box>
   )
