@@ -12,6 +12,70 @@ import httpx
 import truststore
 from fastmcp.exceptions import ToolError
 
+# ---------------------------------------------------------------------------
+# Board-snapshot constants (mirrors item_service._TRACKED_STATUSES et al.)
+# ---------------------------------------------------------------------------
+
+_TRACKED_STATUSES = ("new", "ready", "next_action", "active", "review", "waiting_for")
+_ID_PREFIX_LEN = 8
+_TITLE_LEN = 60
+_PER_COLUMN_CAP = 10
+
+
+def _format_board_snapshot(
+    items: list[dict[str, Any]],
+    project_id: str,
+    project_name: str,
+    *,
+    per_column_cap: int = _PER_COLUMN_CAP,
+) -> dict[str, Any]:
+    """Build a compact board-state snapshot dict from a flat list of items.
+
+    Used by :class:`HttpBackend` which receives items from the REST API.
+    Items are re-sorted by (sort_order ASC, created_at ASC) before grouping.
+
+    Args:
+        items: Raw item dicts (as returned by the REST API).
+        project_id: Project ID to embed in the snapshot.
+        project_name: Project name to embed in the snapshot.
+        per_column_cap: Max items per column (default 10).
+
+    Returns:
+        Snapshot dict with project_id, project_name, and one list per tracked
+        status.
+    """
+    sorted_items = sorted(
+        items,
+        key=lambda x: (
+            float(x.get("sort_order") or 0),
+            str(x.get("created_at", "")),
+        ),
+    )
+
+    columns: dict[str, list[list[str]]] = {s: [] for s in _TRACKED_STATUSES}
+    for item in sorted_items:
+        status = str(item.get("status", ""))
+        if status in columns:
+            id_prefix = str(item["id"])[:_ID_PREFIX_LEN]
+            title_trunc = str(item.get("title", ""))[:_TITLE_LEN]
+            columns[status].append([id_prefix, title_trunc])
+
+    snapshot: dict[str, Any] = {
+        "project_id": project_id,
+        "project_name": project_name,
+    }
+    for status in _TRACKED_STATUSES:
+        col = columns[status]
+        total = len(col)
+        if total > per_column_cap:
+            more = f"__more__ {total - per_column_cap}"
+            entries: list[Any] = [*col[:per_column_cap], more]
+        else:
+            entries = list(col)
+        snapshot[status] = entries
+
+    return snapshot
+
 
 class McpBackend(Protocol):
     """Protocol for MCP backend implementations."""
@@ -44,7 +108,7 @@ class McpBackend(Protocol):
         project_id: str | None = None,
         priority: str | None = None,
         assigned_to: str | None = None,
-    ) -> list[dict[str, Any]]: ...
+    ) -> dict[str, Any]: ...
 
     async def get_item(self, user_id: str, item_id: str) -> dict[str, Any]: ...
 
@@ -277,8 +341,20 @@ class LocalBackend:
         )
 
     async def _build_project_map(self, user_id: str) -> dict[str, str]:
-        projects = await self.list_projects(user_id)
-        return {p["id"]: p["name"] for p in projects}
+        result = await self.list_projects(user_id)
+        return {p["id"]: p["name"] for p in result}
+
+    async def _board_snapshot(
+        self, db: Any, user_id: str, project_id: str
+    ) -> dict[str, Any]:
+        from agent_gtd.services import item_service
+
+        return await item_service.board_snapshot(db, user_id, project_id)
+
+    async def _inbox_pending_count(self, db: Any, user_id: str) -> int:
+        from agent_gtd.services import item_service
+
+        return await item_service.inbox_pending_count(db, user_id)
 
     def _format_item(
         self, row: dict[str, Any], project_map: dict[str, str]
@@ -308,7 +384,7 @@ class LocalBackend:
         project_id: str | None = None,
         priority: str | None = None,
         assigned_to: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import item_service
 
@@ -322,7 +398,11 @@ class LocalBackend:
             assigned_to=assigned_to,
         )
         pm = await self._build_project_map(user_id)
-        return [self._format_item(r, pm) for r in rows]
+        items = [self._format_item(r, pm) for r in rows]
+        result: dict[str, Any] = {"items": items}
+        if project_id is None:
+            result["inbox_pending_count"] = await self._inbox_pending_count(db, user_id)
+        return result
 
     async def get_item(self, user_id: str, item_id: str) -> dict[str, Any]:
         from agent_gtd.database import get_db
@@ -334,6 +414,10 @@ class LocalBackend:
         pm = await self._build_project_map(user_id)
         result = self._format_item(row, pm)
         result["blockers"] = blocker_rows
+        if row.get("project_id"):
+            result["board_state"] = await self._board_snapshot(
+                db, user_id, str(row["project_id"])
+            )
         return result
 
     async def create_item(
@@ -364,7 +448,12 @@ class LocalBackend:
             labels=labels,
         )
         pm = await self._build_project_map(user_id)
-        return self._format_item(row, pm)
+        result = self._format_item(row, pm)
+        if project_id is not None:
+            result["board_state"] = await self._board_snapshot(db, user_id, project_id)
+        else:
+            result["inbox_pending_count"] = await self._inbox_pending_count(db, user_id)
+        return result
 
     async def update_item(
         self,
@@ -396,7 +485,12 @@ class LocalBackend:
             version=version,
         )
         pm = await self._build_project_map(user_id)
-        return self._format_item(row, pm)
+        result = self._format_item(row, pm)
+        if row.get("project_id"):
+            result["board_state"] = await self._board_snapshot(
+                db, user_id, str(row["project_id"])
+            )
+        return result
 
     async def complete_item(self, user_id: str, item_id: str) -> dict[str, Any]:
         from agent_gtd.database import get_db
@@ -405,15 +499,26 @@ class LocalBackend:
         db = await get_db()
         row = await item_service.complete_item(db, user_id, item_id)
         pm = await self._build_project_map(user_id)
-        return self._format_item(row, pm)
+        result = self._format_item(row, pm)
+        if row.get("project_id"):
+            result["board_state"] = await self._board_snapshot(
+                db, user_id, str(row["project_id"])
+            )
+        return result
 
     async def delete_item(self, user_id: str, item_id: str) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import item_service
 
         db = await get_db()
+        # Fetch project_id before deletion (for post-deletion snapshot)
+        existing = await item_service.get_item(db, user_id, item_id)
+        project_id = str(existing["project_id"]) if existing.get("project_id") else None
         await item_service.delete_item(db, user_id, item_id)
-        return {"status": "deleted", "item_id": item_id}
+        result: dict[str, Any] = {"status": "deleted", "item_id": item_id}
+        if project_id:
+            result["board_state"] = await self._board_snapshot(db, user_id, project_id)
+        return result
 
     async def claim_item(
         self, user_id: str, item_id: str, agent_name: str
@@ -424,7 +529,12 @@ class LocalBackend:
         db = await get_db()
         row = await item_service.claim_item(db, user_id, item_id, agent_name)
         pm = await self._build_project_map(user_id)
-        return self._format_item(row, pm)
+        result = self._format_item(row, pm)
+        if row.get("project_id"):
+            result["board_state"] = await self._board_snapshot(
+                db, user_id, str(row["project_id"])
+            )
+        return result
 
     async def release_item(self, user_id: str, item_id: str) -> dict[str, Any]:
         from agent_gtd.database import get_db
@@ -433,7 +543,12 @@ class LocalBackend:
         db = await get_db()
         row = await item_service.release_item(db, user_id, item_id)
         pm = await self._build_project_map(user_id)
-        return self._format_item(row, pm)
+        result = self._format_item(row, pm)
+        if row.get("project_id"):
+            result["board_state"] = await self._board_snapshot(
+                db, user_id, str(row["project_id"])
+            )
+        return result
 
     async def inbox_capture(
         self, user_id: str, title: str, *, created_by: str = "human"
@@ -449,7 +564,9 @@ class LocalBackend:
             created_by=created_by,
         )
         pm = await self._build_project_map(user_id)
-        return self._format_item(row, pm)
+        result = self._format_item(row, pm)
+        result["inbox_pending_count"] = await self._inbox_pending_count(db, user_id)
+        return result
 
     async def list_notes(
         self, user_id: str, *, project_id: str | None = None
@@ -472,7 +589,12 @@ class LocalBackend:
         db = await get_db()
         row = await note_service.get_note(db, user_id, note_id)
         pm = await self._build_project_map(user_id)
-        return self._format_note(row, pm)
+        result = self._format_note(row, pm)
+        if row.get("project_id"):
+            result["board_state"] = await self._board_snapshot(
+                db, user_id, str(row["project_id"])
+            )
+        return result
 
     async def create_note(
         self,
@@ -496,7 +618,9 @@ class LocalBackend:
             labels=labels,
         )
         pm = await self._build_project_map(user_id)
-        return self._format_note(row, pm)
+        result = self._format_note(row, pm)
+        result["board_state"] = await self._board_snapshot(db, user_id, project_id)
+        return result
 
     async def update_note(
         self,
@@ -520,7 +644,12 @@ class LocalBackend:
             labels=labels,
         )
         pm = await self._build_project_map(user_id)
-        return self._format_note(row, pm)
+        result = self._format_note(row, pm)
+        if row.get("project_id"):
+            result["board_state"] = await self._board_snapshot(
+                db, user_id, str(row["project_id"])
+            )
+        return result
 
     async def list_comments(
         self,
@@ -547,10 +676,10 @@ class LocalBackend:
         created_by: str = "human",
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
-        from agent_gtd.services import comment_service
+        from agent_gtd.services import comment_service, item_service
 
         db = await get_db()
-        return await comment_service.create_comment(
+        result = await comment_service.create_comment(
             db,
             user_id,
             project_id=project_id,
@@ -558,6 +687,15 @@ class LocalBackend:
             content_markdown=content_markdown,
             created_by=created_by,
         )
+        # Inject board_state when commenting on an item that belongs to a project
+        if item_id is not None:
+            item_row = await item_service.get_item(db, user_id, item_id)
+            item_project_id = item_row.get("project_id")
+            if item_project_id:
+                result["board_state"] = await self._board_snapshot(
+                    db, user_id, str(item_project_id)
+                )
+        return result
 
     async def update_comment(
         self,
@@ -567,12 +705,22 @@ class LocalBackend:
         content_markdown: str | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
-        from agent_gtd.services import comment_service
+        from agent_gtd.services import comment_service, item_service
 
         db = await get_db()
-        return await comment_service.update_comment(
+        result = await comment_service.update_comment(
             db, user_id, comment_id, content_markdown=content_markdown
         )
+        # Inject board_state when this is a comment on an item in a project
+        comment_item_id = result.get("item_id")
+        if comment_item_id:
+            item_row = await item_service.get_item(db, user_id, str(comment_item_id))
+            item_project_id = item_row.get("project_id")
+            if item_project_id:
+                result["board_state"] = await self._board_snapshot(
+                    db, user_id, str(item_project_id)
+                )
+        return result
 
     async def delete_comment(self, user_id: str, comment_id: str) -> None:
         from agent_gtd.database import get_db
@@ -749,6 +897,33 @@ class HttpBackend:
             note["project_name"] = pm.get(note["project_id"], "")
         return note
 
+    async def _board_snapshot(self, project_id: str) -> dict[str, Any]:
+        """Build a board snapshot via HTTP: fetch project + items, then format."""
+        proj_resp = await self._client.get(
+            f"/api/projects/{project_id}", headers=self._headers()
+        )
+        self._check(proj_resp)
+        project_name: str = proj_resp.json().get("name", "")
+
+        items_resp = await self._client.get(
+            "/api/items",
+            params={"project_id": project_id},
+            headers=self._headers(),
+        )
+        self._check(items_resp)
+        items: list[dict[str, Any]] = items_resp.json()
+        return _format_board_snapshot(items, project_id, project_name)
+
+    async def _inbox_pending_count(self) -> int:
+        """Return the number of inbox items for the authenticated user."""
+        resp = await self._client.get(
+            "/api/items",
+            params={"status": "inbox"},
+            headers=self._headers(),
+        )
+        self._check(resp)
+        return len(resp.json())
+
     async def login(self, api_key: str, agent_name: str) -> dict[str, str]:
         self._api_key = api_key
         self._project_cache = None
@@ -824,7 +999,7 @@ class HttpBackend:
         project_id: str | None = None,
         priority: str | None = None,
         assigned_to: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         params: dict[str, str] = {}
         if status:
             params["status"] = status
@@ -840,14 +1015,21 @@ class HttpBackend:
         self._check(resp)
         items = resp.json()
         pm = await self._get_project_map()
-        return [self._enrich_item(i, pm) for i in items]
+        enriched = [self._enrich_item(i, pm) for i in items]
+        result: dict[str, Any] = {"items": enriched}
+        if project_id is None:
+            result["inbox_pending_count"] = await self._inbox_pending_count()
+        return result
 
     async def get_item(self, user_id: str, item_id: str) -> dict[str, Any]:
         resp = await self._client.get(f"/api/items/{item_id}", headers=self._headers())
         self._check(resp)
         item = resp.json()
         pm = await self._get_project_map()
-        return self._enrich_item(item, pm)
+        result = self._enrich_item(item, pm)
+        if item.get("project_id"):
+            result["board_state"] = await self._board_snapshot(str(item["project_id"]))
+        return result
 
     async def create_item(
         self,
@@ -880,7 +1062,12 @@ class HttpBackend:
         self._check(resp)
         item = resp.json()
         pm = await self._get_project_map()
-        return self._enrich_item(item, pm)
+        result = self._enrich_item(item, pm)
+        if project_id is not None:
+            result["board_state"] = await self._board_snapshot(project_id)
+        else:
+            result["inbox_pending_count"] = await self._inbox_pending_count()
+        return result
 
     async def update_item(
         self,
@@ -916,7 +1103,10 @@ class HttpBackend:
         self._check(resp)
         item = resp.json()
         pm = await self._get_project_map()
-        return self._enrich_item(item, pm)
+        result = self._enrich_item(item, pm)
+        if item.get("project_id"):
+            result["board_state"] = await self._board_snapshot(str(item["project_id"]))
+        return result
 
     async def complete_item(self, user_id: str, item_id: str) -> dict[str, Any]:
         resp = await self._client.post(
@@ -925,14 +1115,27 @@ class HttpBackend:
         self._check(resp)
         item = resp.json()
         pm = await self._get_project_map()
-        return self._enrich_item(item, pm)
+        result = self._enrich_item(item, pm)
+        if item.get("project_id"):
+            result["board_state"] = await self._board_snapshot(str(item["project_id"]))
+        return result
 
     async def delete_item(self, user_id: str, item_id: str) -> dict[str, Any]:
+        # Fetch project_id before deletion (for post-deletion snapshot)
+        get_resp = await self._client.get(
+            f"/api/items/{item_id}", headers=self._headers()
+        )
+        self._check(get_resp)
+        project_id: str | None = get_resp.json().get("project_id")
+
         resp = await self._client.delete(
             f"/api/items/{item_id}", headers=self._headers()
         )
         self._check(resp)
-        return {"status": "deleted", "item_id": item_id}
+        result: dict[str, Any] = {"status": "deleted", "item_id": item_id}
+        if project_id:
+            result["board_state"] = await self._board_snapshot(project_id)
+        return result
 
     async def claim_item(
         self, user_id: str, item_id: str, agent_name: str
@@ -945,7 +1148,10 @@ class HttpBackend:
         self._check(resp)
         item = resp.json()
         pm = await self._get_project_map()
-        return self._enrich_item(item, pm)
+        result = self._enrich_item(item, pm)
+        if item.get("project_id"):
+            result["board_state"] = await self._board_snapshot(str(item["project_id"]))
+        return result
 
     async def release_item(self, user_id: str, item_id: str) -> dict[str, Any]:
         resp = await self._client.post(
@@ -954,7 +1160,10 @@ class HttpBackend:
         self._check(resp)
         item = resp.json()
         pm = await self._get_project_map()
-        return self._enrich_item(item, pm)
+        result = self._enrich_item(item, pm)
+        if item.get("project_id"):
+            result["board_state"] = await self._board_snapshot(str(item["project_id"]))
+        return result
 
     async def inbox_capture(
         self, user_id: str, title: str, *, created_by: str = "human"
@@ -968,7 +1177,9 @@ class HttpBackend:
         self._check(resp)
         item = resp.json()
         pm = await self._get_project_map()
-        return self._enrich_item(item, pm)
+        result = self._enrich_item(item, pm)
+        result["inbox_pending_count"] = await self._inbox_pending_count()
+        return result
 
     async def list_notes(
         self, user_id: str, *, project_id: str | None = None
@@ -989,7 +1200,10 @@ class HttpBackend:
         self._check(resp)
         note = resp.json()
         pm = await self._get_project_map()
-        return self._enrich_note(note, pm)
+        result = self._enrich_note(note, pm)
+        if note.get("project_id"):
+            result["board_state"] = await self._board_snapshot(str(note["project_id"]))
+        return result
 
     async def create_note(
         self,
@@ -1014,7 +1228,9 @@ class HttpBackend:
         self._check(resp)
         note = resp.json()
         pm = await self._get_project_map()
-        return self._enrich_note(note, pm)
+        result = self._enrich_note(note, pm)
+        result["board_state"] = await self._board_snapshot(project_id)
+        return result
 
     async def update_note(
         self,
@@ -1040,7 +1256,10 @@ class HttpBackend:
         self._check(resp)
         note = resp.json()
         pm = await self._get_project_map()
-        return self._enrich_note(note, pm)
+        result = self._enrich_note(note, pm)
+        if note.get("project_id"):
+            result["board_state"] = await self._board_snapshot(str(note["project_id"]))
+        return result
 
     async def list_comments(
         self,
@@ -1083,6 +1302,15 @@ class HttpBackend:
         resp = await self._client.post(path, json=body, headers=self._headers())
         self._check(resp)
         result: dict[str, Any] = resp.json()
+        # Inject board_state when commenting on an item in a project
+        if item_id is not None:
+            item_resp = await self._client.get(
+                f"/api/items/{item_id}", headers=self._headers()
+            )
+            self._check(item_resp)
+            item_project_id: str | None = item_resp.json().get("project_id")
+            if item_project_id:
+                result["board_state"] = await self._board_snapshot(item_project_id)
         return result
 
     async def update_comment(
@@ -1100,6 +1328,16 @@ class HttpBackend:
         )
         self._check(resp)
         result: dict[str, Any] = resp.json()
+        # Inject board_state when this comment belongs to a project-scoped item
+        comment_item_id: str | None = result.get("item_id")
+        if comment_item_id:
+            item_resp = await self._client.get(
+                f"/api/items/{comment_item_id}", headers=self._headers()
+            )
+            self._check(item_resp)
+            item_project_id: str | None = item_resp.json().get("project_id")
+            if item_project_id:
+                result["board_state"] = await self._board_snapshot(item_project_id)
         return result
 
     async def delete_comment(self, user_id: str, comment_id: str) -> None:

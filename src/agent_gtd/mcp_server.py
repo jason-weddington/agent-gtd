@@ -503,10 +503,11 @@ async def list_items(
     assigned_to: str | None = None,
     priority: str | None = None,
     project_id: str | None = None,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """List items, optionally filtered by project and/or status.
 
-    Without project_id, lists items across all projects.
+    Without project_id, lists items across all projects and includes
+    ``inbox_pending_count`` in the response.
 
     Args:
         ctx: MCP context (injected automatically).
@@ -516,7 +517,7 @@ async def list_items(
         project_id: Optional project filter. Omit to list cross-project.
 
     Returns:
-        List of item dicts.
+        Dict with ``items`` list and optional ``inbox_pending_count``.
     """
     session = await _get_session(ctx)
     return await _backend.list_items(

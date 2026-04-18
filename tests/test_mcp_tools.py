@@ -149,7 +149,9 @@ async def test_env_var_auto_login(api_key, monkeypatch):
         # Should work without calling login first
         result = await c.call_tool("list_items")
         data = _parse_result(result)
-        assert isinstance(data, list)
+        # list_items now returns {"items": [...], "inbox_pending_count": N}
+        assert isinstance(data, dict)
+        assert "items" in data
 
 
 async def test_login_tools_hidden_when_api_key_set():
@@ -255,10 +257,11 @@ async def test_inbox_capture_then_list(registered_client):
 
     result = await registered_client.call_tool("list_items", {"status": "inbox"})
     data = _parse_result(result)
-    assert len(data) == 2
-    titles = {d["title"] for d in data}
+    items = data["items"]
+    assert len(items) == 2
+    titles = {d["title"] for d in items}
     assert titles == {"Idea A", "Idea B"}
-    assert all(d["project_id"] is None for d in data)
+    assert all(d["project_id"] is None for d in items)
 
 
 async def test_add_item_inbox_is_projectless(registered_client):
@@ -334,7 +337,7 @@ async def test_list_items_cross_project(registered_client, project_id):
 
     result = await registered_client.call_tool("list_items", {"status": "next_action"})
     data = _parse_result(result)
-    assert len(data) == 2
+    assert len(data["items"]) == 2
 
 
 async def test_list_items_filter_project(registered_client, project_id):
@@ -352,8 +355,9 @@ async def test_list_items_filter_project(registered_client, project_id):
         "list_items", {"status": "next_action", "project_id": project_id}
     )
     data = _parse_result(result)
-    assert len(data) == 1
-    assert data[0]["title"] == "In Project"
+    items = data["items"]
+    assert len(items) == 1
+    assert items[0]["title"] == "In Project"
 
 
 async def test_list_items_filter_status(registered_client, project_id):
@@ -376,8 +380,9 @@ async def test_list_items_filter_status(registered_client, project_id):
 
     result = await registered_client.call_tool("list_items", {"status": "active"})
     data = _parse_result(result)
-    assert len(data) == 1
-    assert data[0]["title"] == "Active"
+    items = data["items"]
+    assert len(items) == 1
+    assert items[0]["title"] == "Active"
 
 
 async def test_get_item(registered_client):
@@ -742,14 +747,14 @@ async def test_session_isolation(user_id, api_key, monkeypatch):
             await client2.call_tool("list_items", {"project_id": p2["id"]})
         )
 
-        assert len(r1) == 1
-        assert r1[0]["title"] == "P1 Item"
-        assert len(r2) == 1
-        assert r2[0]["title"] == "P2 Item"
+        assert len(r1["items"]) == 1
+        assert r1["items"][0]["title"] == "P1 Item"
+        assert len(r2["items"]) == 1
+        assert r2["items"][0]["title"] == "P2 Item"
 
         # Without project_id filter, both see all items
         r_all = _parse_result(await client1.call_tool("list_items"))
-        assert len(r_all) == 2
+        assert len(r_all["items"]) == 2
 
 
 # --- Comments ---

@@ -132,7 +132,8 @@ async def test_list_items_with_filters(authed_backend: HttpBackend, project_id: 
     )
     await authed_backend.create_item("", title="Inbox", status="inbox")
 
-    active = await authed_backend.list_items("", status="active")
+    result = await authed_backend.list_items("", status="active")
+    active = result["items"]
     assert len(active) == 1
     assert active[0]["title"] == "Active"
 

@@ -19,6 +19,15 @@ from agent_gtd.services.project_service import verify_project_access
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Board snapshot constants
+# ---------------------------------------------------------------------------
+
+_TRACKED_STATUSES = ("new", "ready", "next_action", "active", "review", "waiting_for")
+_ID_PREFIX_LEN = 8
+_TITLE_LEN = 60
+_PER_COLUMN_CAP = 10
+
 
 async def list_items(
     db: DbPool,
@@ -657,3 +666,90 @@ async def list_blockers(
         item_id,
     )
     return [row_to_dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Board snapshot helpers
+# ---------------------------------------------------------------------------
+
+
+async def board_snapshot(
+    db: DbPool,
+    user_id: str,
+    project_id: str,
+    *,
+    per_column_cap: int = _PER_COLUMN_CAP,
+) -> dict[str, Any]:
+    """Return a compact board-state snapshot for a project.
+
+    Keys: project_id, project_name, and one list per tracked status.
+    Each item is [id_prefix(8), truncated_title(60)]. Columns with more
+    than ``per_column_cap`` items append ``"__more__ N"`` as the last element.
+
+    Args:
+        db: Database pool.
+        user_id: Calling user ID — access check enforced (owner or member).
+        project_id: Project to snapshot.
+        per_column_cap: Max items per column before adding __more__ sentinel.
+
+    Raises:
+        NotFoundError: If the project doesn't exist or isn't accessible.
+    """
+    await verify_project_access(db, project_id, user_id)
+
+    # Get project name
+    project_row = await db.fetchrow(
+        "SELECT name FROM projects WHERE id = $1", project_id
+    )
+    project_name = str(project_row["name"]) if project_row else ""
+
+    # Build IN-clause placeholders ($2, $3, …) for tracked statuses
+    placeholders = ", ".join(f"${i + 2}" for i in range(len(_TRACKED_STATUSES)))
+    sql = (
+        "SELECT id, title, status FROM items "  # noqa: S608
+        f"WHERE project_id = $1 AND status IN ({placeholders}) "
+        "ORDER BY sort_order ASC, created_at ASC"
+    )
+    rows = await db.fetch(sql, project_id, *_TRACKED_STATUSES)
+
+    # Group by status — rows are already ordered by sort_order ASC, created_at ASC
+    columns: dict[str, list[list[str]]] = {s: [] for s in _TRACKED_STATUSES}
+    for row in rows:
+        status = str(row["status"])
+        if status in columns:
+            id_prefix = str(row["id"])[:_ID_PREFIX_LEN]
+            title_trunc = str(row["title"])[:_TITLE_LEN]
+            columns[status].append([id_prefix, title_trunc])
+
+    snapshot: dict[str, Any] = {
+        "project_id": project_id,
+        "project_name": project_name,
+    }
+    for status in _TRACKED_STATUSES:
+        col = columns[status]
+        total = len(col)
+        if total > per_column_cap:
+            more = f"__more__ {total - per_column_cap}"
+            entries: list[Any] = [*col[:per_column_cap], more]
+        else:
+            entries = list(col)
+        snapshot[status] = entries
+
+    return snapshot
+
+
+async def inbox_pending_count(db: DbPool, user_id: str) -> int:
+    """Count items with status=inbox owned by the user.
+
+    Args:
+        db: Database pool.
+        user_id: Calling user ID.
+
+    Returns:
+        Number of inbox items owned by the user.
+    """
+    row = await db.fetchrow(
+        "SELECT COUNT(*) AS cnt FROM items WHERE user_id = $1 AND status = 'inbox'",
+        user_id,
+    )
+    return int(row["cnt"]) if row else 0
