@@ -26,6 +26,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import { useThemeMode } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../api'
+import { apiKeyFieldPlaceholder } from '../utils'
 import type { ApiKeyInfo } from '../types'
 
 function getInitialMaxTurns(): number {
@@ -50,7 +51,7 @@ export default function Settings() {
   const [maxConcurrent, setMaxConcurrent] = useState<number>(6)
   const [dispatchServiceUrl, setDispatchServiceUrl] = useState('')
   const [dispatchApiKeyInput, setDispatchApiKeyInput] = useState('')
-  const [dispatchApiKeyConfigured, setDispatchApiKeyConfigured] = useState(false)
+  const [dispatchApiKeyPreview, setDispatchApiKeyPreview] = useState('')
   const [savingDispatch, setSavingDispatch] = useState(false)
 
   const handleMaxTurnsChange = (raw: string) => {
@@ -75,7 +76,7 @@ export default function Settings() {
     try {
       const res = await api.settings.updateDispatch(fields)
       setDispatchServiceUrl(res.serviceUrl)
-      setDispatchApiKeyConfigured(res.serviceApiKeyConfigured)
+      setDispatchApiKeyPreview(res.serviceApiKeyPreview)
       if (fields.serviceApiKey !== undefined) {
         setDispatchApiKeyInput('')
       }
@@ -99,7 +100,7 @@ export default function Settings() {
     api.settings.getMaxConcurrent().then((res) => setMaxConcurrent(res.value)).catch(() => {})
     api.settings.getDispatch().then((res) => {
       setDispatchServiceUrl(res.serviceUrl)
-      setDispatchApiKeyConfigured(res.serviceApiKeyConfigured)
+      setDispatchApiKeyPreview(res.serviceApiKeyPreview)
     }).catch(() => {})
   }, [])
 
@@ -287,7 +288,7 @@ export default function Settings() {
                   void saveDispatchSettings({ serviceApiKey: dispatchApiKeyInput })
                 }
               }}
-              placeholder={dispatchApiKeyConfigured ? '●●●●●●●● (configured)' : 'Not configured'}
+              placeholder={apiKeyFieldPlaceholder(dispatchApiKeyPreview)}
               fullWidth
               helperText="Leave blank to keep the existing key. Never shown after saving."
             />

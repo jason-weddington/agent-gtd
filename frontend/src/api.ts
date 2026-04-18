@@ -180,9 +180,9 @@ export const api = {
     setMaxConcurrent: (value: number) =>
       request<{ value: number }>('PATCH', '/settings/dispatch/max-concurrent', { value }),
     getDispatch: () =>
-      request<{ serviceUrl: string; serviceApiKeyConfigured: boolean }>('GET', '/settings/dispatch'),
+      request<{ serviceUrl: string; serviceApiKeyPreview: string }>('GET', '/settings/dispatch'),
     updateDispatch: (data: { serviceUrl?: string; serviceApiKey?: string }) =>
-      request<{ serviceUrl: string; serviceApiKeyConfigured: boolean }>('PATCH', '/settings/dispatch', data),
+      request<{ serviceUrl: string; serviceApiKeyPreview: string }>('PATCH', '/settings/dispatch', data),
   },
 }
 

@@ -30,6 +30,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import { api, ApiError } from '../api'
 import type { Item, Comment, Project, Run, ItemStatus } from '../types'
+import { isDispatchServiceConfigured } from '../utils'
 import { useEvents } from '../contexts/EventStreamContext'
 import { BlockerPicker } from './BlockerPicker'
 
@@ -147,7 +148,7 @@ export default function ItemDetailDrawer({
   // Load dispatch config once on mount
   useEffect(() => {
     api.settings.getDispatch().then((cfg) => {
-      setDispatchConfigured(cfg.serviceApiKeyConfigured && cfg.serviceUrl !== '')
+      setDispatchConfigured(isDispatchServiceConfigured(cfg.serviceUrl, cfg.serviceApiKeyPreview))
     }).catch(() => {
       // If endpoint doesn't exist yet, treat as unconfigured but don't block dispatch
       setDispatchConfigured(null)

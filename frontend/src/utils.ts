@@ -28,3 +28,27 @@ export function hasUnresolvedBlockers(
 ): boolean {
   return (blockers ?? []).some((b) => b.status !== 'done')
 }
+
+/**
+ * Returns true if the dispatch service is fully configured —
+ * both a service URL and an API key preview must be present.
+ *
+ * `serviceApiKeyPreview` is `""` when no key is stored and `"****XXXX"`
+ * (or similar masked form) when a key is stored.  The drawer uses this to
+ * decide whether to enable the Dispatch button.
+ */
+export function isDispatchServiceConfigured(
+  serviceUrl: string,
+  serviceApiKeyPreview: string,
+): boolean {
+  return serviceUrl.trim() !== '' && serviceApiKeyPreview !== ''
+}
+
+/**
+ * Returns the placeholder text for the dispatch API key input field.
+ * Shows the masked preview when a key is stored, otherwise a "not configured"
+ * hint so the field looks empty when no key has been saved.
+ */
+export function apiKeyFieldPlaceholder(serviceApiKeyPreview: string): string {
+  return serviceApiKeyPreview !== '' ? serviceApiKeyPreview : 'Not configured'
+}

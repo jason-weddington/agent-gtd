@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toSnakeCase, toCamelCase, convertKeys } from '../utils'
+import { toSnakeCase, toCamelCase, convertKeys, isDispatchServiceConfigured, apiKeyFieldPlaceholder } from '../utils'
 
 describe('toSnakeCase', () => {
   it('converts camelCase to snake_case', () => {
@@ -58,5 +58,41 @@ describe('convertKeys', () => {
     const camel = convertKeys(original, toCamelCase)
     const back = convertKeys(camel, toSnakeCase)
     expect(back).toEqual(original)
+  })
+})
+
+describe('isDispatchServiceConfigured', () => {
+  it('returns false when serviceApiKeyPreview is empty', () => {
+    expect(isDispatchServiceConfigured('http://dispatch.example.com', '')).toBe(false)
+  })
+
+  it('returns false when serviceUrl is empty', () => {
+    expect(isDispatchServiceConfigured('', '****jL54')).toBe(false)
+  })
+
+  it('returns false when both are empty', () => {
+    expect(isDispatchServiceConfigured('', '')).toBe(false)
+  })
+
+  it('returns true when both serviceUrl and serviceApiKeyPreview are set', () => {
+    expect(isDispatchServiceConfigured('http://dispatch.example.com', '****jL54')).toBe(true)
+  })
+
+  it('returns false when serviceUrl is only whitespace', () => {
+    expect(isDispatchServiceConfigured('   ', '****jL54')).toBe(false)
+  })
+})
+
+describe('apiKeyFieldPlaceholder', () => {
+  it('returns "Not configured" when preview is empty', () => {
+    expect(apiKeyFieldPlaceholder('')).toBe('Not configured')
+  })
+
+  it('returns the preview string when it is non-empty', () => {
+    expect(apiKeyFieldPlaceholder('****jL54')).toBe('****jL54')
+  })
+
+  it('returns any non-empty preview as-is', () => {
+    expect(apiKeyFieldPlaceholder('****XXXX')).toBe('****XXXX')
   })
 })
