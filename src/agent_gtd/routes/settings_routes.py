@@ -18,8 +18,12 @@ from agent_gtd.services import settings_service
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 _MAX_CONCURRENT_KEY = "dispatch.max_concurrent"
+_ENGINE_KEY = "dispatch.engine"
+_AGENT_NAME_KEY = "dispatch.agent_name"
 _MIN_VALUE = 1
 _MAX_VALUE = 20
+_VALID_ENGINES = {"claude", "kiro"}
+_MAX_AGENT_NAME_LEN = 64
 
 
 async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsResponse:
@@ -30,6 +34,9 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
         if val is not None
         else int(os.environ.get("DISPATCH_MAX_CONCURRENT", "6"))
     )
+
+    engine = await settings_service.get_setting(db, _ENGINE_KEY) or "claude"
+    agent_name = await settings_service.get_setting(db, _AGENT_NAME_KEY) or ""
 
     service_url = (
         await settings_service.get_user_setting(db, user_id, "dispatch.service_url")
@@ -42,8 +49,8 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
     preview = f"****{last4}" if last4 else ""
 
     return DispatchSettingsResponse(
-        engine="claude",
-        agent_name="",
+        engine=engine,
+        agent_name=agent_name,
         max_concurrent=max_concurrent,
         service_url=service_url,
         service_api_key_preview=preview,
@@ -110,6 +117,20 @@ async def update_dispatch_settings(
     """
     db = await get_db()
 
+    if body.engine is not None:
+        if body.engine not in _VALID_ENGINES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"engine must be one of {sorted(_VALID_ENGINES)}",
+            )
+        await settings_service.set_setting(db, _ENGINE_KEY, body.engine)
+    if body.agent_name is not None:
+        if len(body.agent_name) > _MAX_AGENT_NAME_LEN:
+            raise HTTPException(
+                status_code=422,
+                detail=f"agent_name must be at most {_MAX_AGENT_NAME_LEN} chars",
+            )
+        await settings_service.set_setting(db, _AGENT_NAME_KEY, body.agent_name)
     if body.service_url is not None:
         await settings_service.set_user_setting(
             db, user.id, "dispatch.service_url", body.service_url

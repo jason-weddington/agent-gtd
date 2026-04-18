@@ -180,9 +180,26 @@ export const api = {
     setMaxConcurrent: (value: number) =>
       request<{ value: number }>('PATCH', '/settings/dispatch/max-concurrent', { value }),
     getDispatch: () =>
-      request<{ serviceUrl: string; serviceApiKeyPreview: string }>('GET', '/settings/dispatch'),
-    updateDispatch: (data: { serviceUrl?: string; serviceApiKey?: string }) =>
-      request<{ serviceUrl: string; serviceApiKeyPreview: string }>('PATCH', '/settings/dispatch', data),
+      request<{
+        engine: string
+        agentName: string
+        maxConcurrent: number
+        serviceUrl: string
+        serviceApiKeyPreview: string
+      }>('GET', '/settings/dispatch'),
+    updateDispatch: (data: {
+      engine?: string
+      agentName?: string
+      serviceUrl?: string
+      serviceApiKey?: string
+    }) =>
+      request<{
+        engine: string
+        agentName: string
+        maxConcurrent: number
+        serviceUrl: string
+        serviceApiKeyPreview: string
+      }>('PATCH', '/settings/dispatch', data),
   },
 }
 

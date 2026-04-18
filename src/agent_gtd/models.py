@@ -447,6 +447,8 @@ class UpdateDispatchSettingsRequest(BaseModel):
     Only provided fields are updated; omit a field to leave it unchanged.
     """
 
+    engine: str | None = None
+    agent_name: str | None = None
     service_url: str | None = None
     service_api_key: str | None = None
 

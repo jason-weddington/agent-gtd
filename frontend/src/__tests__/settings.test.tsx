@@ -63,10 +63,16 @@ describe('Settings – Dispatch Service API Key field', () => {
     // Default: configure api mock to return empty preview (no key stored)
     const api = await getApi()
     vi.mocked(api.settings.getDispatch).mockResolvedValue({
+      engine: 'claude',
+      agentName: '',
+      maxConcurrent: 6,
       serviceUrl: 'http://dispatch.example.com',
       serviceApiKeyPreview: '',
     })
     vi.mocked(api.settings.updateDispatch).mockResolvedValue({
+      engine: 'claude',
+      agentName: '',
+      maxConcurrent: 6,
       serviceUrl: 'http://dispatch.example.com',
       serviceApiKeyPreview: '****NEW1',
     })
@@ -86,6 +92,9 @@ describe('Settings – Dispatch Service API Key field', () => {
   it('shows the masked preview as placeholder when serviceApiKeyPreview is set', async () => {
     const api = await getApi()
     vi.mocked(api.settings.getDispatch).mockResolvedValue({
+      engine: 'claude',
+      agentName: '',
+      maxConcurrent: 6,
       serviceUrl: 'http://dispatch.example.com',
       serviceApiKeyPreview: '****jL54',
     })

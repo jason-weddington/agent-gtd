@@ -101,11 +101,21 @@ async def _dispatch_to_remote(
     *,
     url: str,
     api_key: str,
+    engine: str = "claude",
+    agent_name: str = "",
 ) -> dict[str, Any]:
     """POST /dispatch to the remote service. Returns the remote run dict."""
+    body: dict[str, Any] = {
+        "item_id": item_id,
+        "max_turns": max_turns,
+        "mode": mode,
+        "engine": engine,
+    }
+    if agent_name:
+        body["agent_name"] = agent_name
     resp = await client.post(
         f"{url}/dispatch",
-        json={"item_id": item_id, "max_turns": max_turns, "mode": mode},
+        json=body,
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=30.0,
     )
@@ -353,7 +363,10 @@ async def execute_run(
     Updates the local run row as it progresses. The remote service handles
     cloning, Claude invocation, and posting comments to the GTD API.
     """
-    from agent_gtd.services.settings_service import get_dispatch_config
+    from agent_gtd.services.settings_service import (
+        get_dispatch_config,
+        get_setting,
+    )
 
     run_id = str(run["id"])
     item_id = str(run["item_id"])
@@ -377,6 +390,10 @@ async def execute_run(
     dispatch_url = settings["url"]
     dispatch_api_key = settings["api_key"]
 
+    # Resolve deployment-wide engine + agent_name (app_settings, not user_settings)
+    engine = await get_setting(db, "dispatch.engine") or "claude"
+    agent_name = await get_setting(db, "dispatch.agent_name") or ""
+
     async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
         # --- Dispatch to remote ---
         try:
@@ -387,6 +404,8 @@ async def execute_run(
                 mode,
                 url=dispatch_url,
                 api_key=dispatch_api_key,
+                engine=engine,
+                agent_name=agent_name,
             )
             remote_run_id = remote_run["id"]
         except Exception as e:

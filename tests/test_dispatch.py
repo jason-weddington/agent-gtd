@@ -719,7 +719,15 @@ async def test_execute_run_success(
     poll_count = 0
 
     async def mock_dispatch_to_remote(
-        client, item_id, max_turns, mode="build", *, url, api_key
+        client,
+        item_id,
+        max_turns,
+        mode="build",
+        *,
+        url,
+        api_key,
+        engine="claude",
+        agent_name="",
     ):
         return {"id": "remote-123", "status": "pending"}
 
@@ -776,7 +784,15 @@ async def test_execute_run_remote_failure(
     project = row_to_dict(proj_row)
 
     async def mock_dispatch_to_remote(
-        client, item_id, max_turns, mode="build", *, url, api_key
+        client,
+        item_id,
+        max_turns,
+        mode="build",
+        *,
+        url,
+        api_key,
+        engine="claude",
+        agent_name="",
     ):
         return {"id": "remote-456", "status": "pending"}
 
@@ -915,7 +931,17 @@ async def test_configure_and_dispatch(
     project = row_to_dict(proj_row)
 
     # Mock remote dispatch to return success
-    async def mock_dispatch(client, item_id, max_turns, mode="build", *, url, api_key):
+    async def mock_dispatch(
+        client,
+        item_id,
+        max_turns,
+        mode="build",
+        *,
+        url,
+        api_key,
+        engine="claude",
+        agent_name="",
+    ):
         return {"id": "remote-ok", "status": "pending"}
 
     async def mock_poll(client, remote_run_id, *, url, api_key):

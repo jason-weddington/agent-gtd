@@ -11,11 +11,15 @@ import {
   DialogContentText,
   DialogTitle,
   Divider,
+  FormControl,
   FormControlLabel,
   IconButton,
+  InputLabel,
   List,
   ListItem,
   ListItemText,
+  MenuItem,
+  Select,
   Switch,
   TextField,
   Tooltip,
@@ -49,6 +53,8 @@ export default function Settings() {
   // Agent Dispatch settings
   const [dispatchMaxTurns, setDispatchMaxTurns] = useState<number>(getInitialMaxTurns)
   const [maxConcurrent, setMaxConcurrent] = useState<number>(6)
+  const [engine, setEngine] = useState<string>('claude')
+  const [agentName, setAgentName] = useState<string>('')
   const [dispatchServiceUrl, setDispatchServiceUrl] = useState('')
   const [dispatchApiKeyInput, setDispatchApiKeyInput] = useState('')
   const [dispatchApiKeyPreview, setDispatchApiKeyPreview] = useState('')
@@ -71,10 +77,17 @@ export default function Settings() {
     }
   }
 
-  const saveDispatchSettings = async (fields: { serviceUrl?: string; serviceApiKey?: string }) => {
+  const saveDispatchSettings = async (fields: {
+    engine?: string
+    agentName?: string
+    serviceUrl?: string
+    serviceApiKey?: string
+  }) => {
     setSavingDispatch(true)
     try {
       const res = await api.settings.updateDispatch(fields)
+      setEngine(res.engine)
+      setAgentName(res.agentName)
       setDispatchServiceUrl(res.serviceUrl)
       setDispatchApiKeyPreview(res.serviceApiKeyPreview)
       if (fields.serviceApiKey !== undefined) {
@@ -99,6 +112,8 @@ export default function Settings() {
     api.config.get().then((cfg) => setVersion(cfg.version)).catch(() => {})
     api.settings.getMaxConcurrent().then((res) => setMaxConcurrent(res.value)).catch(() => {})
     api.settings.getDispatch().then((res) => {
+      setEngine(res.engine)
+      setAgentName(res.agentName)
       setDispatchServiceUrl(res.serviceUrl)
       setDispatchApiKeyPreview(res.serviceApiKeyPreview)
     }).catch(() => {})
@@ -265,6 +280,34 @@ export default function Settings() {
             Configure defaults for autonomous agent runs.
           </Typography>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 2, maxWidth: 400 }}>
+            <FormControl size="small" fullWidth>
+              <InputLabel id="coding-agent-label">Coding Agent</InputLabel>
+              <Select
+                labelId="coding-agent-label"
+                label="Coding Agent"
+                value={engine}
+                onChange={(e) => {
+                  const next = e.target.value
+                  setEngine(next)
+                  void saveDispatchSettings({ engine: next })
+                }}
+              >
+                <MenuItem value="claude">Claude Code</MenuItem>
+                <MenuItem value="kiro">Kiro CLI</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              label="Custom agent name (optional)"
+              size="small"
+              value={agentName}
+              onChange={(e) => setAgentName(e.target.value)}
+              onBlur={() => {
+                if (!savingDispatch) void saveDispatchSettings({ agentName })
+              }}
+              placeholder="Leave blank for the engine's default"
+              helperText="Passed to the CLI as --agent"
+              fullWidth
+            />
             <TextField
               label="Dispatch service URL"
               type="url"
@@ -294,17 +337,19 @@ export default function Settings() {
             />
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
-            <Box>
-              <TextField
-                label="Default max turns"
-                type="number"
-                size="small"
-                value={dispatchMaxTurns}
-                onChange={(e) => handleMaxTurnsChange(e.target.value)}
-                slotProps={{ htmlInput: { min: 10, max: 500 } }}
-                sx={{ width: 180 }}
-              />
-            </Box>
+            {engine === 'claude' && (
+              <Box>
+                <TextField
+                  label="Default max turns"
+                  type="number"
+                  size="small"
+                  value={dispatchMaxTurns}
+                  onChange={(e) => handleMaxTurnsChange(e.target.value)}
+                  slotProps={{ htmlInput: { min: 10, max: 500 } }}
+                  sx={{ width: 180 }}
+                />
+              </Box>
+            )}
             <Box>
               <TextField
                 label="Max concurrent runs"
