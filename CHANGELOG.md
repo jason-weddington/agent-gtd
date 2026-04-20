@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.70.0 (2026-04-20)
+
+### Bug Fixes
+
+- **settings**: Always show masked API key preview in dispatch field
+  ([`37b2a14`](https://github.com/jason-weddington/agent-gtd/commit/37b2a14ab1615256629e21acfcaea4e5fbcda191))
+
+### Features
+
+- **settings**: Persist dispatch default_max_turns server-side
+  ([`f03f321`](https://github.com/jason-weddington/agent-gtd/commit/f03f3214aa4433945936c023f80a19f8f1e3c491))
+
+
 ## v1.69.0 (2026-04-18)
 
 ### Chores
