@@ -954,3 +954,73 @@ async def test_configure_and_dispatch(
 
     res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
     assert res.json()["status"] == "success"
+
+
+# --- default_max_turns persistence ---
+
+
+async def test_create_run_uses_persisted_default_max_turns(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """Uses dispatch.default_max_turns from app_settings when max_turns=None."""
+    # Persist a custom default_max_turns via the settings API
+    await client.patch(
+        "/api/settings/dispatch",
+        json={"default_max_turns": 200},
+        headers=auth_headers,
+    )
+
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    # Dispatch without specifying max_turns — should pick up persisted 200
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["max_turns"] == 200
+
+
+async def test_create_run_explicit_max_turns_overrides_persisted(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """Explicit max_turns in the dispatch request overrides the persisted default."""
+    await client.patch(
+        "/api/settings/dispatch",
+        json={"default_max_turns": 200},
+        headers=auth_headers,
+    )
+
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={"max_turns": 75},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["max_turns"] == 75
+
+
+async def test_create_run_falls_back_to_env_var_when_not_persisted(
+    client: AsyncClient, auth_headers: dict[str, str], monkeypatch
+) -> None:
+    """Falls back to DISPATCH_DEFAULT_MAX_TURNS env var when DB has no value."""
+    import agent_gtd.dispatch_worker as dw
+
+    monkeypatch.setattr(dw, "DEFAULT_MAX_TURNS", 150)
+
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    # No dispatch.default_max_turns in app_settings; DEFAULT_MAX_TURNS patched to 150
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["max_turns"] == 150

@@ -33,12 +33,6 @@ import { api } from '../api'
 import { apiKeyFieldPlaceholder } from '../utils'
 import type { ApiKeyInfo } from '../types'
 
-function getInitialMaxTurns(): number {
-  const stored = localStorage.getItem('agent_gtd-dispatch-max-turns')
-  const parsed = stored ? parseInt(stored, 10) : NaN
-  return !isNaN(parsed) && parsed >= 10 && parsed <= 500 ? parsed : 100
-}
-
 function clampInt(raw: string, min: number, max: number): number {
   const v = parseInt(raw, 10)
   if (isNaN(v)) return min
@@ -51,7 +45,7 @@ export default function Settings() {
   const [version, setVersion] = useState<string | null>(null)
 
   // Agent Dispatch settings
-  const [dispatchMaxTurns, setDispatchMaxTurns] = useState<number>(getInitialMaxTurns)
+  const [dispatchMaxTurns, setDispatchMaxTurns] = useState<number>(100)
   const [maxConcurrent, setMaxConcurrent] = useState<number>(6)
   const [engine, setEngine] = useState<string>('claude')
   const [agentName, setAgentName] = useState<string>('')
@@ -65,7 +59,15 @@ export default function Settings() {
     if (isNaN(v)) return
     const clamped = Math.max(10, Math.min(500, v))
     setDispatchMaxTurns(clamped)
-    localStorage.setItem('agent_gtd-dispatch-max-turns', String(clamped))
+  }
+
+  const saveMaxTurns = async () => {
+    try {
+      const res = await api.settings.updateDispatch({ defaultMaxTurns: dispatchMaxTurns })
+      setDispatchMaxTurns(res.defaultMaxTurns)
+    } catch {
+      // handled by api client
+    }
   }
 
   const saveMaxConcurrent = async () => {
@@ -88,6 +90,7 @@ export default function Settings() {
       const res = await api.settings.updateDispatch(fields)
       setEngine(res.engine)
       setAgentName(res.agentName)
+      setDispatchMaxTurns(res.defaultMaxTurns)
       setDispatchServiceUrl(res.serviceUrl)
       setDispatchApiKeyPreview(res.serviceApiKeyPreview)
       if (fields.serviceApiKey !== undefined) {
@@ -114,6 +117,7 @@ export default function Settings() {
     api.settings.getDispatch().then((res) => {
       setEngine(res.engine)
       setAgentName(res.agentName)
+      setDispatchMaxTurns(res.defaultMaxTurns)
       setDispatchServiceUrl(res.serviceUrl)
       setDispatchApiKeyPreview(res.serviceApiKeyPreview)
     }).catch(() => {})
@@ -346,6 +350,7 @@ export default function Settings() {
                   size="small"
                   value={dispatchMaxTurns}
                   onChange={(e) => handleMaxTurnsChange(e.target.value)}
+                  onBlur={() => { void saveMaxTurns() }}
                   slotProps={{ htmlInput: { min: 10, max: 500 } }}
                   sx={{ width: 180 }}
                 />

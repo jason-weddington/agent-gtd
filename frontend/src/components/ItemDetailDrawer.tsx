@@ -36,13 +36,6 @@ import { BlockerPicker } from './BlockerPicker'
 
 const DRAWER_WIDTH = 440
 
-function getDispatchMaxTurns(): number | undefined {
-  const stored = localStorage.getItem('agent_gtd-dispatch-max-turns')
-  if (!stored) return undefined
-  const v = parseInt(stored, 10)
-  return !isNaN(v) ? v : undefined
-}
-
 const STATUS_LABELS: Partial<Record<ItemStatus, string>> = {
   inbox: 'Inbox',
   new: 'New',
@@ -95,6 +88,7 @@ export default function ItemDetailDrawer({
   const [copied, setCopied] = useState(false)
   const [dispatchAnimating, setDispatchAnimating] = useState(false)
   const [dispatchConfigured, setDispatchConfigured] = useState<boolean | null>(null)
+  const [defaultMaxTurns, setDefaultMaxTurns] = useState<number | undefined>(undefined)
 
   // Local item state — stays in sync with prop, then updated optimistically on each inline save
   const [localItem, setLocalItem] = useState<Item | null>(null)
@@ -149,6 +143,7 @@ export default function ItemDetailDrawer({
   useEffect(() => {
     api.settings.getDispatch().then((cfg) => {
       setDispatchConfigured(isDispatchServiceConfigured(cfg.serviceUrl, cfg.serviceApiKeyPreview))
+      setDefaultMaxTurns(cfg.defaultMaxTurns)
     }).catch(() => {
       // If endpoint doesn't exist yet, treat as unconfigured but don't block dispatch
       setDispatchConfigured(null)
@@ -361,10 +356,9 @@ export default function ItemDetailDrawer({
     setDispatching(true)
     setDispatchError(null)
     try {
-      const maxTurns = getDispatchMaxTurns()
       const run = await api.items.dispatch(item.id, {
         mode,
-        ...(maxTurns !== undefined ? { maxTurns } : {}),
+        ...(defaultMaxTurns !== undefined ? { maxTurns: defaultMaxTurns } : {}),
       })
       setActiveRun(run)
       setConfirmOpen(false)
@@ -382,7 +376,7 @@ export default function ItemDetailDrawer({
     } finally {
       setDispatching(false)
     }
-  }, [item, localItem, dispatchMode])
+  }, [item, localItem, dispatchMode, defaultMaxTurns])
 
   const handleCopy = () => {
     if (!item) return
@@ -972,7 +966,7 @@ export default function ItemDetailDrawer({
             <strong>Repo:</strong> {projectGitOrigin}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            <strong>Max turns:</strong> {getDispatchMaxTurns() ?? 'server default'}
+            <strong>Max turns:</strong> {defaultMaxTurns ?? 'server default'}
           </Typography>
           <Box sx={{ display: 'flex', gap: 1, mt: 1.5, mb: 1 }}>
             <Button

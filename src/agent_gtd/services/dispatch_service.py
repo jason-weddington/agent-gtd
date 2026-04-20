@@ -70,11 +70,17 @@ async def create_run(
         raise RunActiveError(item_id, str(existing["id"]))
 
     from agent_gtd.dispatch_worker import DEFAULT_MAX_TURNS
+    from agent_gtd.services import settings_service
+
+    if max_turns is None:
+        stored = await settings_service.get_setting(db, "dispatch.default_max_turns")
+        effective_max_turns = int(stored) if stored is not None else DEFAULT_MAX_TURNS
+    else:
+        effective_max_turns = max_turns
 
     now = datetime.now(UTC).isoformat()
     run_id = str(uuid.uuid4())
     branch = make_branch_name(item_id, item["title"])
-    effective_max_turns = max_turns if max_turns is not None else DEFAULT_MAX_TURNS
 
     await db.execute(
         "INSERT INTO claude_runs"

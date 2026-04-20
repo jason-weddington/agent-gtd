@@ -184,6 +184,7 @@ export const api = {
         engine: string
         agentName: string
         maxConcurrent: number
+        defaultMaxTurns: number
         serviceUrl: string
         serviceApiKeyPreview: string
       }>('GET', '/settings/dispatch'),
@@ -192,11 +193,13 @@ export const api = {
       agentName?: string
       serviceUrl?: string
       serviceApiKey?: string
+      defaultMaxTurns?: number
     }) =>
       request<{
         engine: string
         agentName: string
         maxConcurrent: number
+        defaultMaxTurns: number
         serviceUrl: string
         serviceApiKeyPreview: string
       }>('PATCH', '/settings/dispatch', data),

@@ -437,6 +437,7 @@ class DispatchSettingsResponse(BaseModel):
     engine: str
     agent_name: str
     max_concurrent: int
+    default_max_turns: int = 100
     service_url: str
     service_api_key_preview: str = ""
 
@@ -451,6 +452,7 @@ class UpdateDispatchSettingsRequest(BaseModel):
     agent_name: str | None = None
     service_url: str | None = None
     service_api_key: str | None = None
+    default_max_turns: int | None = None
 
 
 class RunResponse(BaseModel):

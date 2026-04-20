@@ -20,10 +20,13 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 _MAX_CONCURRENT_KEY = "dispatch.max_concurrent"
 _ENGINE_KEY = "dispatch.engine"
 _AGENT_NAME_KEY = "dispatch.agent_name"
+_DEFAULT_MAX_TURNS_KEY = "dispatch.default_max_turns"
 _MIN_VALUE = 1
 _MAX_VALUE = 20
 _VALID_ENGINES = {"claude", "kiro"}
 _MAX_AGENT_NAME_LEN = 64
+_MIN_TURNS = 10
+_MAX_TURNS = 500
 
 
 async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsResponse:
@@ -37,6 +40,13 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
 
     engine = await settings_service.get_setting(db, _ENGINE_KEY) or "claude"
     agent_name = await settings_service.get_setting(db, _AGENT_NAME_KEY) or ""
+
+    turns_val = await settings_service.get_setting(db, _DEFAULT_MAX_TURNS_KEY)
+    default_max_turns = (
+        int(turns_val)
+        if turns_val is not None
+        else int(os.environ.get("DISPATCH_DEFAULT_MAX_TURNS", "100"))
+    )
 
     service_url = (
         await settings_service.get_user_setting(db, user_id, "dispatch.service_url")
@@ -52,6 +62,7 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
         engine=engine,
         agent_name=agent_name,
         max_concurrent=max_concurrent,
+        default_max_turns=default_max_turns,
         service_url=service_url,
         service_api_key_preview=preview,
     )
@@ -131,6 +142,17 @@ async def update_dispatch_settings(
                 detail=f"agent_name must be at most {_MAX_AGENT_NAME_LEN} chars",
             )
         await settings_service.set_setting(db, _AGENT_NAME_KEY, body.agent_name)
+    if body.default_max_turns is not None:
+        if not (_MIN_TURNS <= body.default_max_turns <= _MAX_TURNS):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"default_max_turns must be between {_MIN_TURNS} and {_MAX_TURNS}"
+                ),
+            )
+        await settings_service.set_setting(
+            db, _DEFAULT_MAX_TURNS_KEY, str(body.default_max_turns)
+        )
     if body.service_url is not None:
         await settings_service.set_user_setting(
             db, user.id, "dispatch.service_url", body.service_url

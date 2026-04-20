@@ -66,6 +66,7 @@ describe('Settings – Dispatch Service API Key field', () => {
       engine: 'claude',
       agentName: '',
       maxConcurrent: 6,
+      defaultMaxTurns: 100,
       serviceUrl: 'http://dispatch.example.com',
       serviceApiKeyPreview: '',
     })
@@ -73,6 +74,7 @@ describe('Settings – Dispatch Service API Key field', () => {
       engine: 'claude',
       agentName: '',
       maxConcurrent: 6,
+      defaultMaxTurns: 100,
       serviceUrl: 'http://dispatch.example.com',
       serviceApiKeyPreview: '****NEW1',
     })
@@ -95,6 +97,7 @@ describe('Settings – Dispatch Service API Key field', () => {
       engine: 'claude',
       agentName: '',
       maxConcurrent: 6,
+      defaultMaxTurns: 100,
       serviceUrl: 'http://dispatch.example.com',
       serviceApiKeyPreview: '****jL54',
     })

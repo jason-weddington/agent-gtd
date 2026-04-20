@@ -521,3 +521,110 @@ async def test_get_user_setting_last4_not_full_value(
     )
     assert last4 == "jL54"
     assert last4 != full_key
+
+
+# ---------------------------------------------------------------------------
+# dispatch.default_max_turns persistence
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_dispatch_settings_default_max_turns_unset(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """GET /api/settings/dispatch returns default_max_turns=100 when nothing is set."""
+    res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["default_max_turns"] == 100
+
+
+@pytest.mark.asyncio
+async def test_get_dispatch_settings_default_max_turns_env_var(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /api/settings/dispatch falls back to DISPATCH_DEFAULT_MAX_TURNS env var."""
+    monkeypatch.setenv("DISPATCH_DEFAULT_MAX_TURNS", "200")
+    res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["default_max_turns"] == 200
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_default_max_turns(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH /api/settings/dispatch persists default_max_turns; GET returns it."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"default_max_turns": 250},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["default_max_turns"] == 250
+
+    # Confirm it persists
+    get_res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert get_res.status_code == 200
+    assert get_res.json()["default_max_turns"] == 250
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_default_max_turns_db_overrides_env(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Persisted value overrides DISPATCH_DEFAULT_MAX_TURNS env var."""
+    monkeypatch.setenv("DISPATCH_DEFAULT_MAX_TURNS", "50")
+    await client.patch(
+        "/api/settings/dispatch",
+        json={"default_max_turns": 300},
+        headers=auth_headers,
+    )
+    get_res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert get_res.status_code == 200
+    assert get_res.json()["default_max_turns"] == 300
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_default_max_turns_too_low(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH rejects default_max_turns < 10."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"default_max_turns": 9},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_default_max_turns_too_high(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH rejects default_max_turns > 500."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"default_max_turns": 501},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_default_max_turns_boundary(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH accepts boundary values 10 and 500."""
+    for v in (10, 500):
+        res = await client.patch(
+            "/api/settings/dispatch",
+            json={"default_max_turns": v},
+            headers=auth_headers,
+        )
+        assert res.status_code == 200
+        assert res.json()["default_max_turns"] == v
