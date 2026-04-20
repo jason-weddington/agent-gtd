@@ -332,6 +332,7 @@ export default function Settings() {
                 }
               }}
               placeholder={apiKeyFieldPlaceholder(dispatchApiKeyPreview)}
+              slotProps={{ inputLabel: { shrink: true } }}
               fullWidth
               helperText="Leave blank to keep the existing key. Never shown after saving."
             />
