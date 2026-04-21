@@ -78,6 +78,8 @@ class Project(BaseModel):
     area: str = ""
     git_origin: str = ""
     kb_project_ref: str = ""
+    dispatch_agent: str | None = None
+    dispatch_max_turns: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -221,7 +223,13 @@ class CreateProjectRequest(BaseModel):
 
 
 class UpdateProjectRequest(BaseModel):
-    """Update a project. All fields optional."""
+    """Update a project. All fields optional.
+
+    For dispatch_agent and dispatch_max_turns:
+    - Field absent → unchanged
+    - Field explicitly null → clear the override (revert to inheriting global)
+    - Field set → persist the value
+    """
 
     name: str | None = None
     description: str | None = None
@@ -229,6 +237,8 @@ class UpdateProjectRequest(BaseModel):
     area: str | None = None
     git_origin: str | None = None
     kb_project_ref: str | None = None
+    dispatch_agent: str | None = None
+    dispatch_max_turns: int | None = None
 
 
 class ProjectResponse(BaseModel):
@@ -241,6 +251,8 @@ class ProjectResponse(BaseModel):
     area: str
     git_origin: str
     kb_project_ref: str
+    dispatch_agent: str | None = None
+    dispatch_max_turns: int | None = None
     created_at: datetime
     updated_at: datetime
 

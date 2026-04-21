@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
+from agent_gtd.dispatch_constants import MAX_TURNS, MIN_TURNS
 from agent_gtd.exceptions import NotFoundError, ValidationError
 from agent_gtd.models import (
     AddMemberRequest,
@@ -23,6 +24,8 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
 def _project_response(row: dict[str, object]) -> ProjectResponse:
+    raw_agent = row.get("dispatch_agent")
+    raw_turns = row.get("dispatch_max_turns")
     return ProjectResponse(
         id=str(row["id"]),
         name=str(row["name"]),
@@ -31,6 +34,8 @@ def _project_response(row: dict[str, object]) -> ProjectResponse:
         area=str(row["area"]),
         git_origin=str(row.get("git_origin", "")),
         kb_project_ref=str(row.get("kb_project_ref", "")),
+        dispatch_agent=str(raw_agent) if raw_agent is not None else None,
+        dispatch_max_turns=int(str(raw_turns)) if raw_turns is not None else None,
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
     )
@@ -94,6 +99,27 @@ async def update_project(
     user: Annotated[User, Depends(get_current_user)],
 ) -> ProjectResponse:
     """Update an existing project."""
+    # Validate dispatch_max_turns bounds if explicitly provided and non-null.
+    if (
+        "dispatch_max_turns" in body.model_fields_set
+        and body.dispatch_max_turns is not None
+        and not (MIN_TURNS <= body.dispatch_max_turns <= MAX_TURNS)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"dispatch_max_turns must be between {MIN_TURNS} and {MAX_TURNS}",
+        )
+
+    # Use model_fields_set to distinguish "absent" from "explicit null" for
+    # nullable override columns.
+    clear_dispatch_agent = (
+        "dispatch_agent" in body.model_fields_set and body.dispatch_agent is None
+    )
+    clear_dispatch_max_turns = (
+        "dispatch_max_turns" in body.model_fields_set
+        and body.dispatch_max_turns is None
+    )
+
     db = await get_db()
     try:
         row = await project_service.update_project(
@@ -106,6 +132,10 @@ async def update_project(
             area=body.area,
             git_origin=body.git_origin,
             kb_project_ref=body.kb_project_ref,
+            dispatch_agent=body.dispatch_agent,
+            clear_dispatch_agent=clear_dispatch_agent,
+            dispatch_max_turns=body.dispatch_max_turns,
+            clear_dispatch_max_turns=clear_dispatch_max_turns,
         )
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None

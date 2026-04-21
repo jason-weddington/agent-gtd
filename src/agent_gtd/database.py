@@ -230,6 +230,8 @@ _MIGRATIONS: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_user_settings_user ON user_settings(user_id)",
+    "ALTER TABLE projects ADD COLUMN dispatch_agent TEXT",
+    "ALTER TABLE projects ADD COLUMN dispatch_max_turns INTEGER",
 ]
 
 

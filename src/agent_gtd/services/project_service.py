@@ -194,8 +194,17 @@ async def update_project(
     area: str | None = None,
     git_origin: str | None = None,
     kb_project_ref: str | None = None,
+    dispatch_agent: str | None = None,
+    clear_dispatch_agent: bool = False,
+    dispatch_max_turns: int | None = None,
+    clear_dispatch_max_turns: bool = False,
 ) -> dict[str, Any]:
     """Update a project. Only non-None fields are changed.
+
+    For nullable override columns (dispatch_agent, dispatch_max_turns):
+    - Pass the value to set it.
+    - Pass clear_dispatch_agent=True (with dispatch_agent=None) to set NULL.
+    - Omit both to leave the column unchanged.
 
     Raises:
         NotFoundError: If the project doesn't exist or isn't owned by user.
@@ -223,6 +232,18 @@ async def update_project(
     if kb_project_ref is not None:
         params.append(kb_project_ref)
         updates.append(f"kb_project_ref = ${len(params)}")
+    if dispatch_agent is not None:
+        params.append(dispatch_agent)
+        updates.append(f"dispatch_agent = ${len(params)}")
+    elif clear_dispatch_agent:
+        params.append(None)
+        updates.append(f"dispatch_agent = ${len(params)}")
+    if dispatch_max_turns is not None:
+        params.append(dispatch_max_turns)
+        updates.append(f"dispatch_max_turns = ${len(params)}")
+    elif clear_dispatch_max_turns:
+        params.append(None)
+        updates.append(f"dispatch_max_turns = ${len(params)}")
 
     if updates:
         params.append(datetime.now(UTC).isoformat())
