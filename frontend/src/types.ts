@@ -51,6 +51,10 @@ export interface Project {
   isOwner?: boolean
   /** Number of members (excluding owner). 0 or absent = unshared project. */
   memberCount?: number
+  /** Per-project dispatch agent override. Null = inherit from global setting. */
+  dispatchAgent?: string | null
+  /** Per-project dispatch max turns override. Null = inherit from global setting. */
+  dispatchMaxTurns?: number | null
 }
 
 export interface MemberSummary {

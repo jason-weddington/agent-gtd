@@ -1,40 +1,43 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
+  Autocomplete,
   Box,
-  Typography,
   Button,
+  Card,
+  CardContent,
+  Checkbox,
   Chip,
-  Tabs,
-  Tab,
-  List,
-  ListItem,
-  ListItemText,
-  IconButton,
+  CircularProgress,
+  Alert,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
-  CircularProgress,
-  Alert,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  ToggleButtonGroup,
-  ToggleButton,
-  FormControlLabel,
-  Checkbox,
   Divider,
+  FormControl,
+  FormControlLabel,
+  IconButton,
   InputAdornment,
+  InputLabel,
+  List,
+  ListItem,
+  ListItemText,
+  MenuItem,
+  Select,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Tabs,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
+  Typography,
 } from '@mui/material'
 import SendIcon from '@mui/icons-material/Send'
 import AddIcon from '@mui/icons-material/Add'
@@ -47,7 +50,7 @@ import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
 import SearchIcon from '@mui/icons-material/Search'
 import ClearIcon from '@mui/icons-material/Clear'
 import { api, ApiError } from '../api'
-import type { Project, Item, Note, Comment, Run, RunStatus, ItemStatus, Priority, ProjectStatus } from '../types'
+import type { Project, Item, Note, Comment, Run, RunStatus, ItemStatus, Priority, ProjectStatus, DispatchAgentInfo } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
 import { useQuickCapture } from '../contexts/QuickCaptureContext'
 import KanbanBoard from '../components/KanbanBoard'
@@ -103,7 +106,7 @@ export default function ProjectDetail() {
   const [tab, setTab] = useState(() => {
     // Support ?tab=share deep link
     const params = new URLSearchParams(window.location.search)
-    return params.get('tab') === 'share' ? 4 : 0
+    return params.get('tab') === 'share' ? 5 : 0
   })
 
   // Project comment input
@@ -166,6 +169,19 @@ export default function ProjectDetail() {
   const [deleteNoteTarget, setDeleteNoteTarget] = useState<Note | null>(null)
   const [deletingItem, setDeletingItem] = useState(false)
   const [deletingNote, setDeletingNote] = useState(false)
+
+  // Dispatch tab state
+  const [dispatchGlobalSettings, setDispatchGlobalSettings] = useState<{
+    agentName: string
+    defaultMaxTurns: number
+  } | null>(null)
+  const [dispatchCapabilities, setDispatchCapabilities] = useState<DispatchAgentInfo[] | null>(null)
+  const [dispatchCapabilitiesError, setDispatchCapabilitiesError] = useState<'unavailable' | 'empty' | null>(null)
+  const [localDispatchAgent, setLocalDispatchAgent] = useState<string | null>(null)
+  const [localDispatchMaxTurnsStr, setLocalDispatchMaxTurnsStr] = useState<string>('')
+  const [savingDispatch, setSavingDispatch] = useState(false)
+  const [dispatchSaved, setDispatchSaved] = useState(false)
+  const [dispatchSaveError, setDispatchSaveError] = useState<string | null>(null)
 
   const { onEvent } = useEvents()
   const { setActiveProject, captureCount } = useQuickCapture()
@@ -245,6 +261,36 @@ export default function ProjectDetail() {
     setSearchQuery('')
     setSelectedLabels([])
   }, [projectId])
+
+  // Load global dispatch settings once (for "inherit" defaults and effective values)
+  useEffect(() => {
+    api.settings.getDispatch()
+      .then((res) => setDispatchGlobalSettings({ agentName: res.agentName, defaultMaxTurns: res.defaultMaxTurns }))
+      .catch(() => { /* non-critical: dispatch tab will show no effective values */ })
+  }, [])
+
+  // Load dispatch agent capabilities once
+  useEffect(() => {
+    api.dispatch.capabilities()
+      .then((caps) => {
+        if (caps.agents.length === 0) {
+          setDispatchCapabilitiesError('empty')
+        } else {
+          setDispatchCapabilities(caps.agents)
+        }
+      })
+      .catch(() => {
+        setDispatchCapabilitiesError('unavailable')
+      })
+  }, [])
+
+  // Sync dispatch form local state when project loads or reloads
+  useEffect(() => {
+    if (project) {
+      setLocalDispatchAgent(project.dispatchAgent ?? null)
+      setLocalDispatchMaxTurnsStr(project.dispatchMaxTurns?.toString() ?? '')
+    }
+  }, [project])
 
   // Open item drawer when navigating here with ?item=<id> query param
   useEffect(() => {
@@ -493,6 +539,40 @@ export default function ProjectDetail() {
     }
   }
 
+  // --- Dispatch tab ---
+  const handleSaveDispatch = async () => {
+    if (!projectId) return
+
+    let maxTurns: number | null = null
+    if (localDispatchMaxTurnsStr !== '') {
+      const val = parseInt(localDispatchMaxTurnsStr, 10)
+      if (isNaN(val) || val < 10 || val > 500) {
+        setDispatchSaveError('Max turns must be between 10 and 500')
+        return
+      }
+      maxTurns = val
+    }
+
+    setSavingDispatch(true)
+    setDispatchSaveError(null)
+    setDispatchSaved(false)
+    try {
+      const updated = await api.projects.update(projectId, {
+        dispatchAgent: localDispatchAgent,
+        dispatchMaxTurns: maxTurns,
+      })
+      setProject(updated)
+      setLocalDispatchAgent(updated.dispatchAgent ?? null)
+      setLocalDispatchMaxTurnsStr(updated.dispatchMaxTurns?.toString() ?? '')
+      setDispatchSaved(true)
+      setTimeout(() => setDispatchSaved(false), 3000)
+    } catch (err) {
+      setDispatchSaveError(err instanceof ApiError ? err.detail : 'Failed to save dispatch settings')
+    } finally {
+      setSavingDispatch(false)
+    }
+  }
+
   // --- Item comments ---
   const handleAddItemComment = async () => {
     if (!editingItem || !newItemComment.trim()) return
@@ -581,6 +661,7 @@ export default function ProjectDetail() {
         <Tab label={`Notes (${notes.length})`} />
         <Tab label={`Comments (${comments.length})`} />
         <Tab label={`Activity (${runs.length})`} />
+        <Tab label="Dispatch" />
         <Tab label="Share" />
       </Tabs>
 
@@ -952,7 +1033,7 @@ export default function ProjectDetail() {
       )}
 
       {/* Share Tab */}
-      {tab === 4 && (
+      {tab === 5 && (
         <ShareTab
           projectId={project.id}
           isOwner={project.isOwner !== false}
@@ -1063,6 +1144,137 @@ export default function ProjectDetail() {
               </Table>
             </TableContainer>
           )}
+        </Box>
+      )}
+
+      {/* Dispatch Tab */}
+      {tab === 4 && (
+        <Box sx={{ maxWidth: 560 }}>
+          <Card sx={{ border: 1, borderColor: 'divider' }}>
+            <CardContent>
+              <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600 }}>
+                Dispatch Overrides
+              </Typography>
+              <Divider sx={{ my: 1 }} />
+
+              {/* Agent field */}
+              <Box sx={{ mt: 2 }}>
+                <Autocomplete<string | null>
+                  options={[null, ...(dispatchCapabilities?.map((a) => a.name) ?? [])]}
+                  value={localDispatchAgent}
+                  onChange={(_, val) => setLocalDispatchAgent(val)}
+                  disabled={dispatchCapabilitiesError !== null}
+                  getOptionLabel={(option) => {
+                    if (option === null) {
+                      const global = dispatchGlobalSettings?.agentName
+                      return global ? `Inherit from global (${global})` : 'Inherit from global (none)'
+                    }
+                    return option
+                  }}
+                  isOptionEqualToValue={(option, value) => option === value}
+                  renderOption={(props, option) => {
+                    const agentInfo = dispatchCapabilities?.find((a) => a.name === option)
+                    const { key, ...rest } = props as React.HTMLAttributes<HTMLLIElement> & { key?: React.Key }
+                    return (
+                      <li key={key} {...rest}>
+                        <Box>
+                          <Typography variant="body2">
+                            {option === null
+                              ? (dispatchGlobalSettings?.agentName
+                                ? `Inherit from global (${dispatchGlobalSettings.agentName})`
+                                : 'Inherit from global (none)')
+                              : option}
+                          </Typography>
+                          {agentInfo?.description && (
+                            <Typography variant="caption" color="text.secondary">
+                              {agentInfo.description}
+                            </Typography>
+                          )}
+                        </Box>
+                      </li>
+                    )
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Dispatch Agent"
+                      size="small"
+                      helperText={
+                        dispatchCapabilitiesError === 'unavailable'
+                          ? 'Dispatch service unavailable'
+                          : dispatchCapabilitiesError === 'empty'
+                            ? 'No agents advertised'
+                            : undefined
+                      }
+                    />
+                  )}
+                />
+                {dispatchCapabilitiesError === null && (
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                    Effective:{' '}
+                    <strong>
+                      {(project.dispatchAgent ?? dispatchGlobalSettings?.agentName) || '(none)'}
+                    </strong>
+                  </Typography>
+                )}
+              </Box>
+
+              {/* Max turns field */}
+              <Box sx={{ mt: 2 }}>
+                <TextField
+                  label="Max Turns"
+                  type="number"
+                  size="small"
+                  fullWidth
+                  value={localDispatchMaxTurnsStr}
+                  onChange={(e) => setLocalDispatchMaxTurnsStr(e.target.value)}
+                  placeholder={
+                    dispatchGlobalSettings
+                      ? `Inherit from global (${dispatchGlobalSettings.defaultMaxTurns})`
+                      : 'Inherit from global'
+                  }
+                  slotProps={{
+                    htmlInput: { min: 10, max: 500 },
+                    inputLabel: { shrink: localDispatchMaxTurnsStr !== '' || undefined },
+                  }}
+                  helperText="Leave blank to inherit the global default. Valid range: 10–500."
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                  Effective:{' '}
+                  <strong>
+                    {project.dispatchMaxTurns ?? dispatchGlobalSettings?.defaultMaxTurns ?? '(unset)'}
+                  </strong>
+                </Typography>
+              </Box>
+
+              {/* Helper text */}
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                Overrides apply when dispatching tasks from this project. Leave a field blank to use the global default.
+              </Typography>
+
+              {/* Save controls */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={handleSaveDispatch}
+                  disabled={savingDispatch}
+                >
+                  {savingDispatch ? <CircularProgress size={18} /> : 'Save'}
+                </Button>
+                {dispatchSaved && (
+                  <Typography variant="body2" color="success.main">
+                    Saved
+                  </Typography>
+                )}
+              </Box>
+              {dispatchSaveError && (
+                <Alert severity="error" sx={{ mt: 1 }} onClose={() => setDispatchSaveError(null)}>
+                  {dispatchSaveError}
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
         </Box>
       )}
 
