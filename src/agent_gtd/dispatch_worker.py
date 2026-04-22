@@ -55,7 +55,11 @@ def resolve_agent(
     Returns:
         The resolved agent name (may be empty string when neither is set).
     """
-    return project_dispatch_agent if project_dispatch_agent is not None else global_agent_name
+    return (
+        project_dispatch_agent
+        if project_dispatch_agent is not None
+        else global_agent_name
+    )
 
 
 def resolve_max_turns(
@@ -443,7 +447,9 @@ async def execute_run(
     global_agent_name = await get_setting(db, "dispatch.agent_name") or ""
     # Project override wins if set; fall back to the global deployment setting.
     raw_dispatch_agent = project.get("dispatch_agent")
-    project_dispatch_agent = str(raw_dispatch_agent) if raw_dispatch_agent is not None else None
+    project_dispatch_agent = (
+        str(raw_dispatch_agent) if raw_dispatch_agent is not None else None
+    )
     agent_name = resolve_agent(project_dispatch_agent, global_agent_name)
 
     async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
