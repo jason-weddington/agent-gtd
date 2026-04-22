@@ -107,6 +107,7 @@ export default function Settings() {
   const [apiKeys, setApiKeys] = useState<ApiKeyInfo[]>([])
   const [newApiKey, setNewApiKey] = useState<{ key: string; name: string } | null>(null)
   const [apiKeyCopied, setApiKeyCopied] = useState(false)
+  const [mcpCopied, setMcpCopied] = useState(false)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [newKeyName, setNewKeyName] = useState('')
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyInfo | null>(null)
@@ -149,6 +150,28 @@ export default function Settings() {
     if (!newApiKey) return
     await navigator.clipboard.writeText(newApiKey.key)
     setApiKeyCopied(true)
+  }
+
+  const handleCopyMcpJson = async () => {
+    if (!newApiKey) return
+    const mcpJson = JSON.stringify(
+      {
+        mcpServers: {
+          'agent-gtd': {
+            command: 'uvx',
+            args: ['agent-gtd-mcp'],
+            env: {
+              AGENT_GTD_API_KEY: newApiKey.key,
+              AGENT_GTD_URL: window.location.origin,
+            },
+          },
+        },
+      },
+      null,
+      2,
+    )
+    await navigator.clipboard.writeText(mcpJson)
+    setMcpCopied(true)
   }
 
   const handleRevokeApiKey = async () => {
@@ -211,33 +234,6 @@ export default function Settings() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             API keys allow MCP clients and agents to authenticate without a password.
           </Typography>
-
-          {newApiKey && (
-            <Alert
-              severity="warning"
-              sx={{ mb: 2 }}
-              action={
-                <Tooltip title={apiKeyCopied ? 'Copied!' : 'Copy to clipboard'}>
-                  <IconButton size="small" onClick={handleCopyApiKey}>
-                    <ContentCopyIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              }
-            >
-              <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                {newApiKey.name}
-              </Typography>
-              <Typography
-                variant="body2"
-                sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}
-              >
-                {newApiKey.key}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Copy now — it won't be shown again.
-              </Typography>
-            </Alert>
-          )}
 
           {apiKeys.length > 0 && (
             <List dense disablePadding>
@@ -427,6 +423,83 @@ export default function Settings() {
           <Button onClick={() => setRevokeTarget(null)}>Cancel</Button>
           <Button onClick={handleRevokeApiKey} color="error">
             Revoke
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* API Key Created Dialog */}
+      <Dialog
+        open={newApiKey !== null}
+        onClose={() => { setNewApiKey(null); setApiKeyCopied(false); setMcpCopied(false) }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>API Key Created</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            This key won't be shown again. Save it somewhere safe before closing.
+          </Alert>
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+              API Key
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <TextField
+                fullWidth
+                size="small"
+                value={newApiKey?.key ?? ''}
+                slotProps={{ input: { readOnly: true } }}
+                sx={{ fontFamily: 'monospace' }}
+              />
+              <Tooltip title={apiKeyCopied ? 'Copied!' : 'Copy to clipboard'}>
+                <IconButton onClick={handleCopyApiKey}>
+                  <ContentCopyIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+          <Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+              MCP Server Config
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+              <TextField
+                fullWidth
+                size="small"
+                multiline
+                rows={10}
+                value={newApiKey ? JSON.stringify(
+                  {
+                    mcpServers: {
+                      'agent-gtd': {
+                        command: 'uvx',
+                        args: ['agent-gtd-mcp'],
+                        env: {
+                          AGENT_GTD_API_KEY: newApiKey.key,
+                          AGENT_GTD_URL: window.location.origin,
+                        },
+                      },
+                    },
+                  },
+                  null,
+                  2,
+                ) : ''}
+                slotProps={{ input: { readOnly: true, sx: { fontFamily: 'monospace', fontSize: '0.75rem' } } }}
+              />
+              <Tooltip title={mcpCopied ? 'Copied!' : 'Copy to clipboard'}>
+                <IconButton onClick={handleCopyMcpJson}>
+                  <ContentCopyIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            variant="contained"
+            onClick={() => { setNewApiKey(null); setApiKeyCopied(false); setMcpCopied(false) }}
+          >
+            Done
           </Button>
         </DialogActions>
       </Dialog>

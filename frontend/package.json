@@ -21,7 +21,7 @@
     "@tiptap/core": "^3.20.0",
     "@tiptap/extension-heading": "^3.20.0",
     "@tiptap/extension-image": "^3.20.0",
-    "@tiptap/extension-link": "^3.20.0",
+    "@tiptap/extension-link": "^3.22.4",
     "@tiptap/extension-placeholder": "^3.20.0",
     "@tiptap/extension-table": "^3.20.0",
     "@tiptap/extension-task-item": "^3.20.0",
@@ -34,7 +34,8 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-hotkeys-hook": "^5.2.4",
-    "react-router-dom": "^7.13.0"
+    "react-router-dom": "^7.13.0",
+    "react-transition-group": "^4.4.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
