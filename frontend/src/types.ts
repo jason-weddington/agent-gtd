@@ -124,3 +124,16 @@ export interface Run {
   createdAt: string
   updatedAt: string
 }
+
+// --- Dispatch Capabilities ---
+
+export interface DispatchAgentInfo {
+  name: string
+  description: string
+}
+
+export interface DispatchCapabilities {
+  engine: string | null
+  version: string | null
+  agents: DispatchAgentInfo[]
+}

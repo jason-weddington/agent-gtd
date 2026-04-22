@@ -12,6 +12,9 @@ vi.mock('../api', () => ({
     config: {
       get: vi.fn().mockResolvedValue({ localMode: false, version: '1.0.0' }),
     },
+    dispatch: {
+      capabilities: vi.fn(),
+    },
     settings: {
       getMaxConcurrent: vi.fn().mockResolvedValue({ value: 6 }),
       setMaxConcurrent: vi.fn().mockResolvedValue({ value: 6 }),
@@ -77,6 +80,13 @@ describe('Settings – Dispatch Service API Key field', () => {
       defaultMaxTurns: 100,
       serviceUrl: 'http://dispatch.example.com',
       serviceApiKeyPreview: '****NEW1',
+    })
+    vi.mocked(api.dispatch.capabilities).mockResolvedValue({
+      engine: 'claude-code',
+      version: '1.2.3',
+      agents: [
+        { name: 'general-purpose', description: 'General purpose agent' },
+      ],
     })
   })
 

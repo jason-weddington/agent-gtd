@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
+import type { HTMLAttributes, Key } from 'react'
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Card,
@@ -31,7 +33,7 @@ import { useThemeMode } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../api'
 import { apiKeyFieldPlaceholder } from '../utils'
-import type { ApiKeyInfo } from '../types'
+import type { ApiKeyInfo, DispatchCapabilities } from '../types'
 
 function clampInt(raw: string, min: number, max: number): number {
   const v = parseInt(raw, 10)
@@ -53,6 +55,8 @@ export default function Settings() {
   const [dispatchApiKeyInput, setDispatchApiKeyInput] = useState('')
   const [dispatchApiKeyPreview, setDispatchApiKeyPreview] = useState('')
   const [savingDispatch, setSavingDispatch] = useState(false)
+  const [capabilities, setCapabilities] = useState<DispatchCapabilities | null>(null)
+  const [capabilitiesFailed, setCapabilitiesFailed] = useState(false)
 
   const handleMaxTurnsChange = (raw: string) => {
     const v = parseInt(raw, 10)
@@ -122,6 +126,11 @@ export default function Settings() {
       setDispatchServiceUrl(res.serviceUrl)
       setDispatchApiKeyPreview(res.serviceApiKeyPreview)
     }).catch(() => {})
+    api.dispatch.capabilities().then((caps) => {
+      setCapabilities(caps)
+    }).catch(() => {
+      setCapabilitiesFailed(true)
+    })
   }, [])
 
   const loadApiKeys = useCallback(() => {
@@ -296,18 +305,70 @@ export default function Settings() {
                 <MenuItem value="kiro">Kiro CLI</MenuItem>
               </Select>
             </FormControl>
-            <TextField
-              label="Custom agent name (optional)"
-              size="small"
-              value={agentName}
-              onChange={(e) => setAgentName(e.target.value)}
-              onBlur={() => {
-                if (!savingDispatch) void saveDispatchSettings({ agentName })
-              }}
-              placeholder="Leave blank for the engine's default"
-              helperText="Passed to the CLI as --agent"
-              fullWidth
-            />
+            {(() => {
+              const knownAgentNames = capabilities?.agents.map((a) => a.name) ?? []
+              const agentOptions: string[] = ['', ...knownAgentNames]
+              if (agentName && !knownAgentNames.includes(agentName)) {
+                agentOptions.push(agentName)
+              }
+              const agentFieldDisabled =
+                capabilitiesFailed ||
+                (capabilities !== null && capabilities.agents.length === 0)
+              const agentFieldHelperText = capabilitiesFailed
+                ? 'Dispatch service unavailable.'
+                : capabilities !== null && capabilities.agents.length === 0
+                  ? 'No agents advertised by the dispatch service.'
+                  : 'Passed to the CLI as --agent'
+              return (
+                <>
+                  <Autocomplete
+                    size="small"
+                    fullWidth
+                    options={agentOptions}
+                    value={agentName}
+                    disabled={agentFieldDisabled}
+                    onChange={(_, newValue) => {
+                      const v = newValue ?? ''
+                      setAgentName(v)
+                      if (!savingDispatch) void saveDispatchSettings({ agentName: v })
+                    }}
+                    isOptionEqualToValue={(option, value) => option === value}
+                    getOptionLabel={(option) => {
+                      if (option === '') return 'None'
+                      if (!knownAgentNames.includes(option)) return `${option} (unknown)`
+                      return option
+                    }}
+                    renderOption={(props, option) => {
+                      const { key, ...liProps } = props as HTMLAttributes<HTMLLIElement> & { key: Key }
+                      if (option === '') {
+                        return <li key={key} {...liProps}>None</li>
+                      }
+                      const agent = capabilities?.agents.find((a) => a.name === option)
+                      return (
+                        <li key={key} {...liProps}>
+                          <ListItemText primary={option} secondary={agent?.description} />
+                        </li>
+                      )
+                    }}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Custom agent name (optional)"
+                        helperText={agentFieldHelperText}
+                      />
+                    )}
+                  />
+                  {capabilities !== null && !capabilitiesFailed && (
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: -1 }}>
+                      Engine:{' '}
+                      {capabilities.engine
+                        ? `${capabilities.engine}${capabilities.version ? ` ${capabilities.version}` : ''}`
+                        : 'unknown'}
+                    </Typography>
+                  )}
+                </>
+              )
+            })()}
             <TextField
               label="Dispatch service URL"
               type="url"

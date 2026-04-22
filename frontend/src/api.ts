@@ -1,4 +1,4 @@
-import type { ApiKeyInfo, AuthResponse, BlockerSummary, Comment, Item, MemberSummary, Note, Project, Run, UserResponse } from './types'
+import type { ApiKeyInfo, AuthResponse, BlockerSummary, Comment, DispatchCapabilities, Item, MemberSummary, Note, Project, Run, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -172,6 +172,11 @@ export const api = {
     update: (id: string, data: { contentMarkdown?: string }) =>
       request<Comment>('PATCH', `/comments/${id}`, data),
     delete: (id: string) => request<void>('DELETE', `/comments/${id}`),
+  },
+
+  dispatch: {
+    capabilities: () =>
+      request<DispatchCapabilities>('GET', '/dispatch/capabilities'),
   },
 
   settings: {
