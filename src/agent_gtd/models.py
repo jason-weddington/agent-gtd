@@ -483,3 +483,21 @@ class RunResponse(BaseModel):
     error_msg: str
     created_at: datetime
     updated_at: datetime
+
+
+# --- Dispatch Capabilities Schemas ---
+
+
+class DispatchAgentInfo(BaseModel):
+    """Info about a single agent available on the dispatch service."""
+
+    name: str
+    description: str = ""
+
+
+class DispatchCapabilitiesResponse(BaseModel):
+    """Response shape for the /api/dispatch/capabilities proxy endpoint."""
+
+    engine: str | None = None
+    version: str | None = None
+    agents: list[DispatchAgentInfo] = []

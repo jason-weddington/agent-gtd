@@ -1,6 +1,8 @@
 """Dispatch run API routes for Claude Code headless agents."""
 
+import asyncio
 import logging
+import time
 from datetime import datetime
 from typing import Annotated, Any
 
@@ -10,13 +12,32 @@ from fastapi import APIRouter, Depends, HTTPException
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
 from agent_gtd.exceptions import NotFoundError, RunActiveError
-from agent_gtd.models import CreateRunRequest, RunResponse, RunStatus, User
+from agent_gtd.models import (
+    CreateRunRequest,
+    DispatchAgentInfo,
+    DispatchCapabilitiesResponse,
+    RunResponse,
+    RunStatus,
+    User,
+)
 from agent_gtd.services import dispatch_service
 from agent_gtd.services.settings_service import get_dispatch_config
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["dispatch"])
+
+# ---------------------------------------------------------------------------
+# Capabilities cache (in-process, per dispatch URL, 60-second TTL)
+# ---------------------------------------------------------------------------
+
+_capabilities_cache: dict[str, tuple[float, DispatchCapabilitiesResponse]] = {}
+_CAPABILITIES_CACHE_TTL = 60.0
+
+
+def _now() -> float:
+    """Return current monotonic time.  Isolated for testability."""
+    return time.monotonic()
 
 
 def _run_response(row: dict[str, object]) -> RunResponse:
@@ -77,6 +98,107 @@ async def _check_dispatch_service(db: Any, user_id: str) -> None:
             status_code=503,
             detail="Dispatch service timed out",
         ) from None
+
+
+async def _fetch_dispatch_info(url: str, api_key: str) -> dict[str, str | None]:
+    """Fetch engine/version from the dispatch service ``/info`` endpoint.
+
+    Raises any ``httpx`` exception on failure so callers can handle gracefully.
+    """
+    async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
+        resp = await client.get(
+            f"{url}/info",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=5.0,
+        )
+        resp.raise_for_status()
+    data: dict[str, object] = resp.json()
+    return {
+        "engine": str(data["engine"]) if "engine" in data else None,
+        "version": str(data["version"]) if "version" in data else None,
+    }
+
+
+async def _fetch_dispatch_agents(url: str, api_key: str) -> list[dict[str, object]]:
+    """Fetch the agents list from the dispatch service ``/agents`` endpoint.
+
+    The dispatch service returns ``{"agents": [...]}``; this helper unwraps
+    the envelope and returns the inner list. Raises any ``httpx`` exception
+    on failure so callers can handle gracefully.
+    """
+    async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
+        resp = await client.get(
+            f"{url}/agents",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=5.0,
+        )
+        resp.raise_for_status()
+    data = resp.json()
+    if isinstance(data, dict):
+        agents = data.get("agents", [])
+        if isinstance(agents, list):
+            return agents
+    return []
+
+
+@router.get(
+    "/api/dispatch/capabilities",
+    response_model=DispatchCapabilitiesResponse,
+)
+async def get_dispatch_capabilities(
+    user: Annotated[User, Depends(get_current_user)],
+) -> DispatchCapabilitiesResponse:
+    """Proxy dispatch service capabilities: engine identity + available agents.
+
+    Always returns HTTP 200.  If dispatch is not configured, or if upstream
+    calls fail, the corresponding fields are null / empty rather than raising
+    a 5xx error.  Responses are cached in-process for 60 seconds per URL.
+    """
+    db = await get_db()
+    settings = await get_dispatch_config(db, user.id)
+    if not settings:
+        return DispatchCapabilitiesResponse()
+
+    url = settings["url"]
+    api_key = settings["api_key"]
+
+    # Short-circuit on cache hit
+    now = _now()
+    cached = _capabilities_cache.get(url)
+    if cached is not None and (now - cached[0]) < _CAPABILITIES_CACHE_TTL:
+        logger.debug("dispatch capabilities cache hit for %s", url)
+        return cached[1]
+
+    # Parallel upstream calls — failures degrade gracefully, never propagate
+    info_result: dict[str, str | None] | BaseException
+    agents_result: list[dict[str, object]] | BaseException
+    (
+        info_result,
+        agents_result,
+    ) = await asyncio.gather(
+        _fetch_dispatch_info(url, api_key),
+        _fetch_dispatch_agents(url, api_key),
+        return_exceptions=True,
+    )
+
+    engine: str | None = None
+    version: str | None = None
+    agents: list[DispatchAgentInfo] = []
+
+    if isinstance(info_result, BaseException):
+        logger.warning("dispatch /info failed for %s: %s", url, info_result)
+    else:
+        engine = info_result.get("engine")
+        version = info_result.get("version")
+
+    if isinstance(agents_result, BaseException):
+        logger.warning("dispatch /agents failed for %s: %s", url, agents_result)
+    else:
+        agents = [DispatchAgentInfo.model_validate(a) for a in agents_result]
+
+    result = DispatchCapabilitiesResponse(engine=engine, version=version, agents=agents)
+    _capabilities_cache[url] = (now, result)
+    return result
 
 
 @router.post(
