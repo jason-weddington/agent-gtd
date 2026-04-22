@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.72.0 (2026-04-22)
+
+### Features
+
+- Add CORS origins for HTTPS/hostname access and ignore .kiro
+  ([`afed4e4`](https://github.com/jason-weddington/agent-gtd/commit/afed4e4b4bfb04651298603304a6a90ec1b75811))
+
+
 ## v1.71.0 (2026-04-22)
 
 ### Chores
