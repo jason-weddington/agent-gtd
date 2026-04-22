@@ -1,5 +1,6 @@
 """Agent GTD FastAPI application."""
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -56,7 +57,11 @@ app = FastAPI(title="Agent GTD", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "https://localhost",
+        f"https://{os.environ.get('HOSTNAME', 'localhost')}",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
