@@ -2,6 +2,39 @@
 
 <!-- version list -->
 
+## v1.71.0 (2026-04-22)
+
+### Chores
+
+- Set coverage precision=1 so fractional fail_under works
+  ([`de8b289`](https://github.com/jason-weddington/agent-gtd/commit/de8b2894f5c1da12d9eefb12250df9ca0da9774b))
+
+### Code Style
+
+- Apply ruff-format to dispatch_worker resolution helpers
+  ([`dfca487`](https://github.com/jason-weddington/agent-gtd/commit/dfca487d79d2b394220c1b3bbf7b177230ba9a42))
+
+### Features
+
+- Add /api/dispatch/capabilities proxy for engine + agents list
+  ([`b2becfd`](https://github.com/jason-weddington/agent-gtd/commit/b2becfde34cf38885f5d25983b34a4efe12d4422))
+
+- Add project-scoped dispatch agent/max_turns resolution with global fallback
+  ([`f6bce35`](https://github.com/jason-weddington/agent-gtd/commit/f6bce35d7d5f6009ef1731629229676798011c77))
+
+- Add project-scoped dispatch_agent and dispatch_max_turns overrides
+  ([`2e7f2e5`](https://github.com/jason-weddington/agent-gtd/commit/2e7f2e573f6326f87c99d157ea126007e3590048))
+
+- **frontend**: Add Dispatch tab to project detail page
+  ([`82a8c93`](https://github.com/jason-weddington/agent-gtd/commit/82a8c9347b8f666e77a0f0c6f0b67b149fb1eb8d))
+
+- **frontend**: Show API key + MCP config in modal after creation
+  ([`2eb0109`](https://github.com/jason-weddington/agent-gtd/commit/2eb0109b8ad9ea478a7bbb51db48e06ffc1950be))
+
+- **frontend**: Upgrade agent_name field to Autocomplete dropdown + show engine identity
+  ([`bdcd5bf`](https://github.com/jason-weddington/agent-gtd/commit/bdcd5bf387602dec47528638e4bb4f23b91fad7e))
+
+
 ## v1.70.0 (2026-04-20)
 
 ### Bug Fixes
