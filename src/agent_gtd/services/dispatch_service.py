@@ -69,12 +69,20 @@ async def create_run(
     if existing:
         raise RunActiveError(item_id, str(existing["id"]))
 
-    from agent_gtd.dispatch_worker import DEFAULT_MAX_TURNS
+    from agent_gtd.dispatch_worker import DEFAULT_MAX_TURNS, resolve_max_turns
     from agent_gtd.services import settings_service
 
     if max_turns is None:
         stored = await settings_service.get_setting(db, "dispatch.default_max_turns")
-        effective_max_turns = int(stored) if stored is not None else DEFAULT_MAX_TURNS
+        global_default = int(stored) if stored is not None else DEFAULT_MAX_TURNS
+        # Project-level override wins if set; falls back to the global default.
+        raw_project_turns = project.get("dispatch_max_turns")
+        project_dispatch_max_turns = (
+            int(raw_project_turns) if raw_project_turns is not None else None
+        )
+        effective_max_turns = resolve_max_turns(
+            project_dispatch_max_turns, global_default
+        )
     else:
         effective_max_turns = max_turns
 

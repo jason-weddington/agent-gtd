@@ -34,6 +34,54 @@ _STATUS_MAP = {
 
 
 # ---------------------------------------------------------------------------
+# Resolution helpers (pure functions — easy to test, no DB dependency)
+# ---------------------------------------------------------------------------
+
+
+def resolve_agent(
+    project_dispatch_agent: str | None,
+    global_agent_name: str,
+) -> str:
+    """Resolve the effective agent name for a dispatch run.
+
+    Project-level override wins if set (non-None); otherwise falls back to
+    the deployment-wide ``dispatch.agent_name`` setting.
+
+    Args:
+        project_dispatch_agent: The project's ``dispatch_agent`` value, or
+            ``None`` if the project inherits the global default.
+        global_agent_name: The deployment-wide agent name from app_settings.
+
+    Returns:
+        The resolved agent name (may be empty string when neither is set).
+    """
+    return project_dispatch_agent if project_dispatch_agent is not None else global_agent_name
+
+
+def resolve_max_turns(
+    project_dispatch_max_turns: int | None,
+    global_default_max_turns: int,
+) -> int:
+    """Resolve the effective max_turns for a dispatch run.
+
+    Project-level override wins if set (non-None); otherwise falls back to
+    the deployment-wide ``dispatch.default_max_turns`` setting.
+
+    Args:
+        project_dispatch_max_turns: The project's ``dispatch_max_turns``
+            value, or ``None`` if the project inherits the global default.
+        global_default_max_turns: The deployment-wide default from
+            app_settings (or the env-var fallback).
+
+    Returns:
+        The resolved max_turns integer.
+    """
+    if project_dispatch_max_turns is not None:
+        return project_dispatch_max_turns
+    return global_default_max_turns
+
+
+# ---------------------------------------------------------------------------
 # Run DB updates
 # ---------------------------------------------------------------------------
 
@@ -392,7 +440,11 @@ async def execute_run(
 
     # Resolve deployment-wide engine + agent_name (app_settings, not user_settings)
     engine = await get_setting(db, "dispatch.engine") or "claude"
-    agent_name = await get_setting(db, "dispatch.agent_name") or ""
+    global_agent_name = await get_setting(db, "dispatch.agent_name") or ""
+    # Project override wins if set; fall back to the global deployment setting.
+    raw_dispatch_agent = project.get("dispatch_agent")
+    project_dispatch_agent = str(raw_dispatch_agent) if raw_dispatch_agent is not None else None
+    agent_name = resolve_agent(project_dispatch_agent, global_agent_name)
 
     async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
         # --- Dispatch to remote ---
