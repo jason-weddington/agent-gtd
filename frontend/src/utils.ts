@@ -52,3 +52,28 @@ export function isDispatchServiceConfigured(
 export function apiKeyFieldPlaceholder(serviceApiKeyPreview: string): string {
   return serviceApiKeyPreview !== '' ? serviceApiKeyPreview : 'Not configured'
 }
+
+/**
+ * Returns a human-readable relative time string for a given ISO timestamp.
+ * Examples: "just now", "5m ago", "2h ago", "3d ago", "Jan 5, 2026".
+ */
+export function formatRelativeTime(dateStr: string): string {
+  const diffMs = Date.now() - new Date(dateStr).getTime()
+  const diffSec = Math.floor(diffMs / 1000)
+  if (diffSec < 60) return 'just now'
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHour = Math.floor(diffMin / 60)
+  if (diffHour < 24) return `${diffHour}h ago`
+  const diffDay = Math.floor(diffHour / 24)
+  if (diffDay < 7) return `${diffDay}d ago`
+  return new Date(dateStr).toLocaleDateString()
+}
+
+/**
+ * Formats a byte count as a KB string with one decimal place.
+ * Example: formatFileSize(1536) → "1.5 KB".
+ */
+export function formatFileSize(bytes: number): string {
+  return `${(bytes / 1024).toFixed(1)} KB`
+}

@@ -28,9 +28,12 @@ import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
+import AttachFileIcon from '@mui/icons-material/AttachFile'
+import DeleteIcon from '@mui/icons-material/Delete'
+import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile'
 import { api, ApiError } from '../api'
-import type { Item, Comment, Project, Run, ItemStatus } from '../types'
-import { isDispatchServiceConfigured } from '../utils'
+import type { AttachmentResponse, Item, Comment, Project, Run, ItemStatus } from '../types'
+import { isDispatchServiceConfigured, formatRelativeTime, formatFileSize } from '../utils'
 import { useEvents } from '../contexts/EventStreamContext'
 import { BlockerPicker } from './BlockerPicker'
 
@@ -106,8 +109,28 @@ export default function ItemDetailDrawer({
   const [blockerExpanded, setBlockerExpanded] = useState(false)
   const [loadingBlockers, setLoadingBlockers] = useState(false)
 
+  // Attachment state
+  const [attachments, setAttachments] = useState<AttachmentResponse[]>([])
+  const [loadingAttachments, setLoadingAttachments] = useState(false)
+  const [uploadingAttachment, setUploadingAttachment] = useState(false)
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const [previewAttachment, setPreviewAttachment] = useState<AttachmentResponse | null>(null)
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null)
+  const [deleteAttachmentTarget, setDeleteAttachmentTarget] = useState<AttachmentResponse | null>(null)
+  const [deletingAttachment, setDeletingAttachment] = useState(false)
+  // attachmentId → blob URL for image thumbnails
+  const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({})
+
   const commentsEndRef = useRef<HTMLDivElement>(null)
   const itemIdRef = useRef<string | undefined>(undefined)
+  // Tracks which attachment IDs have already had blob URL fetches initiated
+  const fetchedThumbnailIdsRef = useRef<Set<string>>(new Set())
+  // Always-current ref to thumbnailUrls for cleanup without stale closures
+  const thumbnailUrlsRef = useRef<Record<string, string>>({})
+  // Ref to the active preview blob URL for cleanup without stale closures
+  const previewBlobUrlRef = useRef<string | null>(null)
+  // Ref to the file input for resetting after upload
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const { onEvent } = useEvents()
 
   // Sync localItem and reset inline edit state whenever the item prop changes.
@@ -214,17 +237,45 @@ export default function ItemDetailDrawer({
     }
   }, [item])
 
+  const loadAttachments = useCallback(async () => {
+    if (!item) return
+    setLoadingAttachments(true)
+    try {
+      const data = await api.attachments.list(item.id)
+      setAttachments(data)
+    } catch {
+      // silently fail
+    } finally {
+      setLoadingAttachments(false)
+    }
+  }, [item])
+
   useEffect(() => {
     if (item) {
       loadComments()
       loadActiveRun()
+      loadAttachments()
       setNewComment('')
       setDispatchError(null)
     } else {
       setComments([])
       setActiveRun(null)
+      // Revoke all thumbnail blob URLs
+      Object.values(thumbnailUrlsRef.current).forEach((u) => URL.revokeObjectURL(u))
+      thumbnailUrlsRef.current = {}
+      setThumbnailUrls({})
+      setAttachments([])
+      setAttachmentError(null)
+      fetchedThumbnailIdsRef.current.clear()
+      // Revoke active preview blob URL
+      if (previewBlobUrlRef.current) {
+        URL.revokeObjectURL(previewBlobUrlRef.current)
+        previewBlobUrlRef.current = null
+        setPreviewBlobUrl(null)
+      }
+      setPreviewAttachment(null)
     }
-  }, [item, loadComments, loadActiveRun])
+  }, [item, loadComments, loadActiveRun, loadAttachments])
 
   // Refresh on SSE events
   useEffect(() => {
@@ -242,6 +293,37 @@ export default function ItemDetailDrawer({
   useEffect(() => {
     commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [comments.length])
+
+  // Fetch thumbnail blob URLs for newly-loaded image attachments.
+  // Uses fetchedThumbnailIdsRef to avoid double-fetching across re-renders.
+  useEffect(() => {
+    const imageAtts = attachments.filter((a) => a.mimeType.startsWith('image/'))
+    const toFetch = imageAtts.filter((a) => !fetchedThumbnailIdsRef.current.has(a.id))
+    if (toFetch.length === 0) return
+
+    let cancelled = false
+    const fetchAll = async () => {
+      for (const att of toFetch) {
+        if (cancelled) break
+        fetchedThumbnailIdsRef.current.add(att.id)
+        try {
+          const url = await api.attachments.downloadBlobUrl(att.id)
+          if (cancelled) {
+            URL.revokeObjectURL(url)
+            break
+          }
+          thumbnailUrlsRef.current = { ...thumbnailUrlsRef.current, [att.id]: url }
+          setThumbnailUrls((prev) => ({ ...prev, [att.id]: url }))
+        } catch {
+          // thumbnail won't show; non-fatal
+        }
+      }
+    }
+    void fetchAll()
+    return () => {
+      cancelled = true
+    }
+  }, [attachments])
 
   // --- Inline save helper ---
 
@@ -334,6 +416,102 @@ export default function ItemDetailDrawer({
     },
     [localItem, saveField],
   )
+
+  // --- Attachment handlers ---
+
+  const handleUploadFile = useCallback(async (file: File) => {
+    if (!item) return
+    setUploadingAttachment(true)
+    setAttachmentError(null)
+    try {
+      const att = await api.attachments.upload(item.id, file)
+      setAttachments((prev) => [...prev, att])
+    } catch (err) {
+      setAttachmentError(err instanceof ApiError ? err.detail : 'Upload failed')
+    } finally {
+      setUploadingAttachment(false)
+    }
+  }, [item])
+
+  const handleFileInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]
+      if (!file) return
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      void handleUploadFile(file)
+    },
+    [handleUploadFile],
+  )
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      const file = e.dataTransfer.files?.[0]
+      if (!file) return
+      void handleUploadFile(file)
+    },
+    [handleUploadFile],
+  )
+
+  const handleOpenPreview = useCallback(async (att: AttachmentResponse) => {
+    setPreviewAttachment(att)
+    try {
+      const url = await api.attachments.downloadBlobUrl(att.id)
+      previewBlobUrlRef.current = url
+      setPreviewBlobUrl(url)
+    } catch {
+      setPreviewAttachment(null)
+    }
+  }, [])
+
+  const handleClosePreview = useCallback(() => {
+    if (previewBlobUrlRef.current) {
+      URL.revokeObjectURL(previewBlobUrlRef.current)
+      previewBlobUrlRef.current = null
+    }
+    setPreviewBlobUrl(null)
+    setPreviewAttachment(null)
+  }, [])
+
+  const handleOpenMarkdown = useCallback(async (att: AttachmentResponse) => {
+    try {
+      const url = await api.attachments.downloadBlobUrl(att.id)
+      window.open(url, '_blank')
+      // Revoke after a short delay — browser needs time to read the blob
+      setTimeout(() => URL.revokeObjectURL(url), 2000)
+    } catch {
+      setAttachmentError('Failed to open file')
+    }
+  }, [])
+
+  const handleDeleteAttachment = useCallback(async () => {
+    if (!deleteAttachmentTarget) return
+    setDeletingAttachment(true)
+    try {
+      await api.attachments.delete(deleteAttachmentTarget.id)
+      // Revoke and remove thumbnail blob URL
+      const thumbUrl = thumbnailUrlsRef.current[deleteAttachmentTarget.id]
+      if (thumbUrl) {
+        URL.revokeObjectURL(thumbUrl)
+        const next = { ...thumbnailUrlsRef.current }
+        delete next[deleteAttachmentTarget.id]
+        thumbnailUrlsRef.current = next
+        setThumbnailUrls(next)
+      }
+      // Remove from list
+      setAttachments((prev) => prev.filter((a) => a.id !== deleteAttachmentTarget.id))
+      // Close preview if it was showing the deleted attachment
+      if (previewAttachment?.id === deleteAttachmentTarget.id) {
+        handleClosePreview()
+      }
+      setDeleteAttachmentTarget(null)
+    } catch (err) {
+      setAttachmentError(err instanceof ApiError ? err.detail : 'Delete failed')
+      setDeleteAttachmentTarget(null)
+    } finally {
+      setDeletingAttachment(false)
+    }
+  }, [deleteAttachmentTarget, previewAttachment, handleClosePreview])
 
   // --- Comment / dispatch handlers ---
 
@@ -867,6 +1045,155 @@ export default function ItemDetailDrawer({
 
             <Divider />
 
+            {/* Attachments section */}
+            <Box sx={{ px: 2, py: 1.5 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Attachments ({attachments.length})
+              </Typography>
+
+              {/* Upload zone with optional drag-and-drop */}
+              <Box
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDrop}
+                sx={{ mb: 1 }}
+              >
+                <label htmlFor="attachment-file-input">
+                  <Button
+                    component="span"
+                    variant="outlined"
+                    size="small"
+                    disabled={uploadingAttachment}
+                    startIcon={
+                      uploadingAttachment ? (
+                        <CircularProgress size={14} />
+                      ) : (
+                        <AttachFileIcon fontSize="small" />
+                      )
+                    }
+                    sx={{ textTransform: 'none', fontSize: '0.75rem' }}
+                  >
+                    {uploadingAttachment ? 'Uploading…' : 'Attach file'}
+                  </Button>
+                </label>
+                <input
+                  id="attachment-file-input"
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.md,.markdown,image/jpeg,image/png,text/markdown"
+                  style={{ display: 'none' }}
+                  onChange={handleFileInputChange}
+                  aria-label="Attach a file"
+                />
+              </Box>
+
+              {/* Upload / delete error */}
+              {attachmentError && (
+                <Alert
+                  severity="error"
+                  onClose={() => setAttachmentError(null)}
+                  sx={{ mb: 1, py: 0 }}
+                >
+                  {attachmentError}
+                </Alert>
+              )}
+
+              {/* Attachment list */}
+              {loadingAttachments ? (
+                <CircularProgress size={18} />
+              ) : attachments.length === 0 ? (
+                <Typography variant="caption" color="text.disabled">
+                  No attachments
+                </Typography>
+              ) : (
+                <Box sx={{ maxHeight: 220, overflow: 'auto' }}>
+                  {attachments.map((att) => {
+                    const isImage = att.mimeType.startsWith('image/')
+                    return (
+                      <Box
+                        key={att.id}
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 1,
+                          mb: 0.75,
+                          p: 0.5,
+                          borderRadius: 1,
+                          '&:hover': { bgcolor: 'action.hover' },
+                        }}
+                      >
+                        {/* Thumbnail or file icon */}
+                        {isImage ? (
+                          thumbnailUrls[att.id] ? (
+                            <Box
+                              component="img"
+                              src={thumbnailUrls[att.id]}
+                              alt={att.filename}
+                              sx={{
+                                maxHeight: 80,
+                                maxWidth: 80,
+                                borderRadius: 0.5,
+                                cursor: 'pointer',
+                                objectFit: 'cover',
+                                flexShrink: 0,
+                              }}
+                              onClick={() => void handleOpenPreview(att)}
+                            />
+                          ) : (
+                            <Box sx={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              <CircularProgress size={16} />
+                            </Box>
+                          )
+                        ) : (
+                          <Box
+                            sx={{ cursor: 'pointer', flexShrink: 0, color: 'text.secondary' }}
+                            onClick={() => void handleOpenMarkdown(att)}
+                          >
+                            <InsertDriveFileIcon />
+                          </Box>
+                        )}
+
+                        {/* Filename + metadata */}
+                        <Box
+                          sx={{ flex: 1, minWidth: 0, cursor: isImage ? 'pointer' : 'pointer' }}
+                          onClick={() =>
+                            isImage ? void handleOpenPreview(att) : void handleOpenMarkdown(att)
+                          }
+                        >
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              display: 'block',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              fontWeight: 500,
+                            }}
+                          >
+                            {att.filename}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {formatFileSize(att.sizeBytes)} · {formatRelativeTime(att.createdAt)}
+                          </Typography>
+                        </Box>
+
+                        {/* Delete button */}
+                        <IconButton
+                          size="small"
+                          aria-label={`Delete attachment ${att.filename}`}
+                          onClick={() => setDeleteAttachmentTarget(att)}
+                          sx={{ flexShrink: 0 }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    )
+                  })}
+                </Box>
+              )}
+            </Box>
+
+            <Divider />
+
             {/* Comments thread — scrollable */}
             <Box sx={{ flex: 1, overflow: 'auto', px: 2, py: 1 }}>
               <Typography variant="subtitle2" sx={{ mb: 1 }}>
@@ -946,6 +1273,64 @@ export default function ItemDetailDrawer({
           </Box>
         )}
       </Drawer>
+
+      {/* Image Preview Dialog */}
+      <Dialog
+        open={Boolean(previewAttachment)}
+        onClose={handleClosePreview}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+          {previewAttachment?.filename}
+          {previewAttachment && (
+            <Typography variant="caption" color="text.secondary">
+              {formatFileSize(previewAttachment.sizeBytes)}
+            </Typography>
+          )}
+        </DialogTitle>
+        <DialogContent sx={{ textAlign: 'center', p: 1 }}>
+          {previewBlobUrl ? (
+            <Box
+              component="img"
+              src={previewBlobUrl}
+              alt={previewAttachment?.filename ?? ''}
+              sx={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+            />
+          ) : (
+            <CircularProgress />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleClosePreview}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Attachment Confirmation Dialog */}
+      <Dialog
+        open={Boolean(deleteAttachmentTarget)}
+        onClose={() => setDeleteAttachmentTarget(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Delete Attachment</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Delete &ldquo;{deleteAttachmentTarget?.filename}&rdquo;? This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteAttachmentTarget(null)}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => void handleDeleteAttachment()}
+            disabled={deletingAttachment}
+          >
+            {deletingAttachment ? <CircularProgress size={20} /> : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Dispatch Confirmation Dialog */}
       <Dialog

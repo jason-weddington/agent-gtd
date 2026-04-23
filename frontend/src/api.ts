@@ -1,4 +1,4 @@
-import type { ApiKeyInfo, AuthResponse, BlockerSummary, Comment, DispatchCapabilities, Item, MemberSummary, Note, Project, Run, UserResponse } from './types'
+import type { ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, DispatchCapabilities, Item, MemberSummary, Note, Project, Run, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -56,6 +56,54 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   const json = await res.json()
   return convertKeys(json, toCamelCase) as T
+}
+
+// --- Upload request (FormData, no JSON body serialisation) ---
+
+async function uploadRequest<T>(method: string, path: string, formData: FormData): Promise<T> {
+  const headers: Record<string, string> = {}
+  const token = getToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const res = await fetch(`/api${path}`, { method, headers, body: formData })
+
+  if (res.status === 204) return undefined as T
+
+  if (res.status === 401) {
+    localStorage.removeItem('agent_gtd-token')
+    localStorage.removeItem('agent_gtd-user')
+    window.location.href = '/login'
+    throw new ApiError(401, 'Unauthorized')
+  }
+
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const json = await res.json()
+      detail = json.detail || detail
+    } catch {
+      // use statusText
+    }
+    throw new ApiError(res.status, detail)
+  }
+
+  const json = await res.json()
+  return convertKeys(json, toCamelCase) as T
+}
+
+// --- Blob download (raw bytes with auth, returns object URL) ---
+
+async function fetchBlobUrl(path: string): Promise<string> {
+  const headers: Record<string, string> = {}
+  const token = getToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const res = await fetch(`/api${path}`, { headers })
+  if (!res.ok) {
+    throw new ApiError(res.status, res.statusText)
+  }
+  const blob = await res.blob()
+  return URL.createObjectURL(blob)
 }
 
 // --- Namespaced API ---
@@ -208,6 +256,21 @@ export const api = {
         serviceUrl: string
         serviceApiKeyPreview: string
       }>('PATCH', '/settings/dispatch', data),
+  },
+
+  attachments: {
+    list: (itemId: string) =>
+      request<AttachmentResponse[]>('GET', `/items/${itemId}/attachments`),
+    upload: (itemId: string, file: File) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      return uploadRequest<AttachmentResponse>('POST', `/items/${itemId}/attachments`, formData)
+    },
+    /** Fetches the attachment bytes with auth and returns a blob URL for use in <img src>. */
+    downloadBlobUrl: (attachmentId: string) =>
+      fetchBlobUrl(`/attachments/${attachmentId}`),
+    delete: (attachmentId: string) =>
+      request<void>('DELETE', `/attachments/${attachmentId}`),
   },
 }
 

@@ -129,6 +129,17 @@ export interface Run {
   updatedAt: string
 }
 
+// --- Attachments ---
+
+export interface AttachmentResponse {
+  id: string
+  itemId: string
+  filename: string
+  mimeType: string
+  sizeBytes: number
+  createdAt: string
+}
+
 // --- Dispatch Capabilities ---
 
 export interface DispatchAgentInfo {

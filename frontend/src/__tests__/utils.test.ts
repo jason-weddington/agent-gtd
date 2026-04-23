@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { toSnakeCase, toCamelCase, convertKeys, isDispatchServiceConfigured, apiKeyFieldPlaceholder } from '../utils'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { toSnakeCase, toCamelCase, convertKeys, isDispatchServiceConfigured, apiKeyFieldPlaceholder, formatRelativeTime, formatFileSize } from '../utils'
 
 describe('toSnakeCase', () => {
   it('converts camelCase to snake_case', () => {
@@ -94,5 +94,68 @@ describe('apiKeyFieldPlaceholder', () => {
 
   it('returns any non-empty preview as-is', () => {
     expect(apiKeyFieldPlaceholder('****XXXX')).toBe('****XXXX')
+  })
+})
+
+describe('formatRelativeTime', () => {
+  const FIXED_NOW = new Date('2026-01-01T12:00:00.000Z').getTime()
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(FIXED_NOW)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('returns "just now" for a timestamp within the last 60 seconds', () => {
+    const ts = new Date(FIXED_NOW - 30 * 1000).toISOString()
+    expect(formatRelativeTime(ts)).toBe('just now')
+  })
+
+  it('returns minutes-ago for a timestamp 5 minutes ago', () => {
+    const ts = new Date(FIXED_NOW - 5 * 60 * 1000).toISOString()
+    expect(formatRelativeTime(ts)).toBe('5m ago')
+  })
+
+  it('returns hours-ago for a timestamp 2 hours ago', () => {
+    const ts = new Date(FIXED_NOW - 2 * 60 * 60 * 1000).toISOString()
+    expect(formatRelativeTime(ts)).toBe('2h ago')
+  })
+
+  it('returns days-ago for a timestamp 3 days ago', () => {
+    const ts = new Date(FIXED_NOW - 3 * 24 * 60 * 60 * 1000).toISOString()
+    expect(formatRelativeTime(ts)).toBe('3d ago')
+  })
+
+  it('returns a date string for timestamps older than 7 days', () => {
+    const ts = new Date(FIXED_NOW - 10 * 24 * 60 * 60 * 1000).toISOString()
+    const result = formatRelativeTime(ts)
+    // Should be a locale date string, not a relative string
+    expect(result).not.toContain('ago')
+    expect(result.length).toBeGreaterThan(0)
+  })
+})
+
+describe('formatFileSize', () => {
+  it('formats 1024 bytes as "1.0 KB"', () => {
+    expect(formatFileSize(1024)).toBe('1.0 KB')
+  })
+
+  it('formats 1536 bytes as "1.5 KB"', () => {
+    expect(formatFileSize(1536)).toBe('1.5 KB')
+  })
+
+  it('formats 512 bytes as "0.5 KB"', () => {
+    expect(formatFileSize(512)).toBe('0.5 KB')
+  })
+
+  it('formats 0 bytes as "0.0 KB"', () => {
+    expect(formatFileSize(0)).toBe('0.0 KB')
+  })
+
+  it('formats large files in KB', () => {
+    expect(formatFileSize(10 * 1024)).toBe('10.0 KB')
   })
 })
