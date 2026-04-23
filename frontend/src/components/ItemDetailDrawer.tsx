@@ -586,7 +586,7 @@ export default function ItemDetailDrawer({
     if (isRunQueued) return 'Queued — waiting for a free slot (capped at 6 concurrent runs)'
     if (isRunActive) return 'Agent is working'
     if (!projectGitOrigin) return 'No git origin'
-    return 'Send to Claude'
+    return 'Dispatch to Remote Agent'
   }
 
   // Keyboard shortcuts: D = dispatch build, Shift+D = dispatch plan
@@ -1357,7 +1357,7 @@ export default function ItemDetailDrawer({
         maxWidth="xs"
         fullWidth
       >
-        <DialogTitle>Send to Claude</DialogTitle>
+        <DialogTitle>Dispatch to Remote Agent</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 1 }}>
             Dispatch a headless agent to work on this task?
