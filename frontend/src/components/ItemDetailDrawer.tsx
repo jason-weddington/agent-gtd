@@ -193,7 +193,7 @@ export default function ItemDetailDrawer({
     if (!isNewItem) return
 
     setBlockerExpanded(false)
-    if (!item || item.blockers !== undefined) return
+    if (!item) return
 
     let cancelled = false
     setLoadingBlockers(true)
