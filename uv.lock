@@ -1,10 +1,10 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.13"
 
 [[package]]
 name = "agent-gtd"
-version = "1.72.0"
+version = "1.73.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
