@@ -192,6 +192,18 @@ _SCHEMA_STATEMENTS: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_user_settings_user ON user_settings(user_id)",
+    """
+    CREATE TABLE IF NOT EXISTS attachments (
+        id TEXT PRIMARY KEY,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        storage_path TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_attachments_item_id ON attachments(item_id)",
 ]
 
 # Idempotent column additions for existing databases.
@@ -232,6 +244,18 @@ _MIGRATIONS: list[str] = [
     "CREATE INDEX IF NOT EXISTS ix_user_settings_user ON user_settings(user_id)",
     "ALTER TABLE projects ADD COLUMN dispatch_agent TEXT",
     "ALTER TABLE projects ADD COLUMN dispatch_max_turns INTEGER",
+    """
+    CREATE TABLE IF NOT EXISTS attachments (
+        id TEXT PRIMARY KEY,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        storage_path TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_attachments_item_id ON attachments(item_id)",
 ]
 
 

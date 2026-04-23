@@ -145,6 +145,18 @@ class Event(BaseModel):
     created_at: datetime
 
 
+class Attachment(BaseModel):
+    """A file attachment on a GTD item."""
+
+    id: str
+    item_id: str
+    filename: str
+    mime_type: str
+    size_bytes: int
+    storage_path: str
+    created_at: datetime
+
+
 # --- API Request/Response Schemas ---
 
 
@@ -483,6 +495,20 @@ class RunResponse(BaseModel):
     error_msg: str
     created_at: datetime
     updated_at: datetime
+
+
+# --- Attachment Schemas ---
+
+
+class AttachmentResponse(BaseModel):
+    """Attachment metadata returned from the API (no storage internals)."""
+
+    id: str
+    item_id: str
+    filename: str
+    mime_type: str
+    size_bytes: int
+    created_at: datetime
 
 
 # --- Dispatch Capabilities Schemas ---

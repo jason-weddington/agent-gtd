@@ -25,7 +25,7 @@ from agent_gtd.models import (
     UpdateItemRequest,
     User,
 )
-from agent_gtd.services import item_service
+from agent_gtd.services import attachment_storage, item_service
 
 router = APIRouter(prefix="/api", tags=["items"])
 
@@ -207,6 +207,9 @@ async def delete_item(
         await item_service.delete_item(db, user.id, item_id)
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Item not found") from None
+    # Ownership confirmed by the delete above; safe to clean up files now.
+    # ON DELETE CASCADE handles the attachment rows.
+    attachment_storage.delete_item_files(item_id)
 
 
 # --- Item action endpoints ---
