@@ -354,25 +354,6 @@ async def test_delete_item_without_project_no_board_state(authed_backend: HttpBa
 
 
 # ---------------------------------------------------------------------------
-# claim_item / release_item
-# ---------------------------------------------------------------------------
-
-
-async def test_claim_release_return_board_state(
-    authed_backend: HttpBackend, project_id: str
-):
-    """claim_item and release_item include board_state when item is project-scoped."""
-    item = await authed_backend.create_item(
-        "", title="Claimable", status="active", project_id=project_id
-    )
-    claimed = await authed_backend.claim_item("", item["id"], "test-agent")
-    assert "board_state" in claimed
-
-    released = await authed_backend.release_item("", item["id"])
-    assert "board_state" in released
-
-
-# ---------------------------------------------------------------------------
 # Notes
 # ---------------------------------------------------------------------------
 

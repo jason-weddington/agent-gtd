@@ -543,58 +543,6 @@ async def test_delete_item(registered_client):
         await registered_client.call_tool("get_item", {"item_id": item_id})
 
 
-async def test_claim_item(registered_client):
-    created = await registered_client.call_tool("add_item", {"title": "Claim Me"})
-    item_id = _parse_result(created)["id"]
-
-    result = await registered_client.call_tool(
-        "claim_item",
-        {
-            "item_id": item_id,
-        },
-    )
-    data = _parse_result(result)
-    assert data["assigned_to"] == "test-agent"
-
-
-async def test_claim_item_idempotent(registered_client):
-    created = await registered_client.call_tool("add_item", {"title": "Claim Me"})
-    item_id = _parse_result(created)["id"]
-
-    await registered_client.call_tool("claim_item", {"item_id": item_id})
-    result = await registered_client.call_tool("claim_item", {"item_id": item_id})
-    data = _parse_result(result)
-    assert data["assigned_to"] == "test-agent"
-
-
-async def test_claim_item_already_claimed(registered_client, user_id, project_id):
-    db = await get_db()
-    from agent_gtd.services import item_service
-
-    row = await item_service.create_item(
-        db, user_id, title="Contested", project_id=project_id
-    )
-    await item_service.claim_item(db, user_id, row["id"], "other-agent")
-
-    with pytest.raises(ToolError, match="already claimed"):
-        await registered_client.call_tool(
-            "claim_item",
-            {
-                "item_id": row["id"],
-            },
-        )
-
-
-async def test_release_item(registered_client):
-    created = await registered_client.call_tool("add_item", {"title": "Release Me"})
-    item_id = _parse_result(created)["id"]
-
-    await registered_client.call_tool("claim_item", {"item_id": item_id})
-    result = await registered_client.call_tool("release_item", {"item_id": item_id})
-    data = _parse_result(result)
-    assert data["assigned_to"] == ""
-
-
 # --- Project name resolution ---
 
 
@@ -718,6 +666,58 @@ async def test_get_note(registered_client, project_id):
     assert data["title"] == "Fetch Me"
 
 
+async def test_delete_note(registered_client, project_id):
+    created = await registered_client.call_tool(
+        "add_note", {"project_id": project_id, "title": "Delete Me"}
+    )
+    note_id = _parse_result(created)["id"]
+
+    result = await registered_client.call_tool("delete_note", {"note_id": note_id})
+    data = _parse_result(result)
+    assert data["deleted"] is True
+    assert data["note_id"] == note_id
+
+    # Verify the note is gone
+    with pytest.raises(ToolError, match="not found"):
+        await registered_client.call_tool("get_note", {"note_id": note_id})
+
+
+# --- update_project ---
+
+
+async def test_update_project(registered_client, project_id):
+    result = await registered_client.call_tool(
+        "update_project",
+        {
+            "project_id": project_id,
+            "name": "Renamed Project",
+            "description": "Updated desc",
+        },
+    )
+    data = _parse_result(result)
+    assert data["name"] == "Renamed Project"
+    assert data["description"] == "Updated desc"
+    assert data["id"] == project_id
+
+
+async def test_update_project_partial(registered_client, project_id):
+    """Updating only one field leaves others unchanged."""
+    # Get original state
+    orig = _parse_result(await registered_client.call_tool("list_projects"))
+    orig_project = next(p for p in orig if p["id"] == project_id)
+
+    result = await registered_client.call_tool(
+        "update_project",
+        {
+            "project_id": project_id,
+            "status": "on_hold",
+        },
+    )
+    data = _parse_result(result)
+    assert data["status"] == "on_hold"
+    assert data["name"] == orig_project["name"]
+
+
 # --- Error branches for coverage ---
 
 
@@ -758,22 +758,23 @@ async def test_delete_item_not_found(registered_client):
         )
 
 
-async def test_claim_item_not_found(registered_client):
+async def test_delete_note_not_found(registered_client):
     with pytest.raises(ToolError, match="not found"):
         await registered_client.call_tool(
-            "claim_item",
+            "delete_note",
             {
-                "item_id": "nonexistent",
+                "note_id": "nonexistent",
             },
         )
 
 
-async def test_release_item_not_found(registered_client):
+async def test_update_project_not_found(registered_client):
     with pytest.raises(ToolError, match="not found"):
         await registered_client.call_tool(
-            "release_item",
+            "update_project",
             {
-                "item_id": "nonexistent",
+                "project_id": "nonexistent",
+                "name": "Nope",
             },
         )
 

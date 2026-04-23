@@ -167,22 +167,6 @@ async def test_delete_item_not_found(authed_backend: HttpBackend):
         await authed_backend.delete_item("", "nonexistent")
 
 
-async def test_claim_and_release_item(authed_backend: HttpBackend):
-    item = await authed_backend.create_item("", title="Claimable", status="active")
-    claimed = await authed_backend.claim_item("", item["id"], "agent-1")
-    assert claimed["assigned_to"] == "agent-1"
-
-    released = await authed_backend.release_item("", item["id"])
-    assert released["assigned_to"] == ""
-
-
-async def test_claim_already_claimed(authed_backend: HttpBackend):
-    item = await authed_backend.create_item("", title="Contested", status="active")
-    await authed_backend.claim_item("", item["id"], "agent-1")
-    with pytest.raises(ToolError):
-        await authed_backend.claim_item("", item["id"], "agent-2")
-
-
 async def test_inbox_capture(authed_backend: HttpBackend):
     item = await authed_backend.inbox_capture(
         "", "Quick thought", created_by="mcp-agent"
@@ -224,6 +208,24 @@ async def test_update_note(authed_backend: HttpBackend, project_id: str):
     )
     assert updated["title"] == "New"
     assert updated["content_markdown"] == "Updated"
+
+
+async def test_delete_note(authed_backend: HttpBackend, project_id: str):
+    note = await authed_backend.create_note("", project_id, title="Bye")
+    result = await authed_backend.delete_note("", note["id"])
+    assert result["deleted"] is True
+    assert result["note_id"] == note["id"]
+
+    with pytest.raises(ToolError):
+        await authed_backend.get_note("", note["id"])
+
+
+async def test_update_project(authed_backend: HttpBackend, project_id: str):
+    updated = await authed_backend.update_project(
+        "", project_id, name="Renamed", status="on_hold"
+    )
+    assert updated["name"] == "Renamed"
+    assert updated["status"] == "on_hold"
 
 
 # --- Error handling ---

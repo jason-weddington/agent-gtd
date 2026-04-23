@@ -100,6 +100,17 @@ class McpBackend(Protocol):
         kb_project_ref: str = "",
     ) -> dict[str, Any]: ...
 
+    async def update_project(
+        self,
+        user_id: str,
+        project_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        status: str | None = None,
+        area: str | None = None,
+    ) -> dict[str, Any]: ...
+
     async def list_items(
         self,
         user_id: str,
@@ -143,12 +154,6 @@ class McpBackend(Protocol):
 
     async def delete_item(self, user_id: str, item_id: str) -> dict[str, Any]: ...
 
-    async def claim_item(
-        self, user_id: str, item_id: str, agent_name: str
-    ) -> dict[str, Any]: ...
-
-    async def release_item(self, user_id: str, item_id: str) -> dict[str, Any]: ...
-
     async def inbox_capture(
         self, user_id: str, title: str, *, created_by: str = "human"
     ) -> dict[str, Any]: ...
@@ -178,6 +183,8 @@ class McpBackend(Protocol):
         content_markdown: str | None = None,
         labels: list[str] | None = None,
     ) -> dict[str, Any]: ...
+
+    async def delete_note(self, user_id: str, note_id: str) -> dict[str, Any]: ...
 
     async def list_comments(
         self,
@@ -338,6 +345,30 @@ class LocalBackend:
             status=status,
             git_origin=git_origin,
             kb_project_ref=kb_project_ref,
+        )
+
+    async def update_project(
+        self,
+        user_id: str,
+        project_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        status: str | None = None,
+        area: str | None = None,
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import project_service
+
+        db = await get_db()
+        return await project_service.update_project(
+            db,
+            user_id,
+            project_id,
+            name=name,
+            description=description,
+            status=status,
+            area=area,
         )
 
     async def _build_project_map(self, user_id: str) -> dict[str, str]:
@@ -526,36 +557,6 @@ class LocalBackend:
             result["board_state"] = await self._board_snapshot(db, user_id, project_id)
         return result
 
-    async def claim_item(
-        self, user_id: str, item_id: str, agent_name: str
-    ) -> dict[str, Any]:
-        from agent_gtd.database import get_db
-        from agent_gtd.services import item_service
-
-        db = await get_db()
-        row = await item_service.claim_item(db, user_id, item_id, agent_name)
-        pm = await self._build_project_map(user_id)
-        result = self._format_item(row, pm)
-        if row.get("project_id"):
-            result["board_state"] = await self._board_snapshot(
-                db, user_id, str(row["project_id"])
-            )
-        return result
-
-    async def release_item(self, user_id: str, item_id: str) -> dict[str, Any]:
-        from agent_gtd.database import get_db
-        from agent_gtd.services import item_service
-
-        db = await get_db()
-        row = await item_service.release_item(db, user_id, item_id)
-        pm = await self._build_project_map(user_id)
-        result = self._format_item(row, pm)
-        if row.get("project_id"):
-            result["board_state"] = await self._board_snapshot(
-                db, user_id, str(row["project_id"])
-            )
-        return result
-
     async def inbox_capture(
         self, user_id: str, title: str, *, created_by: str = "human"
     ) -> dict[str, Any]:
@@ -656,6 +657,14 @@ class LocalBackend:
                 db, user_id, str(row["project_id"])
             )
         return result
+
+    async def delete_note(self, user_id: str, note_id: str) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import note_service
+
+        db = await get_db()
+        await note_service.delete_note(db, user_id, note_id)
+        return {"deleted": True, "note_id": note_id}
 
     async def list_comments(
         self,
@@ -997,6 +1006,35 @@ class HttpBackend:
         result: dict[str, Any] = resp.json()
         return result
 
+    async def update_project(
+        self,
+        user_id: str,
+        project_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        status: str | None = None,
+        area: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {}
+        if name is not None:
+            body["name"] = name
+        if description is not None:
+            body["description"] = description
+        if status is not None:
+            body["status"] = status
+        if area is not None:
+            body["area"] = area
+        resp = await self._client.patch(
+            f"/api/projects/{project_id}",
+            json=body,
+            headers=self._headers(),
+        )
+        self._check(resp)
+        self._project_cache = None  # invalidate cache
+        result: dict[str, Any] = resp.json()
+        return result
+
     async def list_items(
         self,
         user_id: str,
@@ -1150,34 +1188,6 @@ class HttpBackend:
             result["board_state"] = await self._board_snapshot(project_id)
         return result
 
-    async def claim_item(
-        self, user_id: str, item_id: str, agent_name: str
-    ) -> dict[str, Any]:
-        resp = await self._client.post(
-            f"/api/items/{item_id}/claim",
-            json={"agent_name": agent_name},
-            headers=self._headers(),
-        )
-        self._check(resp)
-        item = resp.json()
-        pm = await self._get_project_map()
-        result = self._enrich_item(item, pm)
-        if item.get("project_id"):
-            result["board_state"] = await self._board_snapshot(str(item["project_id"]))
-        return result
-
-    async def release_item(self, user_id: str, item_id: str) -> dict[str, Any]:
-        resp = await self._client.post(
-            f"/api/items/{item_id}/release", headers=self._headers()
-        )
-        self._check(resp)
-        item = resp.json()
-        pm = await self._get_project_map()
-        result = self._enrich_item(item, pm)
-        if item.get("project_id"):
-            result["board_state"] = await self._board_snapshot(str(item["project_id"]))
-        return result
-
     async def inbox_capture(
         self, user_id: str, title: str, *, created_by: str = "human"
     ) -> dict[str, Any]:
@@ -1273,6 +1283,13 @@ class HttpBackend:
         if note.get("project_id"):
             result["board_state"] = await self._board_snapshot(str(note["project_id"]))
         return result
+
+    async def delete_note(self, user_id: str, note_id: str) -> dict[str, Any]:
+        resp = await self._client.delete(
+            f"/api/notes/{note_id}", headers=self._headers()
+        )
+        self._check(resp)
+        return {"deleted": True, "note_id": note_id}
 
     async def list_comments(
         self,

@@ -10,7 +10,6 @@ from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from agent_gtd.exceptions import (
-    AlreadyClaimedError,
     NotFoundError,
     ValidationError,
     VersionConflictError,
@@ -216,6 +215,46 @@ async def add_project(
         git_origin=git_origin,
         kb_project_ref=kb_project_ref,
     )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+async def update_project(
+    project_id: str,
+    ctx: Context,
+    name: str | None = None,
+    description: str | None = None,
+    status: str | None = None,
+    area: str | None = None,
+) -> dict[str, Any]:
+    """Update an existing project. None on any field = unchanged.
+
+    Args:
+        project_id: ID of the project to update.
+        ctx: MCP context (injected automatically).
+        name: New name (None = unchanged).
+        description: New description (None = unchanged).
+        status: New status (None = unchanged).
+            Valid values: active, on_hold, completed, cancelled.
+        area: New area/category (None = unchanged).
+
+    Returns:
+        The updated project dict.
+    """
+    session = await _get_session(ctx)
+
+    try:
+        return await _backend.update_project(
+            session["user_id"],
+            project_id,
+            name=name,
+            description=description,
+            status=status,
+            area=area,
+        )
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
 
 
 # --- Project member tools ---
@@ -575,61 +614,6 @@ async def get_item(
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
-)
-async def claim_item(
-    item_id: str,
-    ctx: Context,
-) -> dict[str, Any]:
-    """Claim an item for this agent (sets assigned_to = agent_name).
-
-    Idempotent if the same agent re-claims. Fails if already claimed by
-    a different agent.
-
-    Args:
-        item_id: ID of the item to claim.
-        ctx: MCP context (injected automatically).
-
-    Returns:
-        The updated item dict.
-    """
-    session = await _get_session(ctx)
-
-    try:
-        return await _backend.claim_item(
-            session["user_id"], item_id, session["agent_name"]
-        )
-    except NotFoundError as e:
-        raise ToolError(e.detail) from None
-    except AlreadyClaimedError as e:
-        raise ToolError(e.detail) from None
-
-
-@mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
-)
-async def release_item(
-    item_id: str,
-    ctx: Context,
-) -> dict[str, Any]:
-    """Release an item (clear assigned_to).
-
-    Args:
-        item_id: ID of the item to release.
-        ctx: MCP context (injected automatically).
-
-    Returns:
-        The updated item dict.
-    """
-    session = await _get_session(ctx)
-
-    try:
-        return await _backend.release_item(session["user_id"], item_id)
-    except NotFoundError as e:
-        raise ToolError(e.detail) from None
-
-
 # --- Blocker tools ---
 
 
@@ -787,6 +771,32 @@ async def update_note(
             content_markdown=content_markdown,
             labels=labels,
         )
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
+)
+async def delete_note(
+    note_id: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """Permanently delete a note.
+
+    This action is irreversible. The note and all its content will be removed.
+
+    Args:
+        note_id: ID of the note to delete.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        Confirmation dict with deleted status and note_id.
+    """
+    session = await _get_session(ctx)
+
+    try:
+        return await _backend.delete_note(session["user_id"], note_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
