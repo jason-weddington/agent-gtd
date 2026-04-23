@@ -431,6 +431,7 @@ class LocalBackend:
         labels: list[str] | None = None,
         project_id: str | None = None,
         created_by: str = "human",
+        due_date: str | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import item_service
@@ -446,6 +447,7 @@ class LocalBackend:
             priority=priority,
             created_by=created_by,
             labels=labels,
+            due_date=due_date,
         )
         pm = await self._build_project_map(user_id)
         result = self._format_item(row, pm)
@@ -467,6 +469,8 @@ class LocalBackend:
         priority: str | None = None,
         assigned_to: str | None = None,
         labels: list[str] | None = None,
+        due_date: str | None = None,
+        due_date_set: bool = False,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import item_service
@@ -482,6 +486,8 @@ class LocalBackend:
             priority=priority,
             assigned_to=assigned_to,
             labels=labels,
+            due_date=due_date,
+            due_date_set=due_date_set,
             version=version,
         )
         pm = await self._build_project_map(user_id)
@@ -1042,6 +1048,7 @@ class HttpBackend:
         labels: list[str] | None = None,
         project_id: str | None = None,
         created_by: str = "human",
+        due_date: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "title": title,
@@ -1054,6 +1061,8 @@ class HttpBackend:
             body["labels"] = labels
         if project_id is not None:
             body["project_id"] = project_id
+        if due_date is not None:
+            body["due_date"] = due_date
         resp = await self._client.post(
             "/api/items",
             json=body,
@@ -1081,6 +1090,8 @@ class HttpBackend:
         priority: str | None = None,
         assigned_to: str | None = None,
         labels: list[str] | None = None,
+        due_date: str | None = None,
+        due_date_set: bool = False,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"version": version}
         if title is not None:
@@ -1095,6 +1106,8 @@ class HttpBackend:
             body["assigned_to"] = assigned_to
         if labels is not None:
             body["labels"] = labels
+        if due_date_set:
+            body["due_date"] = due_date
         resp = await self._client.patch(
             f"/api/items/{item_id}",
             json=body,

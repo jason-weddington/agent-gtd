@@ -411,6 +411,89 @@ async def test_update_item_with_version(registered_client):
     assert data["version"] == 2
 
 
+async def test_add_item_with_due_date(registered_client):
+    """add_item stores a due_date when provided."""
+    result = await registered_client.call_tool(
+        "add_item",
+        {
+            "title": "Dated Task",
+            "due_date": "2026-12-01",
+        },
+    )
+    data = _parse_result(result)
+    assert data["due_date"] == "2026-12-01"
+
+
+async def test_add_item_without_due_date(registered_client):
+    """add_item omitting due_date stores null."""
+    result = await registered_client.call_tool(
+        "add_item",
+        {"title": "Undated Task"},
+    )
+    data = _parse_result(result)
+    assert data["due_date"] is None
+
+
+async def test_update_item_set_due_date(registered_client):
+    """update_item with a date string sets the due_date."""
+    created = await registered_client.call_tool("add_item", {"title": "No Due Date"})
+    item = _parse_result(created)
+    assert item["due_date"] is None
+
+    result = await registered_client.call_tool(
+        "update_item",
+        {
+            "item_id": item["id"],
+            "version": item["version"],
+            "due_date": "2027-01-15",
+        },
+    )
+    data = _parse_result(result)
+    assert data["due_date"] == "2027-01-15"
+
+
+async def test_update_item_clear_due_date(registered_client):
+    """update_item with due_date="" clears the due date."""
+    created = await registered_client.call_tool(
+        "add_item",
+        {"title": "Has Due Date", "due_date": "2027-06-01"},
+    )
+    item = _parse_result(created)
+    assert item["due_date"] == "2027-06-01"
+
+    result = await registered_client.call_tool(
+        "update_item",
+        {
+            "item_id": item["id"],
+            "version": item["version"],
+            "due_date": "",
+        },
+    )
+    data = _parse_result(result)
+    assert data["due_date"] is None
+
+
+async def test_update_item_due_date_unchanged_when_omitted(registered_client):
+    """update_item omitting due_date leaves the existing value unchanged."""
+    created = await registered_client.call_tool(
+        "add_item",
+        {"title": "Sticky Due Date", "due_date": "2028-03-10"},
+    )
+    item = _parse_result(created)
+
+    result = await registered_client.call_tool(
+        "update_item",
+        {
+            "item_id": item["id"],
+            "version": item["version"],
+            "title": "Renamed",
+        },
+    )
+    data = _parse_result(result)
+    assert data["title"] == "Renamed"
+    assert data["due_date"] == "2028-03-10"
+
+
 async def test_update_item_version_conflict(registered_client):
     created = await registered_client.call_tool("add_item", {"title": "V1"})
     item_id = _parse_result(created)["id"]

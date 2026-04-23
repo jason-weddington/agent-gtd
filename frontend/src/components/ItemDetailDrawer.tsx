@@ -103,6 +103,7 @@ export default function ItemDetailDrawer({
   const [descriptionValue, setDescriptionValue] = useState('')
   const [savingField, setSavingField] = useState<string | null>(null)
   const [fieldError, setFieldError] = useState<string | null>(null)
+  const [dueDateValue, setDueDateValue] = useState('')
   const [addingLabel, setAddingLabel] = useState(false)
   const [newLabel, setNewLabel] = useState('')
   const [allProjects, setAllProjects] = useState<Project[]>([])
@@ -152,6 +153,7 @@ export default function ItemDetailDrawer({
     setEditingDescription(false)
     setTitleValue(item?.title ?? '')
     setDescriptionValue(item?.description ?? '')
+    setDueDateValue(item?.dueDate ?? '')
     setFieldError(null)
     setAddingLabel(false)
     setNewLabel('')
@@ -394,6 +396,14 @@ export default function ItemDetailDrawer({
     },
     [localItem?.description],
   )
+
+  // --- Due date handler ---
+
+  const handleDueDateSave = useCallback(async () => {
+    const current = localItem?.dueDate ?? ''
+    if (dueDateValue === current) return
+    await saveField('dueDate', dueDateValue || null)
+  }, [dueDateValue, localItem?.dueDate, saveField])
 
   // --- Label handlers ---
 
@@ -796,10 +806,18 @@ export default function ItemDetailDrawer({
                     </Select>
                   </FormControl>
 
-                  {/* Static chips for due date, assigned to */}
-                  {localItem.dueDate && (
-                    <Chip label={localItem.dueDate} size="small" variant="outlined" />
-                  )}
+                  {/* Editable due date */}
+                  <TextField
+                    type="date"
+                    label="Due date"
+                    size="small"
+                    value={dueDateValue}
+                    onChange={(e) => setDueDateValue(e.target.value)}
+                    onBlur={() => void handleDueDateSave()}
+                    slotProps={{ inputLabel: { shrink: true } }}
+                    disabled={savingField === 'dueDate'}
+                    sx={{ width: 150, '& input': { fontSize: '0.75rem', py: '2px' } }}
+                  />
                   {localItem.assignedTo && (
                     <Chip label={`@ ${localItem.assignedTo}`} size="small" variant="outlined" />
                   )}

@@ -349,6 +349,7 @@ async def add_item(
     status: str = "new",
     labels: list[str] | None = None,
     project_id: str | None = None,
+    due_date: str | None = None,
 ) -> dict[str, Any]:
     """Create a new item.
 
@@ -365,6 +366,7 @@ async def add_item(
             active, review, done, cancelled.
         labels: Optional list of labels/tags.
         project_id: Optional project to assign to. Ignored for inbox items.
+        due_date: Optional due date in YYYY-MM-DD format. Default: None (no due date).
 
     Returns:
         The created item dict.
@@ -384,6 +386,7 @@ async def add_item(
             priority=priority,
             created_by=session["agent_name"],
             labels=labels,
+            due_date=due_date,
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
@@ -402,6 +405,7 @@ async def update_item(
     priority: str | None = None,
     assigned_to: str | None = None,
     labels: list[str] | None = None,
+    due_date: str | None = None,
 ) -> dict[str, Any]:
     """Update an existing item. Requires optimistic locking via version.
 
@@ -419,11 +423,27 @@ async def update_item(
         priority: New priority (None = unchanged).
         assigned_to: New assignee (None = unchanged).
         labels: New labels (None = unchanged).
+        due_date: New due date in YYYY-MM-DD format.
+            - None (default) → unchanged
+            - Empty string "" → clear the due date
+            - Non-empty string → set to that date
 
     Returns:
         The updated item dict.
     """
     session = await _get_session(ctx)
+
+    # Translate MCP due_date sentinel into (due_date, due_date_set) pair for backend.
+    # None means "don't touch it"; "" means "clear it"; date string means "set it".
+    if due_date is None:
+        backend_due_date: str | None = None
+        due_date_set = False
+    elif due_date == "":
+        backend_due_date = None
+        due_date_set = True
+    else:
+        backend_due_date = due_date
+        due_date_set = True
 
     try:
         return await _backend.update_item(
@@ -436,6 +456,8 @@ async def update_item(
             priority=priority,
             assigned_to=assigned_to,
             labels=labels,
+            due_date=backend_due_date,
+            due_date_set=due_date_set,
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
