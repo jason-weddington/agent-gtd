@@ -1,4 +1,4 @@
-"""Tests for file attachment backend — storage helpers and read/delete endpoints."""
+"""Tests for file attachment backend — upload, storage, read, and delete endpoints."""
 
 import uuid
 from datetime import UTC, datetime
@@ -355,3 +355,351 @@ async def test_cascade_on_item_delete(
 
     # Files directory removed
     assert not item_dir.exists()
+
+
+# ---------------------------------------------------------------------------
+# Upload endpoint (POST /api/items/{item_id}/attachments)
+# ---------------------------------------------------------------------------
+
+
+async def test_upload_jpg_happy(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+):
+    """JPEG upload stores row + file, returns 201 with correct metadata."""
+    content = b"\xff\xd8\xff" + b"fake jpg bytes"
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("photo.jpg", content, "image/jpeg")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["filename"] == "photo.jpg"
+    assert data["mime_type"] == "image/jpeg"
+    assert data["size_bytes"] == len(content)
+    assert data["item_id"] == item_id
+    assert "id" in data
+    assert "storage_path" not in data
+
+    # File on disk
+    db = await get_db()
+    row = await attachment_service.get(db, data["id"])
+    assert row is not None
+    file_path = attachments_root / str(row["storage_path"])
+    assert file_path.exists()
+    assert file_path.read_bytes() == content
+
+
+async def test_upload_jpeg_extension_happy(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+):
+    """Uploads with .jpeg extension work the same as .jpg."""
+    content = b"\xff\xd8\xff" + b"jpeg ext"
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("photo.jpeg", content, "image/jpeg")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["mime_type"] == "image/jpeg"
+
+
+async def test_upload_png_happy(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+):
+    """PNG upload stores row + file, returns 201 with correct metadata."""
+    content = b"\x89PNG\r\n\x1a\n" + b"fake png"
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("diagram.png", content, "image/png")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["filename"] == "diagram.png"
+    assert data["mime_type"] == "image/png"
+    assert data["size_bytes"] == len(content)
+
+    db = await get_db()
+    row = await attachment_service.get(db, data["id"])
+    assert row is not None
+    file_path = attachments_root / str(row["storage_path"])
+    assert file_path.exists()
+
+
+async def test_upload_md_happy(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+):
+    """Markdown upload with text/markdown MIME stores row + file."""
+    content = b"# Hello\n\nThis is a note."
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("notes.md", content, "text/markdown")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["filename"] == "notes.md"
+    assert data["mime_type"] == "text/markdown"
+    assert data["size_bytes"] == len(content)
+
+    db = await get_db()
+    row = await attachment_service.get(db, data["id"])
+    assert row is not None
+    file_path = attachments_root / str(row["storage_path"])
+    assert file_path.exists()
+    assert file_path.read_bytes() == content
+
+
+async def test_upload_md_canonical_mime_from_octet_stream(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+):
+    """Browser sends application/octet-stream for .md — stored as text/markdown."""
+    content = b"# My Notes\n"
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("notes.md", content, "application/octet-stream")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["mime_type"] == "text/markdown"
+
+    db = await get_db()
+    row = await attachment_service.get(db, data["id"])
+    assert row is not None
+    assert str(row["mime_type"]) == "text/markdown"
+
+
+async def test_upload_md_canonical_mime_from_text_plain(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+):
+    """Browser sends text/plain for .md — stored as text/markdown."""
+    content = b"plain text md"
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("doc.md", content, "text/plain")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["mime_type"] == "text/markdown"
+
+
+async def test_upload_markdown_extension_happy(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+):
+    """.markdown extension is also accepted."""
+    content = b"# Extended\n"
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("readme.markdown", content, "text/markdown")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["mime_type"] == "text/markdown"
+
+
+async def test_upload_unsupported_mime_415(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+):
+    """Uploading an unsupported file type returns 415."""
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("script.sh", b"#!/bin/bash", "text/x-sh")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 415
+
+
+async def test_upload_unsupported_extension_415(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+):
+    """Extension not in allowed list returns 415 regardless of MIME."""
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("data.csv", b"a,b,c", "text/csv")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 415
+
+
+async def test_upload_mismatched_ext_mime_415(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+):
+    """Extension says .png but MIME says image/jpeg — reject with 415."""
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("photo.png", b"\xff\xd8\xff", "image/jpeg")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 415
+
+
+async def test_upload_mismatched_jpg_as_png_415(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+):
+    """Extension says .jpg but MIME says image/png — reject with 415."""
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("photo.jpg", b"\x89PNG", "image/png")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 415
+
+
+async def test_upload_oversize_413(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+):
+    """File just over 10 MB is rejected with 413; no row or file written."""
+    over_limit = b"x" * (10 * 1024 * 1024 + 1)
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("big.png", over_limit, "image/png")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 413
+
+    # No DB row inserted
+    db = await get_db()
+    rows = await attachment_service.list_for_item(db, item_id)
+    assert len(rows) == 0
+
+    # No files written under the item directory
+    item_dir = attachments_root / item_id
+    if item_dir.exists():
+        assert list(item_dir.iterdir()) == []
+
+
+async def test_upload_exact_limit_accepted(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+):
+    """File exactly at 10 MB is accepted."""
+    at_limit = b"x" * (10 * 1024 * 1024)
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("exact.png", at_limit, "image/png")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["size_bytes"] == 10 * 1024 * 1024
+
+
+async def test_upload_non_owned_item_404(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+):
+    """Uploading to an item owned by another user returns 404."""
+    res = await client.post(
+        "/api/auth/register",
+        json={"email": "uploader@example.com", "password": "pass1234"},
+    )
+    other_headers = {"Authorization": f"Bearer {res.json()['token']}"}
+
+    res2 = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("photo.png", b"\x89PNG", "image/png")},
+        headers=other_headers,
+    )
+    assert res2.status_code == 404
+
+
+async def test_upload_unknown_item_404(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    attachments_root: Path,
+):
+    """Uploading to a non-existent item returns 404."""
+    res = await client.post(
+        f"/api/items/{uuid.uuid4()}/attachments",
+        files={"file": ("photo.png", b"\x89PNG", "image/png")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 404
+
+
+async def test_upload_db_failure_cleans_up_file(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    item_id: str,
+    attachments_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """If DB insert fails after file write, the file is cleaned up."""
+
+    async def _failing_insert(db: object, attachment: object) -> None:
+        raise RuntimeError("simulated DB failure")
+
+    monkeypatch.setattr(attachment_service, "insert", _failing_insert)
+
+    content = b"\x89PNG\r\n\x1a\nfake"
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("oops.png", content, "image/png")},
+        headers=auth_headers,
+    )
+    assert res.status_code == 500
+
+    # Item directory either doesn't exist or is empty (file cleaned up)
+    item_dir = attachments_root / item_id
+    if item_dir.exists():
+        remaining = list(item_dir.iterdir())
+        assert remaining == [], f"Expected no files but found: {remaining}"
+
+    # No DB row
+    db = await get_db()
+    rows = await attachment_service.list_for_item(db, item_id)
+    assert len(rows) == 0
+
+
+async def test_upload_unauthenticated_401(
+    client: AsyncClient,
+    item_id: str,
+    attachments_root: Path,
+):
+    """Upload without auth token returns 401/403."""
+    res = await client.post(
+        f"/api/items/{item_id}/attachments",
+        files={"file": ("photo.png", b"\x89PNG", "image/png")},
+    )
+    assert res.status_code in {401, 403}
