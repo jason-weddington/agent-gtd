@@ -24,6 +24,7 @@ import ProjectsReviewStep from '../components/review/ProjectsReviewStep'
 import CaptureStep from '../components/review/CaptureStep'
 import SummaryStep, { type ReviewStats } from '../components/review/SummaryStep'
 import type { ReviewAction } from '../components/review/ReviewItemRow'
+import ItemDetailDrawer from '../components/ItemDetailDrawer'
 
 const TOTAL_STEPS = 7
 const PROJECTS_STEP = 3
@@ -61,6 +62,9 @@ export default function WeeklyReview() {
     activated: 0,
     captured: 0,
   })
+
+  // Drawer state
+  const [drawerItem, setDrawerItem] = useState<Item | null>(null)
 
   // Project review state (lifted so it survives step navigation)
   const [projectReviewState, setProjectReviewState] = useState({ current: 0, total: 0, allReviewed: false })
@@ -301,6 +305,7 @@ export default function WeeklyReview() {
             projectMap={projectMap}
             actions={nextActionActions}
             onDelete={handleDelete}
+            onItemClick={(item) => setDrawerItem(item)}
             emptyIcon={<AssignmentIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />}
             emptyTitle="No next actions"
             emptyDescription="All caught up! Add next actions from your inbox or projects."
@@ -424,6 +429,30 @@ export default function WeeklyReview() {
       <Box sx={{ minHeight: 300, pt: 3 }}>
         {renderStep()}
       </Box>
+
+      {/* Item Detail Drawer — Next Actions step only */}
+      <ItemDetailDrawer
+        item={drawerItem}
+        onClose={() => setDrawerItem(null)}
+        onEdit={() => setDrawerItem(null)}
+        onItemUpdated={(updated) => {
+          setDrawerItem(updated)
+          setNextActionItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))
+        }}
+        projectName={drawerItem?.projectId ? projectMap[drawerItem.projectId]?.name : undefined}
+        projectGitOrigin={drawerItem?.projectId ? projectMap[drawerItem.projectId]?.gitOrigin : undefined}
+        projectIsOwner={
+          drawerItem?.projectId
+            ? projectMap[drawerItem.projectId]?.isOwner !== false
+            : true
+        }
+        showAttribution={
+          drawerItem?.projectId
+            ? ((projectMap[drawerItem.projectId]?.memberCount ?? 0) > 0 ||
+               projectMap[drawerItem.projectId]?.isOwner === false)
+            : false
+        }
+      />
     </Box>
   )
 }

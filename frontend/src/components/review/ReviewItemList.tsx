@@ -8,6 +8,8 @@ interface ReviewItemListProps {
   projectMap: Record<string, Project>
   actions: ReviewAction[]
   onDelete?: (item: Item) => void
+  /** If provided, clicking a row body opens the item detail drawer */
+  onItemClick?: (item: Item) => void
   emptyIcon?: ReactNode
   emptyTitle: string
   emptyDescription: string
@@ -25,6 +27,7 @@ export default function ReviewItemList({
   projectMap,
   actions,
   onDelete,
+  onItemClick,
   emptyIcon,
   emptyTitle,
   emptyDescription,
@@ -55,6 +58,7 @@ export default function ReviewItemList({
           projectMap={projectMap}
           actions={actions}
           onDelete={onDelete}
+          onItemClick={onItemClick}
           triageConfig={triageConfig}
           triageOpenId={triageOpenId}
           onTriageToggle={onTriageToggle}

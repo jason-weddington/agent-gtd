@@ -46,6 +46,8 @@ interface ReviewItemRowProps {
   projectMap: Record<string, Project>
   actions: ReviewAction[]
   onDelete?: (item: Item) => void
+  /** If provided, clicking the row body opens the item detail drawer */
+  onItemClick?: (item: Item) => void
   /** If provided, enables inline triage (for inbox step) */
   triageConfig?: {
     projects: Project[]
@@ -61,6 +63,7 @@ export default function ReviewItemRow({
   projectMap,
   actions,
   onDelete,
+  onItemClick,
   triageConfig,
   triageOpenId,
   onTriageToggle,
@@ -104,6 +107,7 @@ export default function ReviewItemRow({
   return (
     <Box sx={{ mb: 0.5, minWidth: 0 }}>
       <Box
+        onClick={onItemClick ? () => onItemClick(item) : undefined}
         sx={{
           display: 'flex',
           alignItems: 'flex-start',
@@ -114,6 +118,10 @@ export default function ReviewItemRow({
           border: 1,
           borderColor: 'divider',
           borderRadius: 1,
+          ...(onItemClick && {
+            cursor: 'pointer',
+            '&:hover': { bgcolor: 'action.hover' },
+          }),
         }}
       >
         <Box sx={{ minWidth: 0, flex: 1 }}>
@@ -143,7 +151,7 @@ export default function ReviewItemRow({
               size="small"
               variant="text"
               color={action.color ?? 'primary'}
-              onClick={() => action.onClick(item)}
+              onClick={(e) => { e.stopPropagation(); action.onClick(item) }}
               startIcon={action.icon}
               sx={{ minWidth: 'auto', textTransform: 'none', px: 1 }}
             >
@@ -154,14 +162,14 @@ export default function ReviewItemRow({
             <Button
               size="small"
               variant={isTriageOpen ? 'contained' : 'text'}
-              onClick={() => onTriageToggle?.(isTriageOpen ? null : item.id)}
+              onClick={(e) => { e.stopPropagation(); onTriageToggle?.(isTriageOpen ? null : item.id) }}
               sx={{ minWidth: 'auto', textTransform: 'none', px: 1 }}
             >
               Triage
             </Button>
           )}
           {onDelete && (
-            <IconButton size="small" onClick={() => setConfirmDelete(true)} title="Delete">
+            <IconButton size="small" onClick={(e) => { e.stopPropagation(); setConfirmDelete(true) }} title="Delete">
               <DeleteIcon fontSize="small" />
             </IconButton>
           )}

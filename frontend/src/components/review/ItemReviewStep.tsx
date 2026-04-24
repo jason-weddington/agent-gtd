@@ -11,6 +11,8 @@ interface ItemReviewStepProps {
   projectMap: Record<string, Project>
   actions: ReviewAction[]
   onDelete: (id: string) => void
+  /** If provided, clicking a row body opens the item detail drawer */
+  onItemClick?: (item: Item) => void
   emptyIcon: ReactNode
   emptyTitle: string
   emptyDescription: string
@@ -23,6 +25,7 @@ export default function ItemReviewStep({
   projectMap,
   actions,
   onDelete,
+  onItemClick,
   emptyIcon,
   emptyTitle,
   emptyDescription,
@@ -38,6 +41,7 @@ export default function ItemReviewStep({
         projectMap={projectMap}
         actions={actions}
         onDelete={(item) => onDelete(item.id)}
+        onItemClick={onItemClick}
         emptyIcon={emptyIcon}
         emptyTitle={emptyTitle}
         emptyDescription={emptyDescription}
