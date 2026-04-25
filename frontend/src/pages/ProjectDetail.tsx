@@ -1049,16 +1049,16 @@ export default function ProjectDetail() {
               No agent runs in this project yet.
             </Typography>
           ) : (
-            <TableContainer>
+            <TableContainer sx={{ overflowX: 'auto' }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
                     <TableCell>Item</TableCell>
                     <TableCell>Status</TableCell>
-                    <TableCell>Branch</TableCell>
-                    <TableCell>Started</TableCell>
-                    <TableCell>Finished</TableCell>
-                    <TableCell>Duration</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Branch</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Started</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Finished</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Duration</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1110,7 +1110,7 @@ export default function ProjectDetail() {
                             color={RUN_STATUS_COLORS[run.status]}
                           />
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                           <Typography
                             variant="caption"
                             sx={{ fontFamily: 'monospace', fontSize: '0.72rem' }}
@@ -1118,21 +1118,21 @@ export default function ProjectDetail() {
                             {run.featureBranch || '—'}
                           </Typography>
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
                           <Typography variant="caption">
                             {run.startedAt
                               ? new Date(run.startedAt).toLocaleString()
                               : '—'}
                           </Typography>
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
                           <Typography variant="caption">
                             {run.finishedAt
                               ? new Date(run.finishedAt).toLocaleString()
                               : '—'}
                           </Typography>
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
                           <Typography variant="caption">
                             {formatDuration(run.startedAt, run.finishedAt)}
                           </Typography>

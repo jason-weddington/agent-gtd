@@ -617,7 +617,7 @@ export default function ItemDetailDrawer({
         transitionDuration={dispatchAnimating ? 0 : undefined}
         sx={{
           '& .MuiDrawer-paper': {
-            width: DRAWER_WIDTH,
+            width: { xs: '100vw', sm: DRAWER_WIDTH },
             boxSizing: 'border-box',
             top: '64px',
             height: 'calc(100% - 64px)',

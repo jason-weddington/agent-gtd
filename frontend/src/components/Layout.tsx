@@ -12,6 +12,8 @@ import {
   Menu,
   MenuItem,
   ListItemIcon,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material'
 import MenuIcon from '@mui/icons-material/Menu'
 import DarkModeIcon from '@mui/icons-material/DarkMode'
@@ -33,7 +35,9 @@ export default function Layout() {
   const { user, logout, localMode } = useAuth()
   const { openCapture } = useQuickCapture()
   const navigate = useNavigate()
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'))
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
@@ -160,7 +164,7 @@ export default function Layout() {
         </Toolbar>
       </AppBar>
 
-      <Sidebar open={sidebarOpen} />
+      <Sidebar open={sidebarOpen} isMobile={isMobile} onClose={() => setSidebarOpen(false)} />
 
       <ProjectSwitcher />
       <KeyboardShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />

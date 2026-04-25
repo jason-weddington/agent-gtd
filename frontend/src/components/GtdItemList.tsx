@@ -318,6 +318,15 @@ export default function GtdItemList({
             <ListItem
               key={item.id}
               onClick={() => setDrawerItem(item)}
+              sx={{
+                border: 1,
+                borderColor: 'divider',
+                borderRadius: 1,
+                mb: 1,
+                cursor: 'pointer',
+                pr: { xs: '112px', sm: '104px' },
+                '&:hover': { bgcolor: 'action.hover' },
+              }}
               secondaryAction={
                 <Box>
                   <IconButton size="small" onClick={(e) => { e.stopPropagation(); openEdit(item) }} title="Edit">
@@ -335,14 +344,6 @@ export default function GtdItemList({
                   </IconButton>
                 </Box>
               }
-              sx={{
-                border: 1,
-                borderColor: 'divider',
-                borderRadius: 1,
-                mb: 1,
-                cursor: 'pointer',
-                '&:hover': { bgcolor: 'action.hover' },
-              }}
             >
               <ListItemText
                 primary={
@@ -400,7 +401,17 @@ export default function GtdItemList({
                             key={label}
                             label={label}
                             size="small"
+                            color={selectedLabels.includes(label) ? 'primary' : 'default'}
+                            variant={selectedLabels.includes(label) ? 'filled' : 'outlined'}
                             sx={{ height: 20, fontSize: '0.7rem' }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedLabels((prev) =>
+                                prev.includes(label)
+                                  ? prev.filter((l) => l !== label)
+                                  : [...prev, label],
+                              )
+                            }}
                           />
                         ))}
                         {item.labels.length > 4 && (
@@ -413,23 +424,6 @@ export default function GtdItemList({
                         )}
                       </Box>
                     )}
-                    {item.labels.map((label) => (
-                      <Chip
-                        key={label}
-                        label={label}
-                        size="small"
-                        color={selectedLabels.includes(label) ? 'primary' : 'default'}
-                        variant={selectedLabels.includes(label) ? 'filled' : 'outlined'}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setSelectedLabels((prev) =>
-                            prev.includes(label)
-                              ? prev.filter((l) => l !== label)
-                              : [...prev, label],
-                          )
-                        }}
-                      />
-                    ))}
                   </Box>
                 }
                 secondary={

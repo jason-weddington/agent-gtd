@@ -61,9 +61,11 @@ const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
 
 interface SidebarProps {
   open: boolean
+  isMobile?: boolean
+  onClose?: () => void
 }
 
-export default function Sidebar({ open }: SidebarProps) {
+export default function Sidebar({ open, isMobile = false, onClose }: SidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -89,11 +91,12 @@ export default function Sidebar({ open }: SidebarProps) {
 
   return (
     <Drawer
-      variant="persistent"
+      variant={isMobile ? 'temporary' : 'persistent'}
       anchor="left"
       open={open}
+      onClose={onClose}
       sx={{
-        width: open ? DRAWER_WIDTH : 0,
+        width: isMobile ? 0 : (open ? DRAWER_WIDTH : 0),
         flexShrink: 0,
         '& .MuiDrawer-paper': {
           width: DRAWER_WIDTH,
@@ -119,7 +122,7 @@ export default function Sidebar({ open }: SidebarProps) {
               <ListItemButton
                 key={item.path}
                 selected={isSelected(item.path)}
-                onClick={() => navigate(item.path)}
+                onClick={() => { navigate(item.path); if (isMobile) onClose?.() }}
               >
                 <ListItemIcon sx={{ minWidth: 36 }}>
                   {item.icon}
@@ -142,7 +145,7 @@ export default function Sidebar({ open }: SidebarProps) {
       <List dense sx={{ px: 0 }}>
         <ListItemButton
           selected={isSelected('/settings')}
-          onClick={() => navigate('/settings')}
+          onClick={() => { navigate('/settings'); if (isMobile) onClose?.() }}
         >
           <ListItemIcon sx={{ minWidth: 36 }}>
             <SettingsIcon fontSize="small" />
