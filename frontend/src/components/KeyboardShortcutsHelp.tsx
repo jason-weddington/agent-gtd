@@ -23,12 +23,18 @@ const GLOBAL_SHORTCUTS: ShortcutRow[] = [
   { keys: '?', description: 'Show keyboard shortcuts' },
 ]
 
+const REMOTE_DISPATCH_SHORTCUTS: ShortcutRow[] = [
+  { keys: 'D',       description: 'Dispatch — Build mode' },
+  { keys: '\u21E7D', description: 'Dispatch — Plan mode'  },
+]
+
 interface ShortcutSectionProps {
   heading: string
   rows: ShortcutRow[]
+  note?: string
 }
 
-function ShortcutSection({ heading, rows }: ShortcutSectionProps) {
+function ShortcutSection({ heading, rows, note }: ShortcutSectionProps) {
   return (
     <Box sx={{ mb: 2 }}>
       <Typography
@@ -58,6 +64,15 @@ function ShortcutSection({ heading, rows }: ShortcutSectionProps) {
           </Box>
         ))}
       </Box>
+      {note && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ fontStyle: 'italic', display: 'block', mt: 0.5 }}
+        >
+          {note}
+        </Typography>
+      )}
     </Box>
   )
 }
@@ -116,6 +131,11 @@ export default function KeyboardShortcutsHelp({ open: openProp, onOpenChange }: 
 
         <ShortcutSection heading="Navigation" rows={NAVIGATION_SHORTCUTS} />
         <ShortcutSection heading="Global" rows={GLOBAL_SHORTCUTS} />
+        <ShortcutSection
+          heading="Remote Dispatch"
+          rows={REMOTE_DISPATCH_SHORTCUTS}
+          note="Only available when a task is open in the right drawer for a project configured for remote dispatch."
+        />
 
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
           <Typography variant="caption" color="text.secondary">
