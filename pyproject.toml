@@ -18,6 +18,7 @@ dependencies = [
 
 [project.scripts]
 agent-gtd-mcp = "agent_gtd.mcp_server:main"
+agent-gtd = "agent_gtd.cli:main"
 
 [dependency-groups]
 dev = [
@@ -97,7 +98,7 @@ omit = [
 
 [tool.coverage.report]
 precision = 1
-fail_under = 94.0
+fail_under = 94.1
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
