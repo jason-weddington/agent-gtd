@@ -2,6 +2,41 @@
 
 <!-- version list -->
 
+## v1.74.0 (2026-04-25)
+
+### Bug Fixes
+
+- **frontend**: Declare @adobe/css-tools as an explicit devDependency
+  ([`80416c5`](https://github.com/jason-weddington/agent-gtd/commit/80416c5d8d8fe8328e57d3a3379fcce887ebbb08))
+
+### Chores
+
+- Lower coverage floor back to 94.0
+  ([`e28c5ed`](https://github.com/jason-weddington/agent-gtd/commit/e28c5ed5e04a433b244927d9cfdd1145cdf27ed8))
+
+- Ratchet coverage floor to 94.2
+  ([`7b96d16`](https://github.com/jason-weddington/agent-gtd/commit/7b96d167e0380c17b84a9aecde545ab1f652cd1f))
+
+### Features
+
+- **cli**: Add agent-gtd run-status command for shell-based monitoring
+  ([`362e877`](https://github.com/jason-weddington/agent-gtd/commit/362e877ab9d701d551fea1c80c60a7d35709b599))
+
+- **frontend**: Add Remote Dispatch shortcuts to the keyboard shortcuts modal
+  ([`d89ac5d`](https://github.com/jason-weddington/agent-gtd/commit/d89ac5de73c3253e28c3bad7d65bb3764ef4c165))
+
+- **frontend**: Mobile-friendly layout improvements
+  ([`cd982c5`](https://github.com/jason-weddington/agent-gtd/commit/cd982c59cc33f72462fc1e333e2e86b24ffd1b32))
+
+- **frontend**: Open item detail drawer from Weekly Review Next Actions step
+  ([`4231f72`](https://github.com/jason-weddington/agent-gtd/commit/4231f72cb93a972bb1d108345d9655f0765b76bb))
+
+### Refactoring
+
+- Remove claim_item/release_item MCP tools, add delete_note + update_project
+  ([`fecabdf`](https://github.com/jason-weddington/agent-gtd/commit/fecabdfa16d3916b91254570d243aa10dd19ae0e))
+
+
 ## v1.73.0 (2026-04-23)
 
 
