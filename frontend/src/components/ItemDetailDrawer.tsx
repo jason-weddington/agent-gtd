@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useHotkeys } from 'react-hotkeys-hook'
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Button,
@@ -22,6 +25,7 @@ import {
   Typography,
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import CloseIcon from '@mui/icons-material/Close'
 import SendIcon from '@mui/icons-material/Send'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
@@ -108,6 +112,7 @@ export default function ItemDetailDrawer({
   const [newLabel, setNewLabel] = useState('')
   const [allProjects, setAllProjects] = useState<Project[]>([])
   const [blockerExpanded, setBlockerExpanded] = useState(false)
+  const [metadataExpanded, setMetadataExpanded] = useState(false)
   const [loadingBlockers, setLoadingBlockers] = useState(false)
 
   // Attachment state
@@ -157,6 +162,7 @@ export default function ItemDetailDrawer({
     setFieldError(null)
     setAddingLabel(false)
     setNewLabel('')
+    setMetadataExpanded(false)
   }, [item])
 
   // Load active projects once for the project dropdown
@@ -707,6 +713,30 @@ export default function ItemDetailDrawer({
                   </Tooltip>
                 </Box>
 
+                <Accordion
+                  expanded={metadataExpanded}
+                  onChange={(_, isExpanded) => setMetadataExpanded(isExpanded)}
+                  disableGutters
+                  elevation={0}
+                  sx={{
+                    '&:before': { display: 'none' },
+                    bgcolor: 'transparent',
+                    mt: 0.5,
+                  }}
+                >
+                  <AccordionSummary
+                    expandIcon={<ExpandMoreIcon sx={{ fontSize: 16 }} />}
+                    sx={{
+                      px: 0,
+                      minHeight: 0,
+                      '& .MuiAccordionSummary-content': { my: 0.5 },
+                    }}
+                  >
+                    <Typography variant="caption" color="text.secondary">
+                      Details · {STATUS_LABELS[localItem.status]}
+                    </Typography>
+                  </AccordionSummary>
+                  <AccordionDetails sx={{ px: 0, pt: 0.5, pb: 0 }}>
                 {/* Editable status + priority row */}
                 <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
                   {/* Status select */}
@@ -875,6 +905,8 @@ export default function ItemDetailDrawer({
                     />
                   </Box>
                 )}
+                  </AccordionDetails>
+                </Accordion>
 
                 {/* Blocked by section */}
                 {(localItem.blockers?.length ?? 0) === 0 && !blockerExpanded ? (
