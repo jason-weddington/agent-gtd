@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.76.0 (2026-04-26)
+
+### Features
+
+- **frontend**: Shrink description height and collapse attachments accordion
+  ([`0133921`](https://github.com/jason-weddington/agent-gtd/commit/01339216f5c7fc22506134a4a69b9a8ab830c981))
+
+
 ## v1.74.0 (2026-04-25)
 
 ### Bug Fixes
