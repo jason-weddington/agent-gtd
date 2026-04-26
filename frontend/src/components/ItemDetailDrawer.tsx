@@ -113,6 +113,7 @@ export default function ItemDetailDrawer({
   const [allProjects, setAllProjects] = useState<Project[]>([])
   const [blockerExpanded, setBlockerExpanded] = useState(false)
   const [metadataExpanded, setMetadataExpanded] = useState(false)
+  const [attachmentsExpanded, setAttachmentsExpanded] = useState(false)
   const [loadingBlockers, setLoadingBlockers] = useState(false)
 
   // Attachment state
@@ -163,6 +164,7 @@ export default function ItemDetailDrawer({
     setAddingLabel(false)
     setNewLabel('')
     setMetadataExpanded(false)
+    setAttachmentsExpanded(false)
   }, [item])
 
   // Load active projects once for the project dropdown
@@ -1016,7 +1018,7 @@ export default function ItemDetailDrawer({
               sx={{
                 px: 2,
                 py: 1.5,
-                maxHeight: editingDescription ? 'none' : '30vh',
+                maxHeight: editingDescription ? 'none' : '20vh',
                 overflow: editingDescription ? 'visible' : 'auto',
               }}
             >
@@ -1096,151 +1098,170 @@ export default function ItemDetailDrawer({
             <Divider />
 
             {/* Attachments section */}
-            <Box sx={{ px: 2, py: 1.5 }}>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                Attachments ({attachments.length})
-              </Typography>
-
-              {/* Upload zone with optional drag-and-drop */}
-              <Box
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleDrop}
-                sx={{ mb: 1 }}
+            <Accordion
+              expanded={attachmentsExpanded}
+              onChange={(_, isExpanded) => setAttachmentsExpanded(isExpanded)}
+              disableGutters
+              elevation={0}
+              sx={{
+                '&:before': { display: 'none' },
+                bgcolor: 'transparent',
+              }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon sx={{ fontSize: 16 }} />}
+                sx={{
+                  px: 2,
+                  minHeight: 0,
+                  '& .MuiAccordionSummary-content': { my: 0.5 },
+                }}
               >
-                <label htmlFor="attachment-file-input">
-                  <Button
-                    component="span"
-                    variant="outlined"
-                    size="small"
-                    disabled={uploadingAttachment}
-                    startIcon={
-                      uploadingAttachment ? (
-                        <CircularProgress size={14} />
-                      ) : (
-                        <AttachFileIcon fontSize="small" />
-                      )
-                    }
-                    sx={{ textTransform: 'none', fontSize: '0.75rem' }}
-                  >
-                    {uploadingAttachment ? 'Uploading…' : 'Attach file'}
-                  </Button>
-                </label>
-                <input
-                  id="attachment-file-input"
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".jpg,.jpeg,.png,.md,.markdown,image/jpeg,image/png,text/markdown"
-                  style={{ display: 'none' }}
-                  onChange={handleFileInputChange}
-                  aria-label="Attach a file"
-                />
-              </Box>
-
-              {/* Upload / delete error */}
-              {attachmentError && (
-                <Alert
-                  severity="error"
-                  onClose={() => setAttachmentError(null)}
-                  sx={{ mb: 1, py: 0 }}
-                >
-                  {attachmentError}
-                </Alert>
-              )}
-
-              {/* Attachment list */}
-              {loadingAttachments ? (
-                <CircularProgress size={18} />
-              ) : attachments.length === 0 ? (
-                <Typography variant="caption" color="text.disabled">
-                  No attachments
+                <Typography variant="subtitle2">
+                  Attachments ({attachments.length})
                 </Typography>
-              ) : (
-                <Box sx={{ maxHeight: 220, overflow: 'auto' }}>
-                  {attachments.map((att) => {
-                    const isImage = att.mimeType.startsWith('image/')
-                    return (
-                      <Box
-                        key={att.id}
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 1,
-                          mb: 0.75,
-                          p: 0.5,
-                          borderRadius: 1,
-                          '&:hover': { bgcolor: 'action.hover' },
-                        }}
-                      >
-                        {/* Thumbnail or file icon */}
-                        {isImage ? (
-                          thumbnailUrls[att.id] ? (
-                            <Box
-                              component="img"
-                              src={thumbnailUrls[att.id]}
-                              alt={att.filename}
-                              sx={{
-                                maxHeight: 80,
-                                maxWidth: 80,
-                                borderRadius: 0.5,
-                                cursor: 'pointer',
-                                objectFit: 'cover',
-                                flexShrink: 0,
-                              }}
-                              onClick={() => void handleOpenPreview(att)}
-                            />
-                          ) : (
-                            <Box sx={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                              <CircularProgress size={16} />
-                            </Box>
-                          )
+              </AccordionSummary>
+              <AccordionDetails sx={{ px: 2, pt: 0.5, pb: 1.5 }}>
+                {/* Upload zone with optional drag-and-drop */}
+                <Box
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleDrop}
+                  sx={{ mb: 1 }}
+                >
+                  <label htmlFor="attachment-file-input">
+                    <Button
+                      component="span"
+                      variant="outlined"
+                      size="small"
+                      disabled={uploadingAttachment}
+                      startIcon={
+                        uploadingAttachment ? (
+                          <CircularProgress size={14} />
                         ) : (
-                          <Box
-                            sx={{ cursor: 'pointer', flexShrink: 0, color: 'text.secondary' }}
-                            onClick={() => void handleOpenMarkdown(att)}
-                          >
-                            <InsertDriveFileIcon />
-                          </Box>
-                        )}
-
-                        {/* Filename + metadata */}
-                        <Box
-                          sx={{ flex: 1, minWidth: 0, cursor: isImage ? 'pointer' : 'pointer' }}
-                          onClick={() =>
-                            isImage ? void handleOpenPreview(att) : void handleOpenMarkdown(att)
-                          }
-                        >
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              display: 'block',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              fontWeight: 500,
-                            }}
-                          >
-                            {att.filename}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {formatFileSize(att.sizeBytes)} · {formatRelativeTime(att.createdAt)}
-                          </Typography>
-                        </Box>
-
-                        {/* Delete button */}
-                        <IconButton
-                          size="small"
-                          aria-label={`Delete attachment ${att.filename}`}
-                          onClick={() => setDeleteAttachmentTarget(att)}
-                          sx={{ flexShrink: 0 }}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
-                    )
-                  })}
+                          <AttachFileIcon fontSize="small" />
+                        )
+                      }
+                      sx={{ textTransform: 'none', fontSize: '0.75rem' }}
+                    >
+                      {uploadingAttachment ? 'Uploading…' : 'Attach file'}
+                    </Button>
+                  </label>
+                  <input
+                    id="attachment-file-input"
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.md,.markdown,image/jpeg,image/png,text/markdown"
+                    style={{ display: 'none' }}
+                    onChange={handleFileInputChange}
+                    aria-label="Attach a file"
+                  />
                 </Box>
-              )}
-            </Box>
+
+                {/* Upload / delete error */}
+                {attachmentError && (
+                  <Alert
+                    severity="error"
+                    onClose={() => setAttachmentError(null)}
+                    sx={{ mb: 1, py: 0 }}
+                  >
+                    {attachmentError}
+                  </Alert>
+                )}
+
+                {/* Attachment list */}
+                {loadingAttachments ? (
+                  <CircularProgress size={18} />
+                ) : attachments.length === 0 ? (
+                  <Typography variant="caption" color="text.disabled">
+                    No attachments
+                  </Typography>
+                ) : (
+                  <Box sx={{ maxHeight: 220, overflow: 'auto' }}>
+                    {attachments.map((att) => {
+                      const isImage = att.mimeType.startsWith('image/')
+                      return (
+                        <Box
+                          key={att.id}
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1,
+                            mb: 0.75,
+                            p: 0.5,
+                            borderRadius: 1,
+                            '&:hover': { bgcolor: 'action.hover' },
+                          }}
+                        >
+                          {/* Thumbnail or file icon */}
+                          {isImage ? (
+                            thumbnailUrls[att.id] ? (
+                              <Box
+                                component="img"
+                                src={thumbnailUrls[att.id]}
+                                alt={att.filename}
+                                sx={{
+                                  maxHeight: 80,
+                                  maxWidth: 80,
+                                  borderRadius: 0.5,
+                                  cursor: 'pointer',
+                                  objectFit: 'cover',
+                                  flexShrink: 0,
+                                }}
+                                onClick={() => void handleOpenPreview(att)}
+                              />
+                            ) : (
+                              <Box sx={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <CircularProgress size={16} />
+                              </Box>
+                            )
+                          ) : (
+                            <Box
+                              sx={{ cursor: 'pointer', flexShrink: 0, color: 'text.secondary' }}
+                              onClick={() => void handleOpenMarkdown(att)}
+                            >
+                              <InsertDriveFileIcon />
+                            </Box>
+                          )}
+
+                          {/* Filename + metadata */}
+                          <Box
+                            sx={{ flex: 1, minWidth: 0, cursor: isImage ? 'pointer' : 'pointer' }}
+                            onClick={() =>
+                              isImage ? void handleOpenPreview(att) : void handleOpenMarkdown(att)
+                            }
+                          >
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                display: 'block',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                fontWeight: 500,
+                              }}
+                            >
+                              {att.filename}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {formatFileSize(att.sizeBytes)} · {formatRelativeTime(att.createdAt)}
+                            </Typography>
+                          </Box>
+
+                          {/* Delete button */}
+                          <IconButton
+                            size="small"
+                            aria-label={`Delete attachment ${att.filename}`}
+                            onClick={() => setDeleteAttachmentTarget(att)}
+                            sx={{ flexShrink: 0 }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      )
+                    })}
+                  </Box>
+                )}
+              </AccordionDetails>
+            </Accordion>
 
             <Divider />
 
