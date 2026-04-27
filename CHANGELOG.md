@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.77.0 (2026-04-27)
+
+### Features
+
+- **frontend**: Replace priority pill with colored left border in list views
+  ([`3d7645e`](https://github.com/jason-weddington/agent-gtd/commit/3d7645e12e41ea119994991deb015355ed468ac3))
+
+
 ## v1.76.1 (2026-04-26)
 
 ### Bug Fixes
