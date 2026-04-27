@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.76.1 (2026-04-26)
+
+### Bug Fixes
+
+- **frontend**: De-dupe label pills and stack project item rows on mobile
+  ([`907e298`](https://github.com/jason-weddington/agent-gtd/commit/907e2983606d7afc86a498ea6c4ba626a6b3ddb2))
+
+### Chores
+
+- Untrack machine-specific deploy configs
+  ([`1bd9fc7`](https://github.com/jason-weddington/agent-gtd/commit/1bd9fc77720f767072fc05e7d8c6583f886ab3bd))
+
+
 ## v1.76.0 (2026-04-26)
 
 ### Features
