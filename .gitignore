@@ -49,5 +49,6 @@ data/
 
 # Deploy (contains host-specific details)
 deploy.sh
+deploy/
 .claude/
 .kiro/
