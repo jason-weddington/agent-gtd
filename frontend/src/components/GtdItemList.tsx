@@ -31,6 +31,7 @@ import CheckIcon from '@mui/icons-material/Check'
 import LockIcon from '@mui/icons-material/Lock'
 import { api, ApiError } from '../api'
 import type { Item, Project, ItemStatus, Priority, BlockerSummary } from '../types'
+import { PRIORITY_BORDER } from '../priorityColors'
 import { hasUnresolvedBlockers } from '../utils'
 import { useEvents } from '../contexts/EventStreamContext'
 import ItemDetailDrawer from './ItemDetailDrawer'
@@ -45,13 +46,6 @@ const ITEM_STATUS_LABELS: Partial<Record<ItemStatus, string>> = {
   waiting_for: 'Waiting',
   someday_maybe: 'Someday',
   done: 'Done',
-}
-
-const PRIORITY_COLORS: Record<Priority, 'default' | 'info' | 'warning' | 'error'> = {
-  low: 'default',
-  normal: 'info',
-  high: 'warning',
-  urgent: 'error',
 }
 
 interface GtdItemListProps {
@@ -321,6 +315,7 @@ export default function GtdItemList({
               sx={{
                 border: 1,
                 borderColor: 'divider',
+                borderLeft: `3px solid ${PRIORITY_BORDER[item.priority]}`,
                 borderRadius: 1,
                 mb: 1,
                 cursor: 'pointer',
@@ -385,11 +380,6 @@ export default function GtdItemList({
                           variant="outlined"
                         />
                       )}
-                      <Chip
-                        label={item.priority}
-                        size="small"
-                        color={PRIORITY_COLORS[item.priority]}
-                      />
                       {item.dueDate && (
                         <Chip label={item.dueDate} size="small" variant="outlined" />
                       )}

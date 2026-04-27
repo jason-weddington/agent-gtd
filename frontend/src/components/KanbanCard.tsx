@@ -3,14 +3,8 @@ import { Box, Typography, Chip, IconButton, Tooltip } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { Draggable } from '@hello-pangea/dnd'
-import type { Item, Priority } from '../types'
-
-const PRIORITY_BORDER: Record<Priority, string> = {
-  low: '#9e9e9e',
-  normal: '#2196f3',
-  high: '#ff9800',
-  urgent: '#f44336',
-}
+import type { Item } from '../types'
+import { PRIORITY_BORDER } from '../priorityColors'
 
 interface KanbanCardProps {
   item: Item

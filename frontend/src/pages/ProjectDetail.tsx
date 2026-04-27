@@ -51,6 +51,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import ClearIcon from '@mui/icons-material/Clear'
 import { api, ApiError } from '../api'
 import type { Project, Item, Note, Comment, Run, RunStatus, ItemStatus, Priority, ProjectStatus, DispatchAgentInfo } from '../types'
+import { PRIORITY_BORDER } from '../priorityColors'
 import { useEvents } from '../contexts/EventStreamContext'
 import { useQuickCapture } from '../contexts/QuickCaptureContext'
 import KanbanBoard from '../components/KanbanBoard'
@@ -82,13 +83,6 @@ const ITEM_STATUS_LABELS: Record<ItemStatus, string> = {
   active: 'In Progress',
   review: 'Review',
   done: 'Done',
-}
-
-const PRIORITY_COLORS: Record<Priority, 'default' | 'info' | 'warning' | 'error'> = {
-  low: 'default',
-  normal: 'info',
-  high: 'warning',
-  urgent: 'error',
 }
 
 export default function ProjectDetail() {
@@ -813,6 +807,7 @@ export default function ProjectDetail() {
                   sx={{
                     border: 1,
                     borderColor: 'divider',
+                    borderLeft: `3px solid ${PRIORITY_BORDER[item.priority]}`,
                     borderRadius: 1,
                     mb: 1,
                     cursor: 'pointer',
@@ -847,11 +842,6 @@ export default function ProjectDetail() {
                             label={ITEM_STATUS_LABELS[item.status]}
                             size="small"
                             variant="outlined"
-                          />
-                          <Chip
-                            label={item.priority}
-                            size="small"
-                            color={PRIORITY_COLORS[item.priority]}
                           />
                           {item.dueDate && (
                             <Chip

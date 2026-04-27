@@ -14,13 +14,7 @@ import {
 import DeleteIcon from '@mui/icons-material/Delete'
 import type { Item, Project, ItemStatus } from '../../types'
 import { STATUS_CHIP_LABEL, STATUS_CHIP_COLOR } from './statusChip'
-
-const PRIORITY_COLORS: Record<string, 'default' | 'info' | 'warning' | 'error'> = {
-  low: 'default',
-  normal: 'info',
-  high: 'warning',
-  urgent: 'error',
-}
+import { PRIORITY_BORDER } from '../../priorityColors'
 
 function formatRelativeAge(dateStr: string): string {
   const diffMs = Date.now() - new Date(dateStr).getTime()
@@ -117,6 +111,7 @@ export default function ReviewItemRow({
           px: 2,
           border: 1,
           borderColor: 'divider',
+          borderLeft: `3px solid ${PRIORITY_BORDER[item.priority]}`,
           borderRadius: 1,
           ...(onItemClick && {
             cursor: 'pointer',
@@ -132,7 +127,6 @@ export default function ReviewItemRow({
             {item.projectId && projectMap[item.projectId] && (
               <Chip label={projectMap[item.projectId].name} size="small" variant="outlined" />
             )}
-            <Chip label={item.priority} size="small" color={PRIORITY_COLORS[item.priority]} />
             <Chip
               label={STATUS_CHIP_LABEL[item.status] ?? item.status}
               size="small"
