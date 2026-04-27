@@ -831,6 +831,7 @@ export default function ProjectDetail() {
                               textOverflow: 'ellipsis',
                               whiteSpace: 'nowrap',
                               minWidth: 0,
+                              flex: 1,
                             }}
                           >
                             {item.title}
@@ -840,6 +841,8 @@ export default function ProjectDetail() {
                               by {item.createdBy}
                             </Typography>
                           )}
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
                           <Chip
                             label={ITEM_STATUS_LABELS[item.status]}
                             size="small"
@@ -859,42 +862,26 @@ export default function ProjectDetail() {
                           )}
                         </Box>
                         {item.labels.length > 0 && (
-                          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.25, flexWrap: 'wrap' }}>
-                            {item.labels.slice(0, 4).map((label) => (
+                          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
+                            {item.labels.map((label) => (
                               <Chip
                                 key={label}
                                 label={label}
                                 size="small"
-                                sx={{ height: 20, fontSize: '0.7rem' }}
+                                color={selectedLabels.includes(label) ? 'primary' : 'default'}
+                                variant={selectedLabels.includes(label) ? 'filled' : 'outlined'}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSelectedLabels((prev) =>
+                                    prev.includes(label)
+                                      ? prev.filter((l) => l !== label)
+                                      : [...prev, label],
+                                  )
+                                }}
                               />
                             ))}
-                            {item.labels.length > 4 && (
-                              <Chip
-                                label={`+${item.labels.length - 4} more`}
-                                size="small"
-                                variant="outlined"
-                                sx={{ height: 20, fontSize: '0.7rem' }}
-                              />
-                            )}
                           </Box>
                         )}
-                        {item.labels.map((label) => (
-                          <Chip
-                            key={label}
-                            label={label}
-                            size="small"
-                            color={selectedLabels.includes(label) ? 'primary' : 'default'}
-                            variant={selectedLabels.includes(label) ? 'filled' : 'outlined'}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSelectedLabels((prev) =>
-                                prev.includes(label)
-                                  ? prev.filter((l) => l !== label)
-                                  : [...prev, label],
-                              )
-                            }}
-                          />
-                        ))}
                       </Box>
                     }
                   />
