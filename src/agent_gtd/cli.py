@@ -63,6 +63,50 @@ def _cmd_run_status(run_id: str) -> None:
     print()  # trailing newline for shell friendliness
 
 
+async def _promote_admin(email: str) -> str:
+    """Set ``is_admin = 1`` on the user with the given email.
+
+    Talks directly to the configured database — does NOT go through the
+    HTTP API. Run this where ``AGENT_GTD_DATABASE_URL`` points at the
+    target DB (typically on the host running the service).
+
+    Returns:
+        Human-readable status message.
+
+    Raises:
+        ValueError: If no user with that email exists.
+    """
+    from agent_gtd.database import close_db, get_db, init_db
+
+    await init_db()
+    try:
+        pool = await get_db()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT id, is_admin FROM users WHERE email = $1", email
+            )
+            if row is None:
+                raise ValueError(f"no user found with email {email}")
+            if row["is_admin"]:
+                return f"{email} is already an admin"
+            await conn.execute(
+                "UPDATE users SET is_admin = 1 WHERE email = $1", email
+            )
+            return f"promoted {email} to admin"
+    finally:
+        await close_db()
+
+
+def _cmd_promote_admin(email: str) -> None:
+    """Execute the promote-admin subcommand."""
+    try:
+        msg = asyncio.run(_promote_admin(email))
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    print(msg)
+
+
 def main() -> None:
     """Entry point for the agent-gtd CLI."""
     parser = argparse.ArgumentParser(
@@ -77,10 +121,18 @@ def main() -> None:
     )
     rs.add_argument("run_id", help="Dispatch run ID.")
 
+    pa = subparsers.add_parser(
+        "promote-admin",
+        help="Set is_admin=1 on the user with the given email (direct DB update).",
+    )
+    pa.add_argument("email", help="Email of the user to promote.")
+
     args = parser.parse_args()
 
     if args.command == "run-status":
         _cmd_run_status(args.run_id)
+    elif args.command == "promote-admin":
+        _cmd_promote_admin(args.email)
     else:
         parser.print_help(sys.stderr)
         sys.exit(1)

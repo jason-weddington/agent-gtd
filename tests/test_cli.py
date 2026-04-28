@@ -260,3 +260,106 @@ async def test_fetch_run_status_http_success(monkeypatch):
 
     assert result["id"] == expected["id"]
     assert result["status"] == "running"
+
+
+# ---------------------------------------------------------------------------
+# promote-admin
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _keep_db_open(monkeypatch):
+    """Keep the autouse test SQLite pool alive across _promote_admin's close_db()."""
+
+    async def _noop():
+        return None
+
+    monkeypatch.setattr("agent_gtd.database.close_db", _noop)
+
+
+async def test_promote_admin_success(_keep_db_open):
+    """_promote_admin sets is_admin=1 on an existing user."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.cli import _promote_admin
+    from agent_gtd.database import get_db
+
+    await register_user("alice@example.com", "pw1234567")
+
+    msg = await _promote_admin("alice@example.com")
+
+    assert "promoted" in msg
+    db = await get_db()
+    row = await db.fetchrow(
+        "SELECT is_admin FROM users WHERE email = $1", "alice@example.com"
+    )
+    assert row is not None
+    assert row["is_admin"] == 1
+
+
+async def test_promote_admin_idempotent(_keep_db_open):
+    """Promoting an already-admin user reports the no-op without erroring."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.cli import _promote_admin
+
+    await register_user("bob@example.com", "pw1234567")
+    await _promote_admin("bob@example.com")
+
+    msg = await _promote_admin("bob@example.com")
+
+    assert "already" in msg
+
+
+async def test_promote_admin_unknown_email_raises(_keep_db_open):
+    """_promote_admin raises ValueError if no user matches the email."""
+    from agent_gtd.cli import _promote_admin
+
+    with pytest.raises(ValueError, match="no user found"):
+        await _promote_admin("ghost@example.com")
+
+
+def test_main_promote_admin_dispatches(monkeypatch, capsys):
+    """main() with 'promote-admin <email>' invokes _cmd_promote_admin."""
+    called: dict[str, str] = {}
+
+    def _fake(email: str) -> None:
+        called["email"] = email
+
+    monkeypatch.setattr("agent_gtd.cli._cmd_promote_admin", _fake)
+    monkeypatch.setattr(sys, "argv", ["agent-gtd", "promote-admin", "x@y.z"])
+
+    main()
+
+    assert called["email"] == "x@y.z"
+
+
+def test_cmd_promote_admin_prints_message(monkeypatch, capsys):
+    """_cmd_promote_admin prints the success message to stdout."""
+    from agent_gtd.cli import _cmd_promote_admin
+
+    async def _fake(email: str) -> str:
+        return f"promoted {email} to admin"
+
+    monkeypatch.setattr("agent_gtd.cli._promote_admin", _fake)
+
+    _cmd_promote_admin("alice@example.com")
+
+    captured = capsys.readouterr()
+    assert "promoted alice@example.com" in captured.out
+
+
+def test_cmd_promote_admin_error_exits_nonzero(monkeypatch, capsys):
+    """_cmd_promote_admin prints to stderr and exits non-zero on failure."""
+    from agent_gtd.cli import _cmd_promote_admin
+
+    async def _fake(email: str) -> str:
+        raise ValueError("no user found")
+
+    monkeypatch.setattr("agent_gtd.cli._promote_admin", _fake)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_promote_admin("ghost@example.com")
+
+    assert exc_info.value.code != 0
+    captured = capsys.readouterr()
+    assert "Error:" in captured.err
+    assert "no user found" in captured.err
