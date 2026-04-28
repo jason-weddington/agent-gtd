@@ -15,6 +15,7 @@ import InboxProcessor from './pages/InboxProcessor'
 import Settings from './pages/Settings'
 import WeeklyReview from './pages/WeeklyReview'
 import AdminInvites from './pages/AdminInvites'
+import ResetPassword from './pages/ResetPassword'
 
 export default function App() {
   // Prevent Escape from exiting browser fullscreen (Safari).
@@ -35,6 +36,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route
         element={
           <ProtectedRoute>

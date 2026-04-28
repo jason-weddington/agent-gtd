@@ -255,6 +255,39 @@ async def register_user_with_invite(
     )
 
 
+async def consume_password_reset(token: str, new_password: str) -> None:
+    """Consume a one-time password-reset token and update the user's password.
+
+    Raises:
+        HTTPException: 400 if the token does not exist.
+        HTTPException: 410 if the token has already been used or is expired.
+    """
+    new_hash = hash_password(new_password)
+    now = datetime.now(UTC).isoformat()
+
+    pool = await get_db()
+    async with pool.acquire() as conn, conn.transaction():
+        row = await conn.fetchrow(
+            "SELECT * FROM password_resets WHERE token = $1 FOR UPDATE", token
+        )
+        if row is None:
+            raise HTTPException(status_code=400, detail="Invalid reset token")
+        if row["used_at"] is not None:
+            raise HTTPException(status_code=410, detail="Reset link already used")
+        if row["expires_at"] < now:
+            raise HTTPException(status_code=410, detail="Reset link has expired")
+        await conn.execute(
+            "UPDATE users SET hashed_password = $1 WHERE id = $2",
+            new_hash,
+            str(row["user_id"]),
+        )
+        await conn.execute(
+            "UPDATE password_resets SET used_at = $1 WHERE token = $2",
+            now,
+            token,
+        )
+
+
 async def authenticate_user(email: str, password: str) -> User:
     """Validate credentials and return the user.
 

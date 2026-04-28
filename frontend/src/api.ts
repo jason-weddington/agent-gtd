@@ -1,4 +1,4 @@
-import type { ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, Invite, Item, MemberSummary, Note, Project, Run, UserResponse } from './types'
+import type { ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Run, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -122,6 +122,8 @@ export const api = {
     me: () => request<UserResponse>('GET', '/auth/me'),
     changePassword: (currentPassword: string, newPassword: string) =>
       request<void>('POST', '/auth/password', { currentPassword, newPassword }),
+    passwordReset: (token: string, newPassword: string) =>
+      request<void>('POST', '/auth/password-reset', { token, newPassword }),
   },
 
   apiKeys: {
@@ -266,6 +268,8 @@ export const api = {
       create: (note: string) => request<CreatedInvite>('POST', '/admin/invites', { note }),
       revoke: (token: string) => request<void>('DELETE', `/admin/invites/${token}`),
     },
+    issuePasswordReset: (userId: string) =>
+      request<PasswordResetIssued>('POST', `/admin/users/${userId}/password-reset`),
   },
 
   attachments: {

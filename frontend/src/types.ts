@@ -23,6 +23,12 @@ export interface CreatedInvite {
   createdAt: string
 }
 
+export interface PasswordResetIssued {
+  token: string
+  url: string
+  expiresAt: string
+}
+
 export interface AuthResponse {
   token: string
   user: UserResponse

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 from agent_gtd.auth import (
     authenticate_user,
+    consume_password_reset,
     create_token,
     generate_api_key,
     get_current_user,
@@ -25,6 +26,7 @@ from agent_gtd.models import (
     ChangePasswordRequest,
     CreateApiKeyRequest,
     LoginRequest,
+    PasswordResetConsumeRequest,
     RegisterRequest,
     User,
     UserResponse,
@@ -88,6 +90,13 @@ async def change_password(
         new_hash,
         user.id,
     )
+    return Response(status_code=204)
+
+
+@router.post("/password-reset", status_code=204)
+async def reset_password(body: PasswordResetConsumeRequest) -> Response:
+    """Consume a one-time reset token and update the user's password (public)."""
+    await consume_password_reset(body.token, body.new_password)
     return Response(status_code=204)
 
 

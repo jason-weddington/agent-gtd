@@ -1,7 +1,7 @@
 """Admin-only routes: invite management."""
 
 import secrets
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -12,6 +12,7 @@ from agent_gtd.models import (
     CreateInviteRequest,
     InviteListItem,
     InviteResponse,
+    PasswordResetIssueResponse,
     User,
 )
 
@@ -67,6 +68,39 @@ async def list_invites(
         )
         for row in rows
     ]
+
+
+@router.post(
+    "/users/{user_id}/password-reset", response_model=PasswordResetIssueResponse
+)
+async def issue_password_reset(
+    user_id: str,
+    request: Request,
+    admin: Annotated[User, Depends(require_admin)],
+) -> PasswordResetIssueResponse:
+    """Generate a one-time password-reset link for a user (admin only)."""
+    db = await get_db()
+    user_row = await db.fetchrow("SELECT id FROM users WHERE id = $1", user_id)
+    if user_row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(UTC)
+    expires_at = now + timedelta(hours=12)
+    await db.execute(
+        "INSERT INTO password_resets (token, user_id, created_at, expires_at)"
+        " VALUES ($1, $2, $3, $4)",
+        token,
+        user_id,
+        now.isoformat(),
+        expires_at.isoformat(),
+    )
+    base_url = f"{request.url.scheme}://{request.url.netloc}"
+    reset_url = f"{base_url}/reset-password?token={token}"
+    return PasswordResetIssueResponse(
+        token=token,
+        url=reset_url,
+        expires_at=expires_at,
+    )
 
 
 @router.delete("/invites/{token}", status_code=204)

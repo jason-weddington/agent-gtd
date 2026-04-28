@@ -215,6 +215,15 @@ _SCHEMA_STATEMENTS: list[str] = [
         used_by TEXT REFERENCES users(id)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS password_resets (
+        token TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        used_at TEXT
+    )
+    """,
 ]
 
 # Idempotent column additions for existing databases.
@@ -276,6 +285,15 @@ _MIGRATIONS: list[str] = [
         created_at TEXT NOT NULL,
         used_at TEXT,
         used_by TEXT REFERENCES users(id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS password_resets (
+        token TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        used_at TEXT
     )
     """,
 ]

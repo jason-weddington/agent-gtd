@@ -228,6 +228,24 @@ class InviteListItem(BaseModel):
     used_by: str | None
 
 
+# --- Password Reset Schemas ---
+
+
+class PasswordResetIssueResponse(BaseModel):
+    """Admin response when issuing a one-time password-reset link."""
+
+    token: str
+    url: str
+    expires_at: datetime
+
+
+class PasswordResetConsumeRequest(BaseModel):
+    """Public request body for consuming a password-reset token."""
+
+    token: str
+    new_password: str
+
+
 # --- API Key Schemas ---
 
 
