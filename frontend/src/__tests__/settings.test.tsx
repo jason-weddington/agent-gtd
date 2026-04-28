@@ -9,6 +9,9 @@ import Settings from '../pages/Settings'
 
 vi.mock('../api', () => ({
   api: {
+    auth: {
+      changePassword: vi.fn(),
+    },
     config: {
       get: vi.fn().mockResolvedValue({ localMode: false, version: '1.0.0' }),
     },

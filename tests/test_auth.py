@@ -4,6 +4,7 @@ import time
 
 import jwt as pyjwt
 import pytest
+from httpx import AsyncClient
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -100,3 +101,54 @@ def test_hash_api_key_different_keys():
     k1 = generate_api_key()
     k2 = generate_api_key()
     assert hash_api_key(k1) != hash_api_key(k2)
+
+
+# --- Change password endpoint ---
+
+
+async def test_change_password_success(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """Correct current password → 204; old password no longer works; new does."""
+    res = await client.post(
+        "/api/auth/password",
+        json={"current_password": "testpass123", "new_password": "newpass456"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 204
+
+    # Old password no longer works
+    login_old = await client.post(
+        "/api/auth/login",
+        json={"email": "test@example.com", "password": "testpass123"},
+    )
+    assert login_old.status_code == 401
+
+    # New password works
+    login_new = await client.post(
+        "/api/auth/login",
+        json={"email": "test@example.com", "password": "newpass456"},
+    )
+    assert login_new.status_code == 200
+
+
+async def test_change_password_wrong_current(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """Wrong current password → 400 with detail message."""
+    res = await client.post(
+        "/api/auth/password",
+        json={"current_password": "wrongpass", "new_password": "newpass456"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert res.json()["detail"] == "Current password is incorrect"
+
+
+async def test_change_password_unauthenticated(client: AsyncClient) -> None:
+    """No Authorization header → 401 (HTTPBearer rejects missing credentials)."""
+    res = await client.post(
+        "/api/auth/password",
+        json={"current_password": "testpass123", "new_password": "newpass456"},
+    )
+    assert res.status_code == 401

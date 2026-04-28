@@ -31,7 +31,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { useThemeMode } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 import { apiKeyFieldPlaceholder } from '../utils'
 import type { ApiKeyInfo, DispatchCapabilities } from '../types'
 
@@ -104,6 +104,35 @@ export default function Settings() {
       // handled by api client
     } finally {
       setSavingDispatch(false)
+    }
+  }
+
+  // Change password state
+  const [currentPw, setCurrentPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
+  const [savingPw, setSavingPw] = useState(false)
+  const [pwError, setPwError] = useState<string | null>(null)
+  const [pwSuccess, setPwSuccess] = useState(false)
+
+  const handleChangePassword = async () => {
+    setPwError(null)
+    setPwSuccess(false)
+    if (newPw !== confirmPw) {
+      setPwError('New passwords do not match.')
+      return
+    }
+    setSavingPw(true)
+    try {
+      await api.auth.changePassword(currentPw, newPw)
+      setPwSuccess(true)
+      setCurrentPw('')
+      setNewPw('')
+      setConfirmPw('')
+    } catch (err) {
+      if (err instanceof ApiError) setPwError(err.detail)
+    } finally {
+      setSavingPw(false)
     }
   }
 
@@ -231,6 +260,23 @@ export default function Settings() {
           <Typography variant="body1">
             {user?.email}
           </Typography>
+          <Divider sx={{ my: 2 }} />
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>Change password</Typography>
+          {pwError && <Alert severity="error" sx={{ mb: 1 }}>{pwError}</Alert>}
+          {pwSuccess && <Alert severity="success" sx={{ mb: 1 }}>Password updated.</Alert>}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, maxWidth: 360 }}>
+            <TextField label="Current password" type="password" size="small" fullWidth
+              value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} />
+            <TextField label="New password" type="password" size="small" fullWidth
+              value={newPw} onChange={(e) => setNewPw(e.target.value)} />
+            <TextField label="Confirm new password" type="password" size="small" fullWidth
+              value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void handleChangePassword() }} />
+            <Button variant="outlined" size="small" onClick={() => void handleChangePassword()}
+              disabled={savingPw} sx={{ alignSelf: 'flex-start' }}>
+              Update password
+            </Button>
+          </Box>
         </CardContent>
       </Card>
 

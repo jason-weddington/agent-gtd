@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from agent_gtd.auth import (
     authenticate_user,
@@ -12,7 +12,9 @@ from agent_gtd.auth import (
     generate_api_key,
     get_current_user,
     hash_api_key,
+    hash_password,
     register_user_with_invite,
+    verify_password,
 )
 from agent_gtd.database import get_db
 from agent_gtd.models import (
@@ -20,6 +22,7 @@ from agent_gtd.models import (
     ApiKeyListResponse,
     ApiKeyResponse,
     AuthResponse,
+    ChangePasswordRequest,
     CreateApiKeyRequest,
     LoginRequest,
     RegisterRequest,
@@ -68,6 +71,24 @@ async def me(
 ) -> UserResponse:
     """Get current user profile."""
     return _user_response(user)
+
+
+@router.post("/password", status_code=204)
+async def change_password(
+    body: ChangePasswordRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> Response:
+    """Change the authenticated user's password."""
+    if not verify_password(body.current_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    new_hash = hash_password(body.new_password)
+    db = await get_db()
+    await db.execute(
+        "UPDATE users SET hashed_password = $1 WHERE id = $2",
+        new_hash,
+        user.id,
+    )
+    return Response(status_code=204)
 
 
 # --- API Key Management ---
@@ -124,8 +145,6 @@ async def revoke_api_key(
     user: Annotated[User, Depends(get_current_user)],
 ) -> Response:
     """Revoke an API key."""
-    from fastapi import HTTPException
-
     db = await get_db()
     row = await db.fetchrow(
         "SELECT id FROM api_keys WHERE id = $1 AND user_id = $2",

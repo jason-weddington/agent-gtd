@@ -120,6 +120,8 @@ export const api = {
       request<AuthResponse>('POST', '/auth/login', { email, password }),
     logout: () => request<void>('POST', '/auth/logout'),
     me: () => request<UserResponse>('GET', '/auth/me'),
+    changePassword: (currentPassword: string, newPassword: string) =>
+      request<void>('POST', '/auth/password', { currentPassword, newPassword }),
   },
 
   apiKeys: {

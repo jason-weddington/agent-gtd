@@ -176,6 +176,13 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    """Change own password (authenticated)."""
+
+    current_password: str
+    new_password: str
+
+
 class AuthResponse(BaseModel):
     """Auth response with JWT token."""
 
