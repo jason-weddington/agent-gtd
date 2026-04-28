@@ -159,18 +159,13 @@ async def test_delete_note_not_found(client: AsyncClient, auth_headers: dict[str
 
 
 async def test_note_ownership_isolation(client: AsyncClient):
-    # Register two users
-    res1 = await client.post(
-        "/api/auth/register",
-        json={"email": "user1@example.com", "password": "pass123"},
-    )
-    headers1 = {"Authorization": f"Bearer {res1.json()['token']}"}
+    from agent_gtd.auth import create_token, register_user
 
-    res2 = await client.post(
-        "/api/auth/register",
-        json={"email": "user2@example.com", "password": "pass123"},
-    )
-    headers2 = {"Authorization": f"Bearer {res2.json()['token']}"}
+    # Create two users directly (bypass invite system)
+    u1 = await register_user("user1@example.com", "pass123")
+    headers1 = {"Authorization": f"Bearer {create_token(u1.id)}"}
+    u2 = await register_user("user2@example.com", "pass123")
+    headers2 = {"Authorization": f"Bearer {create_token(u2.id)}"}
 
     # User 1 creates a project and note
     res = await client.post("/api/projects", json={"name": "Private"}, headers=headers1)

@@ -625,15 +625,13 @@ async def owner_client():
     """HTTP client with user_a authenticated."""
     from httpx import ASGITransport, AsyncClient
 
+    from agent_gtd.auth import create_token, register_user
     from agent_gtd.main import app
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
-        res = await c.post(
-            "/api/auth/register",
-            json={"email": "owner_api@example.com", "password": "testpass"},
-        )
-        token = res.json()["token"]
+        user = await register_user("owner_api@example.com", "testpass")
+        token = create_token(user.id)
         c.headers.update({"Authorization": f"Bearer {token}"})
         yield c
 
@@ -643,15 +641,13 @@ async def member_client():
     """HTTP client with user_b authenticated."""
     from httpx import ASGITransport, AsyncClient
 
+    from agent_gtd.auth import create_token, register_user
     from agent_gtd.main import app
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
-        res = await c.post(
-            "/api/auth/register",
-            json={"email": "member_api@example.com", "password": "testpass"},
-        )
-        token = res.json()["token"]
+        user = await register_user("member_api@example.com", "testpass")
+        token = create_token(user.id)
         c.headers.update({"Authorization": f"Bearer {token}"})
         yield c
 

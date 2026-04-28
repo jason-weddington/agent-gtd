@@ -64,6 +64,7 @@ class User(BaseModel):
     id: str
     email: str
     hashed_password: str
+    is_admin: bool = False
     created_at: datetime
 
 
@@ -165,6 +166,7 @@ class RegisterRequest(BaseModel):
 
     email: str
     password: str
+    invite_token: str
 
 
 class LoginRequest(BaseModel):
@@ -186,7 +188,37 @@ class UserResponse(BaseModel):
 
     id: str
     email: str
+    is_admin: bool
     created_at: datetime
+
+
+# --- Invite Schemas ---
+
+
+class CreateInviteRequest(BaseModel):
+    """Create a new invite token (admin only)."""
+
+    note: str = ""
+
+
+class InviteResponse(BaseModel):
+    """Invite creation response with one-time-use token."""
+
+    token: str
+    url: str
+    note: str
+    created_at: datetime
+
+
+class InviteListItem(BaseModel):
+    """Single invite entry in the admin invite list."""
+
+    token: str
+    issued_by: str
+    note: str
+    created_at: datetime
+    used_at: datetime | None
+    used_by: str | None
 
 
 # --- API Key Schemas ---

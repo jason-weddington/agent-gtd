@@ -26,6 +26,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         id TEXT PRIMARY KEY,
         email TEXT UNIQUE NOT NULL,
         hashed_password TEXT NOT NULL,
+        is_admin INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL
     )
     """,
@@ -204,6 +205,16 @@ _SCHEMA_STATEMENTS: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_attachments_item_id ON attachments(item_id)",
+    """
+    CREATE TABLE IF NOT EXISTS invites (
+        token TEXT PRIMARY KEY,
+        issued_by TEXT NOT NULL REFERENCES users(id),
+        note TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        used_at TEXT,
+        used_by TEXT REFERENCES users(id)
+    )
+    """,
 ]
 
 # Idempotent column additions for existing databases.
@@ -256,6 +267,17 @@ _MIGRATIONS: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_attachments_item_id ON attachments(item_id)",
+    "ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0",
+    """
+    CREATE TABLE IF NOT EXISTS invites (
+        token TEXT PRIMARY KEY,
+        issued_by TEXT NOT NULL REFERENCES users(id),
+        note TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        used_at TEXT,
+        used_by TEXT REFERENCES users(id)
+    )
+    """,
 ]
 
 

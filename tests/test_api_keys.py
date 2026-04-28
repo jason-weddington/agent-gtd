@@ -6,12 +6,11 @@ from httpx import AsyncClient
 
 @pytest.fixture
 async def auth_headers(client: AsyncClient) -> dict[str, str]:
-    """Register a test user and return JWT auth headers."""
-    res = await client.post(
-        "/api/auth/register",
-        json={"email": "apikey@example.com", "password": "testpass123"},
-    )
-    token = res.json()["token"]
+    """Register a test user bypassing the invite system."""
+    from agent_gtd.auth import create_token, register_user
+
+    user = await register_user("apikey@example.com", "testpass123")
+    token = create_token(user.id)
     return {"Authorization": f"Bearer {token}"}
 
 

@@ -12,7 +12,7 @@ from agent_gtd.auth import (
     generate_api_key,
     get_current_user,
     hash_api_key,
-    register_user,
+    register_user_with_invite,
 )
 from agent_gtd.database import get_db
 from agent_gtd.models import (
@@ -34,14 +34,15 @@ def _user_response(user: User) -> UserResponse:
     return UserResponse(
         id=user.id,
         email=user.email,
+        is_admin=user.is_admin,
         created_at=user.created_at,
     )
 
 
 @router.post("/register", response_model=AuthResponse, status_code=201)
 async def register(body: RegisterRequest) -> AuthResponse:
-    """Create a new user account."""
-    user = await register_user(body.email, body.password)
+    """Create a new user account (requires a valid invite token)."""
+    user = await register_user_with_invite(body.email, body.password, body.invite_token)
     token = create_token(user.id)
     return AuthResponse(token=token, user=_user_response(user))
 

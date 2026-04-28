@@ -138,19 +138,13 @@ async def test_search_ownership_isolation(
     client: AsyncClient,
 ):
     """User A cannot see User B's items in search results."""
-    # Register user A
-    res_a = await client.post(
-        "/api/auth/register",
-        json={"email": "user_a@example.com", "password": "pass123"},
-    )
-    headers_a = {"Authorization": f"Bearer {res_a.json()['token']}"}
+    from agent_gtd.auth import create_token, register_user
 
-    # Register user B
-    res_b = await client.post(
-        "/api/auth/register",
-        json={"email": "user_b@example.com", "password": "pass123"},
-    )
-    headers_b = {"Authorization": f"Bearer {res_b.json()['token']}"}
+    # Create two users directly (bypass invite system)
+    u_a = await register_user("user_a@example.com", "pass123")
+    headers_a = {"Authorization": f"Bearer {create_token(u_a.id)}"}
+    u_b = await register_user("user_b@example.com", "pass123")
+    headers_b = {"Authorization": f"Bearer {create_token(u_b.id)}"}
 
     # User A creates an item
     await client.post(
@@ -314,17 +308,13 @@ async def test_search_valid_limit_values(
 
 async def test_search_does_not_leak_private_project_items(client: AsyncClient):
     """User B cannot find items in User A's private projects by exact title."""
-    # Register users A and B
-    res_a = await client.post(
-        "/api/auth/register",
-        json={"email": "search_a@example.com", "password": "pass123"},
-    )
-    headers_a = {"Authorization": f"Bearer {res_a.json()['token']}"}
-    res_b = await client.post(
-        "/api/auth/register",
-        json={"email": "search_b@example.com", "password": "pass123"},
-    )
-    headers_b = {"Authorization": f"Bearer {res_b.json()['token']}"}
+    from agent_gtd.auth import create_token, register_user
+
+    # Create two users directly (bypass invite system)
+    u_a = await register_user("search_a@example.com", "pass123")
+    headers_a = {"Authorization": f"Bearer {create_token(u_a.id)}"}
+    u_b = await register_user("search_b@example.com", "pass123")
+    headers_b = {"Authorization": f"Bearer {create_token(u_b.id)}"}
 
     # User A creates a project (private — not shared with B)
     proj_res = await client.post(
@@ -353,18 +343,14 @@ async def test_search_does_not_leak_private_project_items(client: AsyncClient):
 
 async def test_search_finds_items_in_shared_project(client: AsyncClient):
     """User B CAN find items in a project that User A shared with B."""
-    # Register users A and B
-    res_a = await client.post(
-        "/api/auth/register",
-        json={"email": "shared_search_a@example.com", "password": "pass123"},
-    )
-    headers_a = {"Authorization": f"Bearer {res_a.json()['token']}"}
-    user_b_res = await client.post(
-        "/api/auth/register",
-        json={"email": "shared_search_b@example.com", "password": "pass123"},
-    )
-    headers_b = {"Authorization": f"Bearer {user_b_res.json()['token']}"}
-    user_b_id = user_b_res.json()["user"]["id"]
+    from agent_gtd.auth import create_token, register_user
+
+    # Create two users directly (bypass invite system)
+    u_a = await register_user("shared_search_a@example.com", "pass123")
+    headers_a = {"Authorization": f"Bearer {create_token(u_a.id)}"}
+    u_b = await register_user("shared_search_b@example.com", "pass123")
+    headers_b = {"Authorization": f"Bearer {create_token(u_b.id)}"}
+    user_b_id = u_b.id
 
     # User A creates a project and shares it with B
     proj_res = await client.post(

@@ -191,12 +191,11 @@ async def test_list_attachments_cross_user_404(
     attachments_root: Path,
 ):
     """A second user cannot list another user's item's attachments."""
-    # Register a second user
-    res = await client.post(
-        "/api/auth/register",
-        json={"email": "other@example.com", "password": "pass1234"},
-    )
-    other_headers = {"Authorization": f"Bearer {res.json()['token']}"}
+    from agent_gtd.auth import create_token, register_user
+
+    # Create a second user directly (bypass invite system)
+    other_user = await register_user("other@example.com", "pass1234")
+    other_headers = {"Authorization": f"Bearer {create_token(other_user.id)}"}
 
     res2 = await client.get(f"/api/items/{item_id}/attachments", headers=other_headers)
     assert res2.status_code == 404
@@ -246,11 +245,10 @@ async def test_get_attachment_cross_user_404(
     attachment = await _make_attachment(item_id, filename="private.png")
     _write_fixture_file(attachments_root, attachment)
 
-    res = await client.post(
-        "/api/auth/register",
-        json={"email": "thief@example.com", "password": "pass1234"},
-    )
-    other_headers = {"Authorization": f"Bearer {res.json()['token']}"}
+    from agent_gtd.auth import create_token, register_user
+
+    thief = await register_user("thief@example.com", "pass1234")
+    other_headers = {"Authorization": f"Bearer {create_token(thief.id)}"}
 
     res2 = await client.get(f"/api/attachments/{attachment.id}", headers=other_headers)
     assert res2.status_code == 404
@@ -313,11 +311,10 @@ async def test_delete_attachment_cross_user_404(
     attachment = await _make_attachment(item_id, filename="owned.png")
     _write_fixture_file(attachments_root, attachment)
 
-    res = await client.post(
-        "/api/auth/register",
-        json={"email": "attacker@example.com", "password": "pass1234"},
-    )
-    other_headers = {"Authorization": f"Bearer {res.json()['token']}"}
+    from agent_gtd.auth import create_token, register_user
+
+    attacker = await register_user("attacker@example.com", "pass1234")
+    other_headers = {"Authorization": f"Bearer {create_token(attacker.id)}"}
 
     res2 = await client.delete(
         f"/api/attachments/{attachment.id}", headers=other_headers
@@ -630,11 +627,10 @@ async def test_upload_non_owned_item_404(
     attachments_root: Path,
 ):
     """Uploading to an item owned by another user returns 404."""
-    res = await client.post(
-        "/api/auth/register",
-        json={"email": "uploader@example.com", "password": "pass1234"},
-    )
-    other_headers = {"Authorization": f"Bearer {res.json()['token']}"}
+    from agent_gtd.auth import create_token, register_user
+
+    uploader = await register_user("uploader@example.com", "pass1234")
+    other_headers = {"Authorization": f"Bearer {create_token(uploader.id)}"}
 
     res2 = await client.post(
         f"/api/items/{item_id}/attachments",

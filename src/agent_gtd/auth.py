@@ -140,8 +140,22 @@ async def get_local_user() -> User:
         id=LOCAL_USER_ID,
         email=LOCAL_EMAIL,
         hashed_password="local-no-password",  # noqa: S106
+        is_admin=True,
         created_at=datetime(2000, 1, 1, tzinfo=UTC),
     )
+
+
+async def require_admin(
+    user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    """FastAPI dependency: require admin privileges.
+
+    Raises:
+        HTTPException: 403 if user is not an admin.
+    """
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin only")
+    return user
 
 
 async def register_user(email: str, password: str) -> User:
@@ -179,6 +193,66 @@ async def register_user(email: str, password: str) -> User:
     )
 
     return user
+
+
+async def register_user_with_invite(
+    email: str, password: str, invite_token: str
+) -> User:
+    """Create a new user account using a valid invite token.
+
+    Atomically validates the invite and creates the user inside a single
+    transaction so neither the user row nor the invite consumption persists
+    if anything fails.
+
+    Raises:
+        HTTPException: 400 if the invite token is invalid.
+        HTTPException: 410 if the invite token has already been used.
+        HTTPException: 409 if the email is already registered.
+    """
+    hashed = hash_password(password)
+    user_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+
+    pool = await get_db()
+    async with pool.acquire() as conn, conn.transaction():
+        invite_row = await conn.fetchrow(
+            "SELECT * FROM invites WHERE token = $1 FOR UPDATE", invite_token
+        )
+        if invite_row is None:
+            raise HTTPException(status_code=400, detail="Invalid invite token")
+        if invite_row["used_at"] is not None:
+            raise HTTPException(status_code=410, detail="Invite already used")
+        existing = await conn.fetchrow(
+            "SELECT id FROM users WHERE email = $1", email
+        )
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email already registered",
+            )
+        await conn.execute(
+            "INSERT INTO users (id, email, hashed_password, is_admin, created_at)"
+            " VALUES ($1, $2, $3, $4, $5)",
+            user_id,
+            email,
+            hashed,
+            0,
+            now,
+        )
+        await conn.execute(
+            "UPDATE invites SET used_at = $1, used_by = $2 WHERE token = $3",
+            now,
+            user_id,
+            invite_token,
+        )
+
+    return User(
+        id=user_id,
+        email=email,
+        hashed_password=hashed,
+        is_admin=False,
+        created_at=datetime.fromisoformat(now),
+    )
 
 
 async def authenticate_user(email: str, password: str) -> User:

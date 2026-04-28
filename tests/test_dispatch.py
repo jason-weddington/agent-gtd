@@ -232,14 +232,12 @@ async def test_dispatch_member_cannot_dispatch(
     project_id = await _create_project_with_origin(client, auth_headers)
     item_id = await _create_item_in_project(client, auth_headers, project_id)
 
-    # Register User B
-    res_b = await client.post(
-        "/api/auth/register",
-        json={"email": "userb@example.com", "password": "passb"},
-    )
-    assert res_b.status_code == 201
-    user_b_headers = {"Authorization": f"Bearer {res_b.json()['token']}"}
-    user_b_id = res_b.json()["user"]["id"]
+    # Create User B directly (bypass invite system)
+    from agent_gtd.auth import create_token, register_user
+
+    user_b = await register_user("userb@example.com", "passb")
+    user_b_headers = {"Authorization": f"Bearer {create_token(user_b.id)}"}
+    user_b_id = user_b.id
 
     # Add User B as a project member
     from datetime import UTC, datetime

@@ -19,10 +19,32 @@ async def test_config(client: AsyncClient):
 
 
 async def test_register_and_login(client: AsyncClient):
-    # Register
+    from agent_gtd.auth import create_token, register_user
+    from agent_gtd.database import get_db
+
+    # Create an admin user + invite to exercise the register endpoint
+    admin = await register_user("admin@smoke.example.com", "adminpass")
+    db = await get_db()
+    await db.execute("UPDATE users SET is_admin = 1 WHERE id = $1", admin.id)
+    admin_token = create_token(admin.id)
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+    invite_res = await client.post(
+        "/api/admin/invites",
+        json={"note": "smoke test"},
+        headers=admin_headers,
+    )
+    assert invite_res.status_code == 201
+    invite_token = invite_res.json()["token"]
+
+    # Register via HTTP endpoint using the invite
     res = await client.post(
         "/api/auth/register",
-        json={"email": "test@example.com", "password": "testpass123"},
+        json={
+            "email": "test@example.com",
+            "password": "testpass123",
+            "invite_token": invite_token,
+        },
     )
     assert res.status_code == 201
     data = res.json()

@@ -25,13 +25,11 @@ async def backend():
 @pytest.fixture
 async def authed_backend(backend: HttpBackend):
     """HttpBackend with a registered user and API key."""
+    from agent_gtd.auth import create_token, register_user
 
-    # Register a user directly via HTTP
-    resp = await backend._client.post(
-        "/api/auth/register",
-        json={"email": "test@example.com", "password": "testpass123"},
-    )
-    token = resp.json()["token"]
+    # Create user directly (bypass invite system)
+    user = await register_user("test@example.com", "testpass123")
+    token = create_token(user.id)
     headers = {"Authorization": f"Bearer {token}"}
 
     # Create an API key
@@ -61,12 +59,11 @@ async def project_id(authed_backend: HttpBackend):
 
 async def test_login(backend: HttpBackend):
     """Login validates API key and returns session info."""
-    # Register user and create API key
-    resp = await backend._client.post(
-        "/api/auth/register",
-        json={"email": "login@example.com", "password": "pass123"},
-    )
-    token = resp.json()["token"]
+    from agent_gtd.auth import create_token, register_user
+
+    # Create user directly (bypass invite system)
+    user = await register_user("login@example.com", "pass123")
+    token = create_token(user.id)
     resp = await backend._client.post(
         "/api/auth/api-keys",
         json={"name": "key"},

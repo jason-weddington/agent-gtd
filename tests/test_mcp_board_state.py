@@ -28,11 +28,10 @@ async def backend():
 @pytest.fixture
 async def authed_backend(backend: HttpBackend):
     """HttpBackend with a registered user and API key."""
-    resp = await backend._client.post(
-        "/api/auth/register",
-        json={"email": "bstate@example.com", "password": "testpass123"},
-    )
-    token = resp.json()["token"]
+    from agent_gtd.auth import create_token, register_user
+
+    user = await register_user("bstate@example.com", "testpass123")
+    token = create_token(user.id)
     headers = {"Authorization": f"Bearer {token}"}
 
     resp = await backend._client.post(
@@ -443,11 +442,10 @@ async def test_update_comment_on_item_returns_board_state(
 @pytest.fixture
 async def second_authed_backend(backend: HttpBackend):
     """A second HttpBackend logged in as a different user."""
-    resp = await backend._client.post(
-        "/api/auth/register",
-        json={"email": "member@example.com", "password": "pass456"},
-    )
-    token = resp.json()["token"]
+    from agent_gtd.auth import create_token, register_user
+
+    member = await register_user("member@example.com", "pass456")
+    token = create_token(member.id)
     headers = {"Authorization": f"Bearer {token}"}
     resp = await backend._client.post(
         "/api/auth/api-keys", json={"name": "member-key"}, headers=headers
@@ -505,11 +503,10 @@ async def test_non_member_cannot_access_item(
         base_url="http://test",
         timeout=30.0,
     )
-    resp = await intruder._client.post(
-        "/api/auth/register",
-        json={"email": "intruder@example.com", "password": "pass789"},
-    )
-    token = resp.json()["token"]
+    from agent_gtd.auth import create_token, register_user
+
+    intruder_user = await register_user("intruder@example.com", "pass789")
+    token = create_token(intruder_user.id)
     headers = {"Authorization": f"Bearer {token}"}
     resp = await intruder._client.post(
         "/api/auth/api-keys", json={"name": "intruder-key"}, headers=headers

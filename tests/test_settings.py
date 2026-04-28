@@ -313,12 +313,11 @@ async def test_dispatch_config_is_per_user(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
     """Each user has independent dispatch config; one user's settings don't leak."""
-    # Register User B
-    res_b = await client.post(
-        "/api/auth/register",
-        json={"email": "userb_settings@example.com", "password": "passb"},
-    )
-    user_b_headers = {"Authorization": f"Bearer {res_b.json()['token']}"}
+    # Create User B directly (bypass invite system)
+    from agent_gtd.auth import create_token, register_user
+
+    user_b = await register_user("userb_settings@example.com", "passb")
+    user_b_headers = {"Authorization": f"Bearer {create_token(user_b.id)}"}
 
     # User A configures dispatch
     await client.patch(

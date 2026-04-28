@@ -186,13 +186,11 @@ async def test_add_blocker_404_if_blocker_not_owned(
     """Returns 404 if blocker_item_id doesn't exist or isn't owned by user — no leak."""
     item_id = await _create_item(client, auth_headers, "Task")
 
-    # Register a second user and create an item as them
-    res = await client.post(
-        "/api/auth/register",
-        json={"email": "other@example.com", "password": "otherpass"},
-    )
-    other_token = res.json()["token"]
-    other_headers = {"Authorization": f"Bearer {other_token}"}
+    # Create a second user directly (bypass invite system)
+    from agent_gtd.auth import create_token, register_user
+
+    other_user = await register_user("other@example.com", "otherpass")
+    other_headers = {"Authorization": f"Bearer {create_token(other_user.id)}"}
     other_item_res = await client.post(
         "/api/items", json={"title": "Other user item"}, headers=other_headers
     )

@@ -14,11 +14,13 @@ import aiosqlite
 
 def _pg_to_sqlite(sql: str) -> str:
     """Convert PostgreSQL $1, $2, ... placeholders to SQLite ? placeholders."""
-    return re.sub(r"\$\d+", "?", sql)
+    sql = re.sub(r"\$\d+", "?", sql)
+    sql = re.sub(r"\s+FOR UPDATE\b", "", sql, flags=re.IGNORECASE)
+    return sql
 
 
 class _ConnectionWrapper:
-    """Wraps an aiosqlite connection to expose an asyncpg-like execute()."""
+    """Wraps an aiosqlite connection to expose an asyncpg-like interface."""
 
     def __init__(self, conn: aiosqlite.Connection) -> None:
         self._conn = conn
@@ -27,6 +29,23 @@ class _ConnectionWrapper:
         """Execute a SQL statement."""
         await self._conn.execute(_pg_to_sqlite(sql), args if args else None)
         await self._conn.commit()
+
+    async def fetchrow(self, sql: str, *args: Any) -> dict[str, Any] | None:
+        """Fetch a single row, or None."""
+        cursor = await self._conn.execute(_pg_to_sqlite(sql), args if args else None)
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def fetch(self, sql: str, *args: Any) -> list[dict[str, Any]]:
+        """Fetch all rows matching the query."""
+        cursor = await self._conn.execute(_pg_to_sqlite(sql), args if args else None)
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[None]:
+        """No-op transaction context for SQLite (serialized writes)."""
+        yield
 
 
 class SqlitePool:

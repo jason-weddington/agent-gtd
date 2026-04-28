@@ -11,6 +11,7 @@ from agent_gtd.auth import get_current_user, get_local_user
 from agent_gtd.database import close_db, init_db, is_local_mode
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.mcp_server import mcp
+from agent_gtd.routes.admin_routes import router as admin_router
 from agent_gtd.routes.attachment_routes import router as attachment_router
 from agent_gtd.routes.auth_routes import router as auth_router
 from agent_gtd.routes.comment_routes import router as comment_router
@@ -68,6 +69,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(admin_router)
 app.include_router(attachment_router)
 app.include_router(auth_router)
 app.include_router(project_router)
