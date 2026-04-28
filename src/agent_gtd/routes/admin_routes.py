@@ -1,5 +1,6 @@
 """Admin-only routes: invite management and user management."""
 
+import os
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -20,6 +21,20 @@ from agent_gtd.models import (
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
+def _public_base_url(request: Request) -> str:
+    """Public-facing base URL for issued links (invites, password resets).
+
+    Behind a reverse proxy that doesn't forward the original Host header,
+    `request.url.netloc` reports the inner bind address (e.g. `localhost:8000`)
+    which is useless for sharing. Set ``AGENT_GTD_PUBLIC_URL`` (e.g.
+    ``https://r7-research``) to override.
+    """
+    override = os.environ.get("AGENT_GTD_PUBLIC_URL", "").rstrip("/")
+    if override:
+        return override
+    return f"{request.url.scheme}://{request.url.netloc}"
+
+
 @router.post("/invites", response_model=InviteResponse, status_code=201)
 async def create_invite(
     request: Request,
@@ -30,7 +45,7 @@ async def create_invite(
     db = await get_db()
     token = secrets.token_urlsafe(32)
     now = datetime.now(UTC).isoformat()
-    base_url = f"{request.url.scheme}://{request.url.netloc}"
+    base_url = _public_base_url(request)
     invite_url = f"{base_url}/register?token={token}"
     await db.execute(
         "INSERT INTO invites (token, issued_by, note, created_at)"
@@ -95,7 +110,7 @@ async def issue_password_reset(
         now.isoformat(),
         expires_at.isoformat(),
     )
-    base_url = f"{request.url.scheme}://{request.url.netloc}"
+    base_url = _public_base_url(request)
     reset_url = f"{base_url}/reset-password?token={token}"
     return PasswordResetIssueResponse(
         token=token,

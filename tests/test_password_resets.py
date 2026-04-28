@@ -103,6 +103,23 @@ async def test_issue_as_admin(
     assert "expires_at" in data
 
 
+async def test_issue_url_uses_public_url_env(
+    monkeypatch: pytest.MonkeyPatch,
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    target_user_id: str,
+) -> None:
+    """When AGENT_GTD_PUBLIC_URL is set, the issued URL uses it as the base."""
+    monkeypatch.setenv("AGENT_GTD_PUBLIC_URL", "https://r7-research")
+    res = await client.post(
+        f"/api/admin/users/{target_user_id}/password-reset",
+        headers=admin_headers,
+    )
+    assert res.status_code == 200
+    url = res.json()["url"]
+    assert url.startswith("https://r7-research/reset-password?token=")
+
+
 # ---------------------------------------------------------------------------
 # Consume endpoint — happy path
 # ---------------------------------------------------------------------------
