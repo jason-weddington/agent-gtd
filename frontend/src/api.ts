@@ -1,4 +1,4 @@
-import type { ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Run, UserResponse } from './types'
+import type { AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Run, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -270,6 +270,11 @@ export const api = {
     },
     issuePasswordReset: (userId: string) =>
       request<PasswordResetIssued>('POST', `/admin/users/${userId}/password-reset`),
+    users: {
+      list: () => request<AdminUser[]>('GET', '/admin/users'),
+      promote: (userId: string) => request<AdminUser>('POST', `/admin/users/${userId}/promote`),
+      deleteUser: (userId: string) => request<void>('DELETE', `/admin/users/${userId}`),
+    },
   },
 
   attachments: {

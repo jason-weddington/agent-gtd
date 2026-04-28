@@ -5,6 +5,13 @@ export interface UserResponse {
   isAdmin: boolean
 }
 
+export interface AdminUser {
+  id: string
+  email: string
+  isAdmin: boolean
+  createdAt: string
+}
+
 // --- Invites ---
 
 export interface Invite {

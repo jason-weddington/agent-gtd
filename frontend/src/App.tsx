@@ -15,6 +15,7 @@ import InboxProcessor from './pages/InboxProcessor'
 import Settings from './pages/Settings'
 import WeeklyReview from './pages/WeeklyReview'
 import AdminInvites from './pages/AdminInvites'
+import AdminUsers from './pages/AdminUsers'
 import ResetPassword from './pages/ResetPassword'
 
 export default function App() {
@@ -62,6 +63,7 @@ export default function App() {
         }
       >
         <Route path="/admin/invites" element={<AdminInvites />} />
+        <Route path="/admin/users" element={<AdminUsers />} />
       </Route>
     </Routes>
   )

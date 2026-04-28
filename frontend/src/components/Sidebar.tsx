@@ -20,6 +20,7 @@ import FolderIcon from '@mui/icons-material/Folder'
 import EventRepeatIcon from '@mui/icons-material/EventRepeat'
 import SettingsIcon from '@mui/icons-material/Settings'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
+import PeopleIcon from '@mui/icons-material/People'
 import { useAuth } from '../contexts/AuthContext'
 
 const DRAWER_WIDTH = 240
@@ -169,6 +170,15 @@ export default function Sidebar({ open, isMobile = false, onClose }: SidebarProp
                 <AdminPanelSettingsIcon fontSize="small" />
               </ListItemIcon>
               <ListItemText primary="Invites" />
+            </ListItemButton>
+            <ListItemButton
+              selected={isSelected('/admin/users')}
+              onClick={() => { navigate('/admin/users'); if (isMobile) onClose?.() }}
+            >
+              <ListItemIcon sx={{ minWidth: 36 }}>
+                <PeopleIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Users" />
             </ListItemButton>
           </List>
         </>

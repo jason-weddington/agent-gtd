@@ -1,4 +1,4 @@
-"""Admin-only routes: invite management."""
+"""Admin-only routes: invite management and user management."""
 
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -14,6 +14,7 @@ from agent_gtd.models import (
     InviteResponse,
     PasswordResetIssueResponse,
     User,
+    UserResponse,
 )
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -116,4 +117,91 @@ async def revoke_invite(
     if row["used_at"] is not None:
         raise HTTPException(status_code=409, detail="Invite already used")
     await db.execute("DELETE FROM invites WHERE token = $1", token)
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# User management endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/users", response_model=list[UserResponse])
+async def list_users(
+    _admin: Annotated[User, Depends(require_admin)],
+) -> list[UserResponse]:
+    """List all users, most-recent-first (admin only)."""
+    db = await get_db()
+    rows = await db.fetch(
+        "SELECT id, email, is_admin, created_at FROM users ORDER BY created_at DESC"
+    )
+    return [
+        UserResponse(
+            id=row["id"],
+            email=row["email"],
+            is_admin=bool(row["is_admin"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+        for row in rows
+    ]
+
+
+@router.post("/users/{user_id}/promote", response_model=UserResponse)
+async def promote_user(
+    user_id: str,
+    _admin: Annotated[User, Depends(require_admin)],
+) -> UserResponse:
+    """Promote a user to admin (admin only). Idempotent."""
+    db = await get_db()
+    row = await db.fetchrow(
+        "SELECT id, email, is_admin, created_at FROM users WHERE id = $1", user_id
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.execute("UPDATE users SET is_admin = 1 WHERE id = $1", user_id)
+    return UserResponse(
+        id=row["id"],
+        email=row["email"],
+        is_admin=True,
+        created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+@router.delete("/users/{user_id}", status_code=204)
+async def delete_user(
+    user_id: str,
+    admin: Annotated[User, Depends(require_admin)],
+) -> Response:
+    """Delete a user (admin only). Blocks if user owns projects or items."""
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    db = await get_db()
+    row = await db.fetchrow("SELECT id FROM users WHERE id = $1", user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    # Block if user owns projects or items
+    project_row = await db.fetchrow(
+        "SELECT COUNT(*) AS cnt FROM projects WHERE user_id = $1", user_id
+    )
+    if project_row and project_row["cnt"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete: user owns projects. Delete or reassign them first.",
+        )
+    item_row = await db.fetchrow(
+        "SELECT COUNT(*) AS cnt FROM items WHERE user_id = $1", user_id
+    )
+    if item_row and item_row["cnt"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete: user owns items. Delete or reassign them first.",
+        )
+    # Clean up FK references (no ON DELETE CASCADE) in dependency order
+    await db.execute("DELETE FROM password_resets WHERE user_id = $1", user_id)
+    await db.execute("DELETE FROM invites WHERE issued_by = $1", user_id)
+    await db.execute("DELETE FROM api_keys WHERE user_id = $1", user_id)
+    await db.execute("DELETE FROM events WHERE user_id = $1", user_id)
+    await db.execute("DELETE FROM comments WHERE user_id = $1", user_id)
+    await db.execute("DELETE FROM notes WHERE user_id = $1", user_id)
+    # project_members and user_settings cascade automatically
+    await db.execute("DELETE FROM users WHERE id = $1", user_id)
     return Response(status_code=204)
