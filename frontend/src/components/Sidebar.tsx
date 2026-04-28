@@ -19,6 +19,8 @@ import LightbulbIcon from '@mui/icons-material/Lightbulb'
 import FolderIcon from '@mui/icons-material/Folder'
 import EventRepeatIcon from '@mui/icons-material/EventRepeat'
 import SettingsIcon from '@mui/icons-material/Settings'
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
+import { useAuth } from '../contexts/AuthContext'
 
 const DRAWER_WIDTH = 240
 
@@ -68,6 +70,7 @@ interface SidebarProps {
 export default function Sidebar({ open, isMobile = false, onClose }: SidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
+  const { user } = useAuth()
 
   // Collect all nav items in order for shortcut mapping
   const allNavItems = NAV_SECTIONS.flatMap((s) => s.items)
@@ -153,6 +156,23 @@ export default function Sidebar({ open, isMobile = false, onClose }: SidebarProp
           <ListItemText primary="Settings" />
         </ListItemButton>
       </List>
+
+      {user?.isAdmin && (
+        <>
+          <Divider sx={{ my: 1 }} />
+          <List dense sx={{ px: 0 }}>
+            <ListItemButton
+              selected={isSelected('/admin/invites')}
+              onClick={() => { navigate('/admin/invites'); if (isMobile) onClose?.() }}
+            >
+              <ListItemIcon sx={{ minWidth: 36 }}>
+                <AdminPanelSettingsIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Invites" />
+            </ListItemButton>
+          </List>
+        </>
+      )}
     </Drawer>
   )
 }

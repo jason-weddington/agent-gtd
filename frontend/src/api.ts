@@ -1,4 +1,4 @@
-import type { ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, DispatchCapabilities, Item, MemberSummary, Note, Project, Run, UserResponse } from './types'
+import type { ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, Invite, Item, MemberSummary, Note, Project, Run, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -114,8 +114,8 @@ export const api = {
   },
 
   auth: {
-    register: (email: string, password: string) =>
-      request<AuthResponse>('POST', '/auth/register', { email, password }),
+    register: (email: string, password: string, inviteToken: string) =>
+      request<AuthResponse>('POST', '/auth/register', { email, password, inviteToken }),
     login: (email: string, password: string) =>
       request<AuthResponse>('POST', '/auth/login', { email, password }),
     logout: () => request<void>('POST', '/auth/logout'),
@@ -256,6 +256,14 @@ export const api = {
         serviceUrl: string
         serviceApiKeyPreview: string
       }>('PATCH', '/settings/dispatch', data),
+  },
+
+  admin: {
+    invites: {
+      list: () => request<Invite[]>('GET', '/admin/invites'),
+      create: (note: string) => request<CreatedInvite>('POST', '/admin/invites', { note }),
+      revoke: (token: string) => request<void>('DELETE', `/admin/invites/${token}`),
+    },
   },
 
   attachments: {

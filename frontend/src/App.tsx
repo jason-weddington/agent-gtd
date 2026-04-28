@@ -2,7 +2,9 @@ import { useEffect } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
+import AdminRoute from './components/AdminRoute'
 import Login from './pages/Login'
+import Register from './pages/Register'
 import Inbox from './pages/Inbox'
 import NextActions from './pages/NextActions'
 import WaitingFor from './pages/WaitingFor'
@@ -12,6 +14,7 @@ import ProjectDetail from './pages/ProjectDetail'
 import InboxProcessor from './pages/InboxProcessor'
 import Settings from './pages/Settings'
 import WeeklyReview from './pages/WeeklyReview'
+import AdminInvites from './pages/AdminInvites'
 
 export default function App() {
   // Prevent Escape from exiting browser fullscreen (Safari).
@@ -31,6 +34,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
       <Route
         element={
           <ProtectedRoute>
@@ -47,6 +51,15 @@ export default function App() {
         <Route path="/projects/:projectId" element={<ProjectDetail />} />
         <Route path="/review" element={<WeeklyReview />} />
         <Route path="/settings" element={<Settings />} />
+      </Route>
+      <Route
+        element={
+          <AdminRoute>
+            <Layout />
+          </AdminRoute>
+        }
+      >
+        <Route path="/admin/invites" element={<AdminInvites />} />
       </Route>
     </Routes>
   )

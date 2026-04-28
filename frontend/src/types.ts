@@ -2,6 +2,25 @@ export interface UserResponse {
   id: string
   email: string
   createdAt: string
+  isAdmin: boolean
+}
+
+// --- Invites ---
+
+export interface Invite {
+  token: string
+  issuedBy: string
+  note: string
+  createdAt: string
+  usedAt: string | null
+  usedBy: string | null
+}
+
+export interface CreatedInvite {
+  token: string
+  url: string
+  note: string
+  createdAt: string
 }
 
 export interface AuthResponse {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Box,
   Card,
@@ -11,6 +11,7 @@ import {
   IconButton,
   Alert,
   CircularProgress,
+  Container,
 } from '@mui/material'
 import AppsIcon from '@mui/icons-material/Apps'
 import VisibilityIcon from '@mui/icons-material/Visibility'
@@ -18,31 +19,46 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import { useAuth } from '../contexts/AuthContext'
 import { ApiError } from '../api'
 
-export default function Login() {
+export default function Register() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const { login, localMode, isAuthenticated } = useAuth()
+  const { register, isAuthenticated, loading, localMode } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const token = searchParams.get('token')
 
   useEffect(() => {
-    if (localMode || isAuthenticated) {
+    if (!loading && (localMode || isAuthenticated)) {
       navigate('/', { replace: true })
     }
-  }, [localMode, isAuthenticated, navigate])
+  }, [loading, localMode, isAuthenticated, navigate])
+
+  if (!token) {
+    return (
+      <Container maxWidth="sm" sx={{ mt: 8 }}>
+        <Alert severity="warning">
+          This page requires an invite link — please contact an admin.
+        </Alert>
+      </Container>
+    )
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setSubmitting(true)
     try {
-      await login(email, password)
+      await register(email, password, token)
       navigate('/')
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(err.detail)
+        if (err.status === 410) setError('This invite has already been used.')
+        else if (err.status === 409) setError('Email already registered.')
+        else if (err.status === 400) setError('Invalid invite token.')
+        else setError(err.detail)
       } else {
         setError('Something went wrong. Please try again.')
       }
@@ -79,7 +95,7 @@ export default function Login() {
               Agent Gtd
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Sign in to get started
+              Create your account
             </Typography>
           </Box>
 
@@ -141,7 +157,7 @@ export default function Login() {
               {submitting ? (
                 <CircularProgress size={24} color="inherit" />
               ) : (
-                'Sign In'
+                'Create Account'
               )}
             </Button>
           </Box>

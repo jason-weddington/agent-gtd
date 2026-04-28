@@ -8,7 +8,7 @@ interface AuthContextValue {
   loading: boolean
   localMode: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (email: string, password: string) => Promise<void>
+  register: (email: string, password: string, inviteToken: string) => Promise<void>
   logout: () => void
 }
 
@@ -71,8 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(res.user)
   }, [])
 
-  const register = useCallback(async (email: string, password: string) => {
-    const res = await api.auth.register(email, password)
+  const register = useCallback(async (email: string, password: string, inviteToken: string) => {
+    const res = await api.auth.register(email, password, inviteToken)
     localStorage.setItem('agent_gtd-token', res.token)
     localStorage.setItem('agent_gtd-user', JSON.stringify(res.user))
     setUser(res.user)
