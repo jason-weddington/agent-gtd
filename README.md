@@ -157,6 +157,85 @@ Reference an existing implementation the agent can copy
 Do NOT touch X, Y, Z
 ```
 
+## Steering Your Agents — Autonomous Operations (Advanced)
+
+The workflow above gets you to "ship one feature with one dispatched agent." Once that's comfortable, you can run a higher-throughput pattern where a single interactive "tech lead" session orchestrates multiple headless agents in parallel — one human approves a plan, then watches a wave of agents land branches over the next hour while doing other work.
+
+This section assumes the basic grooming and dispatch flow is already familiar.
+
+### Treat the interactive context as the scarce resource
+
+The session that drives orchestration has a finite context window. Every token it spends reading files, grepping, or doing implementation work inline is a token it can't spend later on review, judgment, or coordinating the next wave. Past ~60% utilization, quality degrades noticeably.
+
+**Default: dispatch the work, don't do it inline.** Even when "I could just edit this myself" feels faster in the moment, the cost shows up later as a session that runs out of room before the feature is done.
+
+Inline work is justified when:
+- It's a trivial (<5 line) edit where grooming + dispatch costs more than just doing it
+- The decision genuinely needs live conversation context (mid-discussion architecture calls, debugging where the loop is "run, see, fix")
+- You're reviewing or merging a dispatched branch — that *is* the control plane's job
+
+Everything else — including "let me just read these files to understand X" or "I'll do a quick refactor while I'm here" — should become a groomed task and a dispatch.
+
+### Plan-mode dispatch for research and grooming
+
+`dispatch_item` exposes two modes:
+
+- `mode="build"` — implement, push a feature branch, comment back on the item
+- `mode="plan"` — groom: write acceptance criteria, identify files to modify, ask clarifying questions, and update the item description
+
+Use `plan` mode for the research and exploration phase, not just implementation. The agent's exploration tokens don't count against the interactive session, and what comes back is a dispatch-ready task description.
+
+### Wave-based parallelization
+
+When a feature splits into N subtasks, you don't dispatch them sequentially:
+
+1. **Read the "Files to modify" list** from each groomed task.
+2. **Group non-overlapping tasks into waves.** Tasks with no file overlap and no dependency chain can run concurrently. Tasks that touch the same file become successive waves.
+3. **Dispatch a wave**, monitor for completion, merge each as it lands, then dispatch the next wave once it's unblocked.
+
+A typical wave 1 might run 3–6 agents in parallel; wave 2 picks up after the merges land.
+
+### Event-driven monitoring (don't poll on a timer)
+
+The `agent-gtd` CLI exposes dispatch status to the shell, so the lead agent can wake on completion instead of polling:
+
+```bash
+# After dispatching, run in background:
+until [ "$(agent-gtd run-status <run_id> | jq -r .status)" != "running" ]; do
+  sleep 30
+done
+echo "DONE <run_id>"
+```
+
+In Claude Code, pair `Bash` with `run_in_background: true` and the `Monitor` tool watching that background task. The `DONE` line arrives as a notification within ~30s of the run finishing. One poller + one Monitor per dispatched run; fan out N dispatches and arm N Monitors. Each completion fires its own wake-up.
+
+This is materially better than scheduled wake-ups: the lead agent stays free to do other work between completions instead of burning context checking status on a timer.
+
+### Per-completion review cycle
+
+When a Monitor wakes the lead on a finished run:
+
+1. Read the agent's final comment on the GTD item — note any flagged issues
+2. Fetch the branch, diff it, squash-merge to `main` with a clean conventional-commit message
+3. Fix small issues **inline** (lint, format, line-length, merge conflicts) — don't redispatch unless the agent's logic is actually wrong or it missed scope
+4. Push, `complete_item`, delete local + remote feature branches
+5. If the wave still has runs in flight, wait for the next Monitor wake. If the wave is done and the next wave is unblocked, dispatch the next wave.
+
+### Repo hygiene for headless agents
+
+Headless agents clone fresh and have no prior context. Two artifacts make them dramatically more productive:
+
+- **`CLAUDE.md` in the repo root** — build/test commands, project layout, where to put new code. Keep it under a page.
+- **`README.md` with dev setup** — install, run, test in one read.
+
+Without these, every dispatched agent burns 10–20 turns rediscovering the basics.
+
+### When to escalate to multi-angle debate
+
+For load-bearing design decisions where "wrong" means a long, fuzzy-feedback debugging cycle (rather than "run, see error, fix"), don't rely on a single agent or first instincts. Spin up 3–5 agents with genuinely distinct framings, run 2–3 rounds of structured debate (opening positions → responses → synthesis), and use the disagreement to sharpen the choice.
+
+Use this sparingly — most decisions are validated by cheap iteration. Reserve it for choices that can't be tested in CI: API shape, data model boundaries, agent prompt design, anything where failure looks like vague user complaints rather than a stack trace.
+
 ## Tech Stack
 
 - **Backend:** FastAPI, asyncpg/aiosqlite, Pydantic v2, uvicorn
