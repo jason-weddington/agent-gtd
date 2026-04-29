@@ -89,9 +89,7 @@ async def _promote_admin(email: str) -> str:
                 raise ValueError(f"no user found with email {email}")
             if row["is_admin"]:
                 return f"{email} is already an admin"
-            await conn.execute(
-                "UPDATE users SET is_admin = 1 WHERE email = $1", email
-            )
+            await conn.execute("UPDATE users SET is_admin = 1 WHERE email = $1", email)
             return f"promoted {email} to admin"
     finally:
         await close_db()

@@ -40,9 +40,7 @@ async def regular_headers() -> dict[str, str]:
 
 
 @pytest.fixture
-async def valid_invite_token(
-    client: AsyncClient, admin_headers: dict[str, str]
-) -> str:
+async def valid_invite_token(client: AsyncClient, admin_headers: dict[str, str]) -> str:
     """Create an unused invite via the admin endpoint. Returns the token."""
     res = await client.post(
         "/api/admin/invites",
@@ -121,9 +119,7 @@ async def test_register_marks_invite_as_used(
         },
     )
     res = await client.get("/api/admin/invites", headers=admin_headers)
-    invite = next(
-        (i for i in res.json() if i["token"] == valid_invite_token), None
-    )
+    invite = next((i for i in res.json() if i["token"] == valid_invite_token), None)
     assert invite is not None
     assert invite["used_at"] is not None
     assert invite["used_by"] is not None

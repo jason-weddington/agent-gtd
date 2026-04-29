@@ -222,9 +222,7 @@ async def register_user_with_invite(
             raise HTTPException(status_code=400, detail="Invalid invite token")
         if invite_row["used_at"] is not None:
             raise HTTPException(status_code=410, detail="Invite already used")
-        existing = await conn.fetchrow(
-            "SELECT id FROM users WHERE email = $1", email
-        )
+        existing = await conn.fetchrow("SELECT id FROM users WHERE email = $1", email)
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

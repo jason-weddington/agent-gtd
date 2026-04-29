@@ -202,9 +202,7 @@ async def test_delete_as_non_admin(
 ) -> None:
     """Non-admin gets 403."""
     user_id, _ = target_user
-    res = await client.delete(
-        f"/api/admin/users/{user_id}", headers=regular_headers
-    )
+    res = await client.delete(f"/api/admin/users/{user_id}", headers=regular_headers)
     assert res.status_code == 403
 
 
@@ -248,9 +246,7 @@ async def test_delete_user_with_projects(
     )
     assert proj_res.status_code == 201
 
-    res = await client.delete(
-        f"/api/admin/users/{user_id}", headers=admin_headers
-    )
+    res = await client.delete(f"/api/admin/users/{user_id}", headers=admin_headers)
     assert res.status_code == 409
     assert "projects" in res.json()["detail"]
 
@@ -270,9 +266,7 @@ async def test_delete_user_with_items(
     )
     assert item_res.status_code == 201
 
-    res = await client.delete(
-        f"/api/admin/users/{user_id}", headers=admin_headers
-    )
+    res = await client.delete(f"/api/admin/users/{user_id}", headers=admin_headers)
     assert res.status_code == 409
     assert "items" in res.json()["detail"]
 
@@ -284,9 +278,7 @@ async def test_delete_success(
 ) -> None:
     """Admin can delete a user with no projects or items — returns 204."""
     user_id, _ = target_user
-    res = await client.delete(
-        f"/api/admin/users/{user_id}", headers=admin_headers
-    )
+    res = await client.delete(f"/api/admin/users/{user_id}", headers=admin_headers)
     assert res.status_code == 204
 
     # User should no longer appear in the user list
@@ -319,9 +311,7 @@ async def test_delete_cleans_up_invites(
     invite_token = invite_res.json()["token"]
 
     # Delete the target user
-    del_res = await client.delete(
-        f"/api/admin/users/{user_id}", headers=admin_headers
-    )
+    del_res = await client.delete(f"/api/admin/users/{user_id}", headers=admin_headers)
     assert del_res.status_code == 204
 
     # Verify the invite is gone from the database
@@ -346,9 +336,7 @@ async def test_delete_cleans_up_password_resets(
     reset_token = reset_res.json()["token"]
 
     # Delete the target user
-    del_res = await client.delete(
-        f"/api/admin/users/{user_id}", headers=admin_headers
-    )
+    del_res = await client.delete(f"/api/admin/users/{user_id}", headers=admin_headers)
     assert del_res.status_code == 204
 
     # Verify the password_resets row is gone
