@@ -2,6 +2,39 @@
 
 <!-- version list -->
 
+## v1.78.0 (2026-04-29)
+
+### Bug Fixes
+
+- **admin**: Use AGENT_GTD_PUBLIC_URL for invite + reset link base
+  ([`77c7a7d`](https://github.com/jason-weddington/agent-gtd/commit/77c7a7d8d05865b3ad032f285172bc1ed621d280))
+
+### Documentation
+
+- Add advanced autonomous operations section to README
+  ([`6072332`](https://github.com/jason-weddington/agent-gtd/commit/607233245151ee7609011afd9801bdf11b6fc14d))
+
+### Features
+
+- **admin**: User management page with list, promote, delete, and reset
+  ([`5104ad8`](https://github.com/jason-weddington/agent-gtd/commit/5104ad8686a78830a28ef0cb2525325a0f53410a))
+
+- **auth**: Admin-issued one-time password reset link
+  ([`387bce5`](https://github.com/jason-weddington/agent-gtd/commit/387bce54e187407c796ec7f9f825df91e861252b))
+
+- **auth**: Admin-only invite system with gated registration
+  ([`a475e22`](https://github.com/jason-weddington/agent-gtd/commit/a475e2206a9d05bf2517499572207daa9437106e))
+
+- **auth**: Self-serve password change in Settings
+  ([`05cc7bb`](https://github.com/jason-weddington/agent-gtd/commit/05cc7bbb60f03b825cab2aec1c9549690f18df05))
+
+- **cli**: Add agent-gtd promote-admin <email> subcommand
+  ([`ef3356c`](https://github.com/jason-weddington/agent-gtd/commit/ef3356ca37f037c26a062cdb7d5e2385ee5231c0))
+
+- **frontend**: Admin-only invite UI (Register page, AdminRoute, AdminInvites)
+  ([`a4802c2`](https://github.com/jason-weddington/agent-gtd/commit/a4802c29109fdbd2ec91206f19de845c4daac723))
+
+
 ## v1.77.0 (2026-04-27)
 
 ### Features
