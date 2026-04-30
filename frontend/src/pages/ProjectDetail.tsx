@@ -51,6 +51,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import ClearIcon from '@mui/icons-material/Clear'
 import { api, ApiError } from '../api'
 import type { Project, Item, Note, Comment, Run, RunStatus, ItemStatus, Priority, ProjectStatus, DispatchAgentInfo } from '../types'
+import { useDraftState } from '../hooks/useDraftState'
 import { PRIORITY_BORDER } from '../priorityColors'
 import { useEvents } from '../contexts/EventStreamContext'
 import { useQuickCapture } from '../contexts/QuickCaptureContext'
@@ -125,11 +126,63 @@ export default function ProjectDetail() {
   // Item dialog
   const [itemDialogOpen, setItemDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<Item | null>(null)
-  const [itemTitle, setItemTitle] = useState('')
-  const [itemDescription, setItemDescription] = useState('')
-  const [itemStatus, setItemStatus] = useState<ItemStatus>('active')
-  const [itemPriority, setItemPriority] = useState<Priority>('normal')
-  const [itemDueDate, setItemDueDate] = useState('')
+
+  // Draft state for the NEW ITEM path — persisted to localStorage so an
+  // accidental dismiss (backdrop / Escape) never loses what the user typed.
+  // Cleared explicitly on successful create or deliberate Cancel click.
+  interface ItemDraft {
+    title: string
+    description: string
+    status: ItemStatus
+    priority: Priority
+    dueDate: string
+  }
+  const ITEM_DRAFT_INITIAL: ItemDraft = {
+    title: '',
+    description: '',
+    status: 'new',
+    priority: 'normal',
+    dueDate: '',
+  }
+  const [itemDraft, setItemDraft, clearItemDraft] = useDraftState<ItemDraft>(
+    projectId
+      ? `agent-gtd:draft:project-new-item:${projectId}`
+      : 'agent-gtd:draft:project-new-item:_',
+    ITEM_DRAFT_INITIAL,
+  )
+
+  // Edit-path form state — plain useState, not persisted (server is source of truth).
+  const [editFormData, setEditFormData] = useState<ItemDraft>(ITEM_DRAFT_INITIAL)
+
+  // Unified read-only form values — callers use these regardless of create/edit mode.
+  const itemTitle = editingItem ? editFormData.title : itemDraft.title
+  const itemDescription = editingItem ? editFormData.description : itemDraft.description
+  const itemStatus = editingItem ? editFormData.status : itemDraft.status
+  const itemPriority = editingItem ? editFormData.priority : itemDraft.priority
+  const itemDueDate = editingItem ? editFormData.dueDate : itemDraft.dueDate
+
+  // Unified setters — route writes to the appropriate backing state.
+  const setItemTitle = (v: string) => {
+    if (editingItem) setEditFormData((s) => ({ ...s, title: v }))
+    else setItemDraft((s) => ({ ...s, title: v }))
+  }
+  const setItemDescription = (v: string) => {
+    if (editingItem) setEditFormData((s) => ({ ...s, description: v }))
+    else setItemDraft((s) => ({ ...s, description: v }))
+  }
+  const setItemStatus = (v: ItemStatus) => {
+    if (editingItem) setEditFormData((s) => ({ ...s, status: v }))
+    else setItemDraft((s) => ({ ...s, status: v }))
+  }
+  const setItemPriority = (v: Priority) => {
+    if (editingItem) setEditFormData((s) => ({ ...s, priority: v }))
+    else setItemDraft((s) => ({ ...s, priority: v }))
+  }
+  const setItemDueDate = (v: string) => {
+    if (editingItem) setEditFormData((s) => ({ ...s, dueDate: v }))
+    else setItemDraft((s) => ({ ...s, dueDate: v }))
+  }
+
   const [itemProjectId, setItemProjectId] = useState<string>('')
   const [savingItem, setSavingItem] = useState(false)
 
@@ -307,11 +360,8 @@ export default function ProjectDetail() {
 
   const openCreateItemWithStatus = (status: ItemStatus) => {
     setEditingItem(null)
-    setItemTitle('')
-    setItemDescription('')
-    setItemStatus(status)
-    setItemPriority('normal')
-    setItemDueDate('')
+    // Start fresh with the requested status (Kanban column "+" button).
+    setItemDraft({ ...ITEM_DRAFT_INITIAL, status })
     setItemDialogOpen(true)
   }
 
@@ -351,21 +401,20 @@ export default function ProjectDetail() {
   // --- Items ---
   const openCreateItem = () => {
     setEditingItem(null)
-    setItemTitle('')
-    setItemDescription('')
-    setItemStatus('new')
-    setItemPriority('normal')
-    setItemDueDate('')
+    // Don't reset itemDraft here — let it restore from localStorage so an
+    // accidental previous dismiss doesn't lose what the user was typing.
     setItemDialogOpen(true)
   }
 
   const openEditItem = (item: Item) => {
     setEditingItem(item)
-    setItemTitle(item.title)
-    setItemDescription(item.description)
-    setItemStatus(item.status)
-    setItemPriority(item.priority)
-    setItemDueDate(item.dueDate ?? '')
+    setEditFormData({
+      title: item.title,
+      description: item.description,
+      status: item.status,
+      priority: item.priority,
+      dueDate: item.dueDate ?? '',
+    })
     setItemProjectId(item.projectId ?? projectId ?? '')
     setItemComments([])
     setNewItemComment('')
@@ -393,6 +442,7 @@ export default function ProjectDetail() {
           status: itemStatus,
           priority: itemPriority,
         })
+        clearItemDraft()
       }
       setItemDialogOpen(false)
       await loadData()
@@ -1489,7 +1539,10 @@ export default function ProjectDetail() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setItemDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => {
+            clearItemDraft()
+            setItemDialogOpen(false)
+          }}>Cancel</Button>
           <Button
             variant="contained"
             onClick={handleSaveItem}
