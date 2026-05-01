@@ -1136,7 +1136,14 @@ export default function ProjectDetail() {
                         }}
                       >
                         <TableCell>
-                          <Typography variant="body2">{itemTitle}</Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Chip
+                              label={run.mode === 'plan' ? 'Plan' : 'Build'}
+                              size="small"
+                              variant="outlined"
+                            />
+                            <Typography variant="body2">{itemTitle}</Typography>
+                          </Box>
                           {run.errorMsg && (
                             <Tooltip title={run.errorMsg} placement="bottom-start">
                               <Typography

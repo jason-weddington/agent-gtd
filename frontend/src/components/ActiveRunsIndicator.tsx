@@ -226,6 +226,12 @@ export default function ActiveRunsIndicator() {
                   </Tooltip>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                      <Chip
+                        label={run.mode === 'plan' ? 'Plan' : 'Build'}
+                        size="small"
+                        variant="outlined"
+                        sx={{ flexShrink: 0 }}
+                      />
                       <Typography variant="body2" fontWeight={500} noWrap sx={{ flex: 1 }}>
                         {item?.title ?? run.featureBranch}
                       </Typography>
