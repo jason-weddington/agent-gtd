@@ -118,8 +118,11 @@ export default function KanbanBoard({
       } catch {
         // API error — refresh will restore correct state
       }
-      setOptimistic(null)
+      // Refresh first so the parent items prop reflects the new state, then
+      // clear optimistic. Otherwise displayItems momentarily falls back to the
+      // stale items prop and the card "snaps back" to its source column.
       await onRefresh()
+      setOptimistic(null)
     },
     [columnItems, items, onRefresh],
   )
