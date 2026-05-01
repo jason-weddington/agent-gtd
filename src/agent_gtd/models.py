@@ -81,6 +81,7 @@ class Project(BaseModel):
     kb_project_ref: str = ""
     dispatch_agent: str | None = None
     dispatch_max_turns: int | None = None
+    dispatch_timeout_minutes: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -294,7 +295,7 @@ class CreateProjectRequest(BaseModel):
 class UpdateProjectRequest(BaseModel):
     """Update a project. All fields optional.
 
-    For dispatch_agent and dispatch_max_turns:
+    For dispatch_agent, dispatch_max_turns, and dispatch_timeout_minutes:
     - Field absent → unchanged
     - Field explicitly null → clear the override (revert to inheriting global)
     - Field set → persist the value
@@ -308,6 +309,7 @@ class UpdateProjectRequest(BaseModel):
     kb_project_ref: str | None = None
     dispatch_agent: str | None = None
     dispatch_max_turns: int | None = None
+    dispatch_timeout_minutes: int | None = None
 
 
 class ProjectResponse(BaseModel):
@@ -322,6 +324,7 @@ class ProjectResponse(BaseModel):
     kb_project_ref: str
     dispatch_agent: str | None = None
     dispatch_max_turns: int | None = None
+    dispatch_timeout_minutes: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -519,6 +522,7 @@ class DispatchSettingsResponse(BaseModel):
     agent_name: str
     max_concurrent: int
     default_max_turns: int = 100
+    default_timeout_minutes: int = 30
     service_url: str
     service_api_key_preview: str = ""
 
@@ -534,6 +538,7 @@ class UpdateDispatchSettingsRequest(BaseModel):
     service_url: str | None = None
     service_api_key: str | None = None
     default_max_turns: int | None = None
+    default_timeout_minutes: int | None = None
 
 
 class RunResponse(BaseModel):

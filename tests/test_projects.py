@@ -253,6 +253,112 @@ async def test_update_project_dispatch_max_turns_boundary_values(
     assert res.json()["dispatch_max_turns"] == 500
 
 
+async def test_update_project_dispatch_timeout_minutes(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Setting dispatch_timeout_minutes persists correctly."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"dispatch_timeout_minutes": 60},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["dispatch_timeout_minutes"] == 60
+
+    # Verify via GET
+    res = await client.get(f"/api/projects/{project_id}", headers=auth_headers)
+    assert res.json()["dispatch_timeout_minutes"] == 60
+
+
+async def test_update_project_clear_dispatch_timeout_minutes(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Sending explicit null clears dispatch_timeout_minutes back to NULL."""
+    # First set it
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={"dispatch_timeout_minutes": 120},
+        headers=auth_headers,
+    )
+
+    # Now clear with explicit null
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"dispatch_timeout_minutes": None},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["dispatch_timeout_minutes"] is None
+
+
+async def test_update_project_absent_dispatch_timeout_unchanged(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Omitting dispatch_timeout_minutes leaves it unchanged."""
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={"dispatch_timeout_minutes": 90},
+        headers=auth_headers,
+    )
+
+    # Update only name — timeout should be unchanged
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"name": "New Name"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["name"] == "New Name"
+    assert data["dispatch_timeout_minutes"] == 90
+
+
+async def test_update_project_dispatch_timeout_minutes_too_low(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """dispatch_timeout_minutes below minimum is rejected with 400."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"dispatch_timeout_minutes": 4},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+
+
+async def test_update_project_dispatch_timeout_minutes_too_high(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """dispatch_timeout_minutes above maximum is rejected with 400."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"dispatch_timeout_minutes": 481},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+
+
+async def test_update_project_dispatch_timeout_minutes_boundary_values(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """dispatch_timeout_minutes accepts boundary values 5 and 480."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"dispatch_timeout_minutes": 5},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["dispatch_timeout_minutes"] == 5
+
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"dispatch_timeout_minutes": 480},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["dispatch_timeout_minutes"] == 480
+
+
 async def test_project_ownership_isolation(client: AsyncClient):
     from agent_gtd.auth import create_token, register_user
 

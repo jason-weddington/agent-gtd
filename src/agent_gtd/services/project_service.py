@@ -198,10 +198,13 @@ async def update_project(
     clear_dispatch_agent: bool = False,
     dispatch_max_turns: int | None = None,
     clear_dispatch_max_turns: bool = False,
+    dispatch_timeout_minutes: int | None = None,
+    clear_dispatch_timeout_minutes: bool = False,
 ) -> dict[str, Any]:
     """Update a project. Only non-None fields are changed.
 
-    For nullable override columns (dispatch_agent, dispatch_max_turns):
+    For nullable override columns (dispatch_agent, dispatch_max_turns,
+    dispatch_timeout_minutes):
     - Pass the value to set it.
     - Pass clear_dispatch_agent=True (with dispatch_agent=None) to set NULL.
     - Omit both to leave the column unchanged.
@@ -244,6 +247,12 @@ async def update_project(
     elif clear_dispatch_max_turns:
         params.append(None)
         updates.append(f"dispatch_max_turns = ${len(params)}")
+    if dispatch_timeout_minutes is not None:
+        params.append(dispatch_timeout_minutes)
+        updates.append(f"dispatch_timeout_minutes = ${len(params)}")
+    elif clear_dispatch_timeout_minutes:
+        params.append(None)
+        updates.append(f"dispatch_timeout_minutes = ${len(params)}")
 
     if updates:
         params.append(datetime.now(UTC).isoformat())

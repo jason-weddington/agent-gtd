@@ -7,7 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
-from agent_gtd.dispatch_constants import MAX_TURNS, MIN_TURNS
+from agent_gtd.dispatch_constants import (
+    MAX_TIMEOUT_MINUTES,
+    MAX_TURNS,
+    MIN_TIMEOUT_MINUTES,
+    MIN_TURNS,
+)
 from agent_gtd.exceptions import NotFoundError, ValidationError
 from agent_gtd.models import (
     AddMemberRequest,
@@ -26,6 +31,7 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 def _project_response(row: dict[str, object]) -> ProjectResponse:
     raw_agent = row.get("dispatch_agent")
     raw_turns = row.get("dispatch_max_turns")
+    raw_timeout = row.get("dispatch_timeout_minutes")
     return ProjectResponse(
         id=str(row["id"]),
         name=str(row["name"]),
@@ -36,6 +42,9 @@ def _project_response(row: dict[str, object]) -> ProjectResponse:
         kb_project_ref=str(row.get("kb_project_ref", "")),
         dispatch_agent=str(raw_agent) if raw_agent is not None else None,
         dispatch_max_turns=int(str(raw_turns)) if raw_turns is not None else None,
+        dispatch_timeout_minutes=int(str(raw_timeout))
+        if raw_timeout is not None
+        else None,
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
     )
@@ -110,6 +119,22 @@ async def update_project(
             detail=f"dispatch_max_turns must be between {MIN_TURNS} and {MAX_TURNS}",
         )
 
+    # Validate dispatch_timeout_minutes bounds if explicitly provided and non-null.
+    if (
+        "dispatch_timeout_minutes" in body.model_fields_set
+        and body.dispatch_timeout_minutes is not None
+        and not (
+            MIN_TIMEOUT_MINUTES <= body.dispatch_timeout_minutes <= MAX_TIMEOUT_MINUTES
+        )
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"dispatch_timeout_minutes must be between "
+                f"{MIN_TIMEOUT_MINUTES} and {MAX_TIMEOUT_MINUTES}"
+            ),
+        )
+
     # Use model_fields_set to distinguish "absent" from "explicit null" for
     # nullable override columns.
     clear_dispatch_agent = (
@@ -118,6 +143,10 @@ async def update_project(
     clear_dispatch_max_turns = (
         "dispatch_max_turns" in body.model_fields_set
         and body.dispatch_max_turns is None
+    )
+    clear_dispatch_timeout_minutes = (
+        "dispatch_timeout_minutes" in body.model_fields_set
+        and body.dispatch_timeout_minutes is None
     )
 
     db = await get_db()
@@ -136,6 +165,8 @@ async def update_project(
             clear_dispatch_agent=clear_dispatch_agent,
             dispatch_max_turns=body.dispatch_max_turns,
             clear_dispatch_max_turns=clear_dispatch_max_turns,
+            dispatch_timeout_minutes=body.dispatch_timeout_minutes,
+            clear_dispatch_timeout_minutes=clear_dispatch_timeout_minutes,
         )
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None

@@ -627,3 +627,79 @@ async def test_patch_dispatch_settings_default_max_turns_boundary(
         )
         assert res.status_code == 200
         assert res.json()["default_max_turns"] == v
+
+
+# ---------------------------------------------------------------------------
+# dispatch.default_timeout_minutes persistence
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_dispatch_settings_default_timeout_minutes_unset(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """GET /api/settings/dispatch returns default_timeout_minutes=30 unset."""
+    res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["default_timeout_minutes"] == 30
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_default_timeout_minutes(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH /api/settings/dispatch persists default_timeout_minutes; GET returns it."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"default_timeout_minutes": 60},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["default_timeout_minutes"] == 60
+
+    # Confirm it persists
+    get_res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert get_res.status_code == 200
+    assert get_res.json()["default_timeout_minutes"] == 60
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_default_timeout_minutes_too_low(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH rejects default_timeout_minutes < 5."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"default_timeout_minutes": 4},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_default_timeout_minutes_too_high(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH rejects default_timeout_minutes > 480."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"default_timeout_minutes": 481},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_default_timeout_minutes_boundary(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH accepts boundary values 5 and 480."""
+    for v in (5, 480):
+        res = await client.patch(
+            "/api/settings/dispatch",
+            json={"default_timeout_minutes": v},
+            headers=auth_headers,
+        )
+        assert res.status_code == 200
+        assert res.json()["default_timeout_minutes"] == v

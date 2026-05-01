@@ -726,6 +726,7 @@ async def test_execute_run_success(
         api_key,
         engine="claude",
         agent_name="",
+        timeout_minutes=30,
     ):
         return {"id": "remote-123", "status": "pending"}
 
@@ -791,6 +792,7 @@ async def test_execute_run_remote_failure(
         api_key,
         engine="claude",
         agent_name="",
+        timeout_minutes=30,
     ):
         return {"id": "remote-456", "status": "pending"}
 
@@ -939,6 +941,7 @@ async def test_configure_and_dispatch(
         api_key,
         engine="claude",
         agent_name="",
+        timeout_minutes=30,
     ):
         return {"id": "remote-ok", "status": "pending"}
 
@@ -1085,6 +1088,34 @@ def test_resolve_max_turns_project_set_global_none_style() -> None:
     assert resolve_max_turns(50, 200) == 50
 
 
+def test_resolve_timeout_minutes_project_set_wins() -> None:
+    """Project timeout_minutes overrides global when project value is set."""
+    from agent_gtd.dispatch_worker import resolve_timeout_minutes
+
+    assert resolve_timeout_minutes(60, 30) == 60
+
+
+def test_resolve_timeout_minutes_project_none_falls_back_to_global() -> None:
+    """Falls back to global timeout_minutes when project value is None."""
+    from agent_gtd.dispatch_worker import resolve_timeout_minutes
+
+    assert resolve_timeout_minutes(None, 30) == 30
+
+
+def test_resolve_timeout_minutes_project_none_global_edge() -> None:
+    """Falls back to global even when global is a non-standard value."""
+    from agent_gtd.dispatch_worker import resolve_timeout_minutes
+
+    assert resolve_timeout_minutes(None, 5) == 5
+
+
+def test_resolve_timeout_minutes_project_set_global_different() -> None:
+    """Project value is returned regardless of global value."""
+    from agent_gtd.dispatch_worker import resolve_timeout_minutes
+
+    assert resolve_timeout_minutes(120, 480) == 120
+
+
 # ---------------------------------------------------------------------------
 # Integration tests: project-scoped dispatch_agent and dispatch_max_turns
 # ---------------------------------------------------------------------------
@@ -1154,6 +1185,7 @@ async def test_dispatch_uses_project_agent_override(
         api_key,
         engine="claude",
         agent_name="",
+        timeout_minutes=30,
     ):
         dispatched_agent.append(agent_name)
         return {"id": "remote-x", "status": "pending"}
@@ -1216,6 +1248,7 @@ async def test_dispatch_falls_back_to_global_agent_when_project_unset(
         api_key,
         engine="claude",
         agent_name="",
+        timeout_minutes=30,
     ):
         dispatched_agent.append(agent_name)
         return {"id": "remote-y", "status": "pending"}
@@ -1277,6 +1310,7 @@ async def test_dispatch_omits_agent_when_neither_set(
         api_key,
         engine="claude",
         agent_name="",
+        timeout_minutes=30,
     ):
         dispatched_agent.append(agent_name)
         return {"id": "remote-z", "status": "pending"}

@@ -48,6 +48,7 @@ export default function Settings() {
 
   // Agent Dispatch settings
   const [dispatchMaxTurns, setDispatchMaxTurns] = useState<number>(100)
+  const [dispatchTimeoutMinutes, setDispatchTimeoutMinutes] = useState<number>(30)
   const [maxConcurrent, setMaxConcurrent] = useState<number>(6)
   const [engine, setEngine] = useState<string>('claude')
   const [agentName, setAgentName] = useState<string>('')
@@ -65,10 +66,26 @@ export default function Settings() {
     setDispatchMaxTurns(clamped)
   }
 
+  const handleTimeoutMinutesChange = (raw: string) => {
+    const v = parseInt(raw, 10)
+    if (isNaN(v)) return
+    const clamped = Math.max(5, Math.min(480, v))
+    setDispatchTimeoutMinutes(clamped)
+  }
+
   const saveMaxTurns = async () => {
     try {
       const res = await api.settings.updateDispatch({ defaultMaxTurns: dispatchMaxTurns })
       setDispatchMaxTurns(res.defaultMaxTurns)
+    } catch {
+      // handled by api client
+    }
+  }
+
+  const saveTimeoutMinutes = async () => {
+    try {
+      const res = await api.settings.updateDispatch({ defaultTimeoutMinutes: dispatchTimeoutMinutes })
+      setDispatchTimeoutMinutes(res.defaultTimeoutMinutes)
     } catch {
       // handled by api client
     }
@@ -95,6 +112,7 @@ export default function Settings() {
       setEngine(res.engine)
       setAgentName(res.agentName)
       setDispatchMaxTurns(res.defaultMaxTurns)
+      setDispatchTimeoutMinutes(res.defaultTimeoutMinutes)
       setDispatchServiceUrl(res.serviceUrl)
       setDispatchApiKeyPreview(res.serviceApiKeyPreview)
       if (fields.serviceApiKey !== undefined) {
@@ -152,6 +170,7 @@ export default function Settings() {
       setEngine(res.engine)
       setAgentName(res.agentName)
       setDispatchMaxTurns(res.defaultMaxTurns)
+      setDispatchTimeoutMinutes(res.defaultTimeoutMinutes)
       setDispatchServiceUrl(res.serviceUrl)
       setDispatchApiKeyPreview(res.serviceApiKeyPreview)
     }).catch(() => {})
@@ -459,6 +478,18 @@ export default function Settings() {
                 />
               </Box>
             )}
+            <Box>
+              <TextField
+                label="Default timeout (min)"
+                type="number"
+                size="small"
+                value={dispatchTimeoutMinutes}
+                onChange={(e) => handleTimeoutMinutesChange(e.target.value)}
+                onBlur={() => { void saveTimeoutMinutes() }}
+                slotProps={{ htmlInput: { min: 5, max: 480 } }}
+                sx={{ width: 180 }}
+              />
+            </Box>
             <Box>
               <TextField
                 label="Max concurrent runs"

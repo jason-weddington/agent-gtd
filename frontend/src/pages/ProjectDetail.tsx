@@ -221,11 +221,13 @@ export default function ProjectDetail() {
   const [dispatchGlobalSettings, setDispatchGlobalSettings] = useState<{
     agentName: string
     defaultMaxTurns: number
+    defaultTimeoutMinutes: number
   } | null>(null)
   const [dispatchCapabilities, setDispatchCapabilities] = useState<DispatchAgentInfo[] | null>(null)
   const [dispatchCapabilitiesError, setDispatchCapabilitiesError] = useState<'unavailable' | 'empty' | null>(null)
   const [localDispatchAgent, setLocalDispatchAgent] = useState<string | null>(null)
   const [localDispatchMaxTurnsStr, setLocalDispatchMaxTurnsStr] = useState<string>('')
+  const [localDispatchTimeoutMinutesStr, setLocalDispatchTimeoutMinutesStr] = useState<string>('')
   const [savingDispatch, setSavingDispatch] = useState(false)
   const [dispatchSaved, setDispatchSaved] = useState(false)
   const [dispatchSaveError, setDispatchSaveError] = useState<string | null>(null)
@@ -312,7 +314,7 @@ export default function ProjectDetail() {
   // Load global dispatch settings once (for "inherit" defaults and effective values)
   useEffect(() => {
     api.settings.getDispatch()
-      .then((res) => setDispatchGlobalSettings({ agentName: res.agentName, defaultMaxTurns: res.defaultMaxTurns }))
+      .then((res) => setDispatchGlobalSettings({ agentName: res.agentName, defaultMaxTurns: res.defaultMaxTurns, defaultTimeoutMinutes: res.defaultTimeoutMinutes }))
       .catch(() => { /* non-critical: dispatch tab will show no effective values */ })
   }, [])
 
@@ -336,6 +338,7 @@ export default function ProjectDetail() {
     if (project) {
       setLocalDispatchAgent(project.dispatchAgent ?? null)
       setLocalDispatchMaxTurnsStr(project.dispatchMaxTurns?.toString() ?? '')
+      setLocalDispatchTimeoutMinutesStr(project.dispatchTimeoutMinutes?.toString() ?? '')
     }
   }, [project])
 
@@ -597,6 +600,16 @@ export default function ProjectDetail() {
       maxTurns = val
     }
 
+    let timeoutMinutes: number | null = null
+    if (localDispatchTimeoutMinutesStr !== '') {
+      const val = parseInt(localDispatchTimeoutMinutesStr, 10)
+      if (isNaN(val) || val < 5 || val > 480) {
+        setDispatchSaveError('Dispatch timeout must be between 5 and 480 minutes')
+        return
+      }
+      timeoutMinutes = val
+    }
+
     setSavingDispatch(true)
     setDispatchSaveError(null)
     setDispatchSaved(false)
@@ -604,10 +617,12 @@ export default function ProjectDetail() {
       const updated = await api.projects.update(projectId, {
         dispatchAgent: localDispatchAgent,
         dispatchMaxTurns: maxTurns,
+        dispatchTimeoutMinutes: timeoutMinutes,
       })
       setProject(updated)
       setLocalDispatchAgent(updated.dispatchAgent ?? null)
       setLocalDispatchMaxTurnsStr(updated.dispatchMaxTurns?.toString() ?? '')
+      setLocalDispatchTimeoutMinutesStr(updated.dispatchTimeoutMinutes?.toString() ?? '')
       setDispatchSaved(true)
       setTimeout(() => setDispatchSaved(false), 3000)
     } catch (err) {
@@ -1270,6 +1285,34 @@ export default function ProjectDetail() {
                   Effective:{' '}
                   <strong>
                     {project.dispatchMaxTurns ?? dispatchGlobalSettings?.defaultMaxTurns ?? '(unset)'}
+                  </strong>
+                </Typography>
+              </Box>
+
+              {/* Dispatch timeout field */}
+              <Box sx={{ mt: 2 }}>
+                <TextField
+                  label="Dispatch timeout (min)"
+                  type="number"
+                  size="small"
+                  fullWidth
+                  value={localDispatchTimeoutMinutesStr}
+                  onChange={(e) => setLocalDispatchTimeoutMinutesStr(e.target.value)}
+                  placeholder={
+                    dispatchGlobalSettings
+                      ? `Inherit from global (${dispatchGlobalSettings.defaultTimeoutMinutes})`
+                      : 'Inherit from global'
+                  }
+                  slotProps={{
+                    htmlInput: { min: 5, max: 480 },
+                    inputLabel: { shrink: localDispatchTimeoutMinutesStr !== '' || undefined },
+                  }}
+                  helperText="Leave blank to inherit the global default. Valid range: 5–480 minutes."
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                  Effective:{' '}
+                  <strong>
+                    {project.dispatchTimeoutMinutes ?? dispatchGlobalSettings?.defaultTimeoutMinutes ?? '(unset)'}
                   </strong>
                 </Typography>
               </Box>

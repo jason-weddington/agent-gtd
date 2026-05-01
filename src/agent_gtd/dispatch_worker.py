@@ -85,6 +85,30 @@ def resolve_max_turns(
     return global_default_max_turns
 
 
+def resolve_timeout_minutes(
+    project_dispatch_timeout_minutes: int | None,
+    global_default_timeout_minutes: int,
+) -> int:
+    """Resolve the effective timeout_minutes for a dispatch run.
+
+    Project-level override wins if set (non-None); otherwise falls back to
+    the deployment-wide ``dispatch.default_timeout_minutes`` setting.
+
+    Args:
+        project_dispatch_timeout_minutes: The project's
+            ``dispatch_timeout_minutes`` value, or ``None`` if the project
+            inherits the global default.
+        global_default_timeout_minutes: The deployment-wide default from
+            app_settings (hard-coded fallback: 30).
+
+    Returns:
+        The resolved timeout_minutes integer.
+    """
+    if project_dispatch_timeout_minutes is not None:
+        return project_dispatch_timeout_minutes
+    return global_default_timeout_minutes
+
+
 # ---------------------------------------------------------------------------
 # Run DB updates
 # ---------------------------------------------------------------------------
@@ -155,6 +179,7 @@ async def _dispatch_to_remote(
     api_key: str,
     engine: str = "claude",
     agent_name: str = "",
+    timeout_minutes: int = 30,
 ) -> dict[str, Any]:
     """POST /dispatch to the remote service. Returns the remote run dict."""
     body: dict[str, Any] = {
@@ -162,6 +187,7 @@ async def _dispatch_to_remote(
         "max_turns": max_turns,
         "mode": mode,
         "engine": engine,
+        "timeout_minutes": timeout_minutes,
     }
     if agent_name:
         body["agent_name"] = agent_name
@@ -452,6 +478,19 @@ async def execute_run(
     )
     agent_name = resolve_agent(project_dispatch_agent, global_agent_name)
 
+    # Resolve effective timeout: project override > global setting > hard-coded default
+    raw_global_timeout = await get_setting(db, "dispatch.default_timeout_minutes")
+    global_timeout_minutes = (
+        int(raw_global_timeout) if raw_global_timeout is not None else 30
+    )
+    raw_project_timeout = project.get("dispatch_timeout_minutes")
+    project_timeout_minutes = (
+        int(str(raw_project_timeout)) if raw_project_timeout is not None else None
+    )
+    effective_timeout_minutes = resolve_timeout_minutes(
+        project_timeout_minutes, global_timeout_minutes
+    )
+
     async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
         # --- Dispatch to remote ---
         try:
@@ -464,6 +503,7 @@ async def execute_run(
                 api_key=dispatch_api_key,
                 engine=engine,
                 agent_name=agent_name,
+                timeout_minutes=effective_timeout_minutes,
             )
             remote_run_id = remote_run["id"]
         except Exception as e:
