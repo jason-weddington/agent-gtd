@@ -25,6 +25,8 @@ if [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]; then
 fi
 
 uv run semantic-release version --no-push --no-vcs-release
-git push origin main --tags
-git push github main --tags
+# --follow-tags pushes only annotated tags reachable from the commits being
+# pushed, so stale local tags that diverge from origin don't block the release.
+git push --follow-tags origin main
+git push --follow-tags github main
 ./deploy.sh
