@@ -725,7 +725,14 @@ export default function ProjectDetail() {
       )}
 
       {/* Tabs */}
-      <Tabs value={tab} onChange={(_, v: number) => setTab(v)} sx={{ mb: 2 }}>
+      <Tabs
+          value={tab}
+          onChange={(_, v: number) => setTab(v)}
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
+          sx={{ mb: 2 }}
+        >
         <Tab label={`Items (${visibleItems.length})`} />
         <Tab label={`Notes (${notes.length})`} />
         <Tab label={`Comments (${comments.length})`} />
