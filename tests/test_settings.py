@@ -703,3 +703,89 @@ async def test_patch_dispatch_settings_default_timeout_minutes_boundary(
         )
         assert res.status_code == 200
         assert res.json()["default_timeout_minutes"] == v
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_invalid_engine(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH rejects an unknown engine value."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"engine": "nonsense"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_agent_name_too_long(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH rejects agent_name longer than the max length."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"agent_name": "x" * 200},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_plan_agent_name(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH persists plan_agent_name; GET returns it."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"plan_agent_name": "researcher"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["plan_agent_name"] == "researcher"
+
+    get_res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert get_res.json()["plan_agent_name"] == "researcher"
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_build_agent_name(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH persists build_agent_name; GET returns it."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"build_agent_name": "coder"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["build_agent_name"] == "coder"
+
+    get_res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert get_res.json()["build_agent_name"] == "coder"
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_plan_agent_name_too_long(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH rejects plan_agent_name longer than the max length."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"plan_agent_name": "x" * 200},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_build_agent_name_too_long(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH rejects build_agent_name longer than the max length."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"build_agent_name": "x" * 200},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
