@@ -78,7 +78,6 @@ export default function Projects() {
   const [area, setArea] = useState('')
   const [gitOrigin, setGitOrigin] = useState('')
   const [kbProjectRef, setKbProjectRef] = useState('')
-  const [dispatchAgent, setDispatchAgent] = useState('')
   const [planDispatchAgent, setPlanDispatchAgent] = useState('')
   const [buildDispatchAgent, setBuildDispatchAgent] = useState('')
   const [saving, setSaving] = useState(false)
@@ -155,7 +154,6 @@ export default function Projects() {
     setArea('')
     setGitOrigin('')
     setKbProjectRef('')
-    setDispatchAgent('')
     setPlanDispatchAgent('')
     setBuildDispatchAgent('')
     setDialogOpen(true)
@@ -170,7 +168,6 @@ export default function Projects() {
     setArea(project.area)
     setGitOrigin(project.gitOrigin || '')
     setKbProjectRef(project.kbProjectRef || '')
-    setDispatchAgent(project.dispatchAgent ?? '')
     setPlanDispatchAgent(project.planDispatchAgent ?? '')
     setBuildDispatchAgent(project.buildDispatchAgent ?? '')
     setDialogOpen(true)
@@ -183,7 +180,6 @@ export default function Projects() {
       if (editing) {
         await api.projects.update(editing.id, {
           name, description, status, area, gitOrigin, kbProjectRef,
-          dispatchAgent: dispatchAgent || null,
           planDispatchAgent: planDispatchAgent || null,
           buildDispatchAgent: buildDispatchAgent || null,
         })
@@ -657,16 +653,6 @@ export default function Projects() {
             size="small"
             placeholder="e.g. my-project"
             helperText="Personal KB project reference for agent context"
-          />
-          <TextField
-            fullWidth
-            label="Dispatch Agent"
-            value={dispatchAgent}
-            onChange={(e) => setDispatchAgent(e.target.value)}
-            margin="normal"
-            size="small"
-            placeholder="Leave blank to use global default"
-            helperText="Agent override for all dispatch modes (overrides global default)"
           />
           <TextField
             fullWidth

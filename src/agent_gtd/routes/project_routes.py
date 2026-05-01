@@ -29,7 +29,6 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
 def _project_response(row: dict[str, object]) -> ProjectResponse:
-    raw_agent = row.get("dispatch_agent")
     raw_turns = row.get("dispatch_max_turns")
     raw_timeout = row.get("dispatch_timeout_minutes")
     raw_plan_agent = row.get("plan_dispatch_agent")
@@ -42,7 +41,6 @@ def _project_response(row: dict[str, object]) -> ProjectResponse:
         area=str(row["area"]),
         git_origin=str(row.get("git_origin", "")),
         kb_project_ref=str(row.get("kb_project_ref", "")),
-        dispatch_agent=str(raw_agent) if raw_agent is not None else None,
         dispatch_max_turns=int(str(raw_turns)) if raw_turns is not None else None,
         dispatch_timeout_minutes=int(str(raw_timeout))
         if raw_timeout is not None
@@ -143,9 +141,6 @@ async def update_project(
 
     # Use model_fields_set to distinguish "absent" from "explicit null" for
     # nullable override columns.
-    clear_dispatch_agent = (
-        "dispatch_agent" in body.model_fields_set and body.dispatch_agent is None
-    )
     clear_dispatch_max_turns = (
         "dispatch_max_turns" in body.model_fields_set
         and body.dispatch_max_turns is None
@@ -175,8 +170,6 @@ async def update_project(
             area=body.area,
             git_origin=body.git_origin,
             kb_project_ref=body.kb_project_ref,
-            dispatch_agent=body.dispatch_agent,
-            clear_dispatch_agent=clear_dispatch_agent,
             dispatch_max_turns=body.dispatch_max_turns,
             clear_dispatch_max_turns=clear_dispatch_max_turns,
             dispatch_timeout_minutes=body.dispatch_timeout_minutes,

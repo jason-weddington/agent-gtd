@@ -70,7 +70,6 @@ describe('Settings – Dispatch Service API Key field', () => {
     const api = await getApi()
     vi.mocked(api.settings.getDispatch).mockResolvedValue({
       engine: 'claude',
-      agentName: '',
       planAgentName: '',
       buildAgentName: '',
       maxConcurrent: 6,
@@ -80,7 +79,6 @@ describe('Settings – Dispatch Service API Key field', () => {
     })
     vi.mocked(api.settings.updateDispatch).mockResolvedValue({
       engine: 'claude',
-      agentName: '',
       planAgentName: '',
       buildAgentName: '',
       maxConcurrent: 6,
@@ -112,7 +110,6 @@ describe('Settings – Dispatch Service API Key field', () => {
     const api = await getApi()
     vi.mocked(api.settings.getDispatch).mockResolvedValue({
       engine: 'claude',
-      agentName: '',
       planAgentName: '',
       buildAgentName: '',
       maxConcurrent: 6,

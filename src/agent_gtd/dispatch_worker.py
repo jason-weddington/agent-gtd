@@ -42,20 +42,16 @@ def resolve_agent(
     mode: str,
     project_plan_agent: str | None,
     project_build_agent: str | None,
-    project_dispatch_agent: str | None,
     global_plan_agent: str,
     global_build_agent: str,
-    global_agent_name: str,
 ) -> str:
     """Resolve the effective agent name for a dispatch run.
 
     Resolution order for plan mode:
-        project plan_dispatch_agent → global plan_agent_name →
-        project dispatch_agent → global agent_name → ""
+        project plan_dispatch_agent → global plan_agent_name → ""
 
     Resolution order for build mode:
-        project build_dispatch_agent → global build_agent_name →
-        project dispatch_agent → global agent_name → ""
+        project build_dispatch_agent → global build_agent_name → ""
 
     Args:
         mode: The run mode, either ``"plan"`` or ``"build"``.
@@ -63,20 +59,15 @@ def resolve_agent(
             ``None`` if not set.
         project_build_agent: The project's ``build_dispatch_agent`` value, or
             ``None`` if not set.
-        project_dispatch_agent: The project's ``dispatch_agent`` value, or
-            ``None`` if the project inherits the global default.
         global_plan_agent: The deployment-wide plan agent from app_settings.
         global_build_agent: The deployment-wide build agent from app_settings.
-        global_agent_name: The deployment-wide default agent from app_settings.
 
     Returns:
         The resolved agent name (may be empty string when none are set).
     """
-    mode_project = project_plan_agent if mode == "plan" else project_build_agent
-    mode_global = global_plan_agent if mode == "plan" else global_build_agent
-    return (
-        mode_project or mode_global or project_dispatch_agent or global_agent_name or ""
-    )
+    if mode == "plan":
+        return project_plan_agent or global_plan_agent or ""
+    return project_build_agent or global_build_agent or ""
 
 
 def resolve_max_turns(
@@ -485,16 +476,11 @@ async def execute_run(
     dispatch_url = settings["url"]
     dispatch_api_key = settings["api_key"]
 
-    # Resolve deployment-wide engine + agent_name (app_settings, not user_settings)
+    # Resolve deployment-wide engine + agent names (app_settings, not user_settings)
     engine = await get_setting(db, "dispatch.engine") or "claude"
-    global_agent_name = await get_setting(db, "dispatch.agent_name") or ""
     global_plan_agent = await get_setting(db, "dispatch.plan_agent_name") or ""
     global_build_agent = await get_setting(db, "dispatch.build_agent_name") or ""
     # Project override wins if set; fall back to the global deployment setting.
-    raw_dispatch_agent = project.get("dispatch_agent")
-    project_dispatch_agent = (
-        str(raw_dispatch_agent) if raw_dispatch_agent is not None else None
-    )
     raw_plan_agent = project.get("plan_dispatch_agent")
     project_plan_agent = str(raw_plan_agent) if raw_plan_agent is not None else None
     raw_build_agent = project.get("build_dispatch_agent")
@@ -503,10 +489,8 @@ async def execute_run(
         mode,
         project_plan_agent,
         project_build_agent,
-        project_dispatch_agent,
         global_plan_agent,
         global_build_agent,
-        global_agent_name,
     )
 
     # Resolve effective timeout: project override > global setting > hard-coded default

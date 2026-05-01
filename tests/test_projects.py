@@ -137,50 +137,49 @@ async def test_create_project_dispatch_fields_are_null(
     )
     assert res.status_code == 201
     data = res.json()
-    assert data["dispatch_agent"] is None
+    assert "dispatch_agent" not in data
     assert data["dispatch_max_turns"] is None
+    assert data["plan_dispatch_agent"] is None
+    assert data["build_dispatch_agent"] is None
 
 
 async def test_update_project_dispatch_overrides(
     client: AsyncClient, auth_headers: dict[str, str], project_id: str
 ):
-    """Setting dispatch_agent and dispatch_max_turns persists correctly."""
+    """Setting dispatch_max_turns persists correctly."""
     res = await client.patch(
         f"/api/projects/{project_id}",
-        json={"dispatch_agent": "planner", "dispatch_max_turns": 50},
+        json={"dispatch_max_turns": 50},
         headers=auth_headers,
     )
     assert res.status_code == 200
     data = res.json()
-    assert data["dispatch_agent"] == "planner"
     assert data["dispatch_max_turns"] == 50
 
     # Verify via GET
     res = await client.get(f"/api/projects/{project_id}", headers=auth_headers)
-    assert res.json()["dispatch_agent"] == "planner"
     assert res.json()["dispatch_max_turns"] == 50
 
 
 async def test_update_project_clear_dispatch_overrides(
     client: AsyncClient, auth_headers: dict[str, str], project_id: str
 ):
-    """Sending explicit null clears dispatch overrides back to NULL."""
-    # First set them
+    """Sending explicit null clears dispatch_max_turns back to NULL."""
+    # First set it
     await client.patch(
         f"/api/projects/{project_id}",
-        json={"dispatch_agent": "planner", "dispatch_max_turns": 50},
+        json={"dispatch_max_turns": 50},
         headers=auth_headers,
     )
 
     # Now clear with explicit null
     res = await client.patch(
         f"/api/projects/{project_id}",
-        json={"dispatch_agent": None, "dispatch_max_turns": None},
+        json={"dispatch_max_turns": None},
         headers=auth_headers,
     )
     assert res.status_code == 200
     data = res.json()
-    assert data["dispatch_agent"] is None
     assert data["dispatch_max_turns"] is None
 
 
@@ -188,10 +187,10 @@ async def test_update_project_absent_dispatch_fields_unchanged(
     client: AsyncClient, auth_headers: dict[str, str], project_id: str
 ):
     """Omitting dispatch fields leaves their existing values unchanged."""
-    # First set them
+    # First set dispatch_max_turns
     await client.patch(
         f"/api/projects/{project_id}",
-        json={"dispatch_agent": "builder", "dispatch_max_turns": 75},
+        json={"dispatch_max_turns": 75},
         headers=auth_headers,
     )
 
@@ -204,7 +203,6 @@ async def test_update_project_absent_dispatch_fields_unchanged(
     assert res.status_code == 200
     data = res.json()
     assert data["name"] == "New Name"
-    assert data["dispatch_agent"] == "builder"
     assert data["dispatch_max_turns"] == 75
 
 
@@ -379,3 +377,71 @@ async def test_project_ownership_isolation(client: AsyncClient):
     # User 2 cannot access it directly
     res = await client.get(f"/api/projects/{pid}", headers=headers2)
     assert res.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Migration: dispatch_agent → plan_dispatch_agent / build_dispatch_agent
+# ---------------------------------------------------------------------------
+
+
+async def test_dispatch_agent_migration_populates_plan_and_build(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    project_id: str,
+):
+    """The schema migration copies dispatch_agent into plan/build slots when NULL."""
+    from agent_gtd.database import get_db, init_db
+
+    db = await get_db()
+
+    # Directly set dispatch_agent to 'foo' and ensure plan/build are NULL
+    await db.execute(
+        "UPDATE projects SET dispatch_agent = $1,"
+        " plan_dispatch_agent = NULL, build_dispatch_agent = NULL"
+        " WHERE id = $2",
+        "foo",
+        project_id,
+    )
+
+    # Re-run init_db (idempotent) to trigger the migration statements
+    await init_db()
+
+    row = await db.fetchrow(
+        "SELECT plan_dispatch_agent, build_dispatch_agent FROM projects WHERE id = $1",
+        project_id,
+    )
+    assert row is not None
+    assert row["plan_dispatch_agent"] == "foo"
+    assert row["build_dispatch_agent"] == "foo"
+
+
+async def test_dispatch_agent_migration_does_not_overwrite_existing(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    project_id: str,
+):
+    """Migration does not overwrite plan/build slots that are already set."""
+    from agent_gtd.database import get_db, init_db
+
+    db = await get_db()
+
+    # Set dispatch_agent and explicit plan/build agents
+    await db.execute(
+        "UPDATE projects SET dispatch_agent = $1,"
+        " plan_dispatch_agent = $2, build_dispatch_agent = $3"
+        " WHERE id = $4",
+        "legacy",
+        "plan-winner",
+        "build-winner",
+        project_id,
+    )
+
+    await init_db()
+
+    row = await db.fetchrow(
+        "SELECT plan_dispatch_agent, build_dispatch_agent FROM projects WHERE id = $1",
+        project_id,
+    )
+    assert row is not None
+    assert row["plan_dispatch_agent"] == "plan-winner"
+    assert row["build_dispatch_agent"] == "build-winner"

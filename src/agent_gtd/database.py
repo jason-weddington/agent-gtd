@@ -299,6 +299,19 @@ _MIGRATIONS: list[str] = [
         used_at TEXT
     )
     """,
+    # Backfill plan/build dispatch agents from the legacy single dispatch_agent.
+    # Runs on every startup but is a no-op once already migrated (WHERE clause
+    # ensures we only copy when the target is still NULL).
+    """
+    UPDATE projects
+    SET plan_dispatch_agent = dispatch_agent
+    WHERE plan_dispatch_agent IS NULL AND dispatch_agent IS NOT NULL
+    """,
+    """
+    UPDATE projects
+    SET build_dispatch_agent = dispatch_agent
+    WHERE build_dispatch_agent IS NULL AND dispatch_agent IS NOT NULL
+    """,
 ]
 
 

@@ -23,6 +23,31 @@ from agent_gtd.routes.project_routes import router as project_router
 from agent_gtd.routes.settings_routes import router as settings_router
 
 
+async def _migrate_global_agent_name() -> None:
+    """One-time migration: copy dispatch.agent_name into plan/build slots if unset.
+
+    Reads the legacy ``dispatch.agent_name`` app setting (written by the old
+    single-agent UI).  If it is set and the mode-specific slots are still empty,
+    this function copies the value into both ``dispatch.plan_agent_name`` and
+    ``dispatch.build_agent_name``.  The legacy key is left intact.
+    """
+    from agent_gtd.database import get_db
+    from agent_gtd.services.settings_service import get_setting, set_setting
+
+    db = await get_db()
+    agent_name = await get_setting(db, "dispatch.agent_name")
+    if not agent_name:
+        return
+
+    plan_agent = await get_setting(db, "dispatch.plan_agent_name")
+    if not plan_agent:
+        await set_setting(db, "dispatch.plan_agent_name", agent_name)
+
+    build_agent = await get_setting(db, "dispatch.build_agent_name")
+    if not build_agent:
+        await set_setting(db, "dispatch.build_agent_name", agent_name)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifecycle: init/close database."""
@@ -35,6 +60,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     )
 
     await init_db()
+    await _migrate_global_agent_name()
     if is_local_mode():
         _app.dependency_overrides[get_current_user] = get_local_user
 

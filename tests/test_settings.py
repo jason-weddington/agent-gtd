@@ -167,7 +167,9 @@ async def test_get_dispatch_settings_defaults(
     assert res.status_code == 200
     data = res.json()
     assert data["engine"] == "claude"
-    assert data["agent_name"] == ""
+    assert "agent_name" not in data
+    assert data["plan_agent_name"] == ""
+    assert data["build_agent_name"] == ""
     assert data["max_concurrent"] == 6
     assert data["service_url"] == ""
     assert data["service_api_key_preview"] == ""
@@ -719,19 +721,6 @@ async def test_patch_dispatch_settings_invalid_engine(
 
 
 @pytest.mark.asyncio
-async def test_patch_dispatch_settings_agent_name_too_long(
-    client: AsyncClient, auth_headers: dict[str, str]
-) -> None:
-    """PATCH rejects agent_name longer than the max length."""
-    res = await client.patch(
-        "/api/settings/dispatch",
-        json={"agent_name": "x" * 200},
-        headers=auth_headers,
-    )
-    assert res.status_code == 422
-
-
-@pytest.mark.asyncio
 async def test_patch_dispatch_settings_plan_agent_name(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
@@ -789,3 +778,84 @@ async def test_patch_dispatch_settings_build_agent_name_too_long(
         headers=auth_headers,
     )
     assert res.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Migration: dispatch.agent_name → plan/build agent names
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_global_agent_migration_populates_plan_and_build() -> None:
+    """Startup migration copies dispatch.agent_name to plan/build slots if unset."""
+    from agent_gtd.database import get_db
+    from agent_gtd.main import _migrate_global_agent_name
+    from agent_gtd.services.settings_service import get_setting, set_setting
+
+    db = await get_db()
+
+    # Seed the legacy key and make sure plan/build are absent
+    await set_setting(db, "dispatch.agent_name", "legacy-agent")
+    # Remove plan/build keys if they exist (clean slate)
+    await db.execute(
+        "DELETE FROM app_settings WHERE key IN ($1, $2)",
+        "dispatch.plan_agent_name",
+        "dispatch.build_agent_name",
+    )
+
+    await _migrate_global_agent_name()
+
+    plan = await get_setting(db, "dispatch.plan_agent_name")
+    build = await get_setting(db, "dispatch.build_agent_name")
+    assert plan == "legacy-agent"
+    assert build == "legacy-agent"
+
+
+@pytest.mark.asyncio
+async def test_global_agent_migration_does_not_overwrite_existing() -> None:
+    """Migration does not overwrite plan/build slots that are already set."""
+    from agent_gtd.database import get_db
+    from agent_gtd.main import _migrate_global_agent_name
+    from agent_gtd.services.settings_service import get_setting, set_setting
+
+    db = await get_db()
+
+    await set_setting(db, "dispatch.agent_name", "legacy-agent")
+    await set_setting(db, "dispatch.plan_agent_name", "existing-plan")
+    await set_setting(db, "dispatch.build_agent_name", "existing-build")
+
+    await _migrate_global_agent_name()
+
+    plan = await get_setting(db, "dispatch.plan_agent_name")
+    build = await get_setting(db, "dispatch.build_agent_name")
+    assert plan == "existing-plan"
+    assert build == "existing-build"
+
+
+@pytest.mark.asyncio
+async def test_global_agent_migration_noop_when_legacy_absent() -> None:
+    """Migration is a no-op when dispatch.agent_name is not set."""
+    from agent_gtd.database import get_db
+    from agent_gtd.main import _migrate_global_agent_name
+    from agent_gtd.services.settings_service import get_setting
+
+    db = await get_db()
+
+    # Ensure legacy key is absent
+    await db.execute(
+        "DELETE FROM app_settings WHERE key = $1",
+        "dispatch.agent_name",
+    )
+    # Ensure plan/build are also absent
+    await db.execute(
+        "DELETE FROM app_settings WHERE key IN ($1, $2)",
+        "dispatch.plan_agent_name",
+        "dispatch.build_agent_name",
+    )
+
+    await _migrate_global_agent_name()
+
+    plan = await get_setting(db, "dispatch.plan_agent_name")
+    build = await get_setting(db, "dispatch.build_agent_name")
+    assert plan is None
+    assert build is None

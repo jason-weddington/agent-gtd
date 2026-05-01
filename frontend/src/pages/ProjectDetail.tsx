@@ -219,13 +219,15 @@ export default function ProjectDetail() {
 
   // Dispatch tab state
   const [dispatchGlobalSettings, setDispatchGlobalSettings] = useState<{
-    agentName: string
+    planAgentName: string
+    buildAgentName: string
     defaultMaxTurns: number
     defaultTimeoutMinutes: number
   } | null>(null)
   const [dispatchCapabilities, setDispatchCapabilities] = useState<DispatchAgentInfo[] | null>(null)
   const [dispatchCapabilitiesError, setDispatchCapabilitiesError] = useState<'unavailable' | 'empty' | null>(null)
-  const [localDispatchAgent, setLocalDispatchAgent] = useState<string | null>(null)
+  const [localPlanDispatchAgent, setLocalPlanDispatchAgent] = useState<string | null>(null)
+  const [localBuildDispatchAgent, setLocalBuildDispatchAgent] = useState<string | null>(null)
   const [localDispatchMaxTurnsStr, setLocalDispatchMaxTurnsStr] = useState<string>('')
   const [localDispatchTimeoutMinutesStr, setLocalDispatchTimeoutMinutesStr] = useState<string>('')
   const [savingDispatch, setSavingDispatch] = useState(false)
@@ -314,7 +316,12 @@ export default function ProjectDetail() {
   // Load global dispatch settings once (for "inherit" defaults and effective values)
   useEffect(() => {
     api.settings.getDispatch()
-      .then((res) => setDispatchGlobalSettings({ agentName: res.agentName, defaultMaxTurns: res.defaultMaxTurns, defaultTimeoutMinutes: res.defaultTimeoutMinutes }))
+      .then((res) => setDispatchGlobalSettings({
+        planAgentName: res.planAgentName,
+        buildAgentName: res.buildAgentName,
+        defaultMaxTurns: res.defaultMaxTurns,
+        defaultTimeoutMinutes: res.defaultTimeoutMinutes,
+      }))
       .catch(() => { /* non-critical: dispatch tab will show no effective values */ })
   }, [])
 
@@ -336,7 +343,8 @@ export default function ProjectDetail() {
   // Sync dispatch form local state when project loads or reloads
   useEffect(() => {
     if (project) {
-      setLocalDispatchAgent(project.dispatchAgent ?? null)
+      setLocalPlanDispatchAgent(project.planDispatchAgent ?? null)
+      setLocalBuildDispatchAgent(project.buildDispatchAgent ?? null)
       setLocalDispatchMaxTurnsStr(project.dispatchMaxTurns?.toString() ?? '')
       setLocalDispatchTimeoutMinutesStr(project.dispatchTimeoutMinutes?.toString() ?? '')
     }
@@ -615,12 +623,14 @@ export default function ProjectDetail() {
     setDispatchSaved(false)
     try {
       const updated = await api.projects.update(projectId, {
-        dispatchAgent: localDispatchAgent,
+        planDispatchAgent: localPlanDispatchAgent,
+        buildDispatchAgent: localBuildDispatchAgent,
         dispatchMaxTurns: maxTurns,
         dispatchTimeoutMinutes: timeoutMinutes,
       })
       setProject(updated)
-      setLocalDispatchAgent(updated.dispatchAgent ?? null)
+      setLocalPlanDispatchAgent(updated.planDispatchAgent ?? null)
+      setLocalBuildDispatchAgent(updated.buildDispatchAgent ?? null)
       setLocalDispatchMaxTurnsStr(updated.dispatchMaxTurns?.toString() ?? '')
       setLocalDispatchTimeoutMinutesStr(updated.dispatchTimeoutMinutes?.toString() ?? '')
       setDispatchSaved(true)
@@ -1199,67 +1209,115 @@ export default function ProjectDetail() {
               </Typography>
               <Divider sx={{ my: 1 }} />
 
-              {/* Agent field */}
-              <Box sx={{ mt: 2 }}>
-                <Autocomplete<string | null>
-                  options={[null, ...(dispatchCapabilities?.map((a) => a.name) ?? [])]}
-                  value={localDispatchAgent}
-                  onChange={(_, val) => setLocalDispatchAgent(val)}
-                  disabled={dispatchCapabilitiesError !== null}
-                  getOptionLabel={(option) => {
-                    if (option === null) {
-                      const global = dispatchGlobalSettings?.agentName
-                      return global ? `Inherit from global (${global})` : 'Inherit from global (none)'
-                    }
-                    return option
-                  }}
-                  isOptionEqualToValue={(option, value) => option === value}
-                  renderOption={(props, option) => {
-                    const agentInfo = dispatchCapabilities?.find((a) => a.name === option)
-                    const { key, ...rest } = props as React.HTMLAttributes<HTMLLIElement> & { key?: React.Key }
-                    return (
-                      <li key={key} {...rest}>
-                        <Box>
-                          <Typography variant="body2">
-                            {option === null
-                              ? (dispatchGlobalSettings?.agentName
-                                ? `Inherit from global (${dispatchGlobalSettings.agentName})`
-                                : 'Inherit from global (none)')
-                              : option}
+              {/* Plan Agent field */}
+              {(() => {
+                const capabilityNames = dispatchCapabilities?.map((a) => a.name) ?? []
+                const capabilitiesHelperText = dispatchCapabilitiesError === 'unavailable'
+                  ? 'Dispatch service unavailable'
+                  : dispatchCapabilitiesError === 'empty'
+                    ? 'No agents advertised'
+                    : null
+
+                const renderDispatchOption = (
+                  props: React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
+                  option: string | null,
+                  globalLabel: string,
+                ) => {
+                  const { key, ...rest } = props
+                  const agentInfo = option ? dispatchCapabilities?.find((a) => a.name === option) : null
+                  return (
+                    <li key={key} {...rest}>
+                      <Box>
+                        <Typography variant="body2">
+                          {option === null ? globalLabel : option}
+                        </Typography>
+                        {agentInfo?.description && (
+                          <Typography variant="caption" color="text.secondary">
+                            {agentInfo.description}
                           </Typography>
-                          {agentInfo?.description && (
-                            <Typography variant="caption" color="text.secondary">
-                              {agentInfo.description}
-                            </Typography>
-                          )}
-                        </Box>
-                      </li>
-                    )
-                  }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Dispatch Agent"
-                      size="small"
-                      helperText={
-                        dispatchCapabilitiesError === 'unavailable'
-                          ? 'Dispatch service unavailable'
-                          : dispatchCapabilitiesError === 'empty'
-                            ? 'No agents advertised'
-                            : undefined
-                      }
-                    />
-                  )}
-                />
-                {dispatchCapabilitiesError === null && (
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                    Effective:{' '}
-                    <strong>
-                      {(project.dispatchAgent ?? dispatchGlobalSettings?.agentName) || '(none)'}
-                    </strong>
-                  </Typography>
-                )}
-              </Box>
+                        )}
+                      </Box>
+                    </li>
+                  )
+                }
+
+                const globalPlanLabel = dispatchGlobalSettings?.planAgentName
+                  ? `Inherit from global (${dispatchGlobalSettings.planAgentName})`
+                  : 'Inherit from global (none)'
+                const globalBuildLabel = dispatchGlobalSettings?.buildAgentName
+                  ? `Inherit from global (${dispatchGlobalSettings.buildAgentName})`
+                  : 'Inherit from global (none)'
+
+                const planOptions: (string | null)[] = [null, ...capabilityNames]
+                const buildOptions: (string | null)[] = [null, ...capabilityNames]
+
+                return (
+                  <>
+                    <Box sx={{ mt: 2 }}>
+                      <Autocomplete<string | null>
+                        options={planOptions}
+                        value={localPlanDispatchAgent}
+                        onChange={(_, val) => setLocalPlanDispatchAgent(val)}
+                        disabled={dispatchCapabilitiesError !== null}
+                        getOptionLabel={(option) => option === null ? globalPlanLabel : option}
+                        isOptionEqualToValue={(option, value) => option === value}
+                        renderOption={(props, option) =>
+                          renderDispatchOption(
+                            props as React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
+                            option,
+                            globalPlanLabel,
+                          )
+                        }
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            label="Plan Agent"
+                            size="small"
+                            helperText={capabilitiesHelperText ?? undefined}
+                          />
+                        )}
+                      />
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                        Effective:{' '}
+                        <strong>
+                          {(project.planDispatchAgent ?? dispatchGlobalSettings?.planAgentName) || '(none)'}
+                        </strong>
+                      </Typography>
+                    </Box>
+                    <Box sx={{ mt: 2 }}>
+                      <Autocomplete<string | null>
+                        options={buildOptions}
+                        value={localBuildDispatchAgent}
+                        onChange={(_, val) => setLocalBuildDispatchAgent(val)}
+                        disabled={dispatchCapabilitiesError !== null}
+                        getOptionLabel={(option) => option === null ? globalBuildLabel : option}
+                        isOptionEqualToValue={(option, value) => option === value}
+                        renderOption={(props, option) =>
+                          renderDispatchOption(
+                            props as React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
+                            option,
+                            globalBuildLabel,
+                          )
+                        }
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            label="Build Agent"
+                            size="small"
+                            helperText={capabilitiesHelperText ?? undefined}
+                          />
+                        )}
+                      />
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                        Effective:{' '}
+                        <strong>
+                          {(project.buildDispatchAgent ?? dispatchGlobalSettings?.buildAgentName) || '(none)'}
+                        </strong>
+                      </Typography>
+                    </Box>
+                  </>
+                )
+              })()}
 
               {/* Max turns field */}
               <Box sx={{ mt: 2 }}>

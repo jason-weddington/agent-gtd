@@ -79,7 +79,6 @@ class Project(BaseModel):
     area: str = ""
     git_origin: str = ""
     kb_project_ref: str = ""
-    dispatch_agent: str | None = None
     dispatch_max_turns: int | None = None
     dispatch_timeout_minutes: int | None = None
     plan_dispatch_agent: str | None = None
@@ -297,8 +296,8 @@ class CreateProjectRequest(BaseModel):
 class UpdateProjectRequest(BaseModel):
     """Update a project. All fields optional.
 
-    For dispatch_agent, dispatch_max_turns, dispatch_timeout_minutes,
-    plan_dispatch_agent, and build_dispatch_agent:
+    For dispatch_max_turns, dispatch_timeout_minutes, plan_dispatch_agent,
+    and build_dispatch_agent:
     - Field absent → unchanged
     - Field explicitly null → clear the override (revert to inheriting global)
     - Field set → persist the value
@@ -310,7 +309,6 @@ class UpdateProjectRequest(BaseModel):
     area: str | None = None
     git_origin: str | None = None
     kb_project_ref: str | None = None
-    dispatch_agent: str | None = None
     dispatch_max_turns: int | None = None
     dispatch_timeout_minutes: int | None = None
     plan_dispatch_agent: str | None = None
@@ -327,7 +325,6 @@ class ProjectResponse(BaseModel):
     area: str
     git_origin: str
     kb_project_ref: str
-    dispatch_agent: str | None = None
     dispatch_max_turns: int | None = None
     dispatch_timeout_minutes: int | None = None
     plan_dispatch_agent: str | None = None
@@ -526,7 +523,6 @@ class DispatchSettingsResponse(BaseModel):
     """Full dispatch settings returned from GET /api/settings/dispatch."""
 
     engine: str
-    agent_name: str
     plan_agent_name: str = ""
     build_agent_name: str = ""
     max_concurrent: int
@@ -543,7 +539,6 @@ class UpdateDispatchSettingsRequest(BaseModel):
     """
 
     engine: str | None = None
-    agent_name: str | None = None
     plan_agent_name: str | None = None
     build_agent_name: str | None = None
     service_url: str | None = None

@@ -51,7 +51,6 @@ export default function Settings() {
   const [dispatchTimeoutMinutes, setDispatchTimeoutMinutes] = useState<number>(30)
   const [maxConcurrent, setMaxConcurrent] = useState<number>(6)
   const [engine, setEngine] = useState<string>('claude')
-  const [agentName, setAgentName] = useState<string>('')
   const [planAgentName, setPlanAgentName] = useState<string>('')
   const [buildAgentName, setBuildAgentName] = useState<string>('')
   const [dispatchServiceUrl, setDispatchServiceUrl] = useState('')
@@ -104,7 +103,6 @@ export default function Settings() {
 
   const saveDispatchSettings = async (fields: {
     engine?: string
-    agentName?: string
     planAgentName?: string
     buildAgentName?: string
     serviceUrl?: string
@@ -114,7 +112,6 @@ export default function Settings() {
     try {
       const res = await api.settings.updateDispatch(fields)
       setEngine(res.engine)
-      setAgentName(res.agentName)
       setPlanAgentName(res.planAgentName)
       setBuildAgentName(res.buildAgentName)
       setDispatchMaxTurns(res.defaultMaxTurns)
@@ -174,7 +171,6 @@ export default function Settings() {
     api.settings.getMaxConcurrent().then((res) => setMaxConcurrent(res.value)).catch(() => {})
     api.settings.getDispatch().then((res) => {
       setEngine(res.engine)
-      setAgentName(res.agentName)
       setPlanAgentName(res.planAgentName)
       setBuildAgentName(res.buildAgentName)
       setDispatchMaxTurns(res.defaultMaxTurns)
@@ -380,54 +376,97 @@ export default function Settings() {
             </FormControl>
             {(() => {
               const knownAgentNames = capabilities?.agents.map((a) => a.name) ?? []
-              const agentOptions: string[] = ['', ...knownAgentNames]
-              if (agentName && !knownAgentNames.includes(agentName)) {
-                agentOptions.push(agentName)
-              }
               const agentFieldDisabled =
                 capabilitiesFailed ||
                 (capabilities !== null && capabilities.agents.length === 0)
-              const agentFieldHelperText = capabilitiesFailed
+              const agentFieldHelperTextBase = capabilitiesFailed
                 ? 'Dispatch service unavailable.'
                 : capabilities !== null && capabilities.agents.length === 0
                   ? 'No agents advertised by the dispatch service.'
-                  : 'Passed to the CLI as --agent'
+                  : null
+
+              const makePlanOptions = (): string[] => {
+                const opts: string[] = ['', ...knownAgentNames]
+                if (planAgentName && !knownAgentNames.includes(planAgentName)) {
+                  opts.push(planAgentName)
+                }
+                return opts
+              }
+              const makeBuildOptions = (): string[] => {
+                const opts: string[] = ['', ...knownAgentNames]
+                if (buildAgentName && !knownAgentNames.includes(buildAgentName)) {
+                  opts.push(buildAgentName)
+                }
+                return opts
+              }
+
+              const getLabel = (option: string, known: string[]): string => {
+                if (option === '') return 'None'
+                if (!known.includes(option)) return `${option} (unknown)`
+                return option
+              }
+
+              const renderAgentOption = (
+                props: HTMLAttributes<HTMLLIElement> & { key: Key },
+                option: string,
+              ) => {
+                const { key, ...liProps } = props
+                if (option === '') return <li key={key} {...liProps}>None</li>
+                const agent = capabilities?.agents.find((a) => a.name === option)
+                return (
+                  <li key={key} {...liProps}>
+                    <ListItemText primary={option} secondary={agent?.description} />
+                  </li>
+                )
+              }
+
               return (
                 <>
                   <Autocomplete
                     size="small"
                     fullWidth
-                    options={agentOptions}
-                    value={agentName}
+                    options={makePlanOptions()}
+                    value={planAgentName}
                     disabled={agentFieldDisabled}
                     onChange={(_, newValue) => {
                       const v = newValue ?? ''
-                      setAgentName(v)
-                      if (!savingDispatch) void saveDispatchSettings({ agentName: v })
+                      setPlanAgentName(v)
+                      if (!savingDispatch) void saveDispatchSettings({ planAgentName: v })
                     }}
                     isOptionEqualToValue={(option, value) => option === value}
-                    getOptionLabel={(option) => {
-                      if (option === '') return 'None'
-                      if (!knownAgentNames.includes(option)) return `${option} (unknown)`
-                      return option
-                    }}
-                    renderOption={(props, option) => {
-                      const { key, ...liProps } = props as HTMLAttributes<HTMLLIElement> & { key: Key }
-                      if (option === '') {
-                        return <li key={key} {...liProps}>None</li>
-                      }
-                      const agent = capabilities?.agents.find((a) => a.name === option)
-                      return (
-                        <li key={key} {...liProps}>
-                          <ListItemText primary={option} secondary={agent?.description} />
-                        </li>
-                      )
-                    }}
+                    getOptionLabel={(option) => getLabel(option, knownAgentNames)}
+                    renderOption={(props, option) =>
+                      renderAgentOption(props as HTMLAttributes<HTMLLIElement> & { key: Key }, option)
+                    }
                     renderInput={(params) => (
                       <TextField
                         {...params}
-                        label="Custom agent name (optional)"
-                        helperText={agentFieldHelperText}
+                        label="Plan Agent"
+                        helperText={agentFieldHelperTextBase ?? 'Used for plan-mode dispatches'}
+                      />
+                    )}
+                  />
+                  <Autocomplete
+                    size="small"
+                    fullWidth
+                    options={makeBuildOptions()}
+                    value={buildAgentName}
+                    disabled={agentFieldDisabled}
+                    onChange={(_, newValue) => {
+                      const v = newValue ?? ''
+                      setBuildAgentName(v)
+                      if (!savingDispatch) void saveDispatchSettings({ buildAgentName: v })
+                    }}
+                    isOptionEqualToValue={(option, value) => option === value}
+                    getOptionLabel={(option) => getLabel(option, knownAgentNames)}
+                    renderOption={(props, option) =>
+                      renderAgentOption(props as HTMLAttributes<HTMLLIElement> & { key: Key }, option)
+                    }
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Build Agent"
+                        helperText={agentFieldHelperTextBase ?? 'Used for build-mode dispatches'}
                       />
                     )}
                   />
@@ -442,30 +481,6 @@ export default function Settings() {
                 </>
               )
             })()}
-            <TextField
-              label="Plan Agent"
-              size="small"
-              value={planAgentName}
-              onChange={(e) => setPlanAgentName(e.target.value)}
-              onBlur={() => {
-                if (!savingDispatch) void saveDispatchSettings({ planAgentName })
-              }}
-              placeholder="Agent used for plan-mode runs"
-              helperText="Overrides Default Agent for plan-mode runs"
-              fullWidth
-            />
-            <TextField
-              label="Build Agent"
-              size="small"
-              value={buildAgentName}
-              onChange={(e) => setBuildAgentName(e.target.value)}
-              onBlur={() => {
-                if (!savingDispatch) void saveDispatchSettings({ buildAgentName })
-              }}
-              placeholder="Agent used for build-mode runs"
-              helperText="Overrides Default Agent for build-mode runs"
-              fullWidth
-            />
             <TextField
               label="Dispatch service URL"
               type="url"

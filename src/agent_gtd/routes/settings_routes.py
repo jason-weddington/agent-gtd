@@ -43,7 +43,6 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
     )
 
     engine = await settings_service.get_setting(db, _ENGINE_KEY) or "claude"
-    agent_name = await settings_service.get_setting(db, _AGENT_NAME_KEY) or ""
     plan_agent_name = await settings_service.get_setting(db, _PLAN_AGENT_NAME_KEY) or ""
     build_agent_name = (
         await settings_service.get_setting(db, _BUILD_AGENT_NAME_KEY) or ""
@@ -71,7 +70,6 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
 
     return DispatchSettingsResponse(
         engine=engine,
-        agent_name=agent_name,
         plan_agent_name=plan_agent_name,
         build_agent_name=build_agent_name,
         max_concurrent=max_concurrent,
@@ -149,13 +147,6 @@ async def update_dispatch_settings(
                 detail=f"engine must be one of {sorted(_VALID_ENGINES)}",
             )
         await settings_service.set_setting(db, _ENGINE_KEY, body.engine)
-    if body.agent_name is not None:
-        if len(body.agent_name) > _MAX_AGENT_NAME_LEN:
-            raise HTTPException(
-                status_code=422,
-                detail=f"agent_name must be at most {_MAX_AGENT_NAME_LEN} chars",
-            )
-        await settings_service.set_setting(db, _AGENT_NAME_KEY, body.agent_name)
     if body.plan_agent_name is not None:
         if len(body.plan_agent_name) > _MAX_AGENT_NAME_LEN:
             raise HTTPException(

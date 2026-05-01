@@ -1033,25 +1033,23 @@ async def test_create_run_falls_back_to_env_var_when_not_persisted(
 
 
 def test_resolve_agent_project_set_wins() -> None:
-    """Project generic agent overrides global when project value is set."""
+    """Project build agent overrides global when project value is set."""
     from agent_gtd.dispatch_worker import resolve_agent
 
     assert (
         resolve_agent(
             mode="build",
             project_plan_agent=None,
-            project_build_agent=None,
-            project_dispatch_agent="my-project-agent",
+            project_build_agent="my-project-build-agent",
             global_plan_agent="",
-            global_build_agent="",
-            global_agent_name="global-agent",
+            global_build_agent="global-build-agent",
         )
-        == "my-project-agent"
+        == "my-project-build-agent"
     )
 
 
 def test_resolve_agent_project_none_falls_back_to_global() -> None:
-    """Falls back to global agent when project value is None."""
+    """Falls back to global build agent when project value is None."""
     from agent_gtd.dispatch_worker import resolve_agent
 
     assert (
@@ -1059,12 +1057,10 @@ def test_resolve_agent_project_none_falls_back_to_global() -> None:
             mode="build",
             project_plan_agent=None,
             project_build_agent=None,
-            project_dispatch_agent=None,
             global_plan_agent="",
-            global_build_agent="",
-            global_agent_name="global-agent",
+            global_build_agent="global-build-agent",
         )
-        == "global-agent"
+        == "global-build-agent"
     )
 
 
@@ -1077,10 +1073,8 @@ def test_resolve_agent_both_none_returns_empty() -> None:
             mode="build",
             project_plan_agent=None,
             project_build_agent=None,
-            project_dispatch_agent=None,
             global_plan_agent="",
             global_build_agent="",
-            global_agent_name="",
         )
         == ""
     )
@@ -1094,13 +1088,11 @@ def test_resolve_agent_project_set_global_empty() -> None:
         resolve_agent(
             mode="build",
             project_plan_agent=None,
-            project_build_agent=None,
-            project_dispatch_agent="project-agent",
+            project_build_agent="project-build-agent",
             global_plan_agent="",
             global_build_agent="",
-            global_agent_name="",
         )
-        == "project-agent"
+        == "project-build-agent"
     )
 
 
@@ -1168,7 +1160,7 @@ def test_resolve_timeout_minutes_project_set_global_different() -> None:
 async def test_dispatch_uses_project_agent_override(
     client: AsyncClient, auth_headers: dict[str, str], user_id: str, monkeypatch
 ) -> None:
-    """execute_run passes project dispatch_agent to remote, ignoring global."""
+    """execute_run passes project build_dispatch_agent to remote, ignoring global."""
     import agent_gtd.dispatch_worker as dw
     from agent_gtd.database import get_db, row_to_dict
     from agent_gtd.dispatch_worker import execute_run
@@ -1176,11 +1168,11 @@ async def test_dispatch_uses_project_agent_override(
 
     monkeypatch.setattr(dw, "POLL_INTERVAL", 0.01)
 
-    # Set a global agent name
+    # Set a global build agent name
     db = await get_db()
-    await set_setting(db, "dispatch.agent_name", "global-agent")
+    await set_setting(db, "dispatch.build_agent_name", "global-build-agent")
 
-    # Create project with a project-level dispatch_agent override
+    # Create project with a project-level build_dispatch_agent override
     res = await client.post(
         "/api/projects",
         json={
@@ -1193,7 +1185,7 @@ async def test_dispatch_uses_project_agent_override(
     project_id = res.json()["id"]
     await client.patch(
         f"/api/projects/{project_id}",
-        json={"dispatch_agent": "project-specific-agent"},
+        json={"build_dispatch_agent": "project-specific-agent"},
         headers=auth_headers,
     )
 
@@ -1248,7 +1240,7 @@ async def test_dispatch_uses_project_agent_override(
 async def test_dispatch_falls_back_to_global_agent_when_project_unset(
     client: AsyncClient, auth_headers: dict[str, str], user_id: str, monkeypatch
 ) -> None:
-    """execute_run uses global agent_name when project has no dispatch_agent."""
+    """execute_run uses global build_agent_name when project has no agent override."""
     import agent_gtd.dispatch_worker as dw
     from agent_gtd.database import get_db, row_to_dict
     from agent_gtd.dispatch_worker import execute_run
@@ -1257,9 +1249,9 @@ async def test_dispatch_falls_back_to_global_agent_when_project_unset(
     monkeypatch.setattr(dw, "POLL_INTERVAL", 0.01)
 
     db = await get_db()
-    await set_setting(db, "dispatch.agent_name", "global-fallback-agent")
+    await set_setting(db, "dispatch.build_agent_name", "global-fallback-agent")
 
-    # Create project without dispatch_agent (defaults to NULL)
+    # Create project without build_dispatch_agent (defaults to NULL)
     project_id = await _create_project_with_origin(client, auth_headers)
     item_id = await _create_item_in_project(client, auth_headers, project_id)
 

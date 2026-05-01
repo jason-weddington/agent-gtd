@@ -239,7 +239,6 @@ export const api = {
     getDispatch: () =>
       request<{
         engine: string
-        agentName: string
         planAgentName: string
         buildAgentName: string
         maxConcurrent: number
@@ -250,7 +249,6 @@ export const api = {
       }>('GET', '/settings/dispatch'),
     updateDispatch: (data: {
       engine?: string
-      agentName?: string
       planAgentName?: string
       buildAgentName?: string
       serviceUrl?: string
@@ -260,7 +258,6 @@ export const api = {
     }) =>
       request<{
         engine: string
-        agentName: string
         planAgentName: string
         buildAgentName: string
         maxConcurrent: number
