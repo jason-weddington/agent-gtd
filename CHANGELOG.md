@@ -2,6 +2,50 @@
 
 <!-- version list -->
 
+## v1.79.0 (2026-05-01)
+
+### Bug Fixes
+
+- Release.sh — use --follow-tags to avoid stale-tag push failures
+  ([`644de75`](https://github.com/jason-weddington/agent-gtd/commit/644de75f12c158cbf7c8b7c712e8a209a6c12397))
+
+- **frontend**: Kanban drag-and-drop — refresh before clearing optimistic
+  ([`0fa9b2e`](https://github.com/jason-weddington/agent-gtd/commit/0fa9b2e30d79e695ef031226032efa74686366b0))
+
+- **ui**: Make project detail tabs horizontally scrollable on mobile
+  ([`3119532`](https://github.com/jason-weddington/agent-gtd/commit/31195325f9f0b9892547e594a0b1597d972ec249))
+
+### Chores
+
+- Apply ruff-format to admin/auth files
+  ([`819f792`](https://github.com/jason-weddington/agent-gtd/commit/819f7920b926136fdaf3d012c56817b48007cdbb))
+
+### Features
+
+- Configurable dispatch timeout (global default + per-project override)
+  ([`a154ec9`](https://github.com/jason-weddington/agent-gtd/commit/a154ec91b00d83ff88b62a0eab4e1040850bd66a))
+
+- Mode-specific plan and build dispatch agents
+  ([`ed78092`](https://github.com/jason-weddington/agent-gtd/commit/ed7809251fc26bd67405bd9f5061657572906592))
+
+- Replace default agent with plan/build dropdowns, drop legacy field
+  ([`d288aa5`](https://github.com/jason-weddington/agent-gtd/commit/d288aa5441a69dfd3b9cb5140b48082e67d3fc5f))
+
+- **frontend**: Persist New Item dialog draft to localStorage
+  ([`55e29bb`](https://github.com/jason-weddington/agent-gtd/commit/55e29bbc15d22e81eac62a17eb9e01d1e09a9d70))
+
+- **ui**: Optimistic item creation in ProjectDetail
+  ([`7387c64`](https://github.com/jason-weddington/agent-gtd/commit/7387c646e28ce9f6d15b06f6b9889e38345e60ea))
+
+- **ui**: Show Plan/Build mode chip on dispatch run rows
+  ([`5ce45eb`](https://github.com/jason-weddington/agent-gtd/commit/5ce45eb393dd04c8c1e10008dceca7c558722c31))
+
+### Testing
+
+- Cover plan/build agent settings + dispatch engine validation paths
+  ([`b6a07e9`](https://github.com/jason-weddington/agent-gtd/commit/b6a07e9b419b0725656e56484e468f69f5a22ec5))
+
+
 ## v1.78.0 (2026-04-29)
 
 ### Bug Fixes
