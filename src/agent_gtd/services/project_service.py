@@ -200,11 +200,15 @@ async def update_project(
     clear_dispatch_max_turns: bool = False,
     dispatch_timeout_minutes: int | None = None,
     clear_dispatch_timeout_minutes: bool = False,
+    plan_dispatch_agent: str | None = None,
+    clear_plan_dispatch_agent: bool = False,
+    build_dispatch_agent: str | None = None,
+    clear_build_dispatch_agent: bool = False,
 ) -> dict[str, Any]:
     """Update a project. Only non-None fields are changed.
 
     For nullable override columns (dispatch_agent, dispatch_max_turns,
-    dispatch_timeout_minutes):
+    dispatch_timeout_minutes, plan_dispatch_agent, build_dispatch_agent):
     - Pass the value to set it.
     - Pass clear_dispatch_agent=True (with dispatch_agent=None) to set NULL.
     - Omit both to leave the column unchanged.
@@ -253,6 +257,18 @@ async def update_project(
     elif clear_dispatch_timeout_minutes:
         params.append(None)
         updates.append(f"dispatch_timeout_minutes = ${len(params)}")
+    if plan_dispatch_agent is not None:
+        params.append(plan_dispatch_agent)
+        updates.append(f"plan_dispatch_agent = ${len(params)}")
+    elif clear_plan_dispatch_agent:
+        params.append(None)
+        updates.append(f"plan_dispatch_agent = ${len(params)}")
+    if build_dispatch_agent is not None:
+        params.append(build_dispatch_agent)
+        updates.append(f"build_dispatch_agent = ${len(params)}")
+    elif clear_build_dispatch_agent:
+        params.append(None)
+        updates.append(f"build_dispatch_agent = ${len(params)}")
 
     if updates:
         params.append(datetime.now(UTC).isoformat())

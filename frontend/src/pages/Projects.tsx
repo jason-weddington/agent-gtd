@@ -78,6 +78,9 @@ export default function Projects() {
   const [area, setArea] = useState('')
   const [gitOrigin, setGitOrigin] = useState('')
   const [kbProjectRef, setKbProjectRef] = useState('')
+  const [dispatchAgent, setDispatchAgent] = useState('')
+  const [planDispatchAgent, setPlanDispatchAgent] = useState('')
+  const [buildDispatchAgent, setBuildDispatchAgent] = useState('')
   const [saving, setSaving] = useState(false)
 
   // Delete confirmation
@@ -152,6 +155,9 @@ export default function Projects() {
     setArea('')
     setGitOrigin('')
     setKbProjectRef('')
+    setDispatchAgent('')
+    setPlanDispatchAgent('')
+    setBuildDispatchAgent('')
     setDialogOpen(true)
   }
 
@@ -164,6 +170,9 @@ export default function Projects() {
     setArea(project.area)
     setGitOrigin(project.gitOrigin || '')
     setKbProjectRef(project.kbProjectRef || '')
+    setDispatchAgent(project.dispatchAgent ?? '')
+    setPlanDispatchAgent(project.planDispatchAgent ?? '')
+    setBuildDispatchAgent(project.buildDispatchAgent ?? '')
     setDialogOpen(true)
   }
 
@@ -172,7 +181,12 @@ export default function Projects() {
     setSaving(true)
     try {
       if (editing) {
-        await api.projects.update(editing.id, { name, description, status, area, gitOrigin, kbProjectRef })
+        await api.projects.update(editing.id, {
+          name, description, status, area, gitOrigin, kbProjectRef,
+          dispatchAgent: dispatchAgent || null,
+          planDispatchAgent: planDispatchAgent || null,
+          buildDispatchAgent: buildDispatchAgent || null,
+        })
       } else {
         await api.projects.create({ name, description, status, area, gitOrigin, kbProjectRef })
       }
@@ -643,6 +657,36 @@ export default function Projects() {
             size="small"
             placeholder="e.g. my-project"
             helperText="Personal KB project reference for agent context"
+          />
+          <TextField
+            fullWidth
+            label="Dispatch Agent"
+            value={dispatchAgent}
+            onChange={(e) => setDispatchAgent(e.target.value)}
+            margin="normal"
+            size="small"
+            placeholder="Leave blank to use global default"
+            helperText="Agent override for all dispatch modes (overrides global default)"
+          />
+          <TextField
+            fullWidth
+            label="Plan Agent Override"
+            value={planDispatchAgent}
+            onChange={(e) => setPlanDispatchAgent(e.target.value)}
+            margin="normal"
+            size="small"
+            placeholder="Leave blank to use global plan agent"
+            helperText="Agent used for plan-mode runs (overrides Dispatch Agent)"
+          />
+          <TextField
+            fullWidth
+            label="Build Agent Override"
+            value={buildDispatchAgent}
+            onChange={(e) => setBuildDispatchAgent(e.target.value)}
+            margin="normal"
+            size="small"
+            placeholder="Leave blank to use global build agent"
+            helperText="Agent used for build-mode runs (overrides Dispatch Agent)"
           />
         </DialogContent>
         <DialogActions>

@@ -89,6 +89,10 @@ export interface Project {
   dispatchMaxTurns?: number | null
   /** Per-project dispatch timeout override (minutes). Null = inherit from global setting. */
   dispatchTimeoutMinutes?: number | null
+  /** Per-project plan-mode agent override. Null = inherit from global plan agent. */
+  planDispatchAgent?: string | null
+  /** Per-project build-mode agent override. Null = inherit from global build agent. */
+  buildDispatchAgent?: string | null
 }
 
 export interface MemberSummary {

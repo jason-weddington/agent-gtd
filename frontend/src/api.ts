@@ -240,6 +240,8 @@ export const api = {
       request<{
         engine: string
         agentName: string
+        planAgentName: string
+        buildAgentName: string
         maxConcurrent: number
         defaultMaxTurns: number
         defaultTimeoutMinutes: number
@@ -249,6 +251,8 @@ export const api = {
     updateDispatch: (data: {
       engine?: string
       agentName?: string
+      planAgentName?: string
+      buildAgentName?: string
       serviceUrl?: string
       serviceApiKey?: string
       defaultMaxTurns?: number
@@ -257,6 +261,8 @@ export const api = {
       request<{
         engine: string
         agentName: string
+        planAgentName: string
+        buildAgentName: string
         maxConcurrent: number
         defaultMaxTurns: number
         defaultTimeoutMinutes: number

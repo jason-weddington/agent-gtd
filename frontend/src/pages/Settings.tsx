@@ -52,6 +52,8 @@ export default function Settings() {
   const [maxConcurrent, setMaxConcurrent] = useState<number>(6)
   const [engine, setEngine] = useState<string>('claude')
   const [agentName, setAgentName] = useState<string>('')
+  const [planAgentName, setPlanAgentName] = useState<string>('')
+  const [buildAgentName, setBuildAgentName] = useState<string>('')
   const [dispatchServiceUrl, setDispatchServiceUrl] = useState('')
   const [dispatchApiKeyInput, setDispatchApiKeyInput] = useState('')
   const [dispatchApiKeyPreview, setDispatchApiKeyPreview] = useState('')
@@ -103,6 +105,8 @@ export default function Settings() {
   const saveDispatchSettings = async (fields: {
     engine?: string
     agentName?: string
+    planAgentName?: string
+    buildAgentName?: string
     serviceUrl?: string
     serviceApiKey?: string
   }) => {
@@ -111,6 +115,8 @@ export default function Settings() {
       const res = await api.settings.updateDispatch(fields)
       setEngine(res.engine)
       setAgentName(res.agentName)
+      setPlanAgentName(res.planAgentName)
+      setBuildAgentName(res.buildAgentName)
       setDispatchMaxTurns(res.defaultMaxTurns)
       setDispatchTimeoutMinutes(res.defaultTimeoutMinutes)
       setDispatchServiceUrl(res.serviceUrl)
@@ -169,6 +175,8 @@ export default function Settings() {
     api.settings.getDispatch().then((res) => {
       setEngine(res.engine)
       setAgentName(res.agentName)
+      setPlanAgentName(res.planAgentName)
+      setBuildAgentName(res.buildAgentName)
       setDispatchMaxTurns(res.defaultMaxTurns)
       setDispatchTimeoutMinutes(res.defaultTimeoutMinutes)
       setDispatchServiceUrl(res.serviceUrl)
@@ -434,6 +442,30 @@ export default function Settings() {
                 </>
               )
             })()}
+            <TextField
+              label="Plan Agent"
+              size="small"
+              value={planAgentName}
+              onChange={(e) => setPlanAgentName(e.target.value)}
+              onBlur={() => {
+                if (!savingDispatch) void saveDispatchSettings({ planAgentName })
+              }}
+              placeholder="Agent used for plan-mode runs"
+              helperText="Overrides Default Agent for plan-mode runs"
+              fullWidth
+            />
+            <TextField
+              label="Build Agent"
+              size="small"
+              value={buildAgentName}
+              onChange={(e) => setBuildAgentName(e.target.value)}
+              onBlur={() => {
+                if (!savingDispatch) void saveDispatchSettings({ buildAgentName })
+              }}
+              placeholder="Agent used for build-mode runs"
+              helperText="Overrides Default Agent for build-mode runs"
+              fullWidth
+            />
             <TextField
               label="Dispatch service URL"
               type="url"

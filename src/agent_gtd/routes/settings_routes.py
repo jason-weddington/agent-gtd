@@ -21,6 +21,8 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 _MAX_CONCURRENT_KEY = "dispatch.max_concurrent"
 _ENGINE_KEY = "dispatch.engine"
 _AGENT_NAME_KEY = "dispatch.agent_name"
+_PLAN_AGENT_NAME_KEY = "dispatch.plan_agent_name"
+_BUILD_AGENT_NAME_KEY = "dispatch.build_agent_name"
 _DEFAULT_MAX_TURNS_KEY = "dispatch.default_max_turns"
 _DEFAULT_TIMEOUT_MINUTES_KEY = "dispatch.default_timeout_minutes"
 _MIN_VALUE = 1
@@ -42,6 +44,10 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
 
     engine = await settings_service.get_setting(db, _ENGINE_KEY) or "claude"
     agent_name = await settings_service.get_setting(db, _AGENT_NAME_KEY) or ""
+    plan_agent_name = await settings_service.get_setting(db, _PLAN_AGENT_NAME_KEY) or ""
+    build_agent_name = (
+        await settings_service.get_setting(db, _BUILD_AGENT_NAME_KEY) or ""
+    )
 
     turns_val = await settings_service.get_setting(db, _DEFAULT_MAX_TURNS_KEY)
     default_max_turns = (
@@ -66,6 +72,8 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
     return DispatchSettingsResponse(
         engine=engine,
         agent_name=agent_name,
+        plan_agent_name=plan_agent_name,
+        build_agent_name=build_agent_name,
         max_concurrent=max_concurrent,
         default_max_turns=default_max_turns,
         default_timeout_minutes=default_timeout_minutes,
@@ -148,6 +156,24 @@ async def update_dispatch_settings(
                 detail=f"agent_name must be at most {_MAX_AGENT_NAME_LEN} chars",
             )
         await settings_service.set_setting(db, _AGENT_NAME_KEY, body.agent_name)
+    if body.plan_agent_name is not None:
+        if len(body.plan_agent_name) > _MAX_AGENT_NAME_LEN:
+            raise HTTPException(
+                status_code=422,
+                detail=f"plan_agent_name must be at most {_MAX_AGENT_NAME_LEN} chars",
+            )
+        await settings_service.set_setting(
+            db, _PLAN_AGENT_NAME_KEY, body.plan_agent_name
+        )
+    if body.build_agent_name is not None:
+        if len(body.build_agent_name) > _MAX_AGENT_NAME_LEN:
+            raise HTTPException(
+                status_code=422,
+                detail=f"build_agent_name must be at most {_MAX_AGENT_NAME_LEN} chars",
+            )
+        await settings_service.set_setting(
+            db, _BUILD_AGENT_NAME_KEY, body.build_agent_name
+        )
     if body.default_max_turns is not None:
         if not (_MIN_TURNS <= body.default_max_turns <= _MAX_TURNS):
             raise HTTPException(

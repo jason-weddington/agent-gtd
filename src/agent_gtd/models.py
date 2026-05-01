@@ -82,6 +82,8 @@ class Project(BaseModel):
     dispatch_agent: str | None = None
     dispatch_max_turns: int | None = None
     dispatch_timeout_minutes: int | None = None
+    plan_dispatch_agent: str | None = None
+    build_dispatch_agent: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -295,7 +297,8 @@ class CreateProjectRequest(BaseModel):
 class UpdateProjectRequest(BaseModel):
     """Update a project. All fields optional.
 
-    For dispatch_agent, dispatch_max_turns, and dispatch_timeout_minutes:
+    For dispatch_agent, dispatch_max_turns, dispatch_timeout_minutes,
+    plan_dispatch_agent, and build_dispatch_agent:
     - Field absent → unchanged
     - Field explicitly null → clear the override (revert to inheriting global)
     - Field set → persist the value
@@ -310,6 +313,8 @@ class UpdateProjectRequest(BaseModel):
     dispatch_agent: str | None = None
     dispatch_max_turns: int | None = None
     dispatch_timeout_minutes: int | None = None
+    plan_dispatch_agent: str | None = None
+    build_dispatch_agent: str | None = None
 
 
 class ProjectResponse(BaseModel):
@@ -325,6 +330,8 @@ class ProjectResponse(BaseModel):
     dispatch_agent: str | None = None
     dispatch_max_turns: int | None = None
     dispatch_timeout_minutes: int | None = None
+    plan_dispatch_agent: str | None = None
+    build_dispatch_agent: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -520,6 +527,8 @@ class DispatchSettingsResponse(BaseModel):
 
     engine: str
     agent_name: str
+    plan_agent_name: str = ""
+    build_agent_name: str = ""
     max_concurrent: int
     default_max_turns: int = 100
     default_timeout_minutes: int = 30
@@ -535,6 +544,8 @@ class UpdateDispatchSettingsRequest(BaseModel):
 
     engine: str | None = None
     agent_name: str | None = None
+    plan_agent_name: str | None = None
+    build_agent_name: str | None = None
     service_url: str | None = None
     service_api_key: str | None = None
     default_max_turns: int | None = None

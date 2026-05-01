@@ -71,6 +71,8 @@ describe('Settings – Dispatch Service API Key field', () => {
     vi.mocked(api.settings.getDispatch).mockResolvedValue({
       engine: 'claude',
       agentName: '',
+      planAgentName: '',
+      buildAgentName: '',
       maxConcurrent: 6,
       defaultMaxTurns: 100, defaultTimeoutMinutes: 30,
       serviceUrl: 'http://dispatch.example.com',
@@ -79,6 +81,8 @@ describe('Settings – Dispatch Service API Key field', () => {
     vi.mocked(api.settings.updateDispatch).mockResolvedValue({
       engine: 'claude',
       agentName: '',
+      planAgentName: '',
+      buildAgentName: '',
       maxConcurrent: 6,
       defaultMaxTurns: 100, defaultTimeoutMinutes: 30,
       serviceUrl: 'http://dispatch.example.com',
@@ -109,6 +113,8 @@ describe('Settings – Dispatch Service API Key field', () => {
     vi.mocked(api.settings.getDispatch).mockResolvedValue({
       engine: 'claude',
       agentName: '',
+      planAgentName: '',
+      buildAgentName: '',
       maxConcurrent: 6,
       defaultMaxTurns: 100, defaultTimeoutMinutes: 30,
       serviceUrl: 'http://dispatch.example.com',

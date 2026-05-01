@@ -32,6 +32,8 @@ def _project_response(row: dict[str, object]) -> ProjectResponse:
     raw_agent = row.get("dispatch_agent")
     raw_turns = row.get("dispatch_max_turns")
     raw_timeout = row.get("dispatch_timeout_minutes")
+    raw_plan_agent = row.get("plan_dispatch_agent")
+    raw_build_agent = row.get("build_dispatch_agent")
     return ProjectResponse(
         id=str(row["id"]),
         name=str(row["name"]),
@@ -44,6 +46,10 @@ def _project_response(row: dict[str, object]) -> ProjectResponse:
         dispatch_max_turns=int(str(raw_turns)) if raw_turns is not None else None,
         dispatch_timeout_minutes=int(str(raw_timeout))
         if raw_timeout is not None
+        else None,
+        plan_dispatch_agent=str(raw_plan_agent) if raw_plan_agent is not None else None,
+        build_dispatch_agent=str(raw_build_agent)
+        if raw_build_agent is not None
         else None,
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
@@ -148,6 +154,14 @@ async def update_project(
         "dispatch_timeout_minutes" in body.model_fields_set
         and body.dispatch_timeout_minutes is None
     )
+    clear_plan_dispatch_agent = (
+        "plan_dispatch_agent" in body.model_fields_set
+        and body.plan_dispatch_agent is None
+    )
+    clear_build_dispatch_agent = (
+        "build_dispatch_agent" in body.model_fields_set
+        and body.build_dispatch_agent is None
+    )
 
     db = await get_db()
     try:
@@ -167,6 +181,10 @@ async def update_project(
             clear_dispatch_max_turns=clear_dispatch_max_turns,
             dispatch_timeout_minutes=body.dispatch_timeout_minutes,
             clear_dispatch_timeout_minutes=clear_dispatch_timeout_minutes,
+            plan_dispatch_agent=body.plan_dispatch_agent,
+            clear_plan_dispatch_agent=clear_plan_dispatch_agent,
+            build_dispatch_agent=body.build_dispatch_agent,
+            clear_build_dispatch_agent=clear_build_dispatch_agent,
         )
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None

@@ -1033,31 +1033,75 @@ async def test_create_run_falls_back_to_env_var_when_not_persisted(
 
 
 def test_resolve_agent_project_set_wins() -> None:
-    """Project agent overrides global when project value is set."""
+    """Project generic agent overrides global when project value is set."""
     from agent_gtd.dispatch_worker import resolve_agent
 
-    assert resolve_agent("my-project-agent", "global-agent") == "my-project-agent"
+    assert (
+        resolve_agent(
+            mode="build",
+            project_plan_agent=None,
+            project_build_agent=None,
+            project_dispatch_agent="my-project-agent",
+            global_plan_agent="",
+            global_build_agent="",
+            global_agent_name="global-agent",
+        )
+        == "my-project-agent"
+    )
 
 
 def test_resolve_agent_project_none_falls_back_to_global() -> None:
     """Falls back to global agent when project value is None."""
     from agent_gtd.dispatch_worker import resolve_agent
 
-    assert resolve_agent(None, "global-agent") == "global-agent"
+    assert (
+        resolve_agent(
+            mode="build",
+            project_plan_agent=None,
+            project_build_agent=None,
+            project_dispatch_agent=None,
+            global_plan_agent="",
+            global_build_agent="",
+            global_agent_name="global-agent",
+        )
+        == "global-agent"
+    )
 
 
 def test_resolve_agent_both_none_returns_empty() -> None:
     """Returns empty string when both project and global are absent."""
     from agent_gtd.dispatch_worker import resolve_agent
 
-    assert resolve_agent(None, "") == ""
+    assert (
+        resolve_agent(
+            mode="build",
+            project_plan_agent=None,
+            project_build_agent=None,
+            project_dispatch_agent=None,
+            global_plan_agent="",
+            global_build_agent="",
+            global_agent_name="",
+        )
+        == ""
+    )
 
 
 def test_resolve_agent_project_set_global_empty() -> None:
     """Project agent is used even when global is empty."""
     from agent_gtd.dispatch_worker import resolve_agent
 
-    assert resolve_agent("project-agent", "") == "project-agent"
+    assert (
+        resolve_agent(
+            mode="build",
+            project_plan_agent=None,
+            project_build_agent=None,
+            project_dispatch_agent="project-agent",
+            global_plan_agent="",
+            global_build_agent="",
+            global_agent_name="",
+        )
+        == "project-agent"
+    )
 
 
 def test_resolve_max_turns_project_set_wins() -> None:

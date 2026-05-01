@@ -265,6 +265,8 @@ _MIGRATIONS: list[str] = [
     "ALTER TABLE projects ADD COLUMN dispatch_agent TEXT",
     "ALTER TABLE projects ADD COLUMN dispatch_max_turns INTEGER",
     "ALTER TABLE projects ADD COLUMN dispatch_timeout_minutes INTEGER",
+    "ALTER TABLE projects ADD COLUMN plan_dispatch_agent TEXT",
+    "ALTER TABLE projects ADD COLUMN build_dispatch_agent TEXT",
     """
     CREATE TABLE IF NOT EXISTS attachments (
         id TEXT PRIMARY KEY,
