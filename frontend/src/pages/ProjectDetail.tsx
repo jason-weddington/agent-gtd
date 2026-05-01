@@ -60,6 +60,9 @@ import NoteEditor from '../components/NoteEditor'
 import ItemDetailDrawer from '../components/ItemDetailDrawer'
 import ShareTab from '../components/ShareTab'
 
+// Local extension of Item for optimistic UI — never exported or added to types.ts
+type DisplayItem = Item & { _optimistic?: true }
+
 const STATUS_COLORS: Record<ProjectStatus, 'success' | 'default' | 'warning' | 'error'> = {
   active: 'success',
   completed: 'default',
@@ -92,7 +95,7 @@ export default function ProjectDetail() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [project, setProject] = useState<Project | null>(null)
-  const [items, setItems] = useState<Item[]>([])
+  const [items, setItems] = useState<DisplayItem[]>([])
   const [notes, setNotes] = useState<Note[]>([])
   const [comments, setComments] = useState<Comment[]>([])
   const [runs, setRuns] = useState<Run[]>([])
@@ -237,6 +240,8 @@ export default function ProjectDetail() {
   const { onEvent } = useEvents()
   const { setActiveProject, captureCount } = useQuickCapture()
   const loadDataRef = useRef<() => Promise<void>>(undefined)
+  // Mirror of items state for use in SSE callbacks (avoids stale closure).
+  const itemsRef = useRef<DisplayItem[]>([])
 
   const loadData = useCallback(async () => {
     if (!projectId) return
@@ -268,6 +273,7 @@ export default function ProjectDetail() {
   }, [projectId, navigate])
 
   loadDataRef.current = loadData
+  itemsRef.current = items
 
   useEffect(() => {
     loadData()
@@ -289,7 +295,12 @@ export default function ProjectDetail() {
   // Re-fetch when relevant entities change via SSE
   useEffect(() => {
     const unsubs = [
-      onEvent('item_created', () => { loadDataRef.current?.() }),
+      onEvent('item_created', (event) => {
+        // Skip the refetch if the real item is already in local state
+        // (optimistic swap already happened when the POST returned).
+        if (itemsRef.current.some((i) => i.id === event.entityId)) return
+        loadDataRef.current?.()
+      }),
       onEvent('item_updated', () => { loadDataRef.current?.() }),
       onEvent('item_deleted', () => { loadDataRef.current?.() }),
       onEvent('note_created', () => { loadDataRef.current?.() }),
@@ -436,8 +447,10 @@ export default function ProjectDetail() {
   const handleSaveItem = async () => {
     if (!projectId || !itemTitle.trim()) return
     setSavingItem(true)
-    try {
-      if (editingItem) {
+
+    if (editingItem) {
+      // Edit path: synchronous UX — dialog stays open until save completes.
+      try {
         await api.items.update(editingItem.id, {
           title: itemTitle,
           description: itemDescription,
@@ -446,21 +459,59 @@ export default function ProjectDetail() {
           dueDate: itemDueDate || null,
           projectId: itemProjectId || null,
         })
-      } else {
-        await api.projects.createItem(projectId, {
-          title: itemTitle,
-          description: itemDescription,
-          status: itemStatus,
-          priority: itemPriority,
-        })
-        clearItemDraft()
+        setItemDialogOpen(false)
+        await loadData()
+      } catch (err) {
+        setError(err instanceof ApiError ? err.detail : 'Failed to save item')
+      } finally {
+        setSavingItem(false)
       }
-      setItemDialogOpen(false)
-      await loadData()
+      return
+    }
+
+    // Create path: optimistic UX — insert immediately, close dialog, then POST.
+    const tempId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    const optimisticItem: DisplayItem = {
+      id: tempId,
+      projectId,
+      title: itemTitle,
+      description: itemDescription,
+      status: itemStatus,
+      priority: itemPriority,
+      dueDate: itemDueDate || null,
+      completedAt: null,
+      createdBy: 'human',
+      assignedTo: '',
+      waitingOn: '',
+      sortOrder: 0,
+      labels: [],
+      blockers: [],
+      version: 0,
+      createdAt: now,
+      updatedAt: now,
+      _optimistic: true,
+    }
+
+    setItems((prev) => [optimisticItem, ...prev])
+    setItemDialogOpen(false)
+    setSavingItem(false)
+
+    try {
+      const realItem = await api.projects.createItem(projectId, {
+        title: itemTitle,
+        description: itemDescription,
+        status: itemStatus,
+        priority: itemPriority,
+      })
+      // Swap optimistic placeholder for the real item from the server.
+      setItems((prev) => prev.map((i) => (i.id === tempId ? (realItem as DisplayItem) : i)))
+      clearItemDraft()
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : 'Failed to save item')
-    } finally {
-      setSavingItem(false)
+      // Roll back: remove the optimistic item and re-open the dialog for retry.
+      setItems((prev) => prev.filter((i) => i.id !== tempId))
+      setItemDialogOpen(true)
+      setError(err instanceof ApiError ? err.detail : 'Failed to create item')
     }
   }
 
@@ -867,24 +918,26 @@ export default function ProjectDetail() {
               {filteredItems.map((item) => (
                 <ListItem
                   key={item.id}
-                  onClick={() => setDrawerItem(item)}
+                  onClick={() => { if (!item._optimistic) setDrawerItem(item) }}
                   secondaryAction={
-                    <Box>
-                      <IconButton size="small" onClick={(e) => { e.stopPropagation(); openEditItem(item) }}>
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                      {item.status !== 'done' && (
-                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleCompleteItem(item) }} title="Done">
-                          <DoneIcon fontSize="small" />
+                    item._optimistic ? null : (
+                      <Box>
+                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); openEditItem(item) }}>
+                          <EditIcon fontSize="small" />
                         </IconButton>
-                      )}
-                      <IconButton
-                        size="small"
-                        onClick={(e) => { e.stopPropagation(); setDeleteItemTarget(item) }}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Box>
+                        {item.status !== 'done' && (
+                          <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleCompleteItem(item) }} title="Done">
+                            <DoneIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                        <IconButton
+                          size="small"
+                          onClick={(e) => { e.stopPropagation(); setDeleteItemTarget(item) }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    )
                   }
                   sx={{
                     border: 1,
@@ -892,8 +945,9 @@ export default function ProjectDetail() {
                     borderLeft: `3px solid ${PRIORITY_BORDER[item.priority]}`,
                     borderRadius: 1,
                     mb: 1,
-                    cursor: 'pointer',
-                    '&:hover': { bgcolor: 'action.hover' },
+                    cursor: item._optimistic ? 'default' : 'pointer',
+                    opacity: item._optimistic ? 0.6 : 1,
+                    '&:hover': { bgcolor: item._optimistic ? undefined : 'action.hover' },
                   }}
                 >
                   <ListItemText
@@ -909,11 +963,15 @@ export default function ProjectDetail() {
                               whiteSpace: 'nowrap',
                               minWidth: 0,
                               flex: 1,
+                              fontStyle: item._optimistic ? 'italic' : undefined,
                             }}
                           >
                             {item.title}
                           </Typography>
-                          {((project.memberCount ?? 0) > 0 || project.isOwner === false) && item.createdBy && item.createdBy !== 'human' && (
+                          {item._optimistic && (
+                            <CircularProgress size={12} sx={{ flexShrink: 0 }} />
+                          )}
+                          {!item._optimistic && ((project.memberCount ?? 0) > 0 || project.isOwner === false) && item.createdBy && item.createdBy !== 'human' && (
                             <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
                               by {item.createdBy}
                             </Typography>
@@ -1755,7 +1813,7 @@ export default function ProjectDetail() {
         onEdit={(item) => { setDrawerItem(null); openEditItem(item) }}
         onItemUpdated={(updated) => {
           setDrawerItem(updated)
-          setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))
+          setItems((prev) => prev.map((i) => (i.id === updated.id ? (updated as DisplayItem) : i)))
         }}
         projectName={project.name}
         projectGitOrigin={project.gitOrigin}
