@@ -12,9 +12,9 @@ import {
 } from '@mui/material'
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined'
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
-import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useEvents } from '../contexts/EventStreamContext'
+import { useItemDrawer } from '../contexts/ItemDrawerContext'
 import type { Run, Item, Project } from '../types'
 
 const POLL_INTERVAL_MS = 15000
@@ -32,7 +32,7 @@ function formatElapsed(startedAt: string | null, now: number): string {
 /**
  * Header indicator that shows how many agent runs are currently active or queued.
  * Clicking the icon opens a menu listing each run with its item title,
- * project name, and elapsed time. Each entry navigates to the project page.
+ * project name, and elapsed time. Each entry opens the item in the side drawer.
  *
  * Running runs are shown with a pulsing robot icon; queued (pending) runs are
  * shown with an hourglass and a "Queued" chip explaining the concurrency cap.
@@ -50,7 +50,7 @@ export default function ActiveRunsIndicator() {
   const fetchedItemIds = useRef<Set<string>>(new Set())
   const fetchedProjectIds = useRef<Set<string>>(new Set())
   const { onEvent } = useEvents()
-  const navigate = useNavigate()
+  const { openItemDrawer } = useItemDrawer()
 
   // Using void .then() (not async/await) so the eslint react-hooks/set-state-in-effect
   // rule doesn't consider this a direct setState call chain from within the effect.
@@ -181,8 +181,9 @@ export default function ActiveRunsIndicator() {
               <MenuItem
                 key={run.id}
                 onClick={() => {
+                  if (!item) return  // item not yet loaded — graceful no-op
                   setAnchorEl(null)
-                  navigate(`/projects/${run.projectId}?item=${run.itemId}`)
+                  openItemDrawer(item, project)
                 }}
               >
                 <Box

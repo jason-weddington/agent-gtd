@@ -13,6 +13,7 @@ import { ThemeProvider } from './contexts/ThemeContext'
 import { AuthProvider } from './contexts/AuthContext'
 import { EventStreamProvider } from './contexts/EventStreamContext'
 import { QuickCaptureProvider } from './contexts/QuickCaptureContext'
+import { ItemDrawerProvider } from './contexts/ItemDrawerContext'
 import App from './App'
 
 createRoot(document.getElementById('root')!).render(
@@ -22,7 +23,9 @@ createRoot(document.getElementById('root')!).render(
         <EventStreamProvider>
           <ThemeProvider>
             <QuickCaptureProvider>
-              <App />
+              <ItemDrawerProvider>
+                <App />
+              </ItemDrawerProvider>
             </QuickCaptureProvider>
           </ThemeProvider>
         </EventStreamProvider>
