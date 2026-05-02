@@ -36,6 +36,18 @@ ls frontend/dist/index.html
 
 Expected output: `frontend/dist/index.html`
 
+Then make sure nginx (running as `www-data`) can traverse the home directory. By default
+Ubuntu 24.04 sets `/home/<user>` to `750`, which blocks nginx with `Permission denied` →
+HTTP 500. Add traverse-only access for "other":
+
+```bash
+chmod o+x /home/jason
+namei -lx /home/jason/hosting_root/agent_gtd/frontend/dist/index.html
+```
+
+The `namei` output should show `drwxr-x--x` on `jason`. This grants traverse without
+listing, so nginx can `stat` files inside but cannot `ls` the home directory.
+
 ---
 
 ## Step 1 — Update nginx config
