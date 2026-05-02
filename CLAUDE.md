@@ -20,6 +20,31 @@ ssh r7-research 'journalctl --user -u agent-gtd -f'     # Tail logs
 
 The git remote `origin` points to `r7-research`. After `git push origin main --tags`, restart the service to pick up changes. See KB entries `kb-00306` and `kb-00307` for full deployment architecture and bounce guidelines.
 
+## Production Architecture
+
+```
+client (HTTPS 443)
+   │
+   ▼
+nginx (r7-research)              ← terminates TLS
+   ├── /              → frontend/dist/  (static files, SPA fallback)
+   ├── /api/events    → uvicorn :8000   (SSE, proxy_buffering off)
+   └── /api/*         → uvicorn :8000   (FastAPI REST)
+```
+
+**Key points for agents and contributors:**
+
+- **`serve.sh`** is the production entry point — launches uvicorn only, no Vite.
+  The systemd unit on r7 runs `serve.sh`.
+- **`start.sh`** is the dev entry point — launches uvicorn + Vite dev server. Use this locally.
+- **Vite is dev-only.** Never start Vite in production. nginx serves the pre-built
+  `frontend/dist/` instead. This eliminates HMR WebSocket reconnect reloads in prod.
+- **nginx serves static files**, not uvicorn. Do not add a `StaticFiles` mount to FastAPI.
+- **Build step belongs in `deploy.sh`** (operator-local, gitignored), not in `serve.sh`.
+  Run `npm --prefix frontend run build` before restarting the service after a deploy.
+- See `docs/deploy.md` for the full operator runbook (nginx config, systemd unit change,
+  deploy.sh template).
+
 ## Build and Test Commands
 ```bash
 uv sync                              # Install Python dependencies
