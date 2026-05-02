@@ -59,6 +59,7 @@ import KanbanBoard from '../components/KanbanBoard'
 import NoteEditor from '../components/NoteEditor'
 import ItemDetailDrawer from '../components/ItemDetailDrawer'
 import ShareTab from '../components/ShareTab'
+import MarkdownContent from '../components/MarkdownContent'
 
 // Local extension of Item for optimistic UI — never exported or added to types.ts
 type DisplayItem = Item & { _optimistic?: true }
@@ -1671,7 +1672,7 @@ export default function ProjectDetail() {
                   {itemComments.map((c) => (
                     <ListItem key={c.id} sx={{ px: 0 }}>
                       <ListItemText
-                        primary={c.contentMarkdown}
+                        primary={<MarkdownContent>{c.contentMarkdown}</MarkdownContent>}
                         secondary={
                           <Box component="span" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                             <Chip label={c.createdBy} size="small" variant="outlined" />

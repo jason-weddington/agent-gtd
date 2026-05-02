@@ -40,6 +40,7 @@ import type { AttachmentResponse, Item, Comment, Project, Run, ItemStatus } from
 import { isDispatchServiceConfigured, formatRelativeTime, formatFileSize } from '../utils'
 import { useEvents } from '../contexts/EventStreamContext'
 import { BlockerPicker } from './BlockerPicker'
+import MarkdownContent from './MarkdownContent'
 
 const DRAWER_WIDTH = 440
 
@@ -1043,11 +1044,9 @@ export default function ItemDetailDrawer({
                   helperText="Esc to cancel · Tab or click outside to save"
                 />
               ) : localItem.description ? (
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
+                <Box
+                  component="div"
                   sx={{
-                    whiteSpace: 'pre-wrap',
                     cursor: 'text',
                     borderRadius: 0.5,
                     p: 0.5,
@@ -1060,11 +1059,11 @@ export default function ItemDetailDrawer({
                   }}
                   title="Click to edit description"
                 >
-                  {localItem.description}
+                  <MarkdownContent>{localItem.description}</MarkdownContent>
                   {savingField === 'description' && (
                     <CircularProgress size={12} sx={{ ml: 1, verticalAlign: 'middle' }} />
                   )}
-                </Typography>
+                </Box>
               ) : (
                 <Typography
                   variant="body2"
@@ -1308,9 +1307,7 @@ export default function ItemDetailDrawer({
                         {new Date(c.createdAt).toLocaleString()}
                       </Typography>
                     </Box>
-                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                      {c.contentMarkdown}
-                    </Typography>
+                    <MarkdownContent>{c.contentMarkdown}</MarkdownContent>
                   </Box>
                 ))
               )}
