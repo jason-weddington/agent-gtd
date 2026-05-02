@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v1.81.0 (2026-05-02)
+
+### Bug Fixes
+
+- Enable vite build by handling react-transition-group via Rollup CJS plugin
+  ([`fe1177b`](https://github.com/jason-weddington/agent-gtd/commit/fe1177bd4966dbdd186ea99ca50d61ff55696060))
+
+### Documentation
+
+- **deploy**: Note /home/jason chmod o+x for nginx traversal
+  ([`5cc4cb1`](https://github.com/jason-weddington/agent-gtd/commit/5cc4cb1ae9d510320c61c34070a44128608754ec))
+
+### Features
+
+- Serve frontend from prod build, add serve.sh + deploy runbook
+  ([`6b006c2`](https://github.com/jason-weddington/agent-gtd/commit/6b006c267f9395bce0dc3420b4ecd2f838c47938))
+
+
 ## v1.80.0 (2026-05-02)
 
 ### Bug Fixes
