@@ -1109,7 +1109,7 @@ export default function ProjectDetail() {
                   }}
                 >
                   <ListItemText
-                    primary={comment.contentMarkdown}
+                    primary={<MarkdownContent>{comment.contentMarkdown}</MarkdownContent>}
                     secondary={
                       <Box component="span" sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center' }}>
                         <Chip label={comment.createdBy} size="small" variant="outlined" />
