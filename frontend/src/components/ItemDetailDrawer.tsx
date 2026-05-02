@@ -167,21 +167,24 @@ export default function ItemDetailDrawer({
     setAttachmentsExpanded(false)
   }, [item])
 
-  // Load active projects once for the project dropdown
+  // Load active projects for the project dropdown — only when the drawer
+  // actually has an item open. Mounting unconditionally above the router means
+  // this fires on /login too, which 401s and triggers the global redirect.
   useEffect(() => {
+    if (!item) return
     api.projects.list({ status: 'active' }).then(setAllProjects).catch(() => {})
-  }, [])
+  }, [item])
 
-  // Load dispatch config once on mount
+  // Load dispatch config when the drawer has an item open. Same gating reason.
   useEffect(() => {
+    if (!item) return
     api.settings.getDispatch().then((cfg) => {
       setDispatchConfigured(isDispatchServiceConfigured(cfg.serviceUrl, cfg.serviceApiKeyPreview))
       setDefaultMaxTurns(cfg.defaultMaxTurns)
     }).catch(() => {
-      // If endpoint doesn't exist yet, treat as unconfigured but don't block dispatch
       setDispatchConfigured(null)
     })
-  }, [])
+  }, [item])
 
   // Reset the dispatch-animation flag once the drawer has actually closed.
   // Keeping it true through the close keeps MUI's transitionDuration at 0 so

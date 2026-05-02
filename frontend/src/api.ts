@@ -39,7 +39,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (res.status === 401) {
     localStorage.removeItem('agent_gtd-token')
     localStorage.removeItem('agent_gtd-user')
-    window.location.href = '/login'
+    // Defense in depth: don't redirect when already on /login, otherwise any
+    // unauth API call from the login page (e.g. a global provider that forgot
+    // to gate on auth state) will hard-reload and infinite-loop.
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login'
+    }
     throw new ApiError(401, 'Unauthorized')
   }
 
@@ -72,7 +77,9 @@ async function uploadRequest<T>(method: string, path: string, formData: FormData
   if (res.status === 401) {
     localStorage.removeItem('agent_gtd-token')
     localStorage.removeItem('agent_gtd-user')
-    window.location.href = '/login'
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login'
+    }
     throw new ApiError(401, 'Unauthorized')
   }
 
