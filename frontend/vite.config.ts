@@ -14,6 +14,11 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    commonjsOptions: {
+      include: [/react-transition-group/, /node_modules/],
+    },
+  },
   test: {
     environment: 'happy-dom',
     globals: true,
