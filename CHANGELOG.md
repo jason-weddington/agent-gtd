@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.80.0 (2026-05-02)
+
+### Bug Fixes
+
+- **frontend**: /login refresh loop from globally-mounted ItemDetailDrawer
+  ([`234b57c`](https://github.com/jason-weddington/agent-gtd/commit/234b57cc52fa0583af8743680e33b9adac3b5976))
+
+### Features
+
+- Render markdown in project comments tab
+  ([`812766a`](https://github.com/jason-weddington/agent-gtd/commit/812766a06fe0301a37179abb805d059bb8bf6061))
+
+- Render markdown in task drawer and item dialog
+  ([`06d4b56`](https://github.com/jason-weddington/agent-gtd/commit/06d4b5600986992c48b877ffd2db9f6f08eed832))
+
+- **active-runs**: Open item drawer in place from runs dropdown
+  ([`9d593fc`](https://github.com/jason-weddington/agent-gtd/commit/9d593fc357aa5a57c2dce1472a5665f88a3dcb07))
+
+
 ## v1.79.0 (2026-05-01)
 
 ### Bug Fixes
