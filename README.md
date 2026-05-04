@@ -58,15 +58,19 @@ uv run python scripts/seed.py   # Prints the key
 
 Or log into the web UI, go to **Settings > API Access**, and create one there.
 
-**2. Set `AGENT_GTD_API_KEY` in your environment**
+**2. Set `AGENT_GTD_URL` and `AGENT_GTD_API_KEY` in your environment**
 
-How you do this is up to you:
+Both vars are required when talking to a remote server. `AGENT_GTD_URL` is the
+base URL of the running app (e.g. `https://agent-gtd.example.com`); `AGENT_GTD_API_KEY`
+is the key from step 1. How you set them is up to you:
 
 ```bash
 # Shell profile (~/.zshrc, ~/.bashrc)
+export AGENT_GTD_URL=https://agent-gtd.example.com
 export AGENT_GTD_API_KEY=agtd_...
 
 # direnv (.envrc)
+export AGENT_GTD_URL=https://agent-gtd.example.com
 export AGENT_GTD_API_KEY=agtd_...
 
 # Claude Code MCP config (~/.claude.json)
@@ -74,11 +78,14 @@ export AGENT_GTD_API_KEY=agtd_...
   "type": "stdio",
   "command": "uv",
   "args": ["run", "--directory", "/path/to/agent_gtd", "agent-gtd-mcp"],
-  "env": { "AGENT_GTD_API_KEY": "agtd_..." }
+  "env": {
+    "AGENT_GTD_URL": "https://agent-gtd.example.com",
+    "AGENT_GTD_API_KEY": "agtd_..."
+  }
 }
 ```
 
-When the env var is set, the MCP server auto-authenticates on first tool call. No explicit `login` step needed.
+When the env vars are set, the MCP server auto-authenticates on first tool call. No explicit `login` step needed.
 
 **Key management:** Create multiple keys (one per machine) from the Settings page. Revoke individually if a machine is lost or compromised.
 
@@ -97,6 +104,27 @@ When the env var is set, the MCP server auto-authenticates on first tool call. N
 | `add_note` / `update_note` | Create or update project notes |
 | `list_notes` / `get_note` | Read project notes |
 | `list_projects` / `add_project` | Manage projects |
+
+## CLI
+
+The same package ships an `agent-gtd` CLI that talks to the running server over
+HTTP. It uses the **same `AGENT_GTD_URL` and `AGENT_GTD_API_KEY` env vars** as
+the MCP server, so once those are set, the CLI works without further config.
+
+Install it once as a `uv` tool from a local checkout of this repo:
+
+```bash
+uv tool install .              # from the repo root
+agent-gtd --help               # available on $PATH afterwards
+```
+
+Re-run `uv tool install . --reinstall` after pulling new changes to refresh the
+installed copy.
+
+The CLI is the basis for the [event-driven monitoring](#event-driven-monitoring-dont-poll-on-a-timer)
+pattern below — `agent-gtd run-status <run_id>` returns the same dispatch status
+that the MCP `get_run_status` tool returns, so a lead agent can poll from the
+shell and wake on completion instead of burning context on a timer.
 
 ## Development
 
