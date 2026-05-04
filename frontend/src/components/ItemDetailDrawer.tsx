@@ -354,13 +354,18 @@ export default function ItemDetailDrawer({
         setLocalItem(updated)
         onItemUpdated?.(updated)
       } catch (err) {
-        setFieldError(
-          err instanceof ApiError
-            ? err.status === 409
-              ? 'This item was updated elsewhere — refresh to see the latest version.'
-              : err.detail
-            : 'Failed to update',
-        )
+        if (err instanceof ApiError && err.blockers && err.blockers.length > 0) {
+          const list = err.blockers.map((b) => `• ${b.title} (${b.status})`).join('\n')
+          setFieldError(`${err.detail}\n\n${list}`)
+        } else {
+          setFieldError(
+            err instanceof ApiError
+              ? err.status === 409
+                ? 'This item was updated elsewhere — refresh to see the latest version.'
+                : err.detail
+              : 'Failed to update',
+          )
+        }
       } finally {
         setSavingField(null)
       }
@@ -572,7 +577,12 @@ export default function ItemDetailDrawer({
         onClose()
       }, 380)
     } catch (err) {
-      setDispatchError(err instanceof ApiError ? err.detail : 'Dispatch failed')
+      if (err instanceof ApiError && err.blockers && err.blockers.length > 0) {
+        const list = err.blockers.map((b) => `• ${b.title} (${b.status})`).join('\n')
+        setDispatchError(`${err.detail}\n\n${list}`)
+      } else {
+        setDispatchError(err instanceof ApiError ? err.detail : 'Dispatch failed')
+      }
     } finally {
       setDispatching(false)
     }
@@ -1008,7 +1018,7 @@ export default function ItemDetailDrawer({
             {fieldError && (
               <Alert
                 severity="error"
-                sx={{ mx: 2, mb: 1 }}
+                sx={{ mx: 2, mb: 1, whiteSpace: 'pre-wrap' }}
                 onClose={() => setFieldError(null)}
               >
                 {fieldError}
@@ -1451,7 +1461,7 @@ export default function ItemDetailDrawer({
             </Typography>
           )}
           {dispatchError && (
-            <Typography variant="body2" color="error" sx={{ mt: 1 }}>
+            <Typography variant="body2" color="error" sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>
               {dispatchError}
             </Typography>
           )}

@@ -10,6 +10,7 @@ from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from agent_gtd.exceptions import (
+    BlockersUnresolvedError,
     NotFoundError,
     ValidationError,
     VersionConflictError,
@@ -498,6 +499,8 @@ async def update_item(
             due_date=backend_due_date,
             due_date_set=due_date_set,
         )
+    except BlockersUnresolvedError as e:
+        raise ToolError(e.detail) from None
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except VersionConflictError as e:
@@ -988,6 +991,8 @@ async def dispatch_item(
         run = await _backend.dispatch_item(
             session["user_id"], item_id, max_turns=max_turns, mode=mode
         )
+    except BlockersUnresolvedError as e:
+        raise ToolError(e.detail) from None
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except RunActiveError as e:

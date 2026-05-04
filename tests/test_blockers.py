@@ -541,3 +541,209 @@ async def test_add_blocker_project_to_inbox_rejected(
     )
     assert res.status_code == 400
     assert "cross-project" in res.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Blocker enforcement on status → active transition
+# ---------------------------------------------------------------------------
+
+
+async def test_active_blocked_by_single_blocker(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """PATCH status=active returns 422 when item has 1 unresolved blocker."""
+    item_id = await _create_item(client, auth_headers, "Task A")
+    blocker_id = await _create_item(client, auth_headers, "Blocker B")
+
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": blocker_id},
+        headers=auth_headers,
+    )
+
+    res = await client.patch(
+        f"/api/items/{item_id}",
+        json={"status": "active"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+async def test_active_blocked_response_shape(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """422 body has string detail and blockers array with {id, title, status}."""
+    item_id = await _create_item(client, auth_headers, "Task A")
+    blocker_id = await _create_item(client, auth_headers, "Blocker B")
+
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": blocker_id},
+        headers=auth_headers,
+    )
+
+    res = await client.patch(
+        f"/api/items/{item_id}",
+        json={"status": "active"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+    body = res.json()
+    assert isinstance(body["detail"], str)
+    assert "unresolved blocker" in body["detail"]
+    assert isinstance(body["blockers"], list)
+    assert len(body["blockers"]) == 1
+    b = body["blockers"][0]
+    assert b["id"] == blocker_id
+    assert b["title"] == "Blocker B"
+    assert isinstance(b["status"], str)
+
+
+async def test_active_blocked_multiple_blockers(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """422 when item has 2 blockers; both appear in response."""
+    item_id = await _create_item(client, auth_headers, "Task")
+    b1 = await _create_item(client, auth_headers, "Blocker 1")
+    b2 = await _create_item(client, auth_headers, "Blocker 2")
+
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": b1},
+        headers=auth_headers,
+    )
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": b2},
+        headers=auth_headers,
+    )
+
+    res = await client.patch(
+        f"/api/items/{item_id}",
+        json={"status": "active"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+    body = res.json()
+    assert len(body["blockers"]) == 2
+    blocker_ids = {b["id"] for b in body["blockers"]}
+    assert b1 in blocker_ids
+    assert b2 in blocker_ids
+    assert "2 unresolved blocker" in body["detail"]
+
+
+async def test_active_blocked_done_blocker_passes(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """PATCH status=active succeeds when blocker is done."""
+    item_id = await _create_item(client, auth_headers, "Task")
+    blocker_id = await _create_item(client, auth_headers, "Blocker")
+
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": blocker_id},
+        headers=auth_headers,
+    )
+
+    # Complete the blocker → status becomes done
+    await client.post(f"/api/items/{blocker_id}/complete", headers=auth_headers)
+
+    res = await client.patch(
+        f"/api/items/{item_id}",
+        json={"status": "active"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+
+
+async def test_active_blocked_cancelled_blocker_passes(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """PATCH status=active succeeds when blocker is cancelled."""
+    item_id = await _create_item(client, auth_headers, "Task")
+    blocker_id = await _create_item(client, auth_headers, "Blocker")
+
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": blocker_id},
+        headers=auth_headers,
+    )
+
+    # Cancel the blocker → treated as resolved
+    await client.patch(
+        f"/api/items/{blocker_id}",
+        json={"status": "cancelled"},
+        headers=auth_headers,
+    )
+
+    res = await client.patch(
+        f"/api/items/{item_id}",
+        json={"status": "active"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+
+
+async def test_active_already_active_no_check(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """PATCH status=active on already-active item succeeds (no re-check)."""
+    item_id = await _create_item(client, auth_headers, "Task")
+
+    # First, activate without blockers
+    await client.patch(
+        f"/api/items/{item_id}",
+        json={"status": "active"},
+        headers=auth_headers,
+    )
+
+    # Now add a blocker while already active
+    blocker_id = await _create_item(client, auth_headers, "Blocker")
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": blocker_id},
+        headers=auth_headers,
+    )
+
+    # PATCH status=active again → should succeed (no retroactive enforcement)
+    res = await client.patch(
+        f"/api/items/{item_id}",
+        json={"status": "active"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+
+
+async def test_other_status_not_blocked(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """PATCH status=done with unresolved blocker is allowed (only active is gated)."""
+    item_id = await _create_item(client, auth_headers, "Task")
+    blocker_id = await _create_item(client, auth_headers, "Blocker")
+
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": blocker_id},
+        headers=auth_headers,
+    )
+
+    res = await client.patch(
+        f"/api/items/{item_id}",
+        json={"status": "done"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+
+
+async def test_active_no_blockers_passes(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """PATCH status=active with no blockers succeeds."""
+    item_id = await _create_item(client, auth_headers, "Task")
+
+    res = await client.patch(
+        f"/api/items/{item_id}",
+        json={"status": "active"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200

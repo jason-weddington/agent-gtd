@@ -1238,3 +1238,80 @@ async def test_unshare_project_not_found(registered_client):
             "unshare_project",
             {"project_id": "nonexistent", "email": "member_mcp@example.com"},
         )
+
+
+# ---------------------------------------------------------------------------
+# Blocker enforcement — MCP tools
+# ---------------------------------------------------------------------------
+
+
+async def test_update_item_blocked_status_active(registered_client):
+    """MCP update_item(status=active) with unresolved blocker raises ToolError."""
+    # Create two inbox items and add a blocker relationship
+    item_result = await registered_client.call_tool(
+        "add_item",
+        {"title": "Blocked task", "status": "new"},
+    )
+    item_id = _parse_result(item_result)["id"]
+
+    blocker_result = await registered_client.call_tool(
+        "add_item",
+        {"title": "Unresolved blocker", "status": "new"},
+    )
+    blocker_id = _parse_result(blocker_result)["id"]
+
+    await registered_client.call_tool(
+        "add_blocker",
+        {"item_id": item_id, "blocker_item_id": blocker_id},
+    )
+
+    # Get the item to retrieve its current version
+    item_data = _parse_result(
+        await registered_client.call_tool("get_item", {"item_id": item_id})
+    )
+
+    with pytest.raises(ToolError, match="unresolved blocker"):
+        await registered_client.call_tool(
+            "update_item",
+            {"item_id": item_id, "version": item_data["version"], "status": "active"},
+        )
+
+
+async def test_dispatch_item_blocked(registered_client, user_id):
+    """MCP dispatch_item with unresolved blocker raises ToolError."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services import project_service
+
+    # Create a project with git_origin (required for dispatch)
+    db = await get_db()
+    project = await project_service.create_project(
+        db,
+        user_id,
+        name="Dispatch Test Project",
+        git_origin="git@github.com:test/repo.git",
+    )
+    proj_id = project["id"]
+
+    # Create item and blocker in the same project
+    item_result = await registered_client.call_tool(
+        "add_item",
+        {"title": "Task to dispatch", "project_id": proj_id, "status": "new"},
+    )
+    item_id = _parse_result(item_result)["id"]
+
+    blocker_result = await registered_client.call_tool(
+        "add_item",
+        {"title": "Must finish first", "project_id": proj_id, "status": "new"},
+    )
+    blocker_id = _parse_result(blocker_result)["id"]
+
+    await registered_client.call_tool(
+        "add_blocker",
+        {"item_id": item_id, "blocker_item_id": blocker_id},
+    )
+
+    with pytest.raises(ToolError, match="unresolved blocker"):
+        await registered_client.call_tool(
+            "dispatch_item",
+            {"item_id": item_id},
+        )

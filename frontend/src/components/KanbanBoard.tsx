@@ -1,11 +1,11 @@
 import { useState, useCallback, useMemo } from 'react'
 import { flushSync } from 'react-dom'
-import { Box, Chip, Typography, Collapse, IconButton } from '@mui/material'
+import { Box, Chip, Typography, Collapse, IconButton, Snackbar } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import { DragDropContext, type DropResult } from '@hello-pangea/dnd'
 import KanbanColumn from './KanbanColumn'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 import type { Item, ItemStatus } from '../types'
 
 /** Column definitions */
@@ -50,6 +50,7 @@ export default function KanbanBoard({
   onAddItem,
 }: KanbanBoardProps) {
   const [doneExpanded, setDoneExpanded] = useState(false)
+  const [dragError, setDragError] = useState<string | null>(null)
   // Optimistic override — applied instantly on drop so cards don't pop back to source column
   const [optimistic, setOptimistic] = useState<Item[] | null>(null)
   const displayItems = optimistic ?? items
@@ -115,8 +116,11 @@ export default function KanbanBoard({
 
       try {
         await api.items.update(draggableId, { status: newStatus, sortOrder: newSortOrder })
-      } catch {
-        // API error — refresh will restore correct state
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 422) {
+          setDragError(err.detail)
+        }
+        // Refresh will restore correct state
       }
       // Refresh first so the parent items prop reflects the new state, then
       // clear optimistic. Otherwise displayItems momentarily falls back to the
@@ -137,6 +141,12 @@ export default function KanbanBoard({
 
   return (
     <Box>
+      <Snackbar
+        open={dragError !== null}
+        autoHideDuration={6000}
+        onClose={() => setDragError(null)}
+        message={dragError}
+      />
       <DragDropContext onDragEnd={handleDragEnd}>
         <Box
           sx={{

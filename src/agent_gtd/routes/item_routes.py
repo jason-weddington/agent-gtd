@@ -4,11 +4,13 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse, Response
 
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import decode_json_list, get_db
 from agent_gtd.exceptions import (
     AlreadyClaimedError,
+    BlockersUnresolvedError,
     NotFoundError,
     ValidationError,
     VersionConflictError,
@@ -167,7 +169,7 @@ async def update_item(
     item_id: str,
     body: UpdateItemRequest,
     user: Annotated[User, Depends(get_current_user)],
-) -> ItemResponse:
+) -> ItemResponse | Response:
     """Update an existing item."""
     db = await get_db()
     try:
@@ -188,6 +190,11 @@ async def update_item(
             sort_order=body.sort_order,
             labels=body.labels,
             version=body.version,
+        )
+    except BlockersUnresolvedError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": e.detail, "blockers": e.blockers},
         )
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Item not found") from None

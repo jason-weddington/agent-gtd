@@ -13,8 +13,12 @@ from typing import Any
 
 from agent_gtd.database import row_to_dict
 from agent_gtd.db_types import DbPool
-from agent_gtd.exceptions import NotFoundError, RunActiveError
-from agent_gtd.services.item_service import get_item, update_item
+from agent_gtd.exceptions import BlockersUnresolvedError, NotFoundError, RunActiveError
+from agent_gtd.services.item_service import (
+    get_item,
+    get_unresolved_blockers,
+    update_item,
+)
 from agent_gtd.services.project_service import get_project
 
 logger = logging.getLogger(__name__)
@@ -68,6 +72,11 @@ async def create_run(
     )
     if existing:
         raise RunActiveError(item_id, str(existing["id"]))
+
+    # Blocker enforcement: cannot dispatch an item with unresolved blockers
+    unresolved = await get_unresolved_blockers(db, item_id)
+    if unresolved:
+        raise BlockersUnresolvedError("dispatch this item", unresolved)
 
     from agent_gtd.dispatch_worker import DEFAULT_MAX_TURNS, resolve_max_turns
     from agent_gtd.services import settings_service

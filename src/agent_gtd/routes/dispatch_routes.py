@@ -8,10 +8,11 @@ from typing import Annotated, Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse, Response
 
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
-from agent_gtd.exceptions import NotFoundError, RunActiveError
+from agent_gtd.exceptions import BlockersUnresolvedError, NotFoundError, RunActiveError
 from agent_gtd.models import (
     CreateRunRequest,
     DispatchAgentInfo,
@@ -210,7 +211,7 @@ async def dispatch_item(
     item_id: str,
     body: CreateRunRequest,
     user: Annotated[User, Depends(get_current_user)],
-) -> RunResponse:
+) -> RunResponse | Response:
     """Dispatch a Claude Code agent to work on an item.
 
     Only the project owner may dispatch agents.  Project-less (inbox) items
@@ -241,6 +242,11 @@ async def dispatch_item(
     try:
         row = await dispatch_service.create_run(
             db, user.id, item_id, max_turns=body.max_turns, mode=body.mode
+        )
+    except BlockersUnresolvedError as e:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": e.detail, "blockers": e.blockers},
         )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from None

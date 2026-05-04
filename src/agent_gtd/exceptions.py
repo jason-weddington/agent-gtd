@@ -83,3 +83,17 @@ class ValidationError(AgentGTDError):
     def __init__(self, detail: str) -> None:
         """Initialize with a human-readable detail message."""
         super().__init__(detail)
+
+
+class BlockersUnresolvedError(AgentGTDError):
+    """Item has unresolved blockers that prevent this action."""
+
+    def __init__(self, action: str, blockers: list[dict[str, str]]) -> None:
+        """Initialize with the blocked action and list of unresolved blockers."""
+        self.action = action
+        self.blockers = blockers  # [{"id": ..., "title": ..., "status": ...}, ...]
+        count = len(blockers)
+        items_str = ", ".join(f"'{b['title']}' ({b['status']})" for b in blockers)
+        super().__init__(
+            f"Cannot {action}: {count} unresolved blocker(s) — {items_str}"
+        )

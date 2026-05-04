@@ -10,6 +10,7 @@ from agent_gtd.db_types import DbPool
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.exceptions import (
     AlreadyClaimedError,
+    BlockersUnresolvedError,
     NotFoundError,
     ValidationError,
     VersionConflictError,
@@ -219,6 +220,14 @@ async def update_item(
         current_version = int(str(existing["version"]))
         if current_version != version:
             raise VersionConflictError("Item", item_id, version, current_version)
+
+    # Blocker enforcement: transitioning to active requires all blockers resolved
+    if status is not None and status == ItemStatus.ACTIVE:
+        old_status = str(existing["status"])
+        if old_status != ItemStatus.ACTIVE:
+            unresolved = await get_unresolved_blockers(db, item_id)
+            if unresolved:
+                raise BlockersUnresolvedError("set status to active", unresolved)
 
     updates: list[str] = []
     params: list[object] = []
@@ -666,6 +675,33 @@ async def list_blockers(
         item_id,
     )
     return [row_to_dict(r) for r in rows]
+
+
+async def get_unresolved_blockers(db: DbPool, item_id: str) -> list[dict[str, str]]:
+    """Return unresolved blockers for an item.
+
+    Blockers with status 'done' or 'cancelled' are considered resolved.
+    Returns list of {"id": ..., "title": ..., "status": ...} dicts.
+
+    Args:
+        db: Database pool.
+        item_id: The item whose blockers to check.
+    """
+    rows = await db.fetch(
+        """
+        SELECT i.id, i.title, i.status
+        FROM item_dependencies d
+        JOIN items i ON i.id = d.blocker_item_id
+        WHERE d.item_id = $1
+          AND i.status NOT IN ('done', 'cancelled')
+        ORDER BY d.created_at
+        """,
+        item_id,
+    )
+    return [
+        {"id": str(r["id"]), "title": str(r["title"]), "status": str(r["status"])}
+        for r in rows
+    ]
 
 
 # ---------------------------------------------------------------------------

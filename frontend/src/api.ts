@@ -6,12 +6,18 @@ import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 class ApiError extends Error {
   status: number
   detail: string
+  blockers?: Array<{ id: string; title: string; status: string }>
 
-  constructor(status: number, detail: string) {
+  constructor(
+    status: number,
+    detail: string,
+    blockers?: Array<{ id: string; title: string; status: string }>,
+  ) {
     super(detail)
     this.name = 'ApiError'
     this.status = status
     this.detail = detail
+    this.blockers = blockers
   }
 }
 
@@ -50,13 +56,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   if (!res.ok) {
     let detail = res.statusText
+    let blockers: Array<{ id: string; title: string; status: string }> | undefined
     try {
       const json = await res.json()
-      detail = json.detail || detail
+      detail = typeof json.detail === 'string' ? json.detail : detail
+      if (Array.isArray(json.blockers)) {
+        blockers = json.blockers as Array<{ id: string; title: string; status: string }>
+      }
     } catch {
       // use statusText
     }
-    throw new ApiError(res.status, detail)
+    throw new ApiError(res.status, detail, blockers)
   }
 
   const json = await res.json()
@@ -85,13 +95,17 @@ async function uploadRequest<T>(method: string, path: string, formData: FormData
 
   if (!res.ok) {
     let detail = res.statusText
+    let blockers: Array<{ id: string; title: string; status: string }> | undefined
     try {
       const json = await res.json()
-      detail = json.detail || detail
+      detail = typeof json.detail === 'string' ? json.detail : detail
+      if (Array.isArray(json.blockers)) {
+        blockers = json.blockers as Array<{ id: string; title: string; status: string }>
+      }
     } catch {
       // use statusText
     }
-    throw new ApiError(res.status, detail)
+    throw new ApiError(res.status, detail, blockers)
   }
 
   const json = await res.json()

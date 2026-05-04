@@ -1457,3 +1457,156 @@ async def test_explicit_max_turns_always_wins_over_project_override(
     )
     assert res.status_code == 201
     assert res.json()["max_turns"] == 50
+
+
+# ---------------------------------------------------------------------------
+# Blocker enforcement on dispatch
+# ---------------------------------------------------------------------------
+
+
+async def test_dispatch_blocked_by_single_blocker(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """POST dispatch returns 422 when item has 1 unresolved blocker."""
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id, "Task A")
+    blocker_id = await _create_item_in_project(
+        client, auth_headers, project_id, "Blocker B"
+    )
+
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": blocker_id},
+        headers=auth_headers,
+    )
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+async def test_dispatch_blocked_response_shape(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """422 body shape: string detail + blockers array with {id, title, status}."""
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id, "Task")
+    blocker_id = await _create_item_in_project(
+        client, auth_headers, project_id, "Blocker"
+    )
+
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": blocker_id},
+        headers=auth_headers,
+    )
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+    body = res.json()
+    assert isinstance(body["detail"], str)
+    assert "unresolved blocker" in body["detail"]
+    assert isinstance(body["blockers"], list)
+    assert len(body["blockers"]) == 1
+    b = body["blockers"][0]
+    assert b["id"] == blocker_id
+    assert b["title"] == "Blocker"
+    assert isinstance(b["status"], str)
+
+
+async def test_dispatch_blocked_multiple_blockers(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Both blockers appear in the 422 response when item has 2 blockers."""
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id, "Task")
+    b1 = await _create_item_in_project(client, auth_headers, project_id, "Blocker 1")
+    b2 = await _create_item_in_project(client, auth_headers, project_id, "Blocker 2")
+
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": b1},
+        headers=auth_headers,
+    )
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": b2},
+        headers=auth_headers,
+    )
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+    body = res.json()
+    assert len(body["blockers"]) == 2
+    blocker_ids = {b["id"] for b in body["blockers"]}
+    assert b1 in blocker_ids
+    assert b2 in blocker_ids
+
+
+async def test_dispatch_done_blocker_passes(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Dispatch succeeds when all blockers are done."""
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id, "Task")
+    blocker_id = await _create_item_in_project(
+        client, auth_headers, project_id, "Blocker"
+    )
+
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": blocker_id},
+        headers=auth_headers,
+    )
+
+    # Complete the blocker → status becomes done
+    await client.post(f"/api/items/{blocker_id}/complete", headers=auth_headers)
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+
+
+async def test_dispatch_cancelled_blocker_passes(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Dispatch succeeds when all blockers are cancelled."""
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id, "Task")
+    blocker_id = await _create_item_in_project(
+        client, auth_headers, project_id, "Blocker"
+    )
+
+    await client.post(
+        f"/api/items/{item_id}/blockers",
+        json={"blocker_item_id": blocker_id},
+        headers=auth_headers,
+    )
+
+    # Cancel the blocker → treated as resolved
+    await client.patch(
+        f"/api/items/{blocker_id}",
+        json={"status": "cancelled"},
+        headers=auth_headers,
+    )
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
