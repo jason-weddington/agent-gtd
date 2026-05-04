@@ -24,6 +24,8 @@ import {
   ListItemButton,
   ListItemText,
   Tooltip,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DoneIcon from '@mui/icons-material/Done'
@@ -55,6 +57,7 @@ const STATUS_LABELS: Record<ProjectStatus, string> = {
 type ViewMode = 'cards' | 'list'
 
 const VIEW_MODE_KEY = 'agent_gtd-projects-view'
+const SHOW_COMPLETED_KEY = 'agent_gtd-projects-show-completed'
 
 export default function Projects() {
   const navigate = useNavigate()
@@ -64,6 +67,9 @@ export default function Projects() {
   const [search, setSearch] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>(
     () => (localStorage.getItem(VIEW_MODE_KEY) as ViewMode) || 'cards',
+  )
+  const [showCompletedProjects, setShowCompletedProjects] = useState<boolean>(
+    () => localStorage.getItem(SHOW_COMPLETED_KEY) === 'true',
   )
 
   // Create/edit dialog
@@ -103,26 +109,28 @@ export default function Projects() {
   )
 
   const filteredOwned = useMemo(() => {
-    if (!search.trim()) return ownedProjects
-    const q = search.toLowerCase()
+    const q = search.toLowerCase().trim()
     return ownedProjects.filter(
       (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q) ||
-        p.area.toLowerCase().includes(q),
+        (showCompletedProjects || p.status !== 'completed') &&
+        (!q ||
+          p.name.toLowerCase().includes(q) ||
+          p.description.toLowerCase().includes(q) ||
+          p.area.toLowerCase().includes(q)),
     )
-  }, [ownedProjects, search])
+  }, [ownedProjects, search, showCompletedProjects])
 
   const filteredShared = useMemo(() => {
-    if (!search.trim()) return sharedProjects
-    const q = search.toLowerCase()
+    const q = search.toLowerCase().trim()
     return sharedProjects.filter(
       (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q) ||
-        p.area.toLowerCase().includes(q),
+        (showCompletedProjects || p.status !== 'completed') &&
+        (!q ||
+          p.name.toLowerCase().includes(q) ||
+          p.description.toLowerCase().includes(q) ||
+          p.area.toLowerCase().includes(q)),
     )
-  }, [sharedProjects, search])
+  }, [sharedProjects, search, showCompletedProjects])
 
   // Keep backward-compat for the "no projects" empty state
   const filteredProjects = useMemo(() => [...filteredOwned, ...filteredShared], [filteredOwned, filteredShared])
@@ -132,6 +140,12 @@ export default function Projects() {
       setViewMode(newView)
       localStorage.setItem(VIEW_MODE_KEY, newView)
     }
+  }
+
+  const handleShowCompletedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const checked = e.target.checked
+    setShowCompletedProjects(checked)
+    localStorage.setItem(SHOW_COMPLETED_KEY, String(checked))
   }
 
   const openCreate = () => {
@@ -227,6 +241,16 @@ export default function Projects() {
                 },
               }}
             />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  size="small"
+                  checked={showCompletedProjects}
+                  onChange={handleShowCompletedChange}
+                />
+              }
+              label={<Typography variant="body2">Show completed</Typography>}
+            />
             <ToggleButtonGroup
               value={viewMode}
               exclusive
@@ -248,7 +272,9 @@ export default function Projects() {
 
           {filteredProjects.length === 0 ? (
             <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-              No projects match &ldquo;{search}&rdquo;
+              {search.trim()
+                ? `No projects match \u201c${search}\u201d`
+                : 'All projects are completed. Enable \u201cShow completed\u201d to see them.'}
             </Typography>
           ) : (
             <>
