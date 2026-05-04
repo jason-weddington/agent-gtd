@@ -89,21 +89,25 @@ async def list_projects(
     # Base: accessible projects (owned OR member).  $1 and $2 are both user_id;
     # using two separate params keeps the $N-to-? mapping simple for SQLite.
     clauses = [
-        "(user_id = $1 OR id IN "
+        "(p.user_id = $1 OR p.id IN "
         "(SELECT project_id FROM project_members WHERE user_id = $2))"
     ]
     params: list[object] = [user_id, user_id]
 
     if status is not None:
-        clauses.append(f"status = ${len(params) + 1}")
+        clauses.append(f"p.status = ${len(params) + 1}")
         params.append(status)
     if area is not None:
-        clauses.append(f"area = ${len(params) + 1}")
+        clauses.append(f"p.area = ${len(params) + 1}")
         params.append(area)
 
     where = " AND ".join(clauses)
     rows = await db.fetch(
-        f"SELECT * FROM projects WHERE {where} ORDER BY created_at DESC",  # noqa: S608
+        f"SELECT p.*, u.email AS owner_email, "  # noqa: S608
+        f"(SELECT COUNT(*) FROM project_members pm WHERE pm.project_id = p.id)"
+        f" AS member_count "
+        f"FROM projects p JOIN users u ON u.id = p.user_id "
+        f"WHERE {where} ORDER BY p.created_at DESC",
         *params,
     )
     return [row_to_dict(r) for r in rows]
@@ -170,8 +174,12 @@ async def get_project(db: DbPool, user_id: str, project_id: str) -> dict[str, An
         NotFoundError: If the project doesn't exist or isn't accessible.
     """
     row = await db.fetchrow(
-        "SELECT * FROM projects WHERE id = $1 AND "
-        "(user_id = $2 OR EXISTS "
+        "SELECT p.*, u.email AS owner_email, "
+        "(SELECT COUNT(*) FROM project_members pm WHERE pm.project_id = p.id)"
+        " AS member_count "
+        "FROM projects p JOIN users u ON u.id = p.user_id "
+        "WHERE p.id = $1 AND "
+        "(p.user_id = $2 OR EXISTS "
         "(SELECT 1 FROM project_members WHERE project_id = $3 AND user_id = $4))",
         project_id,
         user_id,
@@ -214,7 +222,7 @@ async def update_project(
     Raises:
         NotFoundError: If the project doesn't exist or isn't owned by user.
     """
-    await verify_project_ownership(db, project_id, user_id)
+    await verify_project_access(db, project_id, user_id)
 
     updates: list[str] = []
     params: list[object] = []

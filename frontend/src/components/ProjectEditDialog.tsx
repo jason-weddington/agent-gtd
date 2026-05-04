@@ -13,6 +13,7 @@ import {
   MenuItem,
   Select,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
 import { api, ApiError } from '../api'
@@ -130,6 +131,9 @@ export default function ProjectEditDialog({
       setSaving(false)
     }
   }
+
+  // Non-owners cannot edit dispatch fields; undefined isOwner = treat as owner
+  const isOwner = editing?.isOwner !== false
 
   // Derived Autocomplete data
   const capabilityNames = dispatchCapabilities?.map((a) => a.name) ?? []
@@ -252,54 +256,68 @@ export default function ProjectEditDialog({
           placeholder="e.g. my-project"
           helperText="Personal KB project reference for agent context"
         />
-        <Autocomplete<string | null>
-          options={planOptions}
-          value={planDispatchAgent}
-          onChange={(_, val) => setPlanDispatchAgent(val)}
-          disabled={dispatchCapabilitiesError !== null}
-          getOptionLabel={(option) => option === null ? globalPlanLabel : option}
-          isOptionEqualToValue={(option, value) => option === value}
-          renderOption={(props, option) =>
-            renderDispatchOption(
-              props as React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
-              option,
-              globalPlanLabel,
-            )
-          }
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label="Plan Agent Override"
-              size="small"
-              margin="normal"
-              helperText={capabilitiesHelperText ?? 'Agent used for plan-mode runs (overrides Dispatch Agent)'}
+        <Tooltip
+          title={!isOwner && editing !== null ? 'Only the project owner can edit dispatch settings' : ''}
+          disableHoverListener={isOwner}
+        >
+          <span>
+            <Autocomplete<string | null>
+              options={planOptions}
+              value={planDispatchAgent}
+              onChange={(_, val) => setPlanDispatchAgent(val)}
+              disabled={dispatchCapabilitiesError !== null || (!isOwner && editing !== null)}
+              getOptionLabel={(option) => option === null ? globalPlanLabel : option}
+              isOptionEqualToValue={(option, value) => option === value}
+              renderOption={(props, option) =>
+                renderDispatchOption(
+                  props as React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
+                  option,
+                  globalPlanLabel,
+                )
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Plan Agent Override"
+                  size="small"
+                  margin="normal"
+                  helperText={capabilitiesHelperText ?? 'Agent used for plan-mode runs (overrides Dispatch Agent)'}
+                />
+              )}
             />
-          )}
-        />
-        <Autocomplete<string | null>
-          options={buildOptions}
-          value={buildDispatchAgent}
-          onChange={(_, val) => setBuildDispatchAgent(val)}
-          disabled={dispatchCapabilitiesError !== null}
-          getOptionLabel={(option) => option === null ? globalBuildLabel : option}
-          isOptionEqualToValue={(option, value) => option === value}
-          renderOption={(props, option) =>
-            renderDispatchOption(
-              props as React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
-              option,
-              globalBuildLabel,
-            )
-          }
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label="Build Agent Override"
-              size="small"
-              margin="normal"
-              helperText={capabilitiesHelperText ?? 'Agent used for build-mode runs (overrides Dispatch Agent)'}
+          </span>
+        </Tooltip>
+        <Tooltip
+          title={!isOwner && editing !== null ? 'Only the project owner can edit dispatch settings' : ''}
+          disableHoverListener={isOwner}
+        >
+          <span>
+            <Autocomplete<string | null>
+              options={buildOptions}
+              value={buildDispatchAgent}
+              onChange={(_, val) => setBuildDispatchAgent(val)}
+              disabled={dispatchCapabilitiesError !== null || (!isOwner && editing !== null)}
+              getOptionLabel={(option) => option === null ? globalBuildLabel : option}
+              isOptionEqualToValue={(option, value) => option === value}
+              renderOption={(props, option) =>
+                renderDispatchOption(
+                  props as React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
+                  option,
+                  globalBuildLabel,
+                )
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Build Agent Override"
+                  size="small"
+                  margin="normal"
+                  helperText={capabilitiesHelperText ?? 'Agent used for build-mode runs (overrides Dispatch Agent)'}
+                />
+              )}
             />
-          )}
-        />
+          </span>
+        </Tooltip>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>

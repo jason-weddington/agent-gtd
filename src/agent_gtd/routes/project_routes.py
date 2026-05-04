@@ -28,11 +28,28 @@ from agent_gtd.services import project_service
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
-def _project_response(row: dict[str, object]) -> ProjectResponse:
+_DISPATCH_ONLY_FIELDS = {
+    "dispatch_max_turns",
+    "dispatch_timeout_minutes",
+    "plan_dispatch_agent",
+    "build_dispatch_agent",
+}
+
+
+def _project_response(
+    row: dict[str, object], caller_user_id: str | None = None
+) -> ProjectResponse:
     raw_turns = row.get("dispatch_max_turns")
     raw_timeout = row.get("dispatch_timeout_minutes")
     raw_plan_agent = row.get("plan_dispatch_agent")
     raw_build_agent = row.get("build_dispatch_agent")
+    raw_owner_email = row.get("owner_email")
+    raw_member_count = row.get("member_count")
+    is_owner = (
+        (str(row.get("user_id", "")) == caller_user_id)
+        if caller_user_id is not None
+        else None
+    )
     return ProjectResponse(
         id=str(row["id"]),
         name=str(row["name"]),
@@ -51,6 +68,11 @@ def _project_response(row: dict[str, object]) -> ProjectResponse:
         else None,
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
+        is_owner=is_owner,
+        owner_email=str(raw_owner_email) if raw_owner_email is not None else None,
+        member_count=(
+            int(str(raw_member_count)) if raw_member_count is not None else None
+        ),
     )
 
 
@@ -68,7 +90,7 @@ async def list_projects(
         status=project_status.value if project_status else None,
         area=area,
     )
-    return [_project_response(r) for r in rows]
+    return [_project_response(r, caller_user_id=user.id) for r in rows]
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)
@@ -102,7 +124,7 @@ async def get_project(
         row = await project_service.get_project(db, user.id, project_id)
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None
-    return _project_response(row)
+    return _project_response(row, caller_user_id=user.id)
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
@@ -112,6 +134,18 @@ async def update_project(
     user: Annotated[User, Depends(get_current_user)],
 ) -> ProjectResponse:
     """Update an existing project."""
+    # Ownership guard: only the project owner may change dispatch-only fields.
+    if body.model_fields_set & _DISPATCH_ONLY_FIELDS:
+        db = await get_db()
+        proj = await db.fetchrow(
+            "SELECT user_id FROM projects WHERE id = $1", project_id
+        )
+        if proj is None or str(proj["user_id"]) != user.id:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the project owner can edit dispatch settings",
+            )
+
     # Validate dispatch_max_turns bounds if explicitly provided and non-null.
     if (
         "dispatch_max_turns" in body.model_fields_set
@@ -181,7 +215,7 @@ async def update_project(
         )
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None
-    return _project_response(row)
+    return _project_response(row, caller_user_id=user.id)
 
 
 @router.delete("/{project_id}", status_code=204)

@@ -73,7 +73,7 @@ async def _check_dispatch_service(db: Any, user_id: str) -> None:
     if not settings:
         raise HTTPException(
             status_code=503,
-            detail="Dispatch service not configured",
+            detail="Project owner has not configured dispatch",
         )
     url = settings["url"]
     api_key = settings["api_key"]
@@ -219,25 +219,34 @@ async def dispatch_item(
     """
     db = await get_db()
 
-    # --- Ownership guard ---
+    # --- Access check + owner discovery ---
     # Fetch the item's project_id without an access filter (we need the raw
-    # project_id to check ownership, even for members who can read the item).
+    # project_id to check membership, even for items whose project the caller
+    # only belongs to as a member).
+    owner_id = user.id  # default for inbox items
     item_check = await db.fetchrow(
         "SELECT project_id FROM items WHERE id = $1", item_id
     )
     if item_check is not None and item_check["project_id"] is not None:
         project_check = await db.fetchrow(
-            "SELECT user_id FROM projects WHERE id = $1",
-            item_check["project_id"],
+            "SELECT user_id FROM projects WHERE id = $1 AND "
+            "(user_id = $2 OR EXISTS "
+            "(SELECT 1 FROM project_members WHERE project_id = $3 AND user_id = $4))",
+            str(item_check["project_id"]),
+            user.id,
+            str(item_check["project_id"]),
+            user.id,
         )
-        if project_check is not None and str(project_check["user_id"]) != user.id:
+        if project_check is None:
             raise HTTPException(
                 status_code=403,
-                detail="only the project owner can dispatch agents",
+                detail="only project members can dispatch agents",
             )
+        # Dispatch config always comes from the project owner, not the caller.
+        owner_id = str(project_check["user_id"])
 
-    # Pre-flight: ensure dispatch service is configured and reachable
-    await _check_dispatch_service(db, user.id)
+    # Pre-flight: ensure the project owner's dispatch service is configured
+    await _check_dispatch_service(db, owner_id)
 
     try:
         row = await dispatch_service.create_run(

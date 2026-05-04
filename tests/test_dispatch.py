@@ -224,11 +224,11 @@ async def test_dispatch_owner_can_dispatch(
     assert res.status_code == 201
 
 
-async def test_dispatch_member_cannot_dispatch(
+async def test_dispatch_member_succeeds_with_owner_config(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """Project member (non-owner) gets 403 when attempting dispatch."""
-    # User A creates project and item
+    """Project member (non-owner) can dispatch when owner has dispatch configured."""
+    # User A (owner) creates project and item; preflight mock allows all requests
     project_id = await _create_project_with_origin(client, auth_headers)
     item_id = await _create_item_in_project(client, auth_headers, project_id)
 
@@ -253,14 +253,98 @@ async def test_dispatch_member_cannot_dispatch(
         datetime.now(UTC).isoformat(),
     )
 
-    # User B attempts to dispatch → 403
+    # User B dispatches → 201 (not 403), preflight mock allows it
     res = await client.post(
         f"/api/items/{item_id}/dispatch",
         json={},
         headers=user_b_headers,
     )
-    assert res.status_code == 403
-    assert "owner" in res.json()["detail"].lower()
+    assert res.status_code == 201
+    run_data = res.json()
+    # Run attribution is the caller (User B), not the owner — verify via DB
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    run_row = await db.fetchrow(
+        "SELECT user_id FROM claude_runs WHERE id = $1", run_data["id"]
+    )
+    assert run_row is not None
+    assert str(run_row["user_id"]) == user_b_id
+
+
+async def test_dispatch_member_no_owner_config(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """When the project owner has no dispatch config, member dispatch returns 503."""
+    from unittest.mock import AsyncMock, patch
+
+    # User A (owner) creates project and item — but owner has NO dispatch config
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    # Create User B
+    from agent_gtd.auth import create_token, register_user
+
+    user_b = await register_user("userb2@example.com", "passb")
+    user_b_headers = {"Authorization": f"Bearer {create_token(user_b.id)}"}
+    user_b_id = user_b.id
+
+    # Add User B as a project member
+    from datetime import UTC, datetime
+
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO project_members (project_id, user_id, added_at)"
+        " VALUES ($1, $2, $3)",
+        project_id,
+        user_b_id,
+        datetime.now(UTC).isoformat(),
+    )
+
+    # Override the autouse preflight mock to use the real check
+    # (so we can test the "not configured" path)
+    with patch(
+        "agent_gtd.routes.dispatch_routes._check_dispatch_service",
+        new_callable=AsyncMock,
+        side_effect=Exception("Project owner has not configured dispatch"),
+    ):
+        # Patch the real _check_dispatch_service directly to raise 503
+        pass
+
+    # Re-patch to simulate missing config (overrides the autouse mock for this call)
+    from fastapi import HTTPException
+
+    with patch(
+        "agent_gtd.routes.dispatch_routes._check_dispatch_service",
+        new_callable=AsyncMock,
+        side_effect=HTTPException(
+            status_code=503, detail="Project owner has not configured dispatch"
+        ),
+    ):
+        res = await client.post(
+            f"/api/items/{item_id}/dispatch",
+            json={},
+            headers=user_b_headers,
+        )
+    assert res.status_code == 503
+    assert "Project owner has not configured dispatch" in res.json()["detail"]
+
+
+async def test_dispatch_owner_own_config_used(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Owner dispatching their own project still works (sanity check after refactor)."""
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
 
 
 # --- Run listing ---

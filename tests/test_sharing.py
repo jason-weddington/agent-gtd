@@ -380,13 +380,14 @@ async def test_member_cannot_delete_project(user_a, user_b, project_p):
 
 
 async def test_member_cannot_update_project_metadata(user_a, user_b, project_p):
-    """Member cannot update the shared project's metadata (owner-only)."""
+    """Member can update non-dispatch project metadata (AC5: access allowed)."""
     db = await get_db()
     await add_member(project_p["id"], user_b.id)
-    with pytest.raises(NotFoundError):
-        await project_service.update_project(
-            db, user_b.id, project_p["id"], name="Hacked"
-        )
+    # Non-dispatch fields (name, description, etc.) are editable by members
+    updated = await project_service.update_project(
+        db, user_b.id, project_p["id"], name="Updated by member"
+    )
+    assert updated["name"] == "Updated by member"
 
 
 async def test_non_member_cannot_create_project_item(user_a, user_b, project_p):

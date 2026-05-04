@@ -331,6 +331,9 @@ class ProjectResponse(BaseModel):
     build_dispatch_agent: str | None = None
     created_at: datetime
     updated_at: datetime
+    is_owner: bool | None = None
+    owner_email: str | None = None
+    member_count: int | None = None
 
 
 # --- Member Schemas ---

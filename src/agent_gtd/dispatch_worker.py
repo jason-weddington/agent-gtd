@@ -297,15 +297,25 @@ async def reconcile_active_runs() -> int:
             reconciled += 1
             continue
 
-        # Look up the run owner's dispatch config
-        settings = await get_dispatch_config(db, user_id)
+        # Dispatch config belongs to the project owner, not the caller.
+        # Inbox items (no project) use the caller's own config.
+        run_project_id = run.get("project_id")
+        if run_project_id:
+            proj_row = await db.fetchrow(
+                "SELECT user_id FROM projects WHERE id = $1", str(run_project_id)
+            )
+            owner_id = str(proj_row["user_id"]) if proj_row else user_id
+        else:
+            owner_id = user_id
+
+        settings = await get_dispatch_config(db, owner_id)
         if not settings:
             await _update_run(
                 db,
                 run_id,
                 status="failed",
                 finished_at=now,
-                error_msg="Dispatch not configured for this user",
+                error_msg="Project owner has not configured dispatch",
             )
             reconciled += 1
             continue
@@ -460,15 +470,26 @@ async def execute_run(
     max_turns = int(str(run["max_turns"]))
     mode = str(run.get("mode", "build"))
 
-    # Resolve per-user dispatch config
-    settings = await get_dispatch_config(db, user_id)
+    # Dispatch config belongs to the project owner, not the caller.
+    # Inbox items (no project) use the caller's own config.
+    project_id = run.get("project_id")
+    if project_id:
+        proj_row = await db.fetchrow(
+            "SELECT user_id FROM projects WHERE id = $1", str(project_id)
+        )
+        owner_id = str(proj_row["user_id"]) if proj_row else user_id
+    else:
+        owner_id = user_id
+
+    # Resolve dispatch config via project owner
+    settings = await get_dispatch_config(db, owner_id)
     if not settings:
         await _update_run(
             db,
             run_id,
             status="failed",
             finished_at=datetime.now(UTC).isoformat(),
-            error_msg="Dispatch not configured for this user",
+            error_msg="Project owner has not configured dispatch",
         )
         _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
         return
