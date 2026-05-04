@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Autocomplete,
   Box,
   Typography,
   Button,
@@ -17,10 +16,6 @@ import {
   TextField,
   CircularProgress,
   Alert,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   InputAdornment,
   ToggleButtonGroup,
   ToggleButton,
@@ -40,7 +35,8 @@ import ViewListIcon from '@mui/icons-material/ViewList'
 import PeopleIcon from '@mui/icons-material/People'
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutline'
 import { api, ApiError } from '../api'
-import type { Project, ProjectStatus, DispatchAgentInfo } from '../types'
+import type { Project, ProjectStatus } from '../types'
+import ProjectEditDialog from '../components/ProjectEditDialog'
 
 const STATUS_COLORS: Record<ProjectStatus, 'success' | 'default' | 'warning' | 'error'> = {
   active: 'success',
@@ -73,21 +69,6 @@ export default function Projects() {
   // Create/edit dialog
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Project | null>(null)
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [status, setStatus] = useState<ProjectStatus>('active')
-  const [area, setArea] = useState('')
-  const [gitOrigin, setGitOrigin] = useState('')
-  const [kbProjectRef, setKbProjectRef] = useState('')
-  const [planDispatchAgent, setPlanDispatchAgent] = useState<string | null>(null)
-  const [buildDispatchAgent, setBuildDispatchAgent] = useState<string | null>(null)
-  const [dispatchCapabilities, setDispatchCapabilities] = useState<DispatchAgentInfo[] | null>(null)
-  const [dispatchCapabilitiesError, setDispatchCapabilitiesError] = useState<'unavailable' | 'empty' | null>(null)
-  const [dispatchGlobalSettings, setDispatchGlobalSettings] = useState<{
-    planAgentName: string
-    buildAgentName: string
-  } | null>(null)
-  const [saving, setSaving] = useState(false)
 
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
@@ -111,29 +92,6 @@ export default function Projects() {
   useEffect(() => {
     loadProjects()
   }, [loadProjects])
-
-  useEffect(() => {
-    api.dispatch.capabilities()
-      .then((caps) => {
-        if (caps.agents.length === 0) {
-          setDispatchCapabilitiesError('empty')
-        } else {
-          setDispatchCapabilities(caps.agents)
-        }
-      })
-      .catch(() => {
-        setDispatchCapabilitiesError('unavailable')
-      })
-  }, [])
-
-  useEffect(() => {
-    api.settings.getDispatch()
-      .then((res) => setDispatchGlobalSettings({
-        planAgentName: res.planAgentName,
-        buildAgentName: res.buildAgentName,
-      }))
-      .catch(() => { /* non-critical */ })
-  }, [])
 
   const ownedProjects = useMemo(
     () => projects.filter((p) => p.isOwner !== false),
@@ -178,51 +136,13 @@ export default function Projects() {
 
   const openCreate = () => {
     setEditing(null)
-    setName('')
-    setDescription('')
-    setStatus('active')
-    setArea('')
-    setGitOrigin('')
-    setKbProjectRef('')
-    setPlanDispatchAgent(null)
-    setBuildDispatchAgent(null)
     setDialogOpen(true)
   }
 
   const openEdit = (project: Project, e: React.MouseEvent) => {
     e.stopPropagation()
     setEditing(project)
-    setName(project.name)
-    setDescription(project.description)
-    setStatus(project.status)
-    setArea(project.area)
-    setGitOrigin(project.gitOrigin || '')
-    setKbProjectRef(project.kbProjectRef || '')
-    setPlanDispatchAgent(project.planDispatchAgent ?? null)
-    setBuildDispatchAgent(project.buildDispatchAgent ?? null)
     setDialogOpen(true)
-  }
-
-  const handleSave = async () => {
-    if (!name.trim()) return
-    setSaving(true)
-    try {
-      if (editing) {
-        await api.projects.update(editing.id, {
-          name, description, status, area, gitOrigin, kbProjectRef,
-          planDispatchAgent: planDispatchAgent,
-          buildDispatchAgent: buildDispatchAgent,
-        })
-      } else {
-        await api.projects.create({ name, description, status, area, gitOrigin, kbProjectRef })
-      }
-      setDialogOpen(false)
-      await loadProjects()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.detail : 'Failed to save project')
-    } finally {
-      setSaving(false)
-    }
   }
 
   const handleDelete = async () => {
@@ -608,186 +528,12 @@ export default function Projects() {
       )}
 
       {/* Create/Edit Dialog */}
-      <Dialog
+      <ProjectEditDialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
-        fullWidth
-        maxWidth="sm"
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && ((e.metaKey || e.ctrlKey) || !(e.target instanceof HTMLTextAreaElement))) {
-            e.preventDefault()
-            if (name.trim() && !saving) handleSave()
-          }
-        }}
-      >
-        <DialogTitle>{editing ? 'Edit Project' : 'New Project'}</DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            label="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            margin="normal"
-            autoFocus
-            size="small"
-            required
-          />
-          <TextField
-            fullWidth
-            label="Description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            margin="normal"
-            multiline
-            rows={3}
-            size="small"
-          />
-          <FormControl fullWidth margin="normal" size="small">
-            <InputLabel>Status</InputLabel>
-            <Select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as ProjectStatus)}
-              label="Status"
-            >
-              <MenuItem value="active">Active</MenuItem>
-              <MenuItem value="completed">Completed</MenuItem>
-              <MenuItem value="on_hold">On Hold</MenuItem>
-              <MenuItem value="cancelled">Cancelled</MenuItem>
-            </Select>
-          </FormControl>
-          <TextField
-            fullWidth
-            label="Area"
-            value={area}
-            onChange={(e) => setArea(e.target.value)}
-            margin="normal"
-            size="small"
-            placeholder="e.g. work, personal, health"
-          />
-          <TextField
-            fullWidth
-            label="Git Origin"
-            value={gitOrigin}
-            onChange={(e) => setGitOrigin(e.target.value)}
-            margin="normal"
-            size="small"
-            placeholder="e.g. git@github.com:org/repo.git"
-            helperText="Repository URL for agent dispatch"
-          />
-          <TextField
-            fullWidth
-            label="KB Project Ref"
-            value={kbProjectRef}
-            onChange={(e) => setKbProjectRef(e.target.value)}
-            margin="normal"
-            size="small"
-            placeholder="e.g. my-project"
-            helperText="Personal KB project reference for agent context"
-          />
-          {(() => {
-            const capabilityNames = dispatchCapabilities?.map((a) => a.name) ?? []
-            const capabilitiesHelperText = dispatchCapabilitiesError === 'unavailable'
-              ? 'Dispatch service unavailable'
-              : dispatchCapabilitiesError === 'empty'
-                ? 'No agents advertised'
-                : null
-            const planOptions: (string | null)[] = [null, ...capabilityNames]
-            const buildOptions: (string | null)[] = [null, ...capabilityNames]
-            const globalPlanLabel = dispatchGlobalSettings?.planAgentName
-              ? `Inherit from global (${dispatchGlobalSettings.planAgentName})`
-              : 'Inherit from global (none)'
-            const globalBuildLabel = dispatchGlobalSettings?.buildAgentName
-              ? `Inherit from global (${dispatchGlobalSettings.buildAgentName})`
-              : 'Inherit from global (none)'
-
-            const renderDispatchOption = (
-              props: React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
-              option: string | null,
-              globalLabel: string,
-            ) => {
-              const { key, ...rest } = props
-              const agentInfo = option ? dispatchCapabilities?.find((a) => a.name === option) : null
-              return (
-                <li key={key} {...rest}>
-                  <Box>
-                    <Typography variant="body2">
-                      {option === null ? globalLabel : option}
-                    </Typography>
-                    {agentInfo?.description && (
-                      <Typography variant="caption" color="text.secondary">
-                        {agentInfo.description}
-                      </Typography>
-                    )}
-                  </Box>
-                </li>
-              )
-            }
-
-            return (
-              <>
-                <Autocomplete<string | null>
-                  options={planOptions}
-                  value={planDispatchAgent}
-                  onChange={(_, val) => setPlanDispatchAgent(val)}
-                  disabled={dispatchCapabilitiesError !== null}
-                  getOptionLabel={(option) => option === null ? globalPlanLabel : option}
-                  isOptionEqualToValue={(option, value) => option === value}
-                  renderOption={(props, option) =>
-                    renderDispatchOption(
-                      props as React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
-                      option,
-                      globalPlanLabel,
-                    )
-                  }
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Plan Agent Override"
-                      size="small"
-                      margin="normal"
-                      helperText={capabilitiesHelperText ?? 'Agent used for plan-mode runs (overrides Dispatch Agent)'}
-                    />
-                  )}
-                />
-                <Autocomplete<string | null>
-                  options={buildOptions}
-                  value={buildDispatchAgent}
-                  onChange={(_, val) => setBuildDispatchAgent(val)}
-                  disabled={dispatchCapabilitiesError !== null}
-                  getOptionLabel={(option) => option === null ? globalBuildLabel : option}
-                  isOptionEqualToValue={(option, value) => option === value}
-                  renderOption={(props, option) =>
-                    renderDispatchOption(
-                      props as React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
-                      option,
-                      globalBuildLabel,
-                    )
-                  }
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Build Agent Override"
-                      size="small"
-                      margin="normal"
-                      helperText={capabilitiesHelperText ?? 'Agent used for build-mode runs (overrides Dispatch Agent)'}
-                    />
-                  )}
-                />
-              </>
-            )
-          })()}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleSave}
-            disabled={saving || !name.trim()}
-          >
-            {saving ? <CircularProgress size={20} /> : editing ? 'Save' : 'Create'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        editing={editing}
+        onSaved={() => { loadProjects() }}
+      />
 
       {/* Delete Confirmation */}
       <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} fullWidth maxWidth="xs">

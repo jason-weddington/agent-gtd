@@ -60,6 +60,7 @@ import NoteEditor from '../components/NoteEditor'
 import ItemDetailDrawer from '../components/ItemDetailDrawer'
 import ShareTab from '../components/ShareTab'
 import MarkdownContent from '../components/MarkdownContent'
+import ProjectEditDialog from '../components/ProjectEditDialog'
 
 // Local extension of Item for optimistic UI — never exported or added to types.ts
 type DisplayItem = Item & { _optimistic?: true }
@@ -118,14 +119,7 @@ export default function ProjectDetail() {
   const [savingItemComment, setSavingItemComment] = useState(false)
 
   // Project edit dialog
-  const [editProjectOpen, setEditProjectOpen] = useState(false)
-  const [editName, setEditName] = useState('')
-  const [editDescription, setEditDescription] = useState('')
-  const [editStatus, setEditStatus] = useState<ProjectStatus>('active')
-  const [editArea, setEditArea] = useState('')
-  const [editGitOrigin, setEditGitOrigin] = useState('')
-  const [editKbProjectRef, setEditKbProjectRef] = useState('')
-  const [savingProject, setSavingProject] = useState(false)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
 
   // Item dialog
   const [itemDialogOpen, setItemDialogOpen] = useState(false)
@@ -386,39 +380,6 @@ export default function ProjectDetail() {
     // Start fresh with the requested status (Kanban column "+" button).
     setItemDraft({ ...ITEM_DRAFT_INITIAL, status })
     setItemDialogOpen(true)
-  }
-
-  // --- Project edit ---
-  const openEditProject = () => {
-    if (!project) return
-    setEditName(project.name)
-    setEditDescription(project.description)
-    setEditStatus(project.status)
-    setEditArea(project.area)
-    setEditGitOrigin(project.gitOrigin || '')
-    setEditKbProjectRef(project.kbProjectRef || '')
-    setEditProjectOpen(true)
-  }
-
-  const handleSaveProject = async () => {
-    if (!projectId || !editName.trim()) return
-    setSavingProject(true)
-    try {
-      await api.projects.update(projectId, {
-        name: editName,
-        description: editDescription,
-        status: editStatus,
-        area: editArea,
-        gitOrigin: editGitOrigin,
-        kbProjectRef: editKbProjectRef,
-      })
-      setEditProjectOpen(false)
-      await loadData()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.detail : 'Failed to update project')
-    } finally {
-      setSavingProject(false)
-    }
   }
 
   // --- Items ---
@@ -766,7 +727,7 @@ export default function ProjectDetail() {
         {project.area && (
           <Chip label={project.area} size="small" variant="outlined" />
         )}
-        <Button size="small" startIcon={<EditIcon />} onClick={openEditProject}>
+        <Button size="small" startIcon={<EditIcon />} onClick={() => setEditDialogOpen(true)}>
           Edit
         </Button>
       </Box>
@@ -1480,93 +1441,12 @@ export default function ProjectDetail() {
       )}
 
       {/* Edit Project Dialog */}
-      <Dialog
-        open={editProjectOpen}
-        onClose={() => setEditProjectOpen(false)}
-        fullWidth
-        maxWidth="sm"
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && ((e.metaKey || e.ctrlKey) || !(e.target instanceof HTMLTextAreaElement))) {
-            e.preventDefault()
-            if (editName.trim() && !savingProject) handleSaveProject()
-          }
-        }}
-      >
-        <DialogTitle>Edit Project</DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            label="Name"
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
-            margin="normal"
-            autoFocus
-            size="small"
-            required
-          />
-          <TextField
-            fullWidth
-            label="Description"
-            value={editDescription}
-            onChange={(e) => setEditDescription(e.target.value)}
-            margin="normal"
-            multiline
-            rows={3}
-            size="small"
-          />
-          <FormControl fullWidth margin="normal" size="small">
-            <InputLabel>Status</InputLabel>
-            <Select
-              value={editStatus}
-              onChange={(e) => setEditStatus(e.target.value as ProjectStatus)}
-              label="Status"
-            >
-              <MenuItem value="active">Active</MenuItem>
-              <MenuItem value="completed">Completed</MenuItem>
-              <MenuItem value="on_hold">On Hold</MenuItem>
-              <MenuItem value="cancelled">Cancelled</MenuItem>
-            </Select>
-          </FormControl>
-          <TextField
-            fullWidth
-            label="Area"
-            value={editArea}
-            onChange={(e) => setEditArea(e.target.value)}
-            margin="normal"
-            size="small"
-          />
-          <TextField
-            fullWidth
-            label="Git Origin"
-            value={editGitOrigin}
-            onChange={(e) => setEditGitOrigin(e.target.value)}
-            margin="normal"
-            size="small"
-            placeholder="e.g. git@github.com:org/repo.git"
-            helperText="Repository URL for agent dispatch"
-          />
-          <TextField
-            fullWidth
-            label="KB Project Ref"
-            value={editKbProjectRef}
-            onChange={(e) => setEditKbProjectRef(e.target.value)}
-            margin="normal"
-            size="small"
-            placeholder="e.g. my-project"
-            helperText="Personal KB project reference for agent context"
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditProjectOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleSaveProject}
-            disabled={savingProject || !editName.trim()}
-          >
-            {savingProject ? <CircularProgress size={20} /> : 'Save'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ProjectEditDialog
+        open={editDialogOpen}
+        onClose={() => setEditDialogOpen(false)}
+        editing={project}
+        onSaved={(updated) => { setProject(updated) }}
+      />
 
       {/* Item Dialog */}
       <Dialog
