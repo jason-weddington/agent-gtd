@@ -2,6 +2,33 @@
 
 <!-- version list -->
 
+## v1.82.0 (2026-05-04)
+
+### Documentation
+
+- **deploy**: Generalize runbook to be environment-agnostic
+  ([`65c2605`](https://github.com/jason-weddington/agent-gtd/commit/65c2605619b5fa980b3d345e9ef27fc2af9a12f6))
+
+- **readme**: Document agent-gtd CLI install + shared env vars
+  ([`6758673`](https://github.com/jason-weddington/agent-gtd/commit/6758673a6b6c8ab20526f69693bdf18aba302a3b))
+
+### Features
+
+- Enforce blockers on active transition and dispatch
+  ([`97aca6d`](https://github.com/jason-weddington/agent-gtd/commit/97aca6df48dec0e49d91558f97058d9a23f952ad))
+
+- Replace agent override TextFields with Autocomplete dropdowns in New Project modal
+  ([`dccaf89`](https://github.com/jason-weddington/agent-gtd/commit/dccaf8968dae5415503a040d37fd238050789152))
+
+- **projects**: Hide completed projects by default with Show completed toggle
+  ([`57638ed`](https://github.com/jason-weddington/agent-gtd/commit/57638ed37ed648323d837598b1193256744d475f))
+
+### Refactoring
+
+- **frontend**: Extract ProjectEditDialog as shared component
+  ([`67c0f39`](https://github.com/jason-weddington/agent-gtd/commit/67c0f39f522a314b6b27f3a7a853d0c26e166a9b))
+
+
 ## v1.81.0 (2026-05-02)
 
 ### Bug Fixes
