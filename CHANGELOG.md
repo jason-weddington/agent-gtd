@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.83.0 (2026-05-04)
+
+### Features
+
+- **dispatch**: Dispatch config follows project owner on shared projects
+  ([`fa87983`](https://github.com/jason-weddington/agent-gtd/commit/fa8798367e9c65f7f589aa6594ddab84325810f6))
+
+
 ## v1.82.0 (2026-05-04)
 
 ### Documentation
