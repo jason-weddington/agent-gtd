@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
+  Autocomplete,
   Box,
   Typography,
   Button,
@@ -39,7 +40,7 @@ import ViewListIcon from '@mui/icons-material/ViewList'
 import PeopleIcon from '@mui/icons-material/People'
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutline'
 import { api, ApiError } from '../api'
-import type { Project, ProjectStatus } from '../types'
+import type { Project, ProjectStatus, DispatchAgentInfo } from '../types'
 
 const STATUS_COLORS: Record<ProjectStatus, 'success' | 'default' | 'warning' | 'error'> = {
   active: 'success',
@@ -78,8 +79,14 @@ export default function Projects() {
   const [area, setArea] = useState('')
   const [gitOrigin, setGitOrigin] = useState('')
   const [kbProjectRef, setKbProjectRef] = useState('')
-  const [planDispatchAgent, setPlanDispatchAgent] = useState('')
-  const [buildDispatchAgent, setBuildDispatchAgent] = useState('')
+  const [planDispatchAgent, setPlanDispatchAgent] = useState<string | null>(null)
+  const [buildDispatchAgent, setBuildDispatchAgent] = useState<string | null>(null)
+  const [dispatchCapabilities, setDispatchCapabilities] = useState<DispatchAgentInfo[] | null>(null)
+  const [dispatchCapabilitiesError, setDispatchCapabilitiesError] = useState<'unavailable' | 'empty' | null>(null)
+  const [dispatchGlobalSettings, setDispatchGlobalSettings] = useState<{
+    planAgentName: string
+    buildAgentName: string
+  } | null>(null)
   const [saving, setSaving] = useState(false)
 
   // Delete confirmation
@@ -104,6 +111,29 @@ export default function Projects() {
   useEffect(() => {
     loadProjects()
   }, [loadProjects])
+
+  useEffect(() => {
+    api.dispatch.capabilities()
+      .then((caps) => {
+        if (caps.agents.length === 0) {
+          setDispatchCapabilitiesError('empty')
+        } else {
+          setDispatchCapabilities(caps.agents)
+        }
+      })
+      .catch(() => {
+        setDispatchCapabilitiesError('unavailable')
+      })
+  }, [])
+
+  useEffect(() => {
+    api.settings.getDispatch()
+      .then((res) => setDispatchGlobalSettings({
+        planAgentName: res.planAgentName,
+        buildAgentName: res.buildAgentName,
+      }))
+      .catch(() => { /* non-critical */ })
+  }, [])
 
   const ownedProjects = useMemo(
     () => projects.filter((p) => p.isOwner !== false),
@@ -154,8 +184,8 @@ export default function Projects() {
     setArea('')
     setGitOrigin('')
     setKbProjectRef('')
-    setPlanDispatchAgent('')
-    setBuildDispatchAgent('')
+    setPlanDispatchAgent(null)
+    setBuildDispatchAgent(null)
     setDialogOpen(true)
   }
 
@@ -168,8 +198,8 @@ export default function Projects() {
     setArea(project.area)
     setGitOrigin(project.gitOrigin || '')
     setKbProjectRef(project.kbProjectRef || '')
-    setPlanDispatchAgent(project.planDispatchAgent ?? '')
-    setBuildDispatchAgent(project.buildDispatchAgent ?? '')
+    setPlanDispatchAgent(project.planDispatchAgent ?? null)
+    setBuildDispatchAgent(project.buildDispatchAgent ?? null)
     setDialogOpen(true)
   }
 
@@ -180,8 +210,8 @@ export default function Projects() {
       if (editing) {
         await api.projects.update(editing.id, {
           name, description, status, area, gitOrigin, kbProjectRef,
-          planDispatchAgent: planDispatchAgent || null,
-          buildDispatchAgent: buildDispatchAgent || null,
+          planDispatchAgent: planDispatchAgent,
+          buildDispatchAgent: buildDispatchAgent,
         })
       } else {
         await api.projects.create({ name, description, status, area, gitOrigin, kbProjectRef })
@@ -654,26 +684,98 @@ export default function Projects() {
             placeholder="e.g. my-project"
             helperText="Personal KB project reference for agent context"
           />
-          <TextField
-            fullWidth
-            label="Plan Agent Override"
-            value={planDispatchAgent}
-            onChange={(e) => setPlanDispatchAgent(e.target.value)}
-            margin="normal"
-            size="small"
-            placeholder="Leave blank to use global plan agent"
-            helperText="Agent used for plan-mode runs (overrides Dispatch Agent)"
-          />
-          <TextField
-            fullWidth
-            label="Build Agent Override"
-            value={buildDispatchAgent}
-            onChange={(e) => setBuildDispatchAgent(e.target.value)}
-            margin="normal"
-            size="small"
-            placeholder="Leave blank to use global build agent"
-            helperText="Agent used for build-mode runs (overrides Dispatch Agent)"
-          />
+          {(() => {
+            const capabilityNames = dispatchCapabilities?.map((a) => a.name) ?? []
+            const capabilitiesHelperText = dispatchCapabilitiesError === 'unavailable'
+              ? 'Dispatch service unavailable'
+              : dispatchCapabilitiesError === 'empty'
+                ? 'No agents advertised'
+                : null
+            const planOptions: (string | null)[] = [null, ...capabilityNames]
+            const buildOptions: (string | null)[] = [null, ...capabilityNames]
+            const globalPlanLabel = dispatchGlobalSettings?.planAgentName
+              ? `Inherit from global (${dispatchGlobalSettings.planAgentName})`
+              : 'Inherit from global (none)'
+            const globalBuildLabel = dispatchGlobalSettings?.buildAgentName
+              ? `Inherit from global (${dispatchGlobalSettings.buildAgentName})`
+              : 'Inherit from global (none)'
+
+            const renderDispatchOption = (
+              props: React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
+              option: string | null,
+              globalLabel: string,
+            ) => {
+              const { key, ...rest } = props
+              const agentInfo = option ? dispatchCapabilities?.find((a) => a.name === option) : null
+              return (
+                <li key={key} {...rest}>
+                  <Box>
+                    <Typography variant="body2">
+                      {option === null ? globalLabel : option}
+                    </Typography>
+                    {agentInfo?.description && (
+                      <Typography variant="caption" color="text.secondary">
+                        {agentInfo.description}
+                      </Typography>
+                    )}
+                  </Box>
+                </li>
+              )
+            }
+
+            return (
+              <>
+                <Autocomplete<string | null>
+                  options={planOptions}
+                  value={planDispatchAgent}
+                  onChange={(_, val) => setPlanDispatchAgent(val)}
+                  disabled={dispatchCapabilitiesError !== null}
+                  getOptionLabel={(option) => option === null ? globalPlanLabel : option}
+                  isOptionEqualToValue={(option, value) => option === value}
+                  renderOption={(props, option) =>
+                    renderDispatchOption(
+                      props as React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
+                      option,
+                      globalPlanLabel,
+                    )
+                  }
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Plan Agent Override"
+                      size="small"
+                      margin="normal"
+                      helperText={capabilitiesHelperText ?? 'Agent used for plan-mode runs (overrides Dispatch Agent)'}
+                    />
+                  )}
+                />
+                <Autocomplete<string | null>
+                  options={buildOptions}
+                  value={buildDispatchAgent}
+                  onChange={(_, val) => setBuildDispatchAgent(val)}
+                  disabled={dispatchCapabilitiesError !== null}
+                  getOptionLabel={(option) => option === null ? globalBuildLabel : option}
+                  isOptionEqualToValue={(option, value) => option === value}
+                  renderOption={(props, option) =>
+                    renderDispatchOption(
+                      props as React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
+                      option,
+                      globalBuildLabel,
+                    )
+                  }
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Build Agent Override"
+                      size="small"
+                      margin="normal"
+                      helperText={capabilitiesHelperText ?? 'Agent used for build-mode runs (overrides Dispatch Agent)'}
+                    />
+                  )}
+                />
+              </>
+            )
+          })()}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
