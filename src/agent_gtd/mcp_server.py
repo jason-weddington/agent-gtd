@@ -9,6 +9,12 @@ from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from agent_gtd.dispatch_constants import (
+    MAX_TIMEOUT_MINUTES,
+    MAX_TURNS,
+    MIN_TIMEOUT_MINUTES,
+    MIN_TURNS,
+)
 from agent_gtd.exceptions import (
     BlockersUnresolvedError,
     NotFoundError,
@@ -189,6 +195,10 @@ async def add_project(
     status: str = "active",
     git_origin: str = "",
     kb_project_ref: str = "",
+    dispatch_max_turns: int | None = None,
+    dispatch_timeout_minutes: int | None = None,
+    plan_dispatch_agent: str | None = None,
+    build_dispatch_agent: str | None = None,
 ) -> dict[str, Any]:
     """Create a new project.
 
@@ -202,10 +212,31 @@ async def add_project(
         git_origin: Optional git remote URL for the project repo.
         kb_project_ref: Optional personal-kb project reference for
             agent context preflight.
+        dispatch_max_turns: Optional override for max agent turns per dispatch
+            run. Must be between 10 and 500. None = use server default.
+        dispatch_timeout_minutes: Optional override for dispatch run timeout in
+            minutes. Must be between 5 and 480. None = use server default.
+        plan_dispatch_agent: Optional override for the agent name used in plan
+            mode dispatches. None = use server default.
+        build_dispatch_agent: Optional override for the agent name used in
+            build mode dispatches. None = use server default.
 
     Returns:
         The created project dict.
     """
+    if dispatch_max_turns is not None and not (
+        MIN_TURNS <= dispatch_max_turns <= MAX_TURNS
+    ):
+        raise ToolError(
+            f"dispatch_max_turns must be between {MIN_TURNS} and {MAX_TURNS}"
+        )
+    if dispatch_timeout_minutes is not None and not (
+        MIN_TIMEOUT_MINUTES <= dispatch_timeout_minutes <= MAX_TIMEOUT_MINUTES
+    ):
+        raise ToolError(
+            f"dispatch_timeout_minutes must be between "
+            f"{MIN_TIMEOUT_MINUTES} and {MAX_TIMEOUT_MINUTES}"
+        )
     session = await _get_session(ctx)
     return await _backend.create_project(
         session["user_id"],
@@ -215,6 +246,10 @@ async def add_project(
         status=status,
         git_origin=git_origin,
         kb_project_ref=kb_project_ref,
+        dispatch_max_turns=dispatch_max_turns,
+        dispatch_timeout_minutes=dispatch_timeout_minutes,
+        plan_dispatch_agent=plan_dispatch_agent,
+        build_dispatch_agent=build_dispatch_agent,
     )
 
 
@@ -228,8 +263,27 @@ async def update_project(
     description: str | None = None,
     status: str | None = None,
     area: str | None = None,
+    git_origin: str | None = None,
+    kb_project_ref: str | None = None,
+    dispatch_max_turns: int | None = None,
+    clear_dispatch_max_turns: bool = False,
+    dispatch_timeout_minutes: int | None = None,
+    clear_dispatch_timeout_minutes: bool = False,
+    plan_dispatch_agent: str | None = None,
+    clear_plan_dispatch_agent: bool = False,
+    build_dispatch_agent: str | None = None,
+    clear_build_dispatch_agent: bool = False,
 ) -> dict[str, Any]:
     """Update an existing project. None on any field = unchanged.
+
+    Dispatch override fields use a value/clear pattern for nullable columns:
+    pass a value to set it; set the corresponding clear_* flag to True
+    (with the value param left None) to reset it to the server default;
+    omit both to leave the current value unchanged.
+
+    Only the project owner may change dispatch-only fields
+    (dispatch_max_turns, dispatch_timeout_minutes, plan_dispatch_agent,
+    build_dispatch_agent).
 
     Args:
         project_id: ID of the project to update.
@@ -239,10 +293,42 @@ async def update_project(
         status: New status (None = unchanged).
             Valid values: active, on_hold, completed, cancelled.
         area: New area/category (None = unchanged).
+        git_origin: New git remote URL (None = unchanged).
+        kb_project_ref: New personal-kb project reference (None = unchanged).
+        dispatch_max_turns: Override max agent turns (10-500). None = unchanged.
+        clear_dispatch_max_turns: Set True to reset dispatch_max_turns to NULL
+            (use server default). Mutually exclusive with dispatch_max_turns.
+        dispatch_timeout_minutes: Override dispatch timeout in minutes (5-480).
+            None = unchanged.
+        clear_dispatch_timeout_minutes: Set True to reset
+            dispatch_timeout_minutes to NULL. Mutually exclusive with
+            dispatch_timeout_minutes.
+        plan_dispatch_agent: Override agent name for plan-mode dispatches.
+            None = unchanged.
+        clear_plan_dispatch_agent: Set True to reset plan_dispatch_agent to
+            NULL. Mutually exclusive with plan_dispatch_agent.
+        build_dispatch_agent: Override agent name for build-mode dispatches.
+            None = unchanged.
+        clear_build_dispatch_agent: Set True to reset build_dispatch_agent to
+            NULL. Mutually exclusive with build_dispatch_agent.
 
     Returns:
         The updated project dict.
     """
+    if dispatch_max_turns is not None and not (
+        MIN_TURNS <= dispatch_max_turns <= MAX_TURNS
+    ):
+        raise ToolError(
+            f"dispatch_max_turns must be between {MIN_TURNS} and {MAX_TURNS}"
+        )
+    if dispatch_timeout_minutes is not None and not (
+        MIN_TIMEOUT_MINUTES <= dispatch_timeout_minutes <= MAX_TIMEOUT_MINUTES
+    ):
+        raise ToolError(
+            f"dispatch_timeout_minutes must be between "
+            f"{MIN_TIMEOUT_MINUTES} and {MAX_TIMEOUT_MINUTES}"
+        )
+
     session = await _get_session(ctx)
 
     try:
@@ -253,8 +339,20 @@ async def update_project(
             description=description,
             status=status,
             area=area,
+            git_origin=git_origin,
+            kb_project_ref=kb_project_ref,
+            dispatch_max_turns=dispatch_max_turns,
+            clear_dispatch_max_turns=clear_dispatch_max_turns,
+            dispatch_timeout_minutes=dispatch_timeout_minutes,
+            clear_dispatch_timeout_minutes=clear_dispatch_timeout_minutes,
+            plan_dispatch_agent=plan_dispatch_agent,
+            clear_plan_dispatch_agent=clear_plan_dispatch_agent,
+            build_dispatch_agent=build_dispatch_agent,
+            clear_build_dispatch_agent=clear_build_dispatch_agent,
         )
     except NotFoundError as e:
+        raise ToolError(e.detail) from None
+    except ValidationError as e:
         raise ToolError(e.detail) from None
 
 

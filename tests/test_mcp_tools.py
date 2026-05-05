@@ -1315,3 +1315,226 @@ async def test_dispatch_item_blocked(registered_client, user_id):
             "dispatch_item",
             {"item_id": item_id},
         )
+
+
+# --- Dispatch config via MCP ---
+
+
+async def test_update_project_git_origin(registered_client, project_id):
+    """update_project can set git_origin on an existing project."""
+    result = await registered_client.call_tool(
+        "update_project",
+        {"project_id": project_id, "git_origin": "git@github.com:test/repo.git"},
+    )
+    data = _parse_result(result)
+    assert data["git_origin"] == "git@github.com:test/repo.git"
+
+
+async def test_update_project_kb_project_ref(registered_client, project_id):
+    """update_project can set kb_project_ref on an existing project."""
+    result = await registered_client.call_tool(
+        "update_project",
+        {"project_id": project_id, "kb_project_ref": "my-kb-ref"},
+    )
+    data = _parse_result(result)
+    assert data["kb_project_ref"] == "my-kb-ref"
+
+
+async def test_update_project_dispatch_max_turns(registered_client, project_id):
+    """update_project can set and clear dispatch_max_turns."""
+    # Set it
+    result = await registered_client.call_tool(
+        "update_project",
+        {"project_id": project_id, "dispatch_max_turns": 50},
+    )
+    data = _parse_result(result)
+    assert data["dispatch_max_turns"] == 50
+
+    # Clear it
+    result = await registered_client.call_tool(
+        "update_project",
+        {"project_id": project_id, "clear_dispatch_max_turns": True},
+    )
+    data = _parse_result(result)
+    assert data["dispatch_max_turns"] is None
+
+
+async def test_update_project_dispatch_timeout_minutes(registered_client, project_id):
+    """update_project can set and clear dispatch_timeout_minutes."""
+    # Set it
+    result = await registered_client.call_tool(
+        "update_project",
+        {"project_id": project_id, "dispatch_timeout_minutes": 60},
+    )
+    data = _parse_result(result)
+    assert data["dispatch_timeout_minutes"] == 60
+
+    # Clear it
+    result = await registered_client.call_tool(
+        "update_project",
+        {"project_id": project_id, "clear_dispatch_timeout_minutes": True},
+    )
+    data = _parse_result(result)
+    assert data["dispatch_timeout_minutes"] is None
+
+
+async def test_update_project_plan_dispatch_agent(registered_client, project_id):
+    """update_project can set and clear plan_dispatch_agent."""
+    # Set it
+    result = await registered_client.call_tool(
+        "update_project",
+        {"project_id": project_id, "plan_dispatch_agent": "claude-opus-4-5"},
+    )
+    data = _parse_result(result)
+    assert data["plan_dispatch_agent"] == "claude-opus-4-5"
+
+    # Clear it
+    result = await registered_client.call_tool(
+        "update_project",
+        {"project_id": project_id, "clear_plan_dispatch_agent": True},
+    )
+    data = _parse_result(result)
+    assert data["plan_dispatch_agent"] is None
+
+
+async def test_update_project_build_dispatch_agent(registered_client, project_id):
+    """update_project can set and clear build_dispatch_agent."""
+    # Set it
+    result = await registered_client.call_tool(
+        "update_project",
+        {"project_id": project_id, "build_dispatch_agent": "claude-sonnet-4-5"},
+    )
+    data = _parse_result(result)
+    assert data["build_dispatch_agent"] == "claude-sonnet-4-5"
+
+    # Clear it
+    result = await registered_client.call_tool(
+        "update_project",
+        {"project_id": project_id, "clear_build_dispatch_agent": True},
+    )
+    data = _parse_result(result)
+    assert data["build_dispatch_agent"] is None
+
+
+async def test_add_project_with_dispatch_overrides(registered_client):
+    """add_project can set dispatch overrides at creation time."""
+    result = await registered_client.call_tool(
+        "add_project",
+        {
+            "name": "Dispatch Project",
+            "git_origin": "git@github.com:test/repo.git",
+            "dispatch_max_turns": 100,
+            "dispatch_timeout_minutes": 30,
+            "plan_dispatch_agent": "claude-opus-4-5",
+            "build_dispatch_agent": "claude-sonnet-4-5",
+        },
+    )
+    data = _parse_result(result)
+    assert data["name"] == "Dispatch Project"
+    assert data["git_origin"] == "git@github.com:test/repo.git"
+    assert data["dispatch_max_turns"] == 100
+    assert data["dispatch_timeout_minutes"] == 30
+    assert data["plan_dispatch_agent"] == "claude-opus-4-5"
+    assert data["build_dispatch_agent"] == "claude-sonnet-4-5"
+
+
+async def test_update_project_dispatch_max_turns_out_of_bounds(
+    registered_client, project_id
+):
+    """update_project raises ToolError when dispatch_max_turns is out of bounds."""
+    with pytest.raises(ToolError, match="dispatch_max_turns must be between"):
+        await registered_client.call_tool(
+            "update_project",
+            {"project_id": project_id, "dispatch_max_turns": 9},
+        )
+    with pytest.raises(ToolError, match="dispatch_max_turns must be between"):
+        await registered_client.call_tool(
+            "update_project",
+            {"project_id": project_id, "dispatch_max_turns": 501},
+        )
+
+
+async def test_update_project_dispatch_timeout_out_of_bounds(
+    registered_client, project_id
+):
+    """update_project raises ToolError when dispatch_timeout_minutes out of bounds."""
+    with pytest.raises(ToolError, match="dispatch_timeout_minutes must be between"):
+        await registered_client.call_tool(
+            "update_project",
+            {"project_id": project_id, "dispatch_timeout_minutes": 4},
+        )
+    with pytest.raises(ToolError, match="dispatch_timeout_minutes must be between"):
+        await registered_client.call_tool(
+            "update_project",
+            {"project_id": project_id, "dispatch_timeout_minutes": 481},
+        )
+
+
+async def test_add_project_dispatch_max_turns_out_of_bounds(registered_client):
+    """add_project raises ToolError when dispatch_max_turns is out of bounds."""
+    with pytest.raises(ToolError, match="dispatch_max_turns must be between"):
+        await registered_client.call_tool(
+            "add_project",
+            {"name": "Bad Project", "dispatch_max_turns": 5},
+        )
+
+
+async def test_add_project_dispatch_timeout_out_of_bounds(registered_client):
+    """add_project raises ToolError when dispatch_timeout_minutes is out of bounds."""
+    with pytest.raises(ToolError, match="dispatch_timeout_minutes must be between"):
+        await registered_client.call_tool(
+            "add_project",
+            {"name": "Bad Project", "dispatch_timeout_minutes": 1000},
+        )
+
+
+async def test_update_project_dispatch_non_owner_rejected(
+    registered_client, user_id, project_id, monkeypatch
+):
+    """Non-owner project member cannot change dispatch-only fields."""
+    import uuid
+    from datetime import UTC, datetime
+
+    import agent_gtd.mcp_server as srv
+    from agent_gtd.auth import generate_api_key, hash_api_key, register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.services import project_service as ps
+
+    # Register a second user and add them as a member of the project
+    other_user = await register_user("other-dispatch@example.com", "otherpass123")
+    db = await get_db()
+    await ps.add_project_member(db, user_id, project_id, "other-dispatch@example.com")
+
+    # Create an API key for the second user
+    other_key = generate_api_key()
+    h = hash_api_key(other_key)
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO api_keys (id, user_id, key_hash, name, created_at)"
+        " VALUES ($1, $2, $3, $4, $5)",
+        str(uuid.uuid4()),
+        other_user.id,
+        h,
+        "other-key",
+        now,
+    )
+
+    # Authenticate the second user and attempt to change a dispatch-only field
+    async with Client(mcp) as other_client:
+        if _show_login:
+            await other_client.call_tool(
+                "login",
+                {"api_key": other_key, "agent_name": "other-agent"},
+            )
+        else:
+            # Auto-auth: temporarily point env key at the second user's key
+            monkeypatch.setattr(srv, "_ENV_API_KEY", other_key)
+            monkeypatch.setattr(srv, "_ENV_AGENT_NAME", "other-agent")
+
+        with pytest.raises(
+            ToolError, match="Only the project owner can edit dispatch settings"
+        ):
+            await other_client.call_tool(
+                "update_project",
+                {"project_id": project_id, "dispatch_max_turns": 100},
+            )

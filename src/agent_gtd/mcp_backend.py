@@ -98,6 +98,10 @@ class McpBackend(Protocol):
         status: str = "active",
         git_origin: str = "",
         kb_project_ref: str = "",
+        dispatch_max_turns: int | None = None,
+        dispatch_timeout_minutes: int | None = None,
+        plan_dispatch_agent: str | None = None,
+        build_dispatch_agent: str | None = None,
     ) -> dict[str, Any]: ...
 
     async def update_project(
@@ -109,6 +113,16 @@ class McpBackend(Protocol):
         description: str | None = None,
         status: str | None = None,
         area: str | None = None,
+        git_origin: str | None = None,
+        kb_project_ref: str | None = None,
+        dispatch_max_turns: int | None = None,
+        clear_dispatch_max_turns: bool = False,
+        dispatch_timeout_minutes: int | None = None,
+        clear_dispatch_timeout_minutes: bool = False,
+        plan_dispatch_agent: str | None = None,
+        clear_plan_dispatch_agent: bool = False,
+        build_dispatch_agent: str | None = None,
+        clear_build_dispatch_agent: bool = False,
     ) -> dict[str, Any]: ...
 
     async def list_items(
@@ -331,12 +345,16 @@ class LocalBackend:
         status: str = "active",
         git_origin: str = "",
         kb_project_ref: str = "",
+        dispatch_max_turns: int | None = None,
+        dispatch_timeout_minutes: int | None = None,
+        plan_dispatch_agent: str | None = None,
+        build_dispatch_agent: str | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import project_service
 
         db = await get_db()
-        return await project_service.create_project(
+        result = await project_service.create_project(
             db,
             user_id,
             name=name,
@@ -346,6 +364,27 @@ class LocalBackend:
             git_origin=git_origin,
             kb_project_ref=kb_project_ref,
         )
+        # Apply dispatch overrides immediately after creation if any are provided.
+        if any(
+            f is not None
+            for f in [
+                dispatch_max_turns,
+                dispatch_timeout_minutes,
+                plan_dispatch_agent,
+                build_dispatch_agent,
+            ]
+        ):
+            project_id = str(result["id"])
+            result = await project_service.update_project(
+                db,
+                user_id,
+                project_id,
+                dispatch_max_turns=dispatch_max_turns,
+                dispatch_timeout_minutes=dispatch_timeout_minutes,
+                plan_dispatch_agent=plan_dispatch_agent,
+                build_dispatch_agent=build_dispatch_agent,
+            )
+        return result
 
     async def update_project(
         self,
@@ -356,11 +395,43 @@ class LocalBackend:
         description: str | None = None,
         status: str | None = None,
         area: str | None = None,
+        git_origin: str | None = None,
+        kb_project_ref: str | None = None,
+        dispatch_max_turns: int | None = None,
+        clear_dispatch_max_turns: bool = False,
+        dispatch_timeout_minutes: int | None = None,
+        clear_dispatch_timeout_minutes: bool = False,
+        plan_dispatch_agent: str | None = None,
+        clear_plan_dispatch_agent: bool = False,
+        build_dispatch_agent: str | None = None,
+        clear_build_dispatch_agent: bool = False,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
+        from agent_gtd.exceptions import ValidationError
         from agent_gtd.services import project_service
 
         db = await get_db()
+
+        # Ownership guard: only the project owner may change dispatch-only fields.
+        dispatch_only_touched = (
+            dispatch_max_turns is not None
+            or clear_dispatch_max_turns
+            or dispatch_timeout_minutes is not None
+            or clear_dispatch_timeout_minutes
+            or plan_dispatch_agent is not None
+            or clear_plan_dispatch_agent
+            or build_dispatch_agent is not None
+            or clear_build_dispatch_agent
+        )
+        if dispatch_only_touched:
+            row = await db.fetchrow(
+                "SELECT user_id FROM projects WHERE id = $1", project_id
+            )
+            if row is None or str(row["user_id"]) != user_id:
+                raise ValidationError(
+                    "Only the project owner can edit dispatch settings"
+                )
+
         return await project_service.update_project(
             db,
             user_id,
@@ -369,6 +440,16 @@ class LocalBackend:
             description=description,
             status=status,
             area=area,
+            git_origin=git_origin,
+            kb_project_ref=kb_project_ref,
+            dispatch_max_turns=dispatch_max_turns,
+            clear_dispatch_max_turns=clear_dispatch_max_turns,
+            dispatch_timeout_minutes=dispatch_timeout_minutes,
+            clear_dispatch_timeout_minutes=clear_dispatch_timeout_minutes,
+            plan_dispatch_agent=plan_dispatch_agent,
+            clear_plan_dispatch_agent=clear_plan_dispatch_agent,
+            build_dispatch_agent=build_dispatch_agent,
+            clear_build_dispatch_agent=clear_build_dispatch_agent,
         )
 
     async def _build_project_map(self, user_id: str) -> dict[str, str]:
@@ -985,6 +1066,10 @@ class HttpBackend:
         status: str = "active",
         git_origin: str = "",
         kb_project_ref: str = "",
+        dispatch_max_turns: int | None = None,
+        dispatch_timeout_minutes: int | None = None,
+        plan_dispatch_agent: str | None = None,
+        build_dispatch_agent: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, str] = {
             "name": name,
@@ -1004,6 +1089,24 @@ class HttpBackend:
         self._check(resp)
         self._project_cache = None  # invalidate cache
         result: dict[str, Any] = resp.json()
+        # Apply dispatch overrides via PATCH if any are provided.
+        if any(
+            f is not None
+            for f in [
+                dispatch_max_turns,
+                dispatch_timeout_minutes,
+                plan_dispatch_agent,
+                build_dispatch_agent,
+            ]
+        ):
+            result = await self.update_project(
+                user_id,
+                result["id"],
+                dispatch_max_turns=dispatch_max_turns,
+                dispatch_timeout_minutes=dispatch_timeout_minutes,
+                plan_dispatch_agent=plan_dispatch_agent,
+                build_dispatch_agent=build_dispatch_agent,
+            )
         return result
 
     async def update_project(
@@ -1015,6 +1118,16 @@ class HttpBackend:
         description: str | None = None,
         status: str | None = None,
         area: str | None = None,
+        git_origin: str | None = None,
+        kb_project_ref: str | None = None,
+        dispatch_max_turns: int | None = None,
+        clear_dispatch_max_turns: bool = False,
+        dispatch_timeout_minutes: int | None = None,
+        clear_dispatch_timeout_minutes: bool = False,
+        plan_dispatch_agent: str | None = None,
+        clear_plan_dispatch_agent: bool = False,
+        build_dispatch_agent: str | None = None,
+        clear_build_dispatch_agent: bool = False,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {}
         if name is not None:
@@ -1025,6 +1138,29 @@ class HttpBackend:
             body["status"] = status
         if area is not None:
             body["area"] = area
+        if git_origin is not None:
+            body["git_origin"] = git_origin
+        if kb_project_ref is not None:
+            body["kb_project_ref"] = kb_project_ref
+        # Dispatch override fields: send value to set, send null to clear,
+        # omit to leave unchanged.  The REST API uses model_fields_set to
+        # distinguish "explicit null" (clear) from "absent" (unchanged).
+        if dispatch_max_turns is not None:
+            body["dispatch_max_turns"] = dispatch_max_turns
+        elif clear_dispatch_max_turns:
+            body["dispatch_max_turns"] = None
+        if dispatch_timeout_minutes is not None:
+            body["dispatch_timeout_minutes"] = dispatch_timeout_minutes
+        elif clear_dispatch_timeout_minutes:
+            body["dispatch_timeout_minutes"] = None
+        if plan_dispatch_agent is not None:
+            body["plan_dispatch_agent"] = plan_dispatch_agent
+        elif clear_plan_dispatch_agent:
+            body["plan_dispatch_agent"] = None
+        if build_dispatch_agent is not None:
+            body["build_dispatch_agent"] = build_dispatch_agent
+        elif clear_build_dispatch_agent:
+            body["build_dispatch_agent"] = None
         resp = await self._client.patch(
             f"/api/projects/{project_id}",
             json=body,
