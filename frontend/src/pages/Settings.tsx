@@ -472,10 +472,7 @@ export default function Settings() {
                   />
                   {capabilities !== null && !capabilitiesFailed && (
                     <Typography variant="caption" color="text.secondary" sx={{ mt: -1 }}>
-                      Engine:{' '}
-                      {capabilities.engine
-                        ? `${capabilities.engine}${capabilities.version ? ` ${capabilities.version}` : ''}`
-                        : 'unknown'}
+                      Dispatch service: {capabilities.version ?? 'unknown'}
                     </Typography>
                   )}
                 </>
