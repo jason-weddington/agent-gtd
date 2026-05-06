@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.84.0 (2026-05-06)
+
+### Features
+
+- **mcp**: Expose project dispatch config in add_project / update_project
+  ([`0ec3cd9`](https://github.com/jason-weddington/agent-gtd/commit/0ec3cd94000a79b38a29eebaf5d07e8f3bbc140e))
+
+- **ui**: Copy-project-ID icon next to project description
+  ([`4331b0c`](https://github.com/jason-weddington/agent-gtd/commit/4331b0c5da0ef493c27dbca7df5389340f9a2e90))
+
+
 ## v1.83.0 (2026-05-04)
 
 ### Features
