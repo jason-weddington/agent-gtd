@@ -49,6 +49,8 @@ import ViewListIcon from '@mui/icons-material/ViewList'
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
 import SearchIcon from '@mui/icons-material/Search'
 import ClearIcon from '@mui/icons-material/Clear'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import CheckIcon from '@mui/icons-material/Check'
 import { api, ApiError } from '../api'
 import type { Project, Item, Note, Comment, Run, RunStatus, ItemStatus, Priority, ProjectStatus, DispatchAgentInfo } from '../types'
 import { useDraftState } from '../hooks/useDraftState'
@@ -108,6 +110,15 @@ export default function ProjectDetail() {
     const params = new URLSearchParams(window.location.search)
     return params.get('tab') === 'share' ? 5 : 0
   })
+
+  // Copy project ID
+  const [copied, setCopied] = useState(false)
+  const handleCopy = useCallback(() => {
+    if (!project) return
+    void navigator.clipboard.writeText(project.id)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }, [project])
 
   // Project comment input
   const [newComment, setNewComment] = useState('')
@@ -731,11 +742,27 @@ export default function ProjectDetail() {
           Edit
         </Button>
       </Box>
-      {project.description && (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, ml: 5 }}>
-          {project.description}
-        </Typography>
-      )}
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 2, ml: 5 }}>
+        <Tooltip title={copied ? 'Copied!' : 'Copy project ID'} placement="right">
+          <IconButton
+            size="small"
+            onClick={handleCopy}
+            sx={{ p: 0.25, flexShrink: 0 }}
+            aria-label="Copy project ID"
+          >
+            {copied ? (
+              <CheckIcon sx={{ fontSize: 14, color: 'success.main' }} />
+            ) : (
+              <ContentCopyIcon sx={{ fontSize: 14 }} />
+            )}
+          </IconButton>
+        </Tooltip>
+        {project.description && (
+          <Typography variant="body2" color="text.secondary" sx={{ ml: 0.5 }}>
+            {project.description}
+          </Typography>
+        )}
+      </Box>
 
       {/* Tabs */}
       <Tabs
