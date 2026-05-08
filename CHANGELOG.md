@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.84.1 (2026-05-08)
+
+### Bug Fixes
+
+- **ui**: Show dispatch service version, not misleading engine label
+  ([`54ae6a2`](https://github.com/jason-weddington/agent-gtd/commit/54ae6a2e6cbc2383c70c2869e3b0b3adf44a7714))
+
+### Documentation
+
+- Add project board screenshot to README
+  ([`70a941b`](https://github.com/jason-weddington/agent-gtd/commit/70a941ba811d0367694b9e11079412812d482e37))
+
+
 ## v1.84.0 (2026-05-06)
 
 ### Features
