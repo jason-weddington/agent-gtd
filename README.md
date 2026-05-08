@@ -2,6 +2,8 @@
 
 A full-stack [Getting Things Done](https://gettingthingsdone.com/) app with an MCP server for AI agent integration. FastAPI + React 19, with PostgreSQL or zero-config SQLite.
 
+![Agent GTD project board](images/agent-gtd.png)
+
 ## Quick Start (Local Mode)
 
 No database setup required. The app uses SQLite and skips authentication automatically.
