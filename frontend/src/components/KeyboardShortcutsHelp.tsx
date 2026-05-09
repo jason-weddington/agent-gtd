@@ -28,6 +28,11 @@ const REMOTE_DISPATCH_SHORTCUTS: ShortcutRow[] = [
   { keys: '\u21E7D', description: 'Dispatch — Plan mode'  },
 ]
 
+const NEW_ITEM_DIALOG_SHORTCUTS: ShortcutRow[] = [
+  { keys: '\u2318\u23CE',       description: 'Save / Create'  },
+  { keys: '\u2318\u21E7\u23CE', description: 'Save and Plan'  },
+]
+
 interface ShortcutSectionProps {
   heading: string
   rows: ShortcutRow[]
@@ -135,6 +140,11 @@ export default function KeyboardShortcutsHelp({ open: openProp, onOpenChange }: 
           heading="Remote Dispatch"
           rows={REMOTE_DISPATCH_SHORTCUTS}
           note="Only available when a task is open in the right drawer for a project configured for remote dispatch."
+        />
+        <ShortcutSection
+          heading="New Item Dialog"
+          rows={NEW_ITEM_DIALOG_SHORTCUTS}
+          note="Save and Plan only fires when the project has a git origin configured."
         />
 
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>

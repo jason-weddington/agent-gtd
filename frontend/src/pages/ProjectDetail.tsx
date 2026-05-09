@@ -1548,7 +1548,18 @@ export default function ProjectDetail() {
         fullWidth
         maxWidth="sm"
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && ((e.metaKey || e.ctrlKey) || !(e.target instanceof HTMLTextAreaElement))) {
+          if (e.key !== 'Enter') return
+          const modifier = e.metaKey || e.ctrlKey
+          // Cmd/Ctrl+Shift+Enter → Save and Plan (new-item mode only, requires git origin)
+          if (e.shiftKey && modifier) {
+            e.preventDefault()
+            if (!editingItem && itemTitle.trim() && !savingItem && project?.gitOrigin) {
+              void handleSaveAndPlan()
+            }
+            return
+          }
+          // Enter (modifier or non-textarea) → Save / Create — existing behaviour
+          if (!e.shiftKey && (modifier || !(e.target instanceof HTMLTextAreaElement))) {
             e.preventDefault()
             if (itemTitle.trim() && !savingItem) handleSaveItem()
           }
