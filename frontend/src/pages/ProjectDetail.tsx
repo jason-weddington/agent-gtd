@@ -488,6 +488,62 @@ export default function ProjectDetail() {
     }
   }
 
+  const handleSaveAndPlan = async () => {
+    if (!projectId || !itemTitle.trim() || !project?.gitOrigin) return
+    setSavingItem(true)
+
+    // Optimistic create — identical to the Create path in handleSaveItem
+    const tempId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    const optimisticItem: DisplayItem = {
+      id: tempId,
+      projectId,
+      title: itemTitle,
+      description: itemDescription,
+      status: itemStatus,
+      priority: itemPriority,
+      dueDate: itemDueDate || null,
+      completedAt: null,
+      createdBy: 'human',
+      assignedTo: '',
+      waitingOn: '',
+      sortOrder: 0,
+      labels: [],
+      blockers: [],
+      version: 0,
+      createdAt: now,
+      updatedAt: now,
+      _optimistic: true,
+    }
+
+    setItems((prev) => [optimisticItem, ...prev])
+    setItemDialogOpen(false)
+    setSavingItem(false)
+
+    try {
+      const realItem = await api.projects.createItem(projectId, {
+        title: itemTitle,
+        description: itemDescription,
+        status: itemStatus,
+        priority: itemPriority,
+      })
+      setItems((prev) => prev.map((i) => (i.id === tempId ? (realItem as DisplayItem) : i)))
+      clearItemDraft()
+
+      // Dispatch the saved item in plan mode
+      try {
+        await api.items.dispatch(realItem.id, { mode: 'plan' })
+      } catch (err) {
+        setError(err instanceof ApiError ? err.detail : 'Dispatch failed')
+      }
+    } catch (err) {
+      // Roll back optimistic item, re-open dialog for retry
+      setItems((prev) => prev.filter((i) => i.id !== tempId))
+      setItemDialogOpen(true)
+      setError(err instanceof ApiError ? err.detail : 'Failed to create item')
+    }
+  }
+
   const handleDeleteItem = async () => {
     if (!deleteItemTarget) return
     setDeletingItem(true)
@@ -1619,18 +1675,36 @@ export default function ProjectDetail() {
             </>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => {
-            clearItemDraft()
-            setItemDialogOpen(false)
-          }}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleSaveItem}
-            disabled={savingItem || !itemTitle.trim()}
-          >
-            {savingItem ? <CircularProgress size={20} /> : editingItem ? 'Save' : 'Create'}
-          </Button>
+        <DialogActions sx={{ justifyContent: 'space-between' }}>
+          {/* Left slot: Save and Plan (new item mode only) */}
+          {!editingItem ? (
+            <Tooltip title={!project?.gitOrigin ? 'No dispatch origin configured for this project' : ''}>
+              <span>
+                <Button
+                  onClick={handleSaveAndPlan}
+                  disabled={savingItem || !itemTitle.trim() || !project?.gitOrigin}
+                >
+                  Save and Plan
+                </Button>
+              </span>
+            </Tooltip>
+          ) : (
+            <Box />
+          )}
+          {/* Right slot: Cancel + Save/Create */}
+          <Box>
+            <Button onClick={() => {
+              clearItemDraft()
+              setItemDialogOpen(false)
+            }}>Cancel</Button>
+            <Button
+              variant="contained"
+              onClick={handleSaveItem}
+              disabled={savingItem || !itemTitle.trim()}
+            >
+              {savingItem ? <CircularProgress size={20} /> : editingItem ? 'Save' : 'Create'}
+            </Button>
+          </Box>
         </DialogActions>
       </Dialog>
 
