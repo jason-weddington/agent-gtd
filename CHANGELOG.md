@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.86.0 (2026-05-09)
+
+### Features
+
+- **ui**: Cmd+Shift+Enter fires Save and Plan; surface in shortcut overlay
+  ([`266bf4c`](https://github.com/jason-weddington/agent-gtd/commit/266bf4ca2ffff9e854b9cf90cd7b63295e9c9467))
+
+
 ## v1.85.0 (2026-05-09)
 
 ### Features
