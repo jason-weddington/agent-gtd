@@ -1217,6 +1217,9 @@ export default function ProjectDetail() {
                   <TableRow>
                     <TableCell>Item</TableCell>
                     <TableCell>Status</TableCell>
+                    {((project.memberCount ?? 0) > 0 || project.isOwner === false) && (
+                      <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>By</TableCell>
+                    )}
                     <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Branch</TableCell>
                     <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Started</TableCell>
                     <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Finished</TableCell>
@@ -1279,6 +1282,13 @@ export default function ProjectDetail() {
                             color={RUN_STATUS_COLORS[run.status]}
                           />
                         </TableCell>
+                        {((project.memberCount ?? 0) > 0 || project.isOwner === false) && (
+                          <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
+                            <Typography variant="caption" color="text.secondary">
+                              {run.dispatchedByEmail ?? '—'}
+                            </Typography>
+                          </TableCell>
+                        )}
                         <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                           <Typography
                             variant="caption"

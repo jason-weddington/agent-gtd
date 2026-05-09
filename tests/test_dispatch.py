@@ -586,6 +586,224 @@ async def test_list_runs_invalid_scope(client: AsyncClient, auth_headers: dict[s
     assert res.status_code == 400
 
 
+# --- dispatched_by_email and auto-scope for shared projects ---
+
+
+async def test_shared_project_auto_scope_member_sees_owner_run(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Member B sees owner A's run without explicit scope (auto-scope).
+
+    When project_id refers to a shared project and no scope is given, the route
+    auto-elevates to accessible_projects.  Also verifies dispatched_by_email is
+    populated with A's email address.
+    """
+    # Get User A's email
+    res_a = await client.get("/api/auth/me", headers=auth_headers)
+    assert res_a.status_code == 200
+    user_a_email = res_a.json()["email"]
+
+    # Create User B
+    headers_b = await _make_user_headers("userb_autoscope@example.com")
+    res_b = await client.get("/api/auth/me", headers=headers_b)
+    user_b_email = res_b.json()["email"]
+
+    # A creates a project and shares it with B
+    project_id = await _create_project_with_origin(client, auth_headers)
+    share_res = await client.post(
+        f"/api/projects/{project_id}/members",
+        json={"email": user_b_email},
+        headers=auth_headers,
+    )
+    assert share_res.status_code == 201
+
+    # A dispatches a run in the project
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+    dispatch_res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert dispatch_res.status_code == 201
+    run_id = dispatch_res.json()["id"]
+
+    # B calls GET /api/runs?project_id=... WITHOUT explicit scope — auto-switches
+    res = await client.get(
+        "/api/runs",
+        params={"project_id": project_id},
+        headers=headers_b,
+    )
+    assert res.status_code == 200
+    runs = res.json()
+    run_ids = {r["id"] for r in runs}
+    assert run_id in run_ids, "member should see owner's run via auto-scope"
+
+    # dispatched_by_email should be A's email
+    the_run = next(r for r in runs if r["id"] == run_id)
+    assert the_run["dispatched_by_email"] == user_a_email
+
+
+async def test_shared_project_owner_sees_member_run_auto_scope(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Owner A sees member B's run via auto-scope; dispatched_by_email is B's email."""
+    # Get User A's email
+    res_a = await client.get("/api/auth/me", headers=auth_headers)
+    assert res_a.status_code == 200
+
+    # Create User B and configure their dispatch settings
+    headers_b = await _make_user_headers("userb_ownercheck@example.com")
+    res_b = await client.get("/api/auth/me", headers=headers_b)
+    user_b_email = res_b.json()["email"]
+    await _configure_dispatch(client, headers_b)
+
+    # A creates a project and shares it with B
+    project_id = await _create_project_with_origin(client, auth_headers)
+    share_res = await client.post(
+        f"/api/projects/{project_id}/members",
+        json={"email": user_b_email},
+        headers=auth_headers,
+    )
+    assert share_res.status_code == 201
+
+    # B creates an item and dispatches a run in the project
+    item_id = await _create_item_in_project(client, headers_b, project_id)
+    dispatch_res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=headers_b,
+    )
+    assert dispatch_res.status_code == 201
+    run_id = dispatch_res.json()["id"]
+
+    # A calls GET /api/runs?project_id=... — should see B's run via auto-scope
+    res = await client.get(
+        "/api/runs",
+        params={"project_id": project_id},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    runs = res.json()
+    run_ids = {r["id"] for r in runs}
+    assert run_id in run_ids, "owner should see member's run via auto-scope"
+
+    # dispatched_by_email should be B's email
+    the_run = next(r for r in runs if r["id"] == run_id)
+    assert the_run["dispatched_by_email"] == user_b_email
+
+
+async def test_non_shared_project_dispatched_by_email_populated(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Non-shared project: owner sees own run; dispatched_by_email is the owner's email.
+
+    The users JOIN is applied unconditionally, so dispatched_by_email is always
+    populated (not None) whenever the dispatcher's row exists in the users table.
+    For a non-shared project the scope stays at "user" so only the owner's own
+    runs appear; the email is simply the owner's own address.
+    """
+    res_me = await client.get("/api/auth/me", headers=auth_headers)
+    assert res_me.status_code == 200
+    owner_email = res_me.json()["email"]
+
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+    dispatch_res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert dispatch_res.status_code == 201
+    run_id = dispatch_res.json()["id"]
+
+    res = await client.get(
+        "/api/runs",
+        params={"project_id": project_id},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    runs = res.json()
+    run_ids = {r["id"] for r in runs}
+    assert run_id in run_ids
+
+    # The JOIN always returns the email — for a non-shared project this is
+    # the owner's own email (not None).
+    the_run = next(r for r in runs if r["id"] == run_id)
+    assert the_run["dispatched_by_email"] == owner_email
+
+
+async def test_shared_project_explicit_scope_user_honored(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Explicit scope=user on a shared project returns only the caller's own runs."""
+    # Create User B and configure dispatch settings
+    headers_b = await _make_user_headers("userb_explicit_scope@example.com")
+    res_b = await client.get("/api/auth/me", headers=headers_b)
+    user_b_email = res_b.json()["email"]
+    await _configure_dispatch(client, headers_b)
+
+    # A creates a project and shares it with B
+    project_id = await _create_project_with_origin(client, auth_headers)
+    share_res = await client.post(
+        f"/api/projects/{project_id}/members",
+        json={"email": user_b_email},
+        headers=auth_headers,
+    )
+    assert share_res.status_code == 201
+
+    # A dispatches a run
+    item_id_a = await _create_item_in_project(client, auth_headers, project_id)
+    dispatch_res_a = await client.post(
+        f"/api/items/{item_id_a}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert dispatch_res_a.status_code == 201
+    run_id_a = dispatch_res_a.json()["id"]
+
+    # B dispatches a run
+    item_id_b = await _create_item_in_project(client, headers_b, project_id)
+    dispatch_res_b = await client.post(
+        f"/api/items/{item_id_b}/dispatch",
+        json={},
+        headers=headers_b,
+    )
+    assert dispatch_res_b.status_code == 201
+    run_id_b = dispatch_res_b.json()["id"]
+
+    # B calls with explicit scope=user — should only see B's own run
+    res = await client.get(
+        "/api/runs",
+        params={"project_id": project_id, "scope": "user"},
+        headers=headers_b,
+    )
+    assert res.status_code == 200
+    run_ids = {r["id"] for r in res.json()}
+    assert run_id_b in run_ids, "B's run should appear with scope=user"
+    assert run_id_a not in run_ids, "A's run should NOT appear when B uses scope=user"
+
+
+async def test_shared_project_no_access_returns_404(
+    client: AsyncClient,
+):
+    """A user with no project access gets 404 on the activity endpoint."""
+    # Create user A (owner) with dispatch settings
+    headers_a = await _make_user_headers("usera_noaccess@example.com")
+    await _configure_dispatch(client, headers_a)
+    project_id = await _create_project_with_origin(client, headers_a)
+
+    # Create unrelated user C (not a member)
+    headers_c = await _make_user_headers("userc_noaccess@example.com")
+
+    # C calls GET /api/runs?project_id=... — should get 404 (project inaccessible)
+    res = await client.get(
+        "/api/runs",
+        params={"project_id": project_id},
+        headers=headers_c,
+    )
+    assert res.status_code == 404
+
+
 # --- Get single run ---
 
 

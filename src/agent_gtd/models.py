@@ -566,6 +566,7 @@ class RunResponse(BaseModel):
     error_msg: str
     created_at: datetime
     updated_at: datetime
+    dispatched_by_email: str | None = None
 
 
 # --- Attachment Schemas ---

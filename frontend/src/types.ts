@@ -163,6 +163,7 @@ export interface Run {
   errorMsg: string
   createdAt: string
   updatedAt: string
+  dispatchedByEmail?: string
 }
 
 // --- Attachments ---

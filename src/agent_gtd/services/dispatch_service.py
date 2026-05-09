@@ -207,8 +207,11 @@ async def list_runs(
 
     where = " AND ".join(clauses)
     rows = await db.fetch(
-        f"SELECT * FROM claude_runs WHERE {where}"  # noqa: S608
-        " ORDER BY created_at DESC",
+        f"SELECT r.*, u.email AS dispatched_by_email"  # noqa: S608
+        " FROM claude_runs r"
+        " LEFT JOIN users u ON u.id = r.user_id"
+        f" WHERE {where}"
+        " ORDER BY r.created_at DESC",
         *params,
     )
     return [row_to_dict(r) for r in rows]

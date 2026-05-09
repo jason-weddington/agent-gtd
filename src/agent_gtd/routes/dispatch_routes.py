@@ -21,7 +21,7 @@ from agent_gtd.models import (
     RunStatus,
     User,
 )
-from agent_gtd.services import dispatch_service
+from agent_gtd.services import dispatch_service, project_service
 from agent_gtd.services.settings_service import get_dispatch_config
 
 logger = logging.getLogger(__name__)
@@ -64,6 +64,11 @@ def _run_response(row: dict[str, object]) -> RunResponse:
         error_msg=str(row.get("error_msg", "")),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
+        dispatched_by_email=(
+            str(row["dispatched_by_email"])
+            if row.get("dispatched_by_email")
+            else None
+        ),
     )
 
 
@@ -294,29 +299,53 @@ async def list_runs(
     item_id: str | None = None,
     project_id: str | None = None,
     status: str | None = None,
-    scope: str = "user",
+    scope: str | None = None,
 ) -> list[RunResponse]:
     """List dispatch runs, optionally filtered by item, project, and/or status.
 
     The ``scope`` query parameter controls whose runs are returned:
 
-    - ``user`` (default): only runs dispatched by the caller.
+    - ``user``: only runs dispatched by the caller.
     - ``accessible_projects``: runs in all projects the caller can access
       (owned or shared), regardless of who dispatched them.
+    - omitted (default): behaves as ``user`` unless ``project_id`` refers to a
+      shared project, in which case it auto-elevates to ``accessible_projects``
+      so members see all activity in the project.
     """
-    if scope not in ("user", "accessible_projects"):
+    if scope is not None and scope not in ("user", "accessible_projects"):
         raise HTTPException(
             status_code=400,
             detail=f"Invalid scope '{scope}'. Must be 'user' or 'accessible_projects'.",
         )
     db = await get_db()
+
+    # When the caller has not pinned a scope, auto-detect: shared projects
+    # get "accessible_projects" so members see all runs in the project.
+    # An explicit scope=user or scope=accessible_projects is always honoured.
+    if scope is None:
+        effective_scope: Literal["user", "accessible_projects"] = "user"
+        if project_id is not None:
+            try:
+                proj = await project_service.get_project(db, user.id, project_id)
+                is_shared = (proj.get("member_count") or 0) > 0 or proj.get(
+                    "user_id"
+                ) != user.id
+                if is_shared:
+                    effective_scope = "accessible_projects"
+            except NotFoundError:
+                raise HTTPException(
+                    status_code=404, detail="Project not found"
+                ) from None
+    else:
+        effective_scope = cast("Literal['user', 'accessible_projects']", scope)
+
     rows = await dispatch_service.list_runs(
         db,
         user.id,
         item_id=item_id,
         project_id=project_id,
         status=status,
-        scope=cast(Literal["user", "accessible_projects"], scope),
+        scope=effective_scope,
     )
     return [_run_response(r) for r in rows]
 
