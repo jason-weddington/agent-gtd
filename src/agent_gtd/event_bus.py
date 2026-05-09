@@ -92,7 +92,7 @@ class EventBus:
             "created_at": now,
         }
 
-        # Fan out
+        # Fan out to the event owner's queues
         for queue in self._subscribers.get(user_id, []):
             try:
                 queue.put_nowait(event_data)
@@ -103,6 +103,34 @@ class EventBus:
                 with contextlib.suppress(asyncio.QueueFull):
                     queue.put_nowait(event_data)
 
+        # Fan out to other project members so their indicators update in real time
+        if project_id is not None:
+            try:
+                member_rows = await db.fetch(
+                    "SELECT user_id FROM project_members WHERE project_id = $1 "
+                    "UNION "
+                    "SELECT user_id FROM projects WHERE id = $2",
+                    project_id,
+                    project_id,
+                )
+                for row in member_rows:
+                    member_uid = str(row["user_id"])
+                    if member_uid == user_id:
+                        continue  # already fanned out above
+                    for queue in self._subscribers.get(member_uid, []):
+                        try:
+                            queue.put_nowait(event_data)
+                        except asyncio.QueueFull:
+                            # Drop oldest to make room
+                            with contextlib.suppress(asyncio.QueueEmpty):
+                                queue.get_nowait()
+                            with contextlib.suppress(asyncio.QueueFull):
+                                queue.put_nowait(event_data)
+            except Exception:
+                logger.exception(
+                    "Failed to fan out event %s to project members", event_id
+                )
+
         return event_id
 
     async def replay_since(
@@ -110,26 +138,67 @@ class EventBus:
         db: DbPool,
         user_id: str,
         since_id: str,
+        project_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Replay events created after the given event ID.
 
         Returns events ordered by created_at ascending.
+
+        Args:
+            db: Database pool.
+            user_id: The calling user's ID (events owned by this user are
+                always included).
+            since_id: Return only events created *after* this event.
+            project_ids: When non-empty, also include events for these
+                project IDs (shared-project events published by other users).
         """
-        since_row = await db.fetchrow(
-            "SELECT created_at FROM events WHERE id = $1 AND user_id = $2",
-            since_id,
-            user_id,
-        )
+        effective_project_ids = project_ids or []
+
+        if effective_project_ids:
+            # Build an IN clause for the project IDs: $3, $4, ...
+            proj_placeholders = ", ".join(
+                f"${i + 3}" for i in range(len(effective_project_ids))
+            )
+            since_row = await db.fetchrow(
+                f"SELECT created_at FROM events "  # noqa: S608
+                f"WHERE id = $1 AND (user_id = $2 OR project_id IN ({proj_placeholders}))",
+                since_id,
+                user_id,
+                *effective_project_ids,
+            )
+        else:
+            since_row = await db.fetchrow(
+                "SELECT created_at FROM events WHERE id = $1 AND user_id = $2",
+                since_id,
+                user_id,
+            )
+
         if since_row is None:
             return []
 
-        rows = await db.fetch(
-            "SELECT * FROM events "
-            "WHERE user_id = $1 AND created_at > $2 "
-            "ORDER BY created_at ASC",
-            user_id,
-            since_row["created_at"],
-        )
+        if effective_project_ids:
+            # Parameters: $1=user_id, $2..$N=project_ids, $N+1=since_ts
+            proj_placeholders2 = ", ".join(
+                f"${i + 2}" for i in range(len(effective_project_ids))
+            )
+            since_param_idx = len(effective_project_ids) + 2
+            rows = await db.fetch(
+                f"SELECT * FROM events "  # noqa: S608
+                f"WHERE (user_id = $1 OR project_id IN ({proj_placeholders2})) "
+                f"AND created_at > ${since_param_idx} "
+                "ORDER BY created_at ASC",
+                user_id,
+                *effective_project_ids,
+                since_row["created_at"],
+            )
+        else:
+            rows = await db.fetch(
+                "SELECT * FROM events "
+                "WHERE user_id = $1 AND created_at > $2 "
+                "ORDER BY created_at ASC",
+                user_id,
+                since_row["created_at"],
+            )
         return [row_to_dict(r) for r in rows]
 
     async def drain(self) -> None:

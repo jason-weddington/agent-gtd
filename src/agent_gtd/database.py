@@ -98,6 +98,8 @@ _SCHEMA_STATEMENTS: list[str] = [
     """,
     """CREATE INDEX IF NOT EXISTS idx_events_user_created
     ON events (user_id, created_at)""",
+    """CREATE INDEX IF NOT EXISTS idx_events_project_created
+    ON events (project_id, created_at)""",
     """
     CREATE TABLE IF NOT EXISTS comments (
         id TEXT PRIMARY KEY,
@@ -151,6 +153,7 @@ _SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_claude_runs_user_id ON claude_runs(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_claude_runs_item_id ON claude_runs(item_id)",
     "CREATE INDEX IF NOT EXISTS idx_claude_runs_status ON claude_runs(status)",
+    "CREATE INDEX IF NOT EXISTS idx_claude_runs_project_id ON claude_runs(project_id)",
     """
     CREATE TABLE IF NOT EXISTS item_dependencies (
         id TEXT PRIMARY KEY,

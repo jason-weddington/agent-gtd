@@ -56,7 +56,7 @@ export default function ActiveRunsIndicator() {
   // rule doesn't consider this a direct setState call chain from within the effect.
   const loadRuns = useCallback(() => {
     void api.runs
-      .list({ status: 'pending,running' })
+      .list({ status: 'pending,running', scope: 'accessible_projects' })
       .then((activeRuns) => {
         setRuns(activeRuns)
 

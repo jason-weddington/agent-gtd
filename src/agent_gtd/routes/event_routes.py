@@ -13,6 +13,7 @@ from agent_gtd.auth import get_current_user_from_token, get_local_user
 from agent_gtd.database import get_db, is_local_mode
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.models import User
+from agent_gtd.services.project_service import accessible_project_ids
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -68,9 +69,10 @@ async def _event_stream(
     bus = get_event_bus()
     db = await get_db()
 
-    # Replay missed events
+    # Replay missed events (include shared-project events the user can see)
     if since:
-        missed = await bus.replay_since(db, user_id, since)
+        project_ids = await accessible_project_ids(db, user_id)
+        missed = await bus.replay_since(db, user_id, since, project_ids=project_ids)
         for event in missed:
             yield _format_sse(event)
 

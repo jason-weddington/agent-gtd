@@ -221,11 +221,12 @@ export const api = {
   },
 
   runs: {
-    list: (params?: { status?: string; itemId?: string; projectId?: string }) => {
+    list: (params?: { status?: string; itemId?: string; projectId?: string; scope?: string }) => {
       const query = new URLSearchParams()
       if (params?.status) query.set('status', params.status)
       if (params?.itemId) query.set('item_id', params.itemId)
       if (params?.projectId) query.set('project_id', params.projectId)
+      if (params?.scope) query.set('scope', params.scope)
       const qs = query.toString()
       return request<Run[]>('GET', `/runs${qs ? `?${qs}` : ''}`)
     },

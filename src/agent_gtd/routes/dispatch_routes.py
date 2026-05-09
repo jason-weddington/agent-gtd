@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal, cast
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -294,11 +294,29 @@ async def list_runs(
     item_id: str | None = None,
     project_id: str | None = None,
     status: str | None = None,
+    scope: str = "user",
 ) -> list[RunResponse]:
-    """List dispatch runs, optionally filtered by item, project, and/or status."""
+    """List dispatch runs, optionally filtered by item, project, and/or status.
+
+    The ``scope`` query parameter controls whose runs are returned:
+
+    - ``user`` (default): only runs dispatched by the caller.
+    - ``accessible_projects``: runs in all projects the caller can access
+      (owned or shared), regardless of who dispatched them.
+    """
+    if scope not in ("user", "accessible_projects"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid scope '{scope}'. Must be 'user' or 'accessible_projects'.",
+        )
     db = await get_db()
     rows = await dispatch_service.list_runs(
-        db, user.id, item_id=item_id, project_id=project_id, status=status
+        db,
+        user.id,
+        item_id=item_id,
+        project_id=project_id,
+        status=status,
+        scope=cast(Literal["user", "accessible_projects"], scope),
     )
     return [_run_response(r) for r in rows]
 

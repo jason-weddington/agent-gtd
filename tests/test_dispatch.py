@@ -486,6 +486,106 @@ async def test_list_runs_by_project_id(
     assert runs[0]["item_id"] == item_b
 
 
+# --- Shared-project run visibility ---
+
+
+async def _make_user_headers(email: str) -> dict[str, str]:
+    """Register a new user and return their auth headers."""
+    from agent_gtd.auth import create_token, register_user
+
+    user = await register_user(email, "testpass123")
+    token = create_token(user.id)
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def test_shared_project_runs_visible_with_accessible_projects_scope(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """User B (member) sees User A's runs with scope=accessible_projects."""
+    # Create user B
+    headers_b = await _make_user_headers("userb_runs@example.com")
+    res_b = await client.get("/api/auth/me", headers=headers_b)
+    user_b_email = res_b.json()["email"]
+
+    # User A creates a project and shares it with user B
+    project_id = await _create_project_with_origin(client, auth_headers)
+    share_res = await client.post(
+        f"/api/projects/{project_id}/members",
+        json={"email": user_b_email},
+        headers=auth_headers,
+    )
+    assert share_res.status_code == 201
+
+    # User A dispatches a run
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+    dispatch_res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert dispatch_res.status_code == 201
+    run_id = dispatch_res.json()["id"]
+
+    # User B CAN see the run with scope=accessible_projects
+    res = await client.get(
+        "/api/runs",
+        params={"status": "pending,running", "scope": "accessible_projects"},
+        headers=headers_b,
+    )
+    assert res.status_code == 200
+    run_ids = {r["id"] for r in res.json()}
+    assert run_id in run_ids, "shared-project run should be visible with accessible_projects scope"
+
+
+async def test_shared_project_runs_not_visible_with_default_scope(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """User B (member) does NOT see User A's runs with default scope (regression guard)."""
+    # Create user B
+    headers_b = await _make_user_headers("userb_runs2@example.com")
+    res_b = await client.get("/api/auth/me", headers=headers_b)
+    user_b_email = res_b.json()["email"]
+
+    # User A creates a project and shares it with user B
+    project_id = await _create_project_with_origin(client, auth_headers)
+    share_res = await client.post(
+        f"/api/projects/{project_id}/members",
+        json={"email": user_b_email},
+        headers=auth_headers,
+    )
+    assert share_res.status_code == 201
+
+    # User A dispatches a run
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+    dispatch_res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert dispatch_res.status_code == 201
+    run_id = dispatch_res.json()["id"]
+
+    # User B should NOT see the run with default scope (user-scoped)
+    res = await client.get(
+        "/api/runs",
+        params={"status": "pending,running"},
+        headers=headers_b,
+    )
+    assert res.status_code == 200
+    run_ids = {r["id"] for r in res.json()}
+    assert run_id not in run_ids, "shared-project run should NOT be visible with default scope"
+
+
+async def test_list_runs_invalid_scope(client: AsyncClient, auth_headers: dict[str, str]):
+    """GET /api/runs with an invalid scope returns 400."""
+    res = await client.get(
+        "/api/runs",
+        params={"scope": "invalid"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+
+
 # --- Get single run ---
 
 

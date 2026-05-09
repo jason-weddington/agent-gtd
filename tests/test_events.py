@@ -28,6 +28,34 @@ async def _create_test_user(db) -> str:
     return user_id
 
 
+async def _create_test_project(db, owner_id: str) -> str:
+    """Insert a minimal project row and return the project_id."""
+    project_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO projects (id, user_id, name, created_at, updated_at) "
+        "VALUES ($1, $2, $3, $4, $5)",
+        project_id,
+        owner_id,
+        f"project-{project_id[:8]}",
+        now,
+        now,
+    )
+    return project_id
+
+
+async def _add_project_member(db, project_id: str, user_id: str) -> None:
+    """Insert a project_members row."""
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO project_members (project_id, user_id, added_at) "
+        "VALUES ($1, $2, $3)",
+        project_id,
+        user_id,
+        now,
+    )
+
+
 # --- Event bus unit tests ---
 
 
@@ -209,6 +237,153 @@ async def test_queue_full_drops_oldest(_setup_db):
         entity_type="item",
         entity_id="item-overflow",
         payload={"id": "item-overflow"},
+    )
+
+
+# --- Project member fan-out tests ---
+
+
+async def test_publish_fans_out_to_project_members(_setup_db):
+    """Run events with a project_id are delivered to all project members' queues."""
+    bus = EventBus()
+    db = await get_db()
+
+    owner_id = await _create_test_user(db)
+    member_id = await _create_test_user(db)
+    project_id = await _create_test_project(db, owner_id)
+    await _add_project_member(db, project_id, member_id)
+
+    # Only the member is subscribed (owner is not)
+    member_queue = bus.subscribe(member_id)
+
+    await bus.publish(
+        db,
+        user_id=owner_id,
+        event_type="run_started",
+        entity_type="run",
+        entity_id="run-1",
+        project_id=project_id,
+        payload={"id": "run-1"},
+    )
+
+    # Member should have received the event even though the owner published it
+    assert not member_queue.empty()
+    event = member_queue.get_nowait()
+    assert event["event_type"] == "run_started"
+    assert event["project_id"] == project_id
+
+    bus.unsubscribe(member_id, member_queue)
+
+
+async def test_publish_project_fanout_does_not_double_deliver_to_owner(_setup_db):
+    """Owner does not receive the same event twice (once via user fan-out, once via project)."""
+    bus = EventBus()
+    db = await get_db()
+
+    owner_id = await _create_test_user(db)
+    project_id = await _create_test_project(db, owner_id)
+
+    owner_queue = bus.subscribe(owner_id)
+
+    await bus.publish(
+        db,
+        user_id=owner_id,
+        event_type="run_started",
+        entity_type="run",
+        entity_id="run-1",
+        project_id=project_id,
+        payload={"id": "run-1"},
+    )
+
+    # Owner should receive exactly one event
+    assert not owner_queue.empty()
+    owner_queue.get_nowait()  # consume it
+    assert owner_queue.empty(), "owner should receive the event exactly once"
+
+    bus.unsubscribe(owner_id, owner_queue)
+
+
+async def test_replay_since_includes_shared_project_events(_setup_db):
+    """replay_since with project_ids returns events from another user in the same project."""
+    bus = EventBus()
+    db = await get_db()
+
+    owner_id = await _create_test_user(db)
+    member_id = await _create_test_user(db)
+    project_id = await _create_test_project(db, owner_id)
+    await _add_project_member(db, project_id, member_id)
+
+    # Member publishes a "baseline" event to get a since_id
+    since_id = await bus.publish(
+        db,
+        user_id=member_id,
+        event_type="item_created",
+        entity_type="item",
+        entity_id="item-baseline",
+        payload={"id": "item-baseline"},
+    )
+
+    await asyncio.sleep(0.01)
+
+    # Owner publishes a run event into the shared project
+    await bus.publish(
+        db,
+        user_id=owner_id,
+        event_type="run_started",
+        entity_type="run",
+        entity_id="run-1",
+        project_id=project_id,
+        payload={"id": "run-1"},
+    )
+
+    # Replay for member with shared project_ids — should include owner's run event
+    replayed = await bus.replay_since(
+        db, member_id, since_id, project_ids=[project_id]
+    )
+    replayed_types = [e["event_type"] for e in replayed]
+    assert "run_started" in replayed_types, (
+        "shared-project run event should appear in member's replay"
+    )
+
+
+async def test_replay_since_without_project_ids_excludes_others(_setup_db):
+    """replay_since without project_ids does NOT return other users' events."""
+    bus = EventBus()
+    db = await get_db()
+
+    owner_id = await _create_test_user(db)
+    member_id = await _create_test_user(db)
+    project_id = await _create_test_project(db, owner_id)
+    await _add_project_member(db, project_id, member_id)
+
+    # Member baseline event
+    since_id = await bus.publish(
+        db,
+        user_id=member_id,
+        event_type="item_created",
+        entity_type="item",
+        entity_id="item-baseline",
+        payload={"id": "item-baseline"},
+    )
+
+    await asyncio.sleep(0.01)
+
+    # Owner publishes a run event in the shared project
+    await bus.publish(
+        db,
+        user_id=owner_id,
+        event_type="run_started",
+        entity_type="run",
+        entity_id="run-1",
+        project_id=project_id,
+        payload={"id": "run-1"},
+    )
+
+    # Replay for member WITHOUT project_ids — should NOT include owner's event
+    replayed = await bus.replay_since(db, member_id, since_id)
+    replayed_types = [e["event_type"] for e in replayed]
+    assert "run_started" not in replayed_types, (
+        "other user's event should not appear in replay without project_ids"
     )
 
 

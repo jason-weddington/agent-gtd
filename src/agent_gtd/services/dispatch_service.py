@@ -9,7 +9,7 @@ import logging
 import re
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from agent_gtd.database import row_to_dict
 from agent_gtd.db_types import DbPool
@@ -157,10 +157,35 @@ async def list_runs(
     item_id: str | None = None,
     project_id: str | None = None,
     status: str | None = None,
+    scope: Literal["user", "accessible_projects"] = "user",
 ) -> list[dict[str, Any]]:
-    """List runs, optionally filtered by item, project, and/or status."""
-    clauses = ["user_id = $1"]
-    params: list[object] = [user_id]
+    """List runs, optionally filtered by item, project, and/or status.
+
+    Args:
+        db: Database pool.
+        user_id: The calling user's ID.
+        item_id: Optional item ID filter.
+        project_id: Optional project ID filter.
+        status: Optional comma-separated status filter.
+        scope: ``"user"`` (default) returns only runs owned by the caller.
+            ``"accessible_projects"`` returns runs in all projects the caller
+            can access (owned or shared), regardless of who dispatched them.
+    """
+    if scope == "accessible_projects":
+        # Replace the user_id ownership guard with a project-membership subquery.
+        # Pass user_id twice (as $1 and $2) for SQLite compatibility — asyncpg
+        # also accepts the same value at distinct parameter positions.
+        clauses: list[str] = [
+            "project_id IN ("
+            "SELECT id FROM projects WHERE user_id = $1 "
+            "UNION "
+            "SELECT project_id FROM project_members WHERE user_id = $2"
+            ")"
+        ]
+        params: list[object] = [user_id, user_id]
+    else:
+        clauses = ["user_id = $1"]
+        params = [user_id]
 
     if item_id is not None:
         params.append(item_id)
