@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v1.85.0 (2026-05-09)
+
+### Features
+
+- **runs**: Active runs indicator and SSE deliver shared-project runs
+  ([`ea52f03`](https://github.com/jason-weddington/agent-gtd/commit/ea52f039d9be7730e301dbac6383d9c86b315626))
+
+- **runs**: Show all dispatch activity in shared project Activity tabs
+  ([`70a49b3`](https://github.com/jason-weddington/agent-gtd/commit/70a49b3b90f0e416557acbc30118101ea2208f9e))
+
+- **ui**: Add Save and Plan button to new-item dialog
+  ([`39d5c6e`](https://github.com/jason-weddington/agent-gtd/commit/39d5c6e0e7db7c7773ce34396ab3e6bcf0c8e3f4))
+
+
 ## v1.84.1 (2026-05-08)
 
 ### Bug Fixes
