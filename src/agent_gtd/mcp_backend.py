@@ -293,6 +293,37 @@ class McpBackend(Protocol):
         item_ids: list[str],
     ) -> dict[str, Any]: ...
 
+    async def advance_wave(self, user_id: str, wave_run_id: str) -> dict[str, Any]: ...
+
+    async def complete_in_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        item_id: str,
+        outcome: str,
+        *,
+        merge_actor: str = "",
+        decision_rule: str = "",
+    ) -> dict[str, Any]: ...
+
+    async def halt_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        reason: str,
+        *,
+        comment: str | None = None,
+        item_id: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def replan_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        *,
+        from_item: str | None = None,
+    ) -> dict[str, Any]: ...
+
     async def close(self) -> None: ...
 
 
@@ -952,6 +983,74 @@ class LocalBackend:
 
         db = await get_db()
         return await wave_service.plan_wave(db, user_id, item_ids)
+
+    async def advance_wave(self, user_id: str, wave_run_id: str) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import wave_service
+
+        db = await get_db()
+        return await wave_service.advance_wave(db, user_id, wave_run_id)
+
+    async def complete_in_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        item_id: str,
+        outcome: str,
+        *,
+        merge_actor: str = "",
+        decision_rule: str = "",
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import wave_service
+
+        db = await get_db()
+        return await wave_service.complete_in_wave(
+            db,
+            user_id,
+            wave_run_id,
+            item_id,
+            outcome,
+            merge_actor=merge_actor,
+            decision_rule=decision_rule,
+        )
+
+    async def halt_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        reason: str,
+        *,
+        comment: str | None = None,
+        item_id: str | None = None,
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import wave_service
+
+        db = await get_db()
+        return await wave_service.halt_wave(
+            db,
+            user_id,
+            wave_run_id,
+            reason,
+            comment=comment,
+            item_id=item_id,
+        )
+
+    async def replan_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        *,
+        from_item: str | None = None,
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import wave_service
+
+        db = await get_db()
+        return await wave_service.replan_wave(
+            db, user_id, wave_run_id, from_item=from_item
+        )
 
     async def close(self) -> None:
         pass
@@ -1666,6 +1765,84 @@ class HttpBackend:
         raise NotImplementedError(
             "plan_wave is only available in local (direct-DB) mode"
         )
+
+    async def advance_wave(self, user_id: str, wave_run_id: str) -> dict[str, Any]:
+        resp = await self._client.get(
+            f"/api/wave-runs/{wave_run_id}/advance",
+            headers=self._headers(),
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def complete_in_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        item_id: str,
+        outcome: str,
+        *,
+        merge_actor: str = "",
+        decision_rule: str = "",
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "item_id": item_id,
+            "outcome": outcome,
+        }
+        if merge_actor:
+            body["merge_actor"] = merge_actor
+        if decision_rule:
+            body["decision_rule"] = decision_rule
+        resp = await self._client.post(
+            f"/api/wave-runs/{wave_run_id}/complete-item",
+            json=body,
+            headers=self._headers(),
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def halt_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        reason: str,
+        *,
+        comment: str | None = None,
+        item_id: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"reason": reason}
+        if comment is not None:
+            body["comment"] = comment
+        if item_id is not None:
+            body["item_id"] = item_id
+        resp = await self._client.post(
+            f"/api/wave-runs/{wave_run_id}/halt",
+            json=body,
+            headers=self._headers(),
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def replan_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        *,
+        from_item: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {}
+        if from_item is not None:
+            body["from_item"] = from_item
+        resp = await self._client.post(
+            f"/api/wave-runs/{wave_run_id}/replan",
+            json=body,
+            headers=self._headers(),
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
 
     async def close(self) -> None:
         await self._client.aclose()

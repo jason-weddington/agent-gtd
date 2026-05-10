@@ -1157,7 +1157,39 @@ async def list_runs(
     return await _backend.list_runs(session["user_id"], item_id=item_id, status=status)
 
 
-# --- Wave tools ---
+# --- Wave manager tools ---
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
+)
+async def advance_wave(
+    wave_run_id: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """Return the current readiness snapshot for a wave run.
+
+    Pure read — no mutations, no events written.  Use this in the executor
+    loop to determine which items can be dispatched next.
+
+    Args:
+        wave_run_id: ID of the wave run to inspect.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        Dict with keys:
+          - next_ready (list[str]): Item IDs ready to dispatch.
+          - in_progress (list[str]): Item IDs currently dispatched.
+          - blocked (list[str]): Item IDs waiting on unfinished predecessors.
+          - graph_complete (bool): True if every item is in a terminal state.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.advance_wave(session["user_id"], wave_run_id)
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+    except ValidationError as e:
+        raise ToolError(e.detail) from None
 
 
 @mcp.tool(
@@ -1207,6 +1239,136 @@ async def plan_wave(
         raise ToolError(exc.detail) from None
     except RuntimeError as exc:
         raise ToolError(str(exc)) from None
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+async def complete_in_wave(
+    wave_run_id: str,
+    item_id: str,
+    outcome: str,
+    ctx: Context,
+    merge_actor: str = "",
+    decision_rule: str = "",
+) -> dict[str, Any]:
+    """Mark a dispatched wave item as done and unblock downstream items.
+
+    After the item is recorded as terminal, each downstream item whose only
+    remaining blocking predecessor was this one is transitioned to 'ready'.
+    If all items in the wave are now terminal the wave run is closed.
+
+    Args:
+        wave_run_id: ID of the wave run.
+        item_id: ID of the wave_plan_items row to complete.
+        outcome: One of ``"completed"``, ``"halted"``, ``"skipped"``.
+        ctx: MCP context (injected automatically).
+        merge_actor: Who merged the PR (``"human"``,
+            ``"manager-allowlist"``, ``"manager+human-fixup"``, or empty).
+        decision_rule: Allowlist rule name that fired (from executor
+            classifier).  Stored in the item_outcome event payload.
+
+    Returns:
+        Dict with keys:
+          - wave_plan_item (dict): The updated wave_plan_items row.
+          - newly_ready (list[str]): Item IDs newly transitioned to 'ready'.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.complete_in_wave(
+            session["user_id"],
+            wave_run_id,
+            item_id,
+            outcome,
+            merge_actor=merge_actor,
+            decision_rule=decision_rule,
+        )
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+    except ValidationError as e:
+        raise ToolError(e.detail) from None
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
+)
+async def halt_wave(
+    wave_run_id: str,
+    reason: str,
+    ctx: Context,
+    comment: str | None = None,
+    item_id: str | None = None,
+) -> dict[str, Any]:
+    """Halt a running wave — terminal operation.
+
+    Transitions all in-flight items to 'halted', releases all wave-scoped
+    item locks, posts a GTD comment on the project, and appends a
+    ``wave_halted`` event.  The event payload includes the offending item ID
+    (if any) and the comment ID so the halt card UI can render both without
+    an extra round trip.
+
+    Args:
+        wave_run_id: ID of the wave run to halt.
+        reason: Short machine-readable halt reason (e.g. ``"merge_rejected"``).
+        ctx: MCP context (injected automatically).
+        comment: Optional human-readable context appended to the GTD comment.
+        item_id: Optional ID of the item that triggered the halt.
+
+    Returns:
+        The updated autonomous_wave_runs row dict.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.halt_wave(
+            session["user_id"],
+            wave_run_id,
+            reason,
+            comment=comment,
+            item_id=item_id,
+        )
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+    except ValidationError as e:
+        raise ToolError(e.detail) from None
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+async def replan_wave(
+    wave_run_id: str,
+    ctx: Context,
+    from_item: str | None = None,
+) -> dict[str, Any]:
+    """Re-plan the remaining subgraph for an in-progress wave.
+
+    Calls the dispatch-worker planner (same mechanism as plan_wave) scoped
+    to the remaining pending/ready items, persists a new wave_plans version,
+    updates item readiness, and emits a ``wave_replanned`` event.
+
+    Args:
+        wave_run_id: ID of the wave run to replan.
+        ctx: MCP context (injected automatically).
+        from_item: Optional item ID to restrict replanning to its downstream
+            subgraph (depth-first traversal from this item).
+
+    Returns:
+        Dict with keys:
+          - old_version (int): The previous plan version.
+          - new_version (int): The newly created plan version.
+          - new_plan (dict): The new wave_plans row.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.replan_wave(
+            session["user_id"],
+            wave_run_id,
+            from_item=from_item,
+        )
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+    except ValidationError as e:
+        raise ToolError(e.detail) from None
 
 
 # --- Entry point ---
