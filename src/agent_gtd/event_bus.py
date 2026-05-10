@@ -161,7 +161,7 @@ class EventBus:
             )
             since_row = await db.fetchrow(
                 f"SELECT created_at FROM events "  # noqa: S608
-                f"WHERE id = $1 AND (user_id = $2 OR project_id IN ({proj_placeholders}))",
+                f"WHERE id = $1 AND (user_id = $2 OR project_id IN ({proj_placeholders}))",  # noqa: E501
                 since_id,
                 user_id,
                 *effective_project_ids,

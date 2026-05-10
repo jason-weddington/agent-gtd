@@ -65,9 +65,7 @@ def _run_response(row: dict[str, object]) -> RunResponse:
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
         dispatched_by_email=(
-            str(row["dispatched_by_email"])
-            if row.get("dispatched_by_email")
-            else None
+            str(row["dispatched_by_email"]) if row.get("dispatched_by_email") else None
         ),
     )
 

@@ -276,7 +276,7 @@ async def test_publish_fans_out_to_project_members(_setup_db):
 
 
 async def test_publish_project_fanout_does_not_double_deliver_to_owner(_setup_db):
-    """Owner does not receive the same event twice (once via user fan-out, once via project)."""
+    """Owner does not receive the same event twice (once via user fan-out, once via project)."""  # noqa: E501
     bus = EventBus()
     db = await get_db()
 
@@ -304,7 +304,7 @@ async def test_publish_project_fanout_does_not_double_deliver_to_owner(_setup_db
 
 
 async def test_replay_since_includes_shared_project_events(_setup_db):
-    """replay_since with project_ids returns events from another user in the same project."""
+    """replay_since with project_ids returns events from another user in the same project."""  # noqa: E501
     bus = EventBus()
     db = await get_db()
 
@@ -337,9 +337,7 @@ async def test_replay_since_includes_shared_project_events(_setup_db):
     )
 
     # Replay for member with shared project_ids — should include owner's run event
-    replayed = await bus.replay_since(
-        db, member_id, since_id, project_ids=[project_id]
-    )
+    replayed = await bus.replay_since(db, member_id, since_id, project_ids=[project_id])
     replayed_types = [e["event_type"] for e in replayed]
     assert "run_started" in replayed_types, (
         "shared-project run event should appear in member's replay"

@@ -146,6 +146,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         finished_at TEXT,
         remote_run_id TEXT NOT NULL DEFAULT '',
         error_msg TEXT NOT NULL DEFAULT '',
+        wave_run_id TEXT REFERENCES autonomous_wave_runs(id),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )
@@ -227,6 +228,62 @@ _SCHEMA_STATEMENTS: list[str] = [
         used_at TEXT
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS autonomous_wave_runs (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        lead_user_id TEXT NOT NULL REFERENCES users(id),
+        status TEXT NOT NULL DEFAULT 'pending',
+        halt_reason TEXT,
+        started_at TEXT,
+        ended_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_wave_runs_project_id "
+    "ON autonomous_wave_runs(project_id)",
+    "CREATE INDEX IF NOT EXISTS idx_wave_runs_status ON autonomous_wave_runs(status)",
+    """
+    CREATE TABLE IF NOT EXISTS wave_plans (
+        id TEXT PRIMARY KEY,
+        wave_run_id TEXT NOT NULL REFERENCES autonomous_wave_runs(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL DEFAULT 1,
+        nodes TEXT NOT NULL DEFAULT '[]',
+        edges TEXT NOT NULL DEFAULT '[]',
+        planner_model TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_wave_plans_wave_run_id ON wave_plans(wave_run_id)",
+    """
+    CREATE TABLE IF NOT EXISTS wave_plan_items (
+        wave_run_id TEXT NOT NULL REFERENCES autonomous_wave_runs(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        status TEXT NOT NULL DEFAULT 'pending',
+        claude_run_id TEXT REFERENCES claude_runs(id),
+        completed_at TEXT,
+        merge_actor TEXT,
+        PRIMARY KEY (wave_run_id, item_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_wave_plan_items_item_id "
+    "ON wave_plan_items(item_id)",
+    """
+    CREATE TABLE IF NOT EXISTS wave_events (
+        id TEXT PRIMARY KEY,
+        wave_run_id TEXT NOT NULL REFERENCES autonomous_wave_runs(id) ON DELETE CASCADE,
+        seq INTEGER NOT NULL,
+        ts TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        decision_rule TEXT NOT NULL DEFAULT '',
+        payload TEXT NOT NULL DEFAULT '{}',
+        UNIQUE (wave_run_id, seq)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_wave_events_wave_run_id "
+    "ON wave_events(wave_run_id)",
 ]
 
 # Idempotent column additions for existing databases.
@@ -315,6 +372,65 @@ _MIGRATIONS: list[str] = [
     SET build_dispatch_agent = dispatch_agent
     WHERE build_dispatch_agent IS NULL AND dispatch_agent IS NOT NULL
     """,
+    # Wave manager schema additions.
+    """
+    CREATE TABLE IF NOT EXISTS autonomous_wave_runs (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        lead_user_id TEXT NOT NULL REFERENCES users(id),
+        status TEXT NOT NULL DEFAULT 'pending',
+        halt_reason TEXT,
+        started_at TEXT,
+        ended_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_wave_runs_project_id "
+    "ON autonomous_wave_runs(project_id)",
+    "CREATE INDEX IF NOT EXISTS idx_wave_runs_status ON autonomous_wave_runs(status)",
+    "ALTER TABLE claude_runs ADD COLUMN wave_run_id TEXT "
+    "REFERENCES autonomous_wave_runs(id)",
+    """
+    CREATE TABLE IF NOT EXISTS wave_plans (
+        id TEXT PRIMARY KEY,
+        wave_run_id TEXT NOT NULL REFERENCES autonomous_wave_runs(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL DEFAULT 1,
+        nodes TEXT NOT NULL DEFAULT '[]',
+        edges TEXT NOT NULL DEFAULT '[]',
+        planner_model TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_wave_plans_wave_run_id ON wave_plans(wave_run_id)",
+    """
+    CREATE TABLE IF NOT EXISTS wave_plan_items (
+        wave_run_id TEXT NOT NULL REFERENCES autonomous_wave_runs(id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        status TEXT NOT NULL DEFAULT 'pending',
+        claude_run_id TEXT REFERENCES claude_runs(id),
+        completed_at TEXT,
+        merge_actor TEXT,
+        PRIMARY KEY (wave_run_id, item_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_wave_plan_items_item_id "
+    "ON wave_plan_items(item_id)",
+    """
+    CREATE TABLE IF NOT EXISTS wave_events (
+        id TEXT PRIMARY KEY,
+        wave_run_id TEXT NOT NULL REFERENCES autonomous_wave_runs(id) ON DELETE CASCADE,
+        seq INTEGER NOT NULL,
+        ts TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        decision_rule TEXT NOT NULL DEFAULT '',
+        payload TEXT NOT NULL DEFAULT '{}',
+        UNIQUE (wave_run_id, seq)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_wave_events_wave_run_id "
+    "ON wave_events(wave_run_id)",
 ]
 
 

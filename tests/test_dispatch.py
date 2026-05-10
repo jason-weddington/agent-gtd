@@ -534,13 +534,15 @@ async def test_shared_project_runs_visible_with_accessible_projects_scope(
     )
     assert res.status_code == 200
     run_ids = {r["id"] for r in res.json()}
-    assert run_id in run_ids, "shared-project run should be visible with accessible_projects scope"
+    assert run_id in run_ids, (
+        "shared-project run should be visible with accessible_projects scope"
+    )
 
 
 async def test_shared_project_runs_not_visible_with_default_scope(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """User B (member) does NOT see User A's runs with default scope (regression guard)."""
+    """User B (member) does NOT see User A's runs with default scope (regression guard)."""  # noqa: E501
     # Create user B
     headers_b = await _make_user_headers("userb_runs2@example.com")
     res_b = await client.get("/api/auth/me", headers=headers_b)
@@ -573,10 +575,14 @@ async def test_shared_project_runs_not_visible_with_default_scope(
     )
     assert res.status_code == 200
     run_ids = {r["id"] for r in res.json()}
-    assert run_id not in run_ids, "shared-project run should NOT be visible with default scope"
+    assert run_id not in run_ids, (
+        "shared-project run should NOT be visible with default scope"
+    )
 
 
-async def test_list_runs_invalid_scope(client: AsyncClient, auth_headers: dict[str, str]):
+async def test_list_runs_invalid_scope(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
     """GET /api/runs with an invalid scope returns 400."""
     res = await client.get(
         "/api/runs",

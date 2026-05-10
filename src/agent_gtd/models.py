@@ -3,6 +3,7 @@
 import re
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, field_validator
 
@@ -53,6 +54,45 @@ class RunStatus(StrEnum):
     FAILED = "failed"
     TIMEOUT = "timeout"
     CANCELLED = "cancelled"
+
+
+class WaveRunStatus(StrEnum):
+    """Autonomous wave run lifecycle status."""
+
+    PENDING = "pending"
+    PLANNING = "planning"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    HALTED = "halted"
+    CRASHED = "crashed"
+
+
+class WavePlanItemStatus(StrEnum):
+    """Status of a single item within a wave plan."""
+
+    PENDING = "pending"
+    READY = "ready"
+    DISPATCHED = "dispatched"
+    COMPLETED = "completed"
+    HALTED = "halted"
+    SKIPPED = "skipped"
+
+
+class WaveEventActor(StrEnum):
+    """Actor that generated a wave event."""
+
+    MANAGER = "manager"
+    CHILD_AGENT = "child-agent"
+    REAPER = "reaper"
+    HUMAN = "human"
+
+
+class MergeActor(StrEnum):
+    """Who merged (or will merge) the PR for a wave plan item."""
+
+    HUMAN = "human"
+    MANAGER_ALLOWLIST = "manager-allowlist"
+    MANAGER_HUMAN_FIXUP = "manager+human-fixup"
 
 
 # --- Domain Models ---
@@ -158,6 +198,56 @@ class Attachment(BaseModel):
     size_bytes: int
     storage_path: str
     created_at: datetime
+
+
+class WaveRun(BaseModel):
+    """An autonomous wave run coordinating multiple agent dispatches."""
+
+    id: str
+    project_id: str
+    lead_user_id: str
+    status: WaveRunStatus
+    halt_reason: str | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WavePlan(BaseModel):
+    """A DAG plan produced by the wave planner for a wave run."""
+
+    id: str
+    wave_run_id: str
+    version: int
+    nodes: list[str]
+    edges: list[dict[str, str]]
+    planner_model: str
+    created_at: datetime
+
+
+class WavePlanItem(BaseModel):
+    """Tracking record for a single item within a wave plan."""
+
+    wave_run_id: str
+    item_id: str
+    status: WavePlanItemStatus
+    claude_run_id: str | None = None
+    completed_at: datetime | None = None
+    merge_actor: MergeActor | None = None
+
+
+class WaveEvent(BaseModel):
+    """A structured event emitted during a wave run."""
+
+    id: str
+    wave_run_id: str
+    seq: int
+    ts: datetime
+    kind: str
+    actor: WaveEventActor
+    decision_rule: str
+    payload: dict[str, Any]
 
 
 # --- API Request/Response Schemas ---
@@ -564,6 +654,7 @@ class RunResponse(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     error_msg: str
+    wave_run_id: str | None = None
     created_at: datetime
     updated_at: datetime
     dispatched_by_email: str | None = None
