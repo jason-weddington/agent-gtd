@@ -17,6 +17,7 @@ from agent_gtd.exceptions import (
     BlockersUnresolvedError,
     NotFoundError,
     RunActiveError,
+    ValidationError,
     WaveItemLockedError,
 )
 from agent_gtd.services.item_service import (
@@ -45,6 +46,7 @@ async def create_run(
     *,
     max_turns: int | None = None,
     mode: str = "build",
+    wave_run_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a new dispatch run for an item.
 
@@ -52,10 +54,13 @@ async def create_run(
     - Item exists and belongs to user
     - Item has a project with git_origin configured
     - No other active run exists for this item
+    - When mode="manage" with wave_run_id: wave exists, is owned by caller,
+      and has status="pending" (manage-mode launch is one-shot).
 
     Raises:
         NotFoundError: If item or project not found.
         RunActiveError: If an active run already exists for this item.
+        ValidationError: If manage-mode wave pre-conditions are not met.
     """
     item = await get_item(db, user_id, item_id)
 
@@ -88,6 +93,18 @@ async def create_run(
     if unresolved:
         raise BlockersUnresolvedError("dispatch this item", unresolved)
 
+    # Manage-mode pre-flight: validate the wave exists, is owned, and is pending
+    wave: dict[str, Any] | None = None
+    if mode == "manage" and wave_run_id is not None:
+        from agent_gtd.services.wave_service import _get_wave_run
+
+        wave = await _get_wave_run(db, user_id, wave_run_id)
+        if wave["status"] != "pending":
+            raise ValidationError(
+                f"Wave {wave_run_id} is not pending (status={wave['status']}); "
+                "manage-mode launch is one-shot"
+            )
+
     from agent_gtd.dispatch_worker import DEFAULT_MAX_TURNS, resolve_max_turns
     from agent_gtd.services import settings_service
 
@@ -112,8 +129,8 @@ async def create_run(
     await db.execute(
         "INSERT INTO claude_runs"
         " (id, item_id, project_id, user_id, status, feature_branch,"
-        "  max_turns, mode, created_at, updated_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        "  max_turns, mode, wave_run_id, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         run_id,
         item_id,
         project_id,
@@ -122,9 +139,40 @@ async def create_run(
         branch,
         effective_max_turns,
         mode,
+        wave_run_id,
         now,
         now,
     )
+
+    # Manage-mode wave status flip: pending → running (atomic, race-safe)
+    if mode == "manage" and wave_run_id is not None and wave is not None:
+        await db.execute(
+            "UPDATE autonomous_wave_runs"
+            " SET status = 'running', started_at = $1, updated_at = $2"
+            " WHERE id = $3 AND status = 'pending'",
+            now,
+            now,
+            wave_run_id,
+        )
+        # Append wave_started event and fan out via SSE
+        from agent_gtd.services.wave_service import (
+            _append_wave_event,
+            _publish_wave_event,
+        )
+
+        wave_event = await _append_wave_event(
+            db,
+            wave_run_id,
+            kind="wave_started",
+            actor="manager",
+            payload={"manage_run_id": run_id},
+        )
+        _publish_wave_event(
+            db,
+            lead_user_id=user_id,
+            wave_event=wave_event,
+            project_id=str(project_id),
+        )
 
     row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
     assert row is not None  # noqa: S101

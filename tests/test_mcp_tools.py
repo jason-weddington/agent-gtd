@@ -1317,6 +1317,88 @@ async def test_dispatch_item_blocked(registered_client, user_id):
         )
 
 
+async def test_dispatch_item_manage_mode_requires_wave_run_id(
+    registered_client, user_id
+):
+    """dispatch_item raises ToolError when mode='manage' and wave_run_id is missing."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services import project_service
+
+    db = await get_db()
+    project = await project_service.create_project(
+        db,
+        user_id,
+        name="Manage Test Project",
+        git_origin="git@github.com:test/manage-repo.git",
+    )
+    item_result = await registered_client.call_tool(
+        "add_item",
+        {"title": "Manager task", "project_id": project["id"], "status": "new"},
+    )
+    item_id = _parse_result(item_result)["id"]
+
+    with pytest.raises(ToolError, match="wave_run_id is required"):
+        await registered_client.call_tool(
+            "dispatch_item",
+            {"item_id": item_id, "mode": "manage"},
+        )
+
+
+async def test_dispatch_item_manage_mode_passes_wave_run_id_to_backend(
+    registered_client, user_id, monkeypatch
+):
+    """dispatch_item with mode='manage' forwards wave_run_id to the backend."""
+    import uuid
+
+    import agent_gtd.mcp_server as srv
+    from agent_gtd.mcp_backend import LocalBackend
+
+    captured: dict = {}
+
+    class _CapturingBackend(LocalBackend):
+        async def dispatch_item(
+            self,
+            backend_user_id,
+            backend_item_id,
+            *,
+            max_turns=None,
+            mode="build",
+            wave_run_id=None,
+        ):
+            captured["mode"] = mode
+            captured["wave_run_id"] = wave_run_id
+            # Return a minimal run dict to avoid DB interaction
+            raise RuntimeError("captured")
+
+    monkeypatch.setattr(srv, "_backend", _CapturingBackend())
+
+    from agent_gtd.database import get_db
+    from agent_gtd.services import project_service
+
+    db = await get_db()
+    project = await project_service.create_project(
+        db,
+        user_id,
+        name="Manage Capture Project",
+        git_origin="git@github.com:test/capture-repo.git",
+    )
+    item_result = await registered_client.call_tool(
+        "add_item",
+        {"title": "Capture task", "project_id": project["id"], "status": "new"},
+    )
+    item_id = _parse_result(item_result)["id"]
+    fake_wave_id = str(uuid.uuid4())
+
+    with pytest.raises(ToolError):
+        await registered_client.call_tool(
+            "dispatch_item",
+            {"item_id": item_id, "mode": "manage", "wave_run_id": fake_wave_id},
+        )
+
+    assert captured.get("mode") == "manage"
+    assert captured.get("wave_run_id") == fake_wave_id
+
+
 # --- Dispatch config via MCP ---
 
 

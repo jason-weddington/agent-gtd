@@ -183,6 +183,7 @@ async def _dispatch_to_remote(
     max_turns: int,
     mode: str = "build",
     *,
+    wave_run_id: str | None = None,
     url: str,
     api_key: str,
     engine: str = "claude",
@@ -199,6 +200,8 @@ async def _dispatch_to_remote(
     }
     if agent_name:
         body["agent_name"] = agent_name
+    if wave_run_id:
+        body["wave_run_id"] = wave_run_id
     resp = await client.post(
         f"{url}/dispatch",
         json=body,
@@ -535,6 +538,7 @@ async def execute_run(
                 item_id,
                 max_turns,
                 mode,
+                wave_run_id=str(run["wave_run_id"]) if run.get("wave_run_id") else None,
                 url=dispatch_url,
                 api_key=dispatch_api_key,
                 engine=engine,

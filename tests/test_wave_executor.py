@@ -1041,3 +1041,144 @@ async def test_plan_wave_route_happy_path_returns_dag(
     assert body["plan"]["edges"] == [
         {"from_item_id": item_a, "to_item_id": item_b}
     ]
+
+
+# ---------------------------------------------------------------------------
+# Manage-mode dispatch → wave status flip (AC-3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def _mock_dispatch_preflight():
+    """Skip the dispatch service health check for manage-mode dispatch tests."""
+    from unittest.mock import AsyncMock, patch
+
+    with patch(
+        "agent_gtd.routes.dispatch_routes._check_dispatch_service",
+        new_callable=AsyncMock,
+    ):
+        yield
+
+
+async def test_manage_dispatch_flips_wave_to_running(
+    client: AsyncClient, _mock_dispatch_preflight
+):
+    """dispatch_item(mode='manage', wave_run_id=...) flips wave status to running."""
+    from agent_gtd.auth import create_token, register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.services.settings_service import set_user_setting
+
+    db = await get_db()
+    user = await register_user("wave-manage-1@test.com", "pw")
+    user_id = user.id
+    project_id = await _make_project(db, user_id)
+
+    # Give the project a git_origin so dispatch works
+    now = _now()
+    await db.execute(
+        "UPDATE projects SET git_origin = $1, updated_at = $2 WHERE id = $3",
+        "git@github.com:test/manage-repo.git",
+        now,
+        project_id,
+    )
+
+    # Dispatch config required by the route
+    await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
+    await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
+
+    item_id = await _make_item(db, user_id, project_id, "Manager task")
+    wave_run_id = await _make_wave_run(db, user_id, project_id, status="pending")
+
+    token = create_token(user_id)
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={"mode": "manage", "wave_run_id": wave_run_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 201, res.text
+
+    wave = await _get_wave_run(db, wave_run_id)
+    assert wave["status"] == "running"
+    assert wave["started_at"] is not None
+
+
+async def test_manage_dispatch_emits_wave_started_event(
+    client: AsyncClient, _mock_dispatch_preflight
+):
+    """dispatch_item(mode='manage') emits a wave_started event in wave_events."""
+    from agent_gtd.auth import create_token, register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.services.settings_service import set_user_setting
+
+    db = await get_db()
+    user = await register_user("wave-manage-2@test.com", "pw")
+    user_id = user.id
+    project_id = await _make_project(db, user_id)
+
+    now = _now()
+    await db.execute(
+        "UPDATE projects SET git_origin = $1, updated_at = $2 WHERE id = $3",
+        "git@github.com:test/manage-repo2.git",
+        now,
+        project_id,
+    )
+
+    await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
+    await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
+
+    item_id = await _make_item(db, user_id, project_id, "Manager task 2")
+    wave_run_id = await _make_wave_run(db, user_id, project_id, status="pending")
+
+    token = create_token(user_id)
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={"mode": "manage", "wave_run_id": wave_run_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 201, res.text
+    manage_run_id = res.json()["id"]
+
+    event = await _get_wave_event(db, wave_run_id, "wave_started")
+    assert event is not None
+    assert event["actor"] == "manager"
+    assert event["payload"]["manage_run_id"] == manage_run_id
+
+
+async def test_manage_dispatch_rejected_if_wave_not_pending(
+    client: AsyncClient, _mock_dispatch_preflight
+):
+    """dispatch_item(mode='manage') is rejected (409) when wave is not pending."""
+    from agent_gtd.auth import create_token, register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.services.settings_service import set_user_setting
+
+    db = await get_db()
+    user = await register_user("wave-manage-3@test.com", "pw")
+    user_id = user.id
+    project_id = await _make_project(db, user_id)
+
+    now = _now()
+    await db.execute(
+        "UPDATE projects SET git_origin = $1, updated_at = $2 WHERE id = $3",
+        "git@github.com:test/manage-repo3.git",
+        now,
+        project_id,
+    )
+
+    await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
+    await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
+
+    for bad_status in ("running", "halted", "completed", "crashed"):
+        item_id = await _make_item(db, user_id, project_id, f"Task {bad_status}")
+        wave_run_id = await _make_wave_run(db, user_id, project_id, status=bad_status)
+
+        token = create_token(user_id)
+        res = await client.post(
+            f"/api/items/{item_id}/dispatch",
+            json={"mode": "manage", "wave_run_id": wave_run_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert res.status_code == 409, (
+            f"Expected 409 for status={bad_status}, "
+            f"got {res.status_code}: {res.text}"
+        )

@@ -1134,6 +1134,7 @@ async def test_execute_run_success(
         api_key,
         engine="claude",
         agent_name="",
+        wave_run_id=None,
         timeout_minutes=30,
     ):
         return {"id": "remote-123", "status": "pending"}
@@ -1200,6 +1201,7 @@ async def test_execute_run_remote_failure(
         api_key,
         engine="claude",
         agent_name="",
+        wave_run_id=None,
         timeout_minutes=30,
     ):
         return {"id": "remote-456", "status": "pending"}
@@ -1349,6 +1351,7 @@ async def test_configure_and_dispatch(
         api_key,
         engine="claude",
         agent_name="",
+        wave_run_id=None,
         timeout_minutes=30,
     ):
         return {"id": "remote-ok", "status": "pending"}
@@ -1629,6 +1632,7 @@ async def test_dispatch_uses_project_agent_override(
         api_key,
         engine="claude",
         agent_name="",
+        wave_run_id=None,
         timeout_minutes=30,
     ):
         dispatched_agent.append(agent_name)
@@ -1692,6 +1696,7 @@ async def test_dispatch_falls_back_to_global_agent_when_project_unset(
         api_key,
         engine="claude",
         agent_name="",
+        wave_run_id=None,
         timeout_minutes=30,
     ):
         dispatched_agent.append(agent_name)
@@ -1754,6 +1759,7 @@ async def test_dispatch_omits_agent_when_neither_set(
         api_key,
         engine="claude",
         agent_name="",
+        wave_run_id=None,
         timeout_minutes=30,
     ):
         dispatched_agent.append(agent_name)
@@ -2018,3 +2024,142 @@ async def test_dispatch_cancelled_blocker_passes(
         headers=auth_headers,
     )
     assert res.status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# wave_run_id threading (AC-1)
+# ---------------------------------------------------------------------------
+
+
+async def test_dispatch_request_accepts_wave_run_id(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """DispatchRunRequest accepts an optional wave_run_id field (body parsing)."""
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    # wave_run_id=None is valid; the route accepts and ignores it for non-manage mode
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={"wave_run_id": None},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["mode"] == "build"
+
+
+async def test_create_run_persists_wave_run_id(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+):
+    """create_run() stores wave_run_id on the claude_runs row (DB round-trip)."""
+    import uuid
+    from datetime import UTC, datetime
+
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import create_run
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    # Insert a wave run to satisfy the FK reference
+    wave_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO autonomous_wave_runs"
+        " (id, project_id, lead_user_id, status, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6)",
+        wave_id,
+        project_id,
+        user_id,
+        "running",
+        now,
+        now,
+    )
+
+    # mode="build" just persists wave_run_id without the manage-mode flip
+    row = await create_run(db, user_id, item_id, mode="build", wave_run_id=wave_id)
+    assert row["wave_run_id"] == wave_id
+
+
+async def test_create_run_forwards_wave_run_id_to_dispatch_worker(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str, monkeypatch
+):
+    """execute_run() forwards wave_run_id to the remote dispatch worker."""
+    import uuid
+    from datetime import UTC, datetime
+
+    import agent_gtd.dispatch_worker as dw
+    from agent_gtd.database import get_db, row_to_dict
+    from agent_gtd.dispatch_worker import execute_run
+    from agent_gtd.services.settings_service import set_user_setting
+
+    monkeypatch.setattr(dw, "POLL_INTERVAL", 0.01)
+
+    db = await get_db()
+    await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
+    await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
+
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    # Insert a wave run so the FK reference is valid
+    wave_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO autonomous_wave_runs"
+        " (id, project_id, lead_user_id, status, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6)",
+        wave_id,
+        project_id,
+        user_id,
+        "running",
+        now,
+        now,
+    )
+
+    # Dispatch with wave_run_id (mode=build so no manage flip)
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={"wave_run_id": wave_id},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    run_id = res.json()["id"]
+
+    run_row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
+    run = row_to_dict(run_row)
+    item_row = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    item = row_to_dict(item_row)
+    proj_row = await db.fetchrow(
+        "SELECT * FROM projects WHERE id = $1", project_id
+    )
+    project = row_to_dict(proj_row)
+
+    captured_body: dict = {}
+
+    async def mock_dispatch(
+        http_client,
+        captured_item_id,
+        max_turns,
+        mode="build",
+        *,
+        wave_run_id=None,
+        url,
+        api_key,
+        engine="claude",
+        agent_name="",
+        timeout_minutes=30,
+    ):
+        captured_body["wave_run_id"] = wave_run_id
+        return {"id": "remote-wave-123", "status": "pending"}
+
+    async def mock_poll(http_client, remote_run_id, *, url, api_key):
+        return {"id": "remote-wave-123", "status": "succeeded", "error": None}
+
+    monkeypatch.setattr(dw, "_dispatch_to_remote", mock_dispatch)
+    monkeypatch.setattr(dw, "_poll_remote_run", mock_poll)
+
+    await execute_run(db, run, item, project)
+
+    assert captured_body["wave_run_id"] == wave_id

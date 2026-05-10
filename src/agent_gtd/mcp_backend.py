@@ -235,6 +235,7 @@ class McpBackend(Protocol):
         *,
         max_turns: int | None = None,
         mode: str = "build",
+        wave_run_id: str | None = None,
     ) -> dict[str, Any]: ...
 
     async def get_run(self, user_id: str, run_id: str) -> dict[str, Any]: ...
@@ -877,12 +878,20 @@ class LocalBackend:
         *,
         max_turns: int | None = None,
         mode: str = "build",
+        wave_run_id: str | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services.dispatch_service import create_run
 
         db = await get_db()
-        return await create_run(db, user_id, item_id, max_turns=max_turns, mode=mode)
+        return await create_run(
+            db,
+            user_id,
+            item_id,
+            max_turns=max_turns,
+            mode=mode,
+            wave_run_id=wave_run_id,
+        )
 
     async def get_run(self, user_id: str, run_id: str) -> dict[str, Any]:
         from agent_gtd.database import get_db
@@ -1658,10 +1667,13 @@ class HttpBackend:
         *,
         max_turns: int | None = None,
         mode: str = "build",
+        wave_run_id: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"mode": mode}
         if max_turns is not None:
             body["max_turns"] = max_turns
+        if wave_run_id is not None:
+            body["wave_run_id"] = wave_run_id
         resp = await self._client.post(
             f"/api/items/{item_id}/dispatch", json=body, headers=self._headers()
         )

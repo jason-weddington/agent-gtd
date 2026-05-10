@@ -1065,6 +1065,7 @@ async def dispatch_item(
     ctx: Context,
     max_turns: int | None = None,
     mode: str = "build",
+    wave_run_id: str | None = None,
 ) -> dict[str, Any]:
     """Dispatch a headless Claude Code agent to work on an item.
 
@@ -1076,19 +1077,35 @@ async def dispatch_item(
         item_id: ID of the item to dispatch.
         ctx: MCP context (injected automatically).
         max_turns: Maximum agent turns. Omit for server default.
-        mode: Dispatch mode — "build" (implement and push branch) or
+        mode: Dispatch mode — "build" (implement and push branch),
             "plan" (groom task: write acceptance criteria, identify files,
-            ask clarifying questions). Default: "build".
+            ask clarifying questions), or "manage" (launch a wave manager
+            agent that drives an autonomous wave run). Default: "build".
+        wave_run_id: Required when mode="manage". The wave run ID that this
+            manager agent will drive. The wave must be in status="pending".
 
     Returns:
         The created run dict with status and branch name.
     """
-    from agent_gtd.exceptions import RunActiveError, WaveItemLockedError
+    from agent_gtd.exceptions import (
+        RunActiveError,
+        ValidationError,
+        WaveItemLockedError,
+    )
+
+    if mode == "manage" and wave_run_id is None:
+        raise ToolError(
+            "wave_run_id is required when mode='manage'"
+        )
 
     session = await _get_session(ctx)
     try:
         run = await _backend.dispatch_item(
-            session["user_id"], item_id, max_turns=max_turns, mode=mode
+            session["user_id"],
+            item_id,
+            max_turns=max_turns,
+            mode=mode,
+            wave_run_id=wave_run_id,
         )
     except WaveItemLockedError as e:
         raise ToolError(e.detail) from None
@@ -1097,6 +1114,8 @@ async def dispatch_item(
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except RunActiveError as e:
+        raise ToolError(e.detail) from None
+    except ValidationError as e:
         raise ToolError(e.detail) from None
 
     # Enqueue for background processing (local mode only — HTTP mode

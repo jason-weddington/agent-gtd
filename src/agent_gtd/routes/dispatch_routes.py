@@ -16,6 +16,7 @@ from agent_gtd.exceptions import (
     BlockersUnresolvedError,
     NotFoundError,
     RunActiveError,
+    ValidationError,
     WaveItemLockedError,
 )
 from agent_gtd.models import (
@@ -258,7 +259,12 @@ async def dispatch_item(
 
     try:
         row = await dispatch_service.create_run(
-            db, user.id, item_id, max_turns=body.max_turns, mode=body.mode
+            db,
+            user.id,
+            item_id,
+            max_turns=body.max_turns,
+            mode=body.mode,
+            wave_run_id=body.wave_run_id,
         )
     except WaveItemLockedError as e:
         raise HTTPException(status_code=409, detail=e.detail) from None
@@ -270,6 +276,8 @@ async def dispatch_item(
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from None
     except RunActiveError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from None
+    except ValidationError as e:
         raise HTTPException(status_code=409, detail=str(e)) from None
 
     # Enqueue for background processing

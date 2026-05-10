@@ -606,6 +606,7 @@ class CreateRunRequest(BaseModel):
 
     max_turns: int | None = None
     mode: str = "build"
+    wave_run_id: str | None = None
 
 
 class MaxConcurrentRequest(BaseModel):
