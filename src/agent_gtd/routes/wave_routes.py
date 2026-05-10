@@ -1,31 +1,40 @@
-"""Wave run API routes for the executor cycle.
+"""Wave run API routes for the executor cycle and frontend UI.
 
 Provides REST endpoints that mirror the four wave manager MCP tools.  These
 routes are used by HttpBackend so remote executor agents can call them over
 HTTP without direct DB access.
 
-Endpoints:
+Also provides frontend-facing routes for the wave banner, event feed, and
+halt card UI.
+
+Endpoints (executor):
     GET  /api/wave-runs/{wave_run_id}/advance         → advance_wave result
     POST /api/wave-runs/{wave_run_id}/complete-item   → complete_in_wave result
     POST /api/wave-runs/{wave_run_id}/halt            → updated wave run
     POST /api/wave-runs/{wave_run_id}/replan          → new plan info
+
+Endpoints (frontend UI — AC-22, AC-23, AC-24):
+    GET  /api/projects/{project_id}/active-wave       → active WaveRunResponse
+    GET  /api/wave-runs/{id}/events                   → wave event list
+    POST /api/wave-runs/{id}/resume                   → resume halted wave
 """
 
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
 from agent_gtd.exceptions import NotFoundError, ValidationError
-from agent_gtd.models import User
+from agent_gtd.models import ResumeWaveRequest, User, WaveRunResponse
 from agent_gtd.services import wave_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/wave-runs", tags=["wave"])
+project_wave_router = APIRouter(prefix="/api/projects", tags=["wave"])
 
 
 # ---------------------------------------------------------------------------
@@ -181,3 +190,107 @@ async def replan_wave(
         )
     except (NotFoundError, ValidationError) as exc:
         raise _map_exc(exc) from exc
+
+
+# ---------------------------------------------------------------------------
+# Frontend UI routes (AC-22, AC-23, AC-24)
+# ---------------------------------------------------------------------------
+
+
+@project_wave_router.get("/{project_id}/active-wave")
+async def get_active_wave(
+    project_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Return the most recent active wave run for a project.
+
+    AC-22: Status in {pending, planning, running, halted, crashed} within
+    the last 30 minutes for completed/crashed waves; ongoing for others.
+    Includes total_count and done_count for the progress fraction.
+
+    Args:
+        project_id: The project to query.
+        user: Injected authenticated user.
+
+    Returns:
+        WaveRunResponse dict with total_count and done_count.
+
+    Raises:
+        404 if no active wave found.
+    """
+    db = await get_db()
+    try:
+        wave = await wave_service.get_active_wave_for_project(
+            db, project_id, user.id
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=exc.detail) from exc
+
+    if wave is None:
+        raise HTTPException(status_code=404, detail="No active wave for this project")
+
+    return wave
+
+
+@router.get("/{wave_run_id}/events")
+async def get_wave_events(
+    wave_run_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict[str, Any]:
+    """Return wave events for a run, newest first.
+
+    AC-23: Ordered by seq descending. Requires auth; caller must own the wave.
+
+    Args:
+        wave_run_id: The wave run to query.
+        user: Injected authenticated user.
+        limit: Max events to return (1–200, default 50).
+
+    Returns:
+        Dict with ``events`` list.
+    """
+    db = await get_db()
+    try:
+        events = await wave_service.get_wave_events(
+            db, wave_run_id, user.id, limit=limit
+        )
+    except (NotFoundError, ValidationError) as exc:
+        raise _map_exc(exc) from exc
+
+    return {"events": events}
+
+
+@router.post("/{wave_run_id}/resume")
+async def resume_wave(
+    wave_run_id: str,
+    body: ResumeWaveRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Resume a halted wave by providing an answer or instruction.
+
+    AC-24: Validates wave is halted, posts answer as comment, re-locks items,
+    transitions halted plan items back to ready/pending, sets wave to running,
+    emits SSE.
+
+    Args:
+        wave_run_id: The halted wave run to resume.
+        body: The answer string to post as a comment.
+        user: Injected authenticated user.
+
+    Returns:
+        Updated WaveRunResponse dict.
+
+    Raises:
+        404 if wave not found or caller doesn't own it.
+        409 if wave is not halted.
+    """
+    db = await get_db()
+    try:
+        return await wave_service.resume_wave(
+            db, wave_run_id, body.answer, user.id
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=exc.detail) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc

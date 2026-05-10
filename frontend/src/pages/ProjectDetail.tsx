@@ -63,6 +63,7 @@ import ItemDetailDrawer from '../components/ItemDetailDrawer'
 import ShareTab from '../components/ShareTab'
 import MarkdownContent from '../components/MarkdownContent'
 import ProjectEditDialog from '../components/ProjectEditDialog'
+import WaveBanner from '../components/WaveBanner'
 
 // Local extension of Item for optimistic UI — never exported or added to types.ts
 type DisplayItem = Item & { _optimistic?: true }
@@ -225,6 +226,9 @@ export default function ProjectDetail() {
   const [deleteNoteTarget, setDeleteNoteTarget] = useState<Note | null>(null)
   const [deletingItem, setDeletingItem] = useState(false)
   const [deletingNote, setDeletingNote] = useState(false)
+
+  // Wave banner / dispatch guard state (AC-19, AC-20)
+  const [hasActiveWave, setHasActiveWave] = useState(false)
 
   // Dispatch tab state
   const [dispatchGlobalSettings, setDispatchGlobalSettings] = useState<{
@@ -460,6 +464,7 @@ export default function ProjectDetail() {
       sortOrder: 0,
       labels: [],
       blockers: [],
+      lockedByWaveId: null,
       version: 0,
       createdAt: now,
       updatedAt: now,
@@ -510,6 +515,7 @@ export default function ProjectDetail() {
       sortOrder: 0,
       labels: [],
       blockers: [],
+      lockedByWaveId: null,
       version: 0,
       createdAt: now,
       updatedAt: now,
@@ -819,6 +825,14 @@ export default function ProjectDetail() {
           </Typography>
         )}
       </Box>
+
+      {/* Wave banner (AC-1 through AC-21) — above items list / Kanban view */}
+      {projectId && (
+        <WaveBanner
+          projectId={projectId}
+          onActiveChange={setHasActiveWave}
+        />
+      )}
 
       {/* Tabs */}
       <Tabs
@@ -1329,6 +1343,12 @@ export default function ProjectDetail() {
       {/* Dispatch Tab */}
       {tab === 4 && (
         <Box sx={{ maxWidth: 560 }}>
+          {/* AC-19: guard when wave is active */}
+          {hasActiveWave && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Dispatch settings cannot be changed while an autonomous wave is active.
+            </Alert>
+          )}
           <Card sx={{ border: 1, borderColor: 'divider' }}>
             <CardContent>
               <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600 }}>
@@ -1385,7 +1405,7 @@ export default function ProjectDetail() {
                         options={planOptions}
                         value={localPlanDispatchAgent}
                         onChange={(_, val) => setLocalPlanDispatchAgent(val)}
-                        disabled={dispatchCapabilitiesError !== null}
+                        disabled={dispatchCapabilitiesError !== null || hasActiveWave}
                         getOptionLabel={(option) => option === null ? globalPlanLabel : option}
                         isOptionEqualToValue={(option, value) => option === value}
                         renderOption={(props, option) =>
@@ -1416,7 +1436,7 @@ export default function ProjectDetail() {
                         options={buildOptions}
                         value={localBuildDispatchAgent}
                         onChange={(_, val) => setLocalBuildDispatchAgent(val)}
-                        disabled={dispatchCapabilitiesError !== null}
+                        disabled={dispatchCapabilitiesError !== null || hasActiveWave}
                         getOptionLabel={(option) => option === null ? globalBuildLabel : option}
                         isOptionEqualToValue={(option, value) => option === value}
                         renderOption={(props, option) =>
@@ -1455,6 +1475,7 @@ export default function ProjectDetail() {
                   fullWidth
                   value={localDispatchMaxTurnsStr}
                   onChange={(e) => setLocalDispatchMaxTurnsStr(e.target.value)}
+                  disabled={hasActiveWave}
                   placeholder={
                     dispatchGlobalSettings
                       ? `Inherit from global (${dispatchGlobalSettings.defaultMaxTurns})`
@@ -1483,6 +1504,7 @@ export default function ProjectDetail() {
                   fullWidth
                   value={localDispatchTimeoutMinutesStr}
                   onChange={(e) => setLocalDispatchTimeoutMinutesStr(e.target.value)}
+                  disabled={hasActiveWave}
                   placeholder={
                     dispatchGlobalSettings
                       ? `Inherit from global (${dispatchGlobalSettings.defaultTimeoutMinutes})`
@@ -1513,7 +1535,7 @@ export default function ProjectDetail() {
                   variant="contained"
                   size="small"
                   onClick={handleSaveDispatch}
-                  disabled={savingDispatch}
+                  disabled={savingDispatch || hasActiveWave}
                 >
                   {savingDispatch ? <CircularProgress size={18} /> : 'Save'}
                 </Button>

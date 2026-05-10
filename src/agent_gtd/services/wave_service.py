@@ -1213,3 +1213,256 @@ async def ping_wave(
         "phase": phase,
         "waiting_on": waiting_on,
     }
+
+
+# ---------------------------------------------------------------------------
+# Frontend-facing service functions (active wave query, events list, resume)
+# ---------------------------------------------------------------------------
+
+
+async def get_active_wave_for_project(
+    db: DbPool,
+    project_id: str,
+    user_id: str,
+) -> dict[str, Any] | None:
+    """Return the most recent active wave run for a project with progress counts.
+
+    An "active" wave has status in {pending, planning, running, halted, crashed}.
+    Completed/crashed waves older than 30 minutes are excluded via the caller's
+    interpretation (the route returns 404 if None).
+
+    Args:
+        db: Database pool.
+        project_id: The project to query.
+        user_id: The calling user's ID — must own or be a member of the project.
+
+    Returns:
+        Dict with all wave_run columns plus ``total_count`` and ``done_count``,
+        or ``None`` if no active wave exists.
+
+    Raises:
+        NotFoundError: If the project does not exist or the caller cannot access it.
+    """
+    proj_row = await db.fetchrow(
+        "SELECT id, user_id FROM projects WHERE id = $1",
+        project_id,
+    )
+    if proj_row is None:
+        raise NotFoundError("Project", project_id)
+    owner_id = str(proj_row["user_id"])
+
+    if owner_id != user_id:
+        member_row = await db.fetchrow(
+            "SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2",
+            project_id,
+            user_id,
+        )
+        if member_row is None:
+            raise NotFoundError("Project", project_id)
+
+    from datetime import timedelta
+
+    cutoff = (datetime.now(UTC) - timedelta(minutes=30)).isoformat()
+
+    row = await db.fetchrow(
+        """
+        SELECT * FROM autonomous_wave_runs
+        WHERE project_id = $1
+          AND (
+            status IN ('pending', 'planning', 'running', 'halted')
+            OR (status IN ('completed', 'crashed') AND created_at >= $2)
+          )
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        project_id,
+        cutoff,
+    )
+    if row is None:
+        return None
+
+    wave = row_to_dict(row)
+
+    count_rows = await db.fetch(
+        "SELECT status FROM wave_plan_items WHERE wave_run_id = $1",
+        wave["id"],
+    )
+    total_count = len(count_rows)
+    done_count = sum(1 for r in count_rows if r["status"] in ("completed", "skipped"))
+
+    return {**wave, "total_count": total_count, "done_count": done_count}
+
+
+async def get_wave_events(
+    db: DbPool,
+    wave_run_id: str,
+    user_id: str,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Return wave events for a wave run, ordered by seq descending.
+
+    Args:
+        db: Database pool.
+        wave_run_id: The wave run to query.
+        user_id: The calling user's ID — must own the wave's project.
+        limit: Maximum number of events to return (capped at 200).
+
+    Returns:
+        List of wave_event dicts (newest first).
+
+    Raises:
+        NotFoundError: If wave not found or caller doesn't own it.
+    """
+    await _get_wave_run(db, user_id, wave_run_id)
+
+    effective_limit = min(max(1, limit), 200)
+    rows = await db.fetch(
+        "SELECT * FROM wave_events WHERE wave_run_id = $1"
+        " ORDER BY seq DESC LIMIT $2",
+        wave_run_id,
+        effective_limit,
+    )
+    result = []
+    for r in rows:
+        d = row_to_dict(r)
+        if isinstance(d.get("payload"), str):
+            try:
+                d["payload"] = json.loads(d["payload"])
+            except (json.JSONDecodeError, TypeError):
+                d["payload"] = {}
+        result.append(d)
+    return result
+
+
+async def resume_wave(
+    db: DbPool,
+    wave_run_id: str,
+    answer: str,
+    user_id: str,
+) -> dict[str, Any]:
+    """Resume a halted wave by providing an answer to the blocking question.
+
+    Steps:
+    1. Validates wave status is 'halted'.
+    2. Posts the answer text as a comment on the project.
+    3. Re-locks items that were released during halt.
+    4. Transitions halted wave_plan_items back to 'ready' (if predecessors are
+       terminal) or 'pending' (if predecessors are still non-terminal).
+    5. Sets wave_run.status = 'running'.
+    6. Appends a 'wave_resumed' wave_event and emits SSE.
+
+    Args:
+        db: Database pool.
+        wave_run_id: ID of the wave run to resume.
+        answer: The human's answer or instruction (posted as a comment).
+        user_id: The calling user's ID — must be the wave's lead_user_id.
+
+    Returns:
+        Dict with wave run fields plus total_count and done_count.
+
+    Raises:
+        NotFoundError: If wave not found or caller doesn't own it.
+        ValidationError: If wave status is not 'halted'.
+    """
+    wave = await _get_wave_run(db, user_id, wave_run_id)
+    if wave["status"] != "halted":
+        raise ValidationError(
+            f"Wave {wave_run_id} is not halted (status={wave['status']})"
+        )
+
+    project_id = str(wave["project_id"])
+    now = datetime.now(UTC).isoformat()
+
+    from agent_gtd.services.comment_service import create_comment
+
+    await create_comment(
+        db,
+        user_id,
+        project_id=project_id,
+        content_markdown=answer,
+        created_by="human",
+    )
+
+    item_rows = await db.fetch(
+        "SELECT item_id, status FROM wave_plan_items WHERE wave_run_id = $1",
+        wave_run_id,
+    )
+    item_statuses: dict[str, str] = {r["item_id"]: r["status"] for r in item_rows}
+
+    plan = await _get_latest_plan(db, wave_run_id)
+    edges: list[dict[str, str]] = json.loads(plan["edges"]) if plan else []
+    preds = _build_predecessor_map(edges)
+
+    newly_ready: list[str] = []
+    newly_pending: list[str] = []
+    for item_id, status in item_statuses.items():
+        if status == "halted":
+            item_preds = preds.get(item_id, [])
+            all_done = all(
+                item_statuses.get(p, "pending") in _TERMINAL_STATUSES
+                for p in item_preds
+            )
+            if all_done:
+                newly_ready.append(item_id)
+            else:
+                newly_pending.append(item_id)
+
+    for item_id in newly_ready:
+        await db.execute(
+            "UPDATE wave_plan_items SET status = 'ready'"
+            " WHERE wave_run_id = $1 AND item_id = $2",
+            wave_run_id,
+            item_id,
+        )
+    for item_id in newly_pending:
+        await db.execute(
+            "UPDATE wave_plan_items SET status = 'pending'"
+            " WHERE wave_run_id = $1 AND item_id = $2",
+            wave_run_id,
+            item_id,
+        )
+
+    from agent_gtd.services.wave_lock_service import lock_items_for_wave
+
+    non_terminal_items = [
+        item_id
+        for item_id, status in item_statuses.items()
+        if status not in _TERMINAL_STATUSES
+    ]
+    if non_terminal_items:
+        await lock_items_for_wave(db, wave_run_id, non_terminal_items)
+
+    await db.execute(
+        "UPDATE autonomous_wave_runs"
+        " SET status = 'running', halt_reason = NULL,"
+        " ended_at = NULL, updated_at = $1"
+        " WHERE id = $2",
+        now,
+        wave_run_id,
+    )
+
+    wave_event = await _append_wave_event(
+        db,
+        wave_run_id,
+        kind="wave_resumed",
+        actor="human",
+        payload={
+            "newly_ready": newly_ready,
+            "newly_pending": newly_pending,
+        },
+    )
+    _publish_wave_event(db, user_id, wave_event, project_id)
+
+    row = await db.fetchrow(
+        "SELECT * FROM autonomous_wave_runs WHERE id = $1", wave_run_id
+    )
+    assert row is not None  # noqa: S101
+    wave_data = row_to_dict(row)
+
+    count_rows = await db.fetch(
+        "SELECT status FROM wave_plan_items WHERE wave_run_id = $1",
+        wave_run_id,
+    )
+    total_count = len(count_rows)
+    done_count = sum(1 for r in count_rows if r["status"] in ("completed", "skipped"))
+    return {**wave_data, "total_count": total_count, "done_count": done_count}

@@ -21,7 +21,7 @@ from agent_gtd.routes.item_routes import router as item_router
 from agent_gtd.routes.note_routes import router as note_router
 from agent_gtd.routes.project_routes import router as project_router
 from agent_gtd.routes.settings_routes import router as settings_router
-from agent_gtd.routes.wave_routes import router as wave_router
+from agent_gtd.routes.wave_routes import project_wave_router, router as wave_router
 
 
 async def _migrate_global_agent_name() -> None:
@@ -112,6 +112,7 @@ app.include_router(dispatch_router)
 app.include_router(event_router)
 app.include_router(settings_router)
 app.include_router(wave_router)
+app.include_router(project_wave_router)
 
 app.mount("/mcp", mcp_app)
 

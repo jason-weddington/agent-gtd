@@ -1,4 +1,4 @@
-import type { AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Run, UserResponse } from './types'
+import type { AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Run, UserResponse, WaveEvent, WaveRun } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -246,6 +246,24 @@ export const api = {
     update: (id: string, data: { contentMarkdown?: string }) =>
       request<Comment>('PATCH', `/comments/${id}`, data),
     delete: (id: string) => request<void>('DELETE', `/comments/${id}`),
+  },
+
+  waves: {
+    /** GET /api/projects/{projectId}/active-wave — 404 if none active. */
+    getActiveForProject: (projectId: string) =>
+      request<WaveRun>('GET', `/projects/${projectId}/active-wave`),
+    /** GET /api/wave-runs/{id}/events?limit=N — newest first. */
+    events: (waveRunId: string, limit = 50) =>
+      request<{ events: WaveEvent[] }>('GET', `/wave-runs/${waveRunId}/events?limit=${limit}`),
+    /** POST /api/wave-runs/{id}/complete-item */
+    completeItem: (waveRunId: string, itemId: string, outcome: string) =>
+      request<unknown>('POST', `/wave-runs/${waveRunId}/complete-item`, { itemId, outcome }),
+    /** POST /api/wave-runs/{id}/halt */
+    halt: (waveRunId: string, reason: string) =>
+      request<unknown>('POST', `/wave-runs/${waveRunId}/halt`, { reason }),
+    /** POST /api/wave-runs/{id}/resume */
+    resume: (waveRunId: string, answer: string) =>
+      request<WaveRun>('POST', `/wave-runs/${waveRunId}/resume`, { answer }),
   },
 
   dispatch: {

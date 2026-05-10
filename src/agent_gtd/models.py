@@ -721,3 +721,38 @@ class PlanWaveResult(BaseModel):
     planner_model: str
     item_count: int
     per_item: list[PlanWaveItemSummary]
+
+
+class WaveRunResponse(BaseModel):
+    """Wave run data returned from the API, augmented with progress counts."""
+
+    id: str
+    project_id: str
+    lead_user_id: str
+    status: WaveRunStatus
+    halt_reason: str | None
+    started_at: str | None
+    ended_at: str | None
+    created_at: str
+    updated_at: str
+    total_count: int
+    done_count: int
+
+
+class WaveEventResponse(BaseModel):
+    """A single wave event row returned from the API."""
+
+    id: str
+    wave_run_id: str
+    seq: int
+    ts: str
+    kind: str
+    actor: WaveEventActor
+    decision_rule: str
+    payload: dict[str, Any]
+
+
+class ResumeWaveRequest(BaseModel):
+    """Request body for POST /api/wave-runs/{id}/resume."""
+
+    answer: str

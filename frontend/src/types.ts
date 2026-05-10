@@ -115,6 +115,7 @@ export interface Item {
   labels: string[]
   blockers?: BlockerSummary[]
   version: number
+  lockedByWaveId: string | null
   createdAt: string
   updatedAt: string
 }
@@ -164,6 +165,51 @@ export interface Run {
   createdAt: string
   updatedAt: string
   dispatchedByEmail?: string
+}
+
+// --- Wave Manager ---
+
+export type WaveRunStatus =
+  | 'pending'
+  | 'planning'
+  | 'running'
+  | 'halted'
+  | 'crashed'
+  | 'completed'
+
+export type WavePlanItemStatus =
+  | 'pending'
+  | 'ready'
+  | 'dispatched'
+  | 'completed'
+  | 'halted'
+  | 'skipped'
+
+export type WaveEventActor = 'manager' | 'child-agent' | 'reaper' | 'human'
+
+export interface WaveRun {
+  id: string
+  projectId: string
+  leadUserId: string
+  status: WaveRunStatus
+  haltReason: string | null
+  startedAt: string | null
+  endedAt: string | null
+  createdAt: string
+  updatedAt: string
+  totalCount: number
+  doneCount: number
+}
+
+export interface WaveEvent {
+  id: string
+  waveRunId: string
+  seq: number
+  ts: string
+  kind: string
+  actor: WaveEventActor
+  decisionRule: string
+  payload: Record<string, unknown>
 }
 
 // --- Attachments ---
