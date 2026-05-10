@@ -13,7 +13,12 @@ from typing import Any, Literal
 
 from agent_gtd.database import row_to_dict
 from agent_gtd.db_types import DbPool
-from agent_gtd.exceptions import BlockersUnresolvedError, NotFoundError, RunActiveError
+from agent_gtd.exceptions import (
+    BlockersUnresolvedError,
+    NotFoundError,
+    RunActiveError,
+    WaveItemLockedError,
+)
 from agent_gtd.services.item_service import (
     get_item,
     get_unresolved_blockers,
@@ -53,6 +58,11 @@ async def create_run(
         RunActiveError: If an active run already exists for this item.
     """
     item = await get_item(db, user_id, item_id)
+
+    # Wave lock guard: items in an active wave cannot be re-dispatched
+    if item.get("locked_by_wave_id"):
+        raise WaveItemLockedError(item_id, str(item["locked_by_wave_id"]))
+
     project_id = item.get("project_id")
     if not project_id:
         raise NotFoundError("Project", "none (item has no project)")

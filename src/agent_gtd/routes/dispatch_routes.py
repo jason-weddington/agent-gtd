@@ -12,7 +12,12 @@ from fastapi.responses import JSONResponse, Response
 
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
-from agent_gtd.exceptions import BlockersUnresolvedError, NotFoundError, RunActiveError
+from agent_gtd.exceptions import (
+    BlockersUnresolvedError,
+    NotFoundError,
+    RunActiveError,
+    WaveItemLockedError,
+)
 from agent_gtd.models import (
     CreateRunRequest,
     DispatchAgentInfo,
@@ -255,6 +260,8 @@ async def dispatch_item(
         row = await dispatch_service.create_run(
             db, user.id, item_id, max_turns=body.max_turns, mode=body.mode
         )
+    except WaveItemLockedError as e:
+        raise HTTPException(status_code=409, detail=e.detail) from None
     except BlockersUnresolvedError as e:
         return JSONResponse(
             status_code=422,

@@ -1082,13 +1082,15 @@ async def dispatch_item(
     Returns:
         The created run dict with status and branch name.
     """
-    from agent_gtd.exceptions import RunActiveError
+    from agent_gtd.exceptions import RunActiveError, WaveItemLockedError
 
     session = await _get_session(ctx)
     try:
         run = await _backend.dispatch_item(
             session["user_id"], item_id, max_turns=max_turns, mode=mode
         )
+    except WaveItemLockedError as e:
+        raise ToolError(e.detail) from None
     except BlockersUnresolvedError as e:
         raise ToolError(e.detail) from None
     except NotFoundError as e:

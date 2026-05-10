@@ -63,6 +63,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         sort_order DOUBLE PRECISION NOT NULL DEFAULT 0,
         labels TEXT NOT NULL DEFAULT '[]',
         version INTEGER NOT NULL DEFAULT 1,
+        locked_by_wave_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )
@@ -431,6 +432,8 @@ _MIGRATIONS: list[str] = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_wave_events_wave_run_id "
     "ON wave_events(wave_run_id)",
+    # Wave item lock column.
+    "ALTER TABLE items ADD COLUMN locked_by_wave_id TEXT",
 ]
 
 

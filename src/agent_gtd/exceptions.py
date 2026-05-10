@@ -77,6 +77,19 @@ class RunActiveError(AgentGTDError):
         super().__init__(f"Item {item_id} already has an active run: {run_id}")
 
 
+class WaveItemLockedError(AgentGTDError):
+    """Item is locked by an active wave run and cannot be dispatched."""
+
+    def __init__(self, item_id: str, wave_run_id: str) -> None:
+        """Initialize with the item ID and the wave run that holds the lock."""
+        self.item_id = item_id
+        self.wave_run_id = wave_run_id
+        super().__init__(
+            f"Item {item_id} is locked by wave {wave_run_id} — "
+            "dispatch is blocked until the wave completes or is halted"
+        )
+
+
 class ValidationError(AgentGTDError):
     """A domain validation rule was violated."""
 

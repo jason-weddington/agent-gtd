@@ -145,6 +145,7 @@ class Item(BaseModel):
     sort_order: float = 0
     labels: list[str] = []
     version: int = 1
+    locked_by_wave_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -532,6 +533,7 @@ class ItemResponse(BaseModel):
     sort_order: float
     labels: list[str]
     version: int
+    locked_by_wave_id: str | None = None
     created_at: datetime
     updated_at: datetime
     blockers: list[BlockerSummary] = []
