@@ -15,7 +15,6 @@ from agent_gtd.database import encode_json_list, get_db
 from agent_gtd.mcp_backend import LocalBackend
 from agent_gtd.mcp_server import mcp
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -181,9 +180,7 @@ async def test_plan_wave_happy_path_single_item(mcp_client_authed, user_id):
         new_callable=AsyncMock,
         return_value=mock_plan_response,
     ):
-        result = await mcp_client_authed.call_tool(
-            "plan_wave", {"item_ids": [item_id]}
-        )
+        result = await mcp_client_authed.call_tool("plan_wave", {"item_ids": [item_id]})
 
     data = _parse_result(result)
 
@@ -274,9 +271,7 @@ async def test_plan_wave_inserts_wave_run_as_pending(mcp_client_authed, user_id)
         new_callable=AsyncMock,
         return_value=mock_plan,
     ):
-        result = await mcp_client_authed.call_tool(
-            "plan_wave", {"item_ids": [item_id]}
-        )
+        result = await mcp_client_authed.call_tool("plan_wave", {"item_ids": [item_id]})
 
     data = _parse_result(result)
     wave_run_id = data["wave_run_id"]
@@ -310,9 +305,7 @@ async def test_plan_wave_inserts_wave_plan(mcp_client_authed, user_id):
         new_callable=AsyncMock,
         return_value=mock_plan,
     ):
-        result = await mcp_client_authed.call_tool(
-            "plan_wave", {"item_ids": [item_id]}
-        )
+        result = await mcp_client_authed.call_tool("plan_wave", {"item_ids": [item_id]})
 
     data = _parse_result(result)
     wave_run_id = data["wave_run_id"]
@@ -398,8 +391,7 @@ async def test_plan_wave_mcp_planner_failure_updates_wave_run_crashed(
 
     db = await get_db()
     rows = await db.fetch(
-        "SELECT status, halt_reason FROM autonomous_wave_runs "
-        "WHERE project_id = $1",
+        "SELECT status, halt_reason FROM autonomous_wave_runs WHERE project_id = $1",
         project_id,
     )
     assert len(rows) == 1
@@ -412,9 +404,7 @@ async def test_plan_wave_mcp_planner_failure_updates_wave_run_crashed(
 # ---------------------------------------------------------------------------
 
 
-async def test_plan_wave_mcp_no_db_rows_on_legality_failure(
-    mcp_client_authed, user_id
-):
+async def test_plan_wave_mcp_no_db_rows_on_legality_failure(mcp_client_authed, user_id):
     """No autonomous_wave_runs rows are written when legality contract fails."""
     project_id = await _create_project(user_id)
     item_id = await _create_ready_item(

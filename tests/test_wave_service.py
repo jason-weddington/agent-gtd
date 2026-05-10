@@ -16,7 +16,6 @@ from agent_gtd.services.wave_service import (
     validate_legality_contract,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -223,7 +222,9 @@ async def test_validate_multiple_valid_items_same_project(db):
     """Multiple valid items in the same project pass."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    ids = [await _make_item(db, user_id, project_id, title=f"Item {i}") for i in range(3)]
+    ids = [
+        await _make_item(db, user_id, project_id, title=f"Item {i}") for i in range(3)
+    ]
     await validate_legality_contract(db, user_id, ids)
 
 

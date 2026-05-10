@@ -1,5 +1,6 @@
 """Wave manager service: legality validation, planner call, DAG persistence."""
 
+import asyncio
 import json
 import logging
 import uuid
@@ -141,21 +142,15 @@ async def validate_legality_contract(
 
         # Rule 2: status must be "ready"
         if str(item.get("status", "")) != "ready":
-            item_failures.append(
-                f"status is '{item.get('status')}'; must be 'ready'"
-            )
+            item_failures.append(f"status is '{item.get('status')}'; must be 'ready'")
 
         # Rule 3: Acceptance Criteria section must exist and be non-empty
         if not has_acceptance_criteria(description):
-            item_failures.append(
-                "missing non-empty ## Acceptance Criteria section"
-            )
+            item_failures.append("missing non-empty ## Acceptance Criteria section")
 
         # Rule 4: Files to Modify section must exist and be non-empty
         if not parse_declared_files(description):
-            item_failures.append(
-                "missing non-empty ## Files to Modify section"
-            )
+            item_failures.append("missing non-empty ## Files to Modify section")
 
         # Rule 5: No unresolved external blockers (blockers in item_ids are OK)
         unresolved = await get_unresolved_blockers(db, item_id)
@@ -164,9 +159,7 @@ async def validate_legality_contract(
             blocker_list = ", ".join(
                 f"'{b['title']}' ({b['status']})" for b in external_blockers
             )
-            item_failures.append(
-                f"has unresolved external blockers: {blocker_list}"
-            )
+            item_failures.append(f"has unresolved external blockers: {blocker_list}")
 
         if item_failures:
             failures.append(
@@ -180,12 +173,8 @@ async def validate_legality_contract(
         for item in found_items:
             pid = str(item.get("project_id") or "")
             item_id = str(item["id"])
-            mismatch_msg = (
-                f"project_id={pid!r} — all items must share the same project"
-            )
-            existing = next(
-                (f for f in failures if f["item_id"] == item_id), None
-            )
+            mismatch_msg = f"project_id={pid!r} — all items must share the same project"
+            existing = next((f for f in failures if f["item_id"] == item_id), None)
             if existing is not None:
                 existing_failures = list(existing.get("failures") or [])
                 if mismatch_msg not in existing_failures:
@@ -394,8 +383,7 @@ async def plan_wave(
     # Step 9: Promote the wave run to 'pending'.
     done_now = datetime.now(UTC).isoformat()
     await db.execute(
-        "UPDATE autonomous_wave_runs SET status = $1, updated_at = $2 "
-        "WHERE id = $3",
+        "UPDATE autonomous_wave_runs SET status = $1, updated_at = $2 WHERE id = $3",
         "pending",
         done_now,
         wave_run_id,
@@ -465,8 +453,7 @@ async def _get_wave_run(db: DbPool, user_id: str, wave_run_id: str) -> dict[str,
 async def _get_latest_plan(db: DbPool, wave_run_id: str) -> dict[str, Any] | None:
     """Fetch the highest-version wave_plans row for this run."""
     row = await db.fetchrow(
-        "SELECT * FROM wave_plans"
-        " WHERE wave_run_id = $1 ORDER BY version DESC LIMIT 1",
+        "SELECT * FROM wave_plans WHERE wave_run_id = $1 ORDER BY version DESC LIMIT 1",
         wave_run_id,
     )
     return row_to_dict(row) if row else None
@@ -488,7 +475,8 @@ async def _append_wave_event(
     kind: str,
     actor: str,
     payload: dict[str, Any],
-) -> None:
+    decision_rule: str = "",
+) -> dict[str, Any]:
     """Append a row to wave_events with an auto-incrementing seq.
 
     Args:
@@ -497,21 +485,83 @@ async def _append_wave_event(
         kind: Event kind string (e.g. 'item_outcome', 'wave_halted').
         actor: Actor string (e.g. 'manager', 'human').
         payload: JSON-serialisable payload dict.
+        decision_rule: Optional rule name that triggered an auto-approval
+            (default empty string, stored in the decision_rule column).
+
+    Returns:
+        The inserted wave event as a dict with keys: id, wave_run_id, seq,
+        ts, kind, actor, decision_rule, payload.
     """
     event_id = str(uuid.uuid4())
     seq = await _next_event_seq(db, wave_run_id)
     ts = datetime.now(UTC).isoformat()
     await db.execute(
-        "INSERT INTO wave_events (id, wave_run_id, seq, ts, kind, actor, payload)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        "INSERT INTO wave_events"
+        " (id, wave_run_id, seq, ts, kind, actor, decision_rule, payload)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         event_id,
         wave_run_id,
         seq,
         ts,
         kind,
         actor,
+        decision_rule,
         json.dumps(payload),
     )
+    return {
+        "id": event_id,
+        "wave_run_id": wave_run_id,
+        "seq": seq,
+        "ts": ts,
+        "kind": kind,
+        "actor": actor,
+        "decision_rule": decision_rule,
+        "payload": payload,
+    }
+
+
+def _publish_wave_event(
+    db: DbPool,
+    lead_user_id: str,
+    wave_event: dict[str, Any],
+    project_id: str,
+) -> None:
+    """Fire-and-forget SSE event publish for wave events (best effort).
+
+    Follows the same pattern as ``_publish_run_event`` in dispatch_worker.py.
+    Wraps the publish coroutine in ``asyncio.create_task`` so callers are never
+    blocked, and swallows any exceptions so wave mutations are never affected.
+
+    Args:
+        db: Database pool (passed through to EventBus.publish for persistence).
+        lead_user_id: The wave run's lead user ID (becomes the event owner).
+        wave_event: Full wave event dict as returned by ``_append_wave_event``
+            (keys: id, wave_run_id, seq, ts, kind, actor, decision_rule,
+            payload).
+        project_id: The wave run's project ID — triggers project-member
+            fan-out in the event bus.
+    """
+    try:
+        from agent_gtd.event_bus import get_event_bus
+
+        bus = get_event_bus()
+        asyncio.create_task(  # noqa: RUF006
+            bus.publish(
+                db,
+                user_id=lead_user_id,
+                event_type="wave_event",
+                entity_type="wave_run",
+                entity_id=wave_event["wave_run_id"],
+                project_id=project_id,
+                payload=wave_event,
+            )
+        )
+    except Exception:
+        logger.exception("Failed to publish wave_event SSE event")
+
+
+# TODO: f0689a01 — call _publish_wave_event after plan_wave writes wave_events
+# NOTE: reaper (ad6e62ca) must also call _publish_wave_event after wave_events INSERTs
 
 
 def _build_predecessor_map(
@@ -677,7 +727,8 @@ async def complete_in_wave(
             + ", ".join(valid_outcomes)
         )
 
-    await _get_wave_run(db, user_id, wave_run_id)
+    wave = await _get_wave_run(db, user_id, wave_run_id)
+    project_id = str(wave["project_id"])
 
     item_row = await db.fetchrow(
         "SELECT * FROM wave_plan_items WHERE wave_run_id = $1 AND item_id = $2",
@@ -750,8 +801,7 @@ async def complete_in_wave(
             continue
         item_preds = preds.get(downstream_id, [])
         all_done = all(
-            item_statuses.get(p, "pending") in _TERMINAL_STATUSES
-            for p in item_preds
+            item_statuses.get(p, "pending") in _TERMINAL_STATUSES for p in item_preds
         )
         if all_done:
             await db.execute(
@@ -774,8 +824,8 @@ async def complete_in_wave(
             wave_run_id,
         )
 
-    # Emit item_outcome wave event
-    await _append_wave_event(
+    # Emit item_outcome wave event and publish to SSE subscribers
+    wave_event = await _append_wave_event(
         db,
         wave_run_id,
         kind="item_outcome",
@@ -785,7 +835,9 @@ async def complete_in_wave(
             "outcome": outcome,
             "decision_rule": decision_rule,
         },
+        decision_rule=decision_rule,
     )
+    _publish_wave_event(db, user_id, wave_event, project_id)
 
     return {
         "wave_plan_item": row_to_dict(updated_row),
@@ -871,8 +923,8 @@ async def halt_wave(
     )
     comment_id = str(comment_result["id"])
 
-    # Emit wave_halted event — payload includes item_id and comment_id for A6
-    await _append_wave_event(
+    # Emit wave_halted event and publish to SSE subscribers
+    wave_event = await _append_wave_event(
         db,
         wave_run_id,
         kind="wave_halted",
@@ -883,6 +935,7 @@ async def halt_wave(
             "comment_id": comment_id,
         },
     )
+    _publish_wave_event(db, user_id, wave_event, str(wave["project_id"]))
 
     row = await db.fetchrow(
         "SELECT * FROM autonomous_wave_runs WHERE id = $1", wave_run_id
@@ -939,9 +992,7 @@ async def _call_planner(
         )
 
     if resp.status_code != 200:
-        raise ValidationError(
-            f"Planner returned {resp.status_code}: {resp.text[:200]}"
-        )
+        raise ValidationError(f"Planner returned {resp.status_code}: {resp.text[:200]}")
 
     data: dict[str, Any] = resp.json()
     return data
@@ -990,16 +1041,12 @@ async def replan_wave(
     )
     remaining_ids = [r["item_id"] for r in remaining_rows]
     if not remaining_ids:
-        raise ValidationError(
-            f"Wave {wave_run_id} has no remaining items to replan"
-        )
+        raise ValidationError(f"Wave {wave_run_id} has no remaining items to replan")
 
     # If from_item is given, restrict to its downstream subgraph
     if from_item is not None:
         plan = await _get_latest_plan(db, wave_run_id)
-        edges_raw: list[dict[str, str]] = (
-            json.loads(plan["edges"]) if plan else []
-        )
+        edges_raw: list[dict[str, str]] = json.loads(plan["edges"]) if plan else []
         succs = _build_successor_map(edges_raw)
         descendants = _dfs_descendants(from_item, succs)
         remaining_ids = [i for i in remaining_ids if i in descendants]
@@ -1051,8 +1098,7 @@ async def replan_wave(
     for rid in remaining_ids:
         item_preds = new_preds.get(rid, [])
         all_preds_done = all(
-            all_statuses.get(p, "pending") in _TERMINAL_STATUSES
-            for p in item_preds
+            all_statuses.get(p, "pending") in _TERMINAL_STATUSES for p in item_preds
         )
         if all_preds_done:
             await db.execute(
@@ -1070,8 +1116,8 @@ async def replan_wave(
                 rid,
             )
 
-    # Emit wave_replanned event
-    await _append_wave_event(
+    # Emit wave_replanned event and publish to SSE subscribers
+    wave_event = await _append_wave_event(
         db,
         wave_run_id,
         kind="wave_replanned",
@@ -1081,10 +1127,9 @@ async def replan_wave(
             "new_version": new_version,
         },
     )
+    _publish_wave_event(db, user_id, wave_event, str(wave["project_id"]))
 
-    new_plan_row = await db.fetchrow(
-        "SELECT * FROM wave_plans WHERE id = $1", plan_id
-    )
+    new_plan_row = await db.fetchrow("SELECT * FROM wave_plans WHERE id = $1", plan_id)
     assert new_plan_row is not None  # noqa: S101
 
     return {

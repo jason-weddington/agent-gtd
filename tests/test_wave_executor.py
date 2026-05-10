@@ -311,8 +311,7 @@ async def test_advance_wave_graph_complete(
     db = w["db"]
     # Complete both items by updating their status directly
     await db.execute(
-        "UPDATE wave_plan_items SET status = 'completed'"
-        " WHERE wave_run_id = $1",
+        "UPDATE wave_plan_items SET status = 'completed' WHERE wave_run_id = $1",
         w["wave_run_id"],
     )
     resp = await client.get(
@@ -496,9 +495,7 @@ async def test_halt_wave(client: AsyncClient, linear_wave: dict) -> None:
     assert event is not None
 
 
-async def test_halt_wave_already_halted(
-    client: AsyncClient, linear_wave: dict
-) -> None:
+async def test_halt_wave_already_halted(client: AsyncClient, linear_wave: dict) -> None:
     """Attempting to halt an already-halted wave raises 422."""
     w = linear_wave
     # First halt
@@ -555,9 +552,7 @@ async def test_halt_wave_emits_comment_id_in_payload(
     assert comment_id is not None
 
     # Verify the comment actually exists in the DB
-    comment_row = await db.fetchrow(
-        "SELECT * FROM comments WHERE id = $1", comment_id
-    )
+    comment_row = await db.fetchrow("SELECT * FROM comments WHERE id = $1", comment_id)
     assert comment_row is not None
     assert "Stopping for review." in comment_row["content_markdown"]
 
@@ -567,16 +562,13 @@ async def test_halt_wave_emits_comment_id_in_payload(
 # ---------------------------------------------------------------------------
 
 
-async def test_replan_wave_no_remaining(
-    client: AsyncClient, linear_wave: dict
-) -> None:
+async def test_replan_wave_no_remaining(client: AsyncClient, linear_wave: dict) -> None:
     """When all items are terminal, replan_wave raises 422 (nothing to replan)."""
     w = linear_wave
     db = w["db"]
     # Mark all items as completed
     await db.execute(
-        "UPDATE wave_plan_items SET status = 'completed'"
-        " WHERE wave_run_id = $1",
+        "UPDATE wave_plan_items SET status = 'completed' WHERE wave_run_id = $1",
         w["wave_run_id"],
     )
     resp = await client.post(
@@ -637,9 +629,7 @@ async def test_replan_wave_creates_new_version(
 # ---------------------------------------------------------------------------
 
 
-async def test_advance_wave_not_found(
-    client: AsyncClient, linear_wave: dict
-) -> None:
+async def test_advance_wave_not_found(client: AsyncClient, linear_wave: dict) -> None:
     """advance_wave with a bad wave_run_id → 404."""
     w = linear_wave
     resp = await client.get(
@@ -649,16 +639,13 @@ async def test_advance_wave_not_found(
     assert resp.status_code == 404
 
 
-async def test_advance_wave_not_running(
-    client: AsyncClient, linear_wave: dict
-) -> None:
+async def test_advance_wave_not_running(client: AsyncClient, linear_wave: dict) -> None:
     """advance_wave on a non-running wave → 422."""
     w = linear_wave
     db = w["db"]
     # Halt the wave first
     await db.execute(
-        "UPDATE autonomous_wave_runs SET status = 'halted'"
-        " WHERE id = $1",
+        "UPDATE autonomous_wave_runs SET status = 'halted' WHERE id = $1",
         w["wave_run_id"],
     )
     resp = await client.get(
@@ -747,14 +734,12 @@ async def test_complete_in_wave_downstream_not_pending(
     assert item_b not in data["newly_ready"]
 
 
-async def test_replan_wave_not_running(
-    client: AsyncClient, linear_wave: dict
-) -> None:
+async def test_replan_wave_not_running(client: AsyncClient, linear_wave: dict) -> None:
     """replan_wave on a non-running wave → 422."""
     w = linear_wave
     db = w["db"]
     await db.execute(
-        "UPDATE autonomous_wave_runs SET status = 'halted'" " WHERE id = $1",
+        "UPDATE autonomous_wave_runs SET status = 'halted' WHERE id = $1",
         w["wave_run_id"],
     )
     resp = await client.post(
@@ -848,7 +833,9 @@ async def test_call_planner_http_error(linear_wave: dict) -> None:
     user_id = w["user_id"]
 
     # Configure dispatch settings for this user
-    await set_user_setting(db, user_id, "dispatch.service_url", "http://fake-planner:8100")
+    await set_user_setting(
+        db, user_id, "dispatch.service_url", "http://fake-planner:8100"
+    )
     await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
 
     # Mock the httpx client to return a 500 error
@@ -865,9 +852,7 @@ async def test_call_planner_http_error(linear_wave: dict) -> None:
         mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
         with pytest.raises(ValidationError, match="Planner returned 500"):
-            await _call_planner(
-                db, user_id, w["wave_run_id"], [w["item_a_id"]]
-            )
+            await _call_planner(db, user_id, w["wave_run_id"], [w["item_a_id"]])
 
 
 async def test_replan_wave_readiness_regression(
@@ -887,7 +872,8 @@ async def test_replan_wave_readiness_regression(
 
     # Initial plan: A → B (B is blocked by A)
     await _make_wave_plan(
-        db, wave_id,
+        db,
+        wave_id,
         nodes=[item_a, item_b],
         edges=[{"from_item_id": item_a, "to_item_id": item_b}],
     )
