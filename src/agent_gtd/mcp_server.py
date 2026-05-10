@@ -17,6 +17,7 @@ from agent_gtd.dispatch_constants import (
 )
 from agent_gtd.exceptions import (
     BlockersUnresolvedError,
+    LegalityContractError,
     NotFoundError,
     ValidationError,
     VersionConflictError,
@@ -1154,6 +1155,58 @@ async def list_runs(
     """
     session = await _get_session(ctx)
     return await _backend.list_runs(session["user_id"], item_id=item_id, status=status)
+
+
+# --- Wave tools ---
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+async def plan_wave(
+    item_ids: list[str],
+    ctx: Context,
+) -> dict[str, Any]:
+    """Plan a wave: validate items, call the remote planner, and return the DAG.
+
+    Validates the legality contract for every item before touching the
+    database:
+    - Each item must have ``status='ready'``.
+    - Each item description must contain a non-empty ``## Acceptance Criteria``
+      section.
+    - Each item description must contain a non-empty ``## Files to Modify``
+      section.
+    - Each item must have no unresolved blockers outside the wave's own item
+      set (internal blockers are fine — the planner handles ordering).
+    - All items must belong to the same project.
+
+    On success, inserts an ``autonomous_wave_runs`` row, calls the dispatch
+    service planner (``POST {dispatch_url}/plan``), persists the resulting
+    DAG, and returns a plan summary for the lead to confirm.
+
+    Args:
+        item_ids: IDs of the items to include in the wave (minimum 1).
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        Dict with ``wave_run_id``, ``status``, ``plan`` (nodes + edges),
+        ``planner_model``, ``item_count``, and ``per_item`` list
+        (each entry has ``item_id``, ``title``, ``predecessors``).
+    """
+    import json
+
+    session = await _get_session(ctx)
+    try:
+        return await _backend.plan_wave(session["user_id"], item_ids)
+    except LegalityContractError as exc:
+        raise ToolError(
+            f"Legality contract failed for {len(exc.failures)} item(s):\n"
+            + json.dumps(exc.failures, indent=2)
+        ) from None
+    except ValidationError as exc:
+        raise ToolError(exc.detail) from None
+    except RuntimeError as exc:
+        raise ToolError(str(exc)) from None
 
 
 # --- Entry point ---

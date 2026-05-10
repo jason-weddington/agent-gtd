@@ -692,3 +692,32 @@ class DispatchCapabilitiesResponse(BaseModel):
     engine: str | None = None
     version: str | None = None
     agents: list[DispatchAgentInfo] = []
+
+
+# --- Wave Manager Schemas ---
+
+
+class PlanWaveItemSummary(BaseModel):
+    """Per-item summary within a wave plan result."""
+
+    item_id: str
+    title: str
+    predecessors: list[str] = []
+
+
+class PlanWavePlan(BaseModel):
+    """The DAG plan nested inside a PlanWaveResult."""
+
+    nodes: list[str]
+    edges: list[dict[str, str]]
+
+
+class PlanWaveResult(BaseModel):
+    """Response returned by the plan_wave MCP tool on success."""
+
+    wave_run_id: str
+    status: WaveRunStatus
+    plan: PlanWavePlan
+    planner_model: str
+    item_count: int
+    per_item: list[PlanWaveItemSummary]

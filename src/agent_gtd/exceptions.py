@@ -3,6 +3,8 @@
 Routes map these to HTTP status codes; MCP tools map them to ToolError.
 """
 
+from typing import Any
+
 
 class AgentGTDError(Exception):
     """Base exception for Agent GTD domain errors."""
@@ -110,3 +112,26 @@ class BlockersUnresolvedError(AgentGTDError):
         super().__init__(
             f"Cannot {action}: {count} unresolved blocker(s) — {items_str}"
         )
+
+
+class LegalityContractError(AgentGTDError):
+    """One or more items failed the wave legality contract.
+
+    ``failures`` is a list of per-item dicts:
+    ``[{"item_id": str, "title": str, "failures": list[str]}, ...]``
+    """
+
+    def __init__(self, failures: list[dict[str, Any]]) -> None:
+        """Initialize with a list of per-item failure dicts.
+
+        Args:
+            failures: List of ``{item_id, title, failures: list[str]}`` dicts.
+        """
+        self.failures = failures
+        count = len(failures)
+        summary = "; ".join(
+            f"{str(f.get('item_id', ''))[:8]} ({str(f.get('title', ''))[:40]}): "
+            f"{', '.join(str(x) for x in (f.get('failures') or []))}"
+            for f in failures
+        )
+        super().__init__(f"Legality contract failed for {count} item(s) — {summary}")

@@ -287,6 +287,12 @@ class McpBackend(Protocol):
         project_id: str,
     ) -> list[dict[str, Any]]: ...
 
+    async def plan_wave(
+        self,
+        user_id: str,
+        item_ids: list[str],
+    ) -> dict[str, Any]: ...
+
     async def close(self) -> None: ...
 
 
@@ -935,6 +941,17 @@ class LocalBackend:
 
         db = await get_db()
         return await project_service.list_project_members(db, user_id, project_id)
+
+    async def plan_wave(
+        self,
+        user_id: str,
+        item_ids: list[str],
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import wave_service
+
+        db = await get_db()
+        return await wave_service.plan_wave(db, user_id, item_ids)
 
     async def close(self) -> None:
         pass
@@ -1638,6 +1655,17 @@ class HttpBackend:
         self._check(resp)
         result: list[dict[str, Any]] = resp.json()
         return result
+
+    async def plan_wave(
+        self,
+        user_id: str,
+        item_ids: list[str],
+    ) -> dict[str, Any]:
+        # plan_wave is only called from the MCP server running on the same host
+        # as the database.  HttpBackend is not used in that context.
+        raise NotImplementedError(
+            "plan_wave is only available in local (direct-DB) mode"
+        )
 
     async def close(self) -> None:
         await self._client.aclose()
