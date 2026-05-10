@@ -324,6 +324,14 @@ class McpBackend(Protocol):
         from_item: str | None = None,
     ) -> dict[str, Any]: ...
 
+    async def ping_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        phase: str = "",
+        waiting_on: str = "",
+    ) -> dict[str, Any]: ...
+
     async def close(self) -> None: ...
 
 
@@ -1050,6 +1058,21 @@ class LocalBackend:
         db = await get_db()
         return await wave_service.replan_wave(
             db, user_id, wave_run_id, from_item=from_item
+        )
+
+    async def ping_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        phase: str = "",
+        waiting_on: str = "",
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import wave_service
+
+        db = await get_db()
+        return await wave_service.ping_wave(
+            db, user_id, wave_run_id, phase=phase, waiting_on=waiting_on
         )
 
     async def close(self) -> None:
@@ -1838,6 +1861,22 @@ class HttpBackend:
         resp = await self._client.post(
             f"/api/wave-runs/{wave_run_id}/replan",
             json=body,
+            headers=self._headers(),
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def ping_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        phase: str = "",
+        waiting_on: str = "",
+    ) -> dict[str, Any]:
+        resp = await self._client.post(
+            f"/api/wave-runs/{wave_run_id}/ping",
+            json={"phase": phase, "waiting_on": waiting_on},
             headers=self._headers(),
         )
         self._check(resp)

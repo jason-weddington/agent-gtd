@@ -519,7 +519,7 @@ def _build_predecessor_map(
 ) -> dict[str, list[str]]:
     """Build item_id → [predecessor_ids] from DAG edge list.
 
-    Edges have the shape ``{"from_item_id": predecessor_id, "to_item_id": successor_id}``.
+    Edges have the shape ``{"from_item_id": pred_id, "to_item_id": succ_id}``.
     """
     preds: dict[str, list[str]] = {}
     for edge in edges:
@@ -1091,4 +1091,80 @@ async def replan_wave(
         "old_version": old_version,
         "new_version": new_version,
         "new_plan": row_to_dict(new_plan_row),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat / liveness ping (AC-5)
+# ---------------------------------------------------------------------------
+
+_VALID_PHASES = frozenset(
+    ("", "planning", "dispatching", "monitoring", "merging", "halted")
+)
+
+
+async def ping_wave(
+    db: DbPool,
+    user_id: str,
+    wave_run_id: str,
+    phase: str = "",
+    waiting_on: str = "",
+) -> dict[str, Any]:
+    """Record a heartbeat event for a running wave and reset the reaper clock.
+
+    The lead executor calls this during idle wait loops to prove liveness.
+    Inserts a ``heartbeat`` wave event whose payload stores ``phase`` and
+    ``waiting_on`` for the UI feed and apt-style display.
+
+    Args:
+        db: Database pool.
+        user_id: Calling user's ID — must be the wave's lead_user_id.
+        wave_run_id: ID of the wave run to ping.
+        phase: Current phase of the executor.  One of ``""``,
+            ``"planning"``, ``"dispatching"``, ``"monitoring"``,
+            ``"merging"``, ``"halted"``.
+        waiting_on: Item ID (or empty string) the executor is currently
+            waiting on.
+
+    Returns:
+        Dict with keys ``wave_run_id``, ``ts``, ``phase``, ``waiting_on``.
+
+    Raises:
+        NotFoundError: If wave not found or caller doesn't own it.
+        ValidationError: If wave status is not ``'running'`` or phase is
+            invalid.
+    """
+    if phase not in _VALID_PHASES:
+        raise ValidationError(
+            f"Invalid phase '{phase}' — must be one of: "
+            + ", ".join(sorted(_VALID_PHASES))
+        )
+
+    wave = await _get_wave_run(db, user_id, wave_run_id)
+    if wave["status"] != "running":
+        raise ValidationError(
+            f"Wave {wave_run_id} is not running (status={wave['status']})"
+        )
+
+    now = datetime.now(UTC).isoformat()
+
+    await _append_wave_event(
+        db,
+        wave_run_id,
+        kind="heartbeat",
+        actor="manager",
+        payload={"phase": phase, "waiting_on": waiting_on},
+    )
+
+    await db.execute(
+        "UPDATE autonomous_wave_runs SET updated_at = $1 WHERE id = $2",
+        now,
+        wave_run_id,
+    )
+
+    return {
+        "wave_run_id": wave_run_id,
+        "ts": now,
+        "phase": phase,
+        "waiting_on": waiting_on,
     }

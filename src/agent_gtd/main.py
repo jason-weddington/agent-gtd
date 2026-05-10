@@ -59,6 +59,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         reconcile_active_runs,
         shutdown_worker,
     )
+    from agent_gtd.wave_reaper import wave_reaper
 
     await init_db()
     await _migrate_global_agent_name()
@@ -71,9 +72,13 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # Reconcile runs that were active before the restart
     await reconcile_active_runs()
 
+    # Start wave reaper background task
+    reaper_task = asyncio.create_task(wave_reaper())
+
     yield
 
     # Shutdown
+    reaper_task.cancel()
     worker_task.cancel()
     await shutdown_worker()
     await get_event_bus().drain()
