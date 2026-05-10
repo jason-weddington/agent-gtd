@@ -1,13 +1,15 @@
 """Wave run API routes for the executor cycle and frontend UI.
 
-Provides REST endpoints that mirror the four wave manager MCP tools.  These
-routes are used by HttpBackend so remote executor agents can call them over
-HTTP without direct DB access.
+Provides REST endpoints that mirror the wave manager MCP tools.  These
+routes are used by HttpBackend so remote MCP clients (e.g. a Claude Code
+session running on a laptop) can call wave operations over HTTP without
+direct DB access.
 
 Also provides frontend-facing routes for the wave banner, event feed, and
 halt card UI.
 
-Endpoints (executor):
+Endpoints (planning + executor):
+    POST /api/wave-runs                               → plan_wave result
     GET  /api/wave-runs/{wave_run_id}/advance         → advance_wave result
     POST /api/wave-runs/{wave_run_id}/complete-item   → complete_in_wave result
     POST /api/wave-runs/{wave_run_id}/halt            → updated wave run
@@ -27,8 +29,8 @@ from pydantic import BaseModel
 
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
-from agent_gtd.exceptions import NotFoundError, ValidationError
-from agent_gtd.models import ResumeWaveRequest, User, WaveRunResponse
+from agent_gtd.exceptions import LegalityContractError, NotFoundError, ValidationError
+from agent_gtd.models import ResumeWaveRequest, User
 from agent_gtd.services import wave_service
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,12 @@ project_wave_router = APIRouter(prefix="/api/projects", tags=["wave"])
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
+
+
+class PlanWaveRequest(BaseModel):
+    """Request body for POST /api/wave-runs."""
+
+    item_ids: list[str]
 
 
 class CompleteItemRequest(BaseModel):
@@ -80,6 +88,48 @@ def _map_exc(exc: NotFoundError | ValidationError) -> HTTPException:
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+
+@router.post("")
+async def plan_wave(
+    body: PlanWaveRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Validate, plan, and persist a new wave run.
+
+    Validates the legality contract, calls the dispatch service planner,
+    persists the resulting DAG, and returns a plan summary.
+
+    Args:
+        body: item_ids to include in the wave.
+        user: Injected authenticated user.
+
+    Returns:
+        Dict with wave_run_id, status, plan (nodes + edges), planner_model,
+        item_count, and per_item summary.
+
+    Raises:
+        HTTPException 422: Legality contract failure (detail includes per-item
+            failures) or another validation error.
+        HTTPException 502: Planner subroutine raised (network, planner error).
+    """
+    db = await get_db()
+    try:
+        return await wave_service.plan_wave(db, user.id, body.item_ids)
+    except LegalityContractError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "kind": "legality_contract_failed",
+                "message": exc.detail,
+                "failures": exc.failures,
+            },
+        ) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.detail) from exc
+    except RuntimeError as exc:
+        # wave_service raises RuntimeError on planner HTTP failure
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.get("/{wave_run_id}/advance")
@@ -245,7 +295,7 @@ async def get_wave_events(
     Args:
         wave_run_id: The wave run to query.
         user: Injected authenticated user.
-        limit: Max events to return (1–200, default 50).
+        limit: Max events to return (1-200, default 50).
 
     Returns:
         Dict with ``events`` list.

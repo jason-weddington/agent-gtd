@@ -385,9 +385,8 @@ async def test_plan_wave_mcp_planner_failure_updates_wave_run_crashed(
         "agent_gtd.services.wave_service.call_planner",
         new_callable=AsyncMock,
         side_effect=RuntimeError("Connection refused"),
-    ):
-        with pytest.raises(ToolError):
-            await mcp_client_authed.call_tool("plan_wave", {"item_ids": [item_id]})
+    ), pytest.raises(ToolError):
+        await mcp_client_authed.call_tool("plan_wave", {"item_ids": [item_id]})
 
     db = await get_db()
     rows = await db.fetch(

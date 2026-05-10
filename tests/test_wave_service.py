@@ -558,9 +558,8 @@ async def test_call_planner_http_status_error():
     with patch(
         "agent_gtd.services.wave_service.httpx.AsyncClient",
         return_value=mock_client,
-    ):
-        with pytest.raises(RuntimeError, match="Planner HTTP error 500"):
-            await call_planner("http://dispatch.test:8100", "key", ["item-1"])
+    ), pytest.raises(RuntimeError, match="Planner HTTP error 500"):
+        await call_planner("http://dispatch.test:8100", "key", ["item-1"])
 
 
 async def test_call_planner_timeout_error():
@@ -572,9 +571,8 @@ async def test_call_planner_timeout_error():
     with patch(
         "agent_gtd.services.wave_service.httpx.AsyncClient",
         return_value=mock_client,
-    ):
-        with pytest.raises(RuntimeError, match="timed out"):
-            await call_planner("http://dispatch.test:8100", "key", ["item-1"])
+    ), pytest.raises(RuntimeError, match="timed out"):
+        await call_planner("http://dispatch.test:8100", "key", ["item-1"])
 
 
 async def test_call_planner_network_error():
@@ -586,9 +584,8 @@ async def test_call_planner_network_error():
     with patch(
         "agent_gtd.services.wave_service.httpx.AsyncClient",
         return_value=mock_client,
-    ):
-        with pytest.raises(RuntimeError, match="network error"):
-            await call_planner("http://dispatch.test:8100", "key", ["item-1"])
+    ), pytest.raises(RuntimeError, match="network error"):
+        await call_planner("http://dispatch.test:8100", "key", ["item-1"])
 
 
 async def test_call_planner_success():

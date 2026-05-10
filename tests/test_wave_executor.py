@@ -905,3 +905,139 @@ async def test_replan_wave_readiness_regression(
     # B should now be 'pending' since A (its predecessor) is still pending
     b_row = await _get_wave_plan_item(db, wave_id, item_b)
     assert b_row["status"] == "pending"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/wave-runs (plan_wave route)
+# ---------------------------------------------------------------------------
+
+
+async def _make_ready_item(
+    db: Any, user_id: str, project_id: str, title: str
+) -> str:
+    """Insert a GTD item that satisfies the wave legality contract."""
+    from agent_gtd.auth import register_user as _ignored  # noqa: F401
+
+    item_id = str(uuid.uuid4())
+    now = _now()
+    description = (
+        "## Acceptance Criteria\n\n- [ ] Do the thing.\n\n"
+        "## Files to Modify\n\n- src/foo.py\n"
+    )
+    await db.execute(
+        "INSERT INTO items"
+        " (id, project_id, user_id, title, description, status,"
+        "  created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        item_id,
+        project_id,
+        user_id,
+        title,
+        description,
+        "ready",
+        now,
+        now,
+    )
+    return item_id
+
+
+async def _configure_dispatch(
+    db: Any, user_id: str, url: str, api_key: str
+) -> None:
+    """Insert per-user dispatch config rows."""
+    now = _now()
+    for k, v in (
+        ("dispatch.service_url", url),
+        ("dispatch.service_api_key", api_key),
+    ):
+        await db.execute(
+            "INSERT INTO user_settings (user_id, key, value, updated_at)"
+            " VALUES ($1, $2, $3, $4)",
+            user_id,
+            k,
+            v,
+            now,
+        )
+
+
+async def test_plan_wave_route_legality_failure_returns_422(
+    client: AsyncClient, _setup_db
+):
+    from agent_gtd.auth import create_token, register_user
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    user = await register_user("plan-route-1@example.com", "pw")
+    user_id = user.id
+    project_id = await _make_project(db, user_id)
+    # Item lacks the required ## Acceptance Criteria section
+    bad_item_id = str(uuid.uuid4())
+    now = _now()
+    await db.execute(
+        "INSERT INTO items"
+        " (id, project_id, user_id, title, description, status,"
+        "  created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        bad_item_id,
+        project_id,
+        user_id,
+        "Bad item",
+        "no AC, no files",
+        "ready",
+        now,
+        now,
+    )
+    await _configure_dispatch(db, user_id, "http://dispatch.test:8100", "k")
+
+    resp = await client.post(
+        "/api/wave-runs",
+        json={"item_ids": [bad_item_id]},
+        headers={"Authorization": f"Bearer {create_token(user_id)}"},
+    )
+
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert detail["kind"] == "legality_contract_failed"
+    assert isinstance(detail["failures"], list)
+    assert detail["failures"][0]["item_id"] == bad_item_id
+
+
+async def test_plan_wave_route_happy_path_returns_dag(
+    client: AsyncClient, _setup_db
+):
+    from agent_gtd.auth import create_token, register_user
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    user = await register_user("plan-route-2@example.com", "pw")
+    user_id = user.id
+    project_id = await _make_project(db, user_id)
+    item_a = await _make_ready_item(db, user_id, project_id, "Task A")
+    item_b = await _make_ready_item(db, user_id, project_id, "Task B")
+    await _configure_dispatch(db, user_id, "http://dispatch.test:8100", "k")
+
+    mock_plan = {
+        "nodes": [item_a, item_b],
+        "edges": [{"from_item_id": item_a, "to_item_id": item_b}],
+        "planner_model": "claude-sonnet-4-6",
+    }
+
+    with patch(
+        "agent_gtd.services.wave_service.call_planner",
+        new_callable=AsyncMock,
+        return_value=mock_plan,
+    ):
+        resp = await client.post(
+            "/api/wave-runs",
+            json={"item_ids": [item_a, item_b]},
+            headers={"Authorization": f"Bearer {create_token(user_id)}"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "wave_run_id" in body
+    assert body["status"] == "pending"
+    assert body["item_count"] == 2
+    assert body["plan"]["edges"] == [
+        {"from_item_id": item_a, "to_item_id": item_b}
+    ]

@@ -1783,11 +1783,33 @@ class HttpBackend:
         user_id: str,
         item_ids: list[str],
     ) -> dict[str, Any]:
-        # plan_wave is only called from the MCP server running on the same host
-        # as the database.  HttpBackend is not used in that context.
-        raise NotImplementedError(
-            "plan_wave is only available in local (direct-DB) mode"
+        from agent_gtd.exceptions import LegalityContractError
+
+        resp = await self._client.post(
+            "/api/wave-runs",
+            json={"item_ids": item_ids},
+            headers=self._headers(),
+            # Planner can take 30-60s for medium waves; default httpx timeout
+            # is 5s. Bump to 5min.
+            timeout=300.0,
         )
+        # Special-case the legality contract failure so the MCP tool gets the
+        # same exception type it would from LocalBackend (preserves the
+        # structured failures payload for the formatted error message).
+        if resp.status_code == 422:
+            try:
+                detail = resp.json().get("detail")
+            except Exception:
+                detail = None
+            if (
+                isinstance(detail, dict)
+                and detail.get("kind") == "legality_contract_failed"
+                and isinstance(detail.get("failures"), list)
+            ):
+                raise LegalityContractError(detail["failures"])
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
 
     async def advance_wave(self, user_id: str, wave_run_id: str) -> dict[str, Any]:
         resp = await self._client.get(
