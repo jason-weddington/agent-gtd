@@ -792,6 +792,9 @@ export default function ProjectDetail() {
         <Typography variant="h5" sx={{ flex: 1 }}>
           {project.name}
         </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+          ({project.totalItems} items)
+        </Typography>
         <Chip
           label={STATUS_LABELS[project.status]}
           color={STATUS_COLORS[project.status]}

@@ -297,6 +297,9 @@ export default function Projects() {
                               <Typography variant="h6" noWrap sx={{ flex: 1 }}>
                                 {project.name}
                               </Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
+                                ({project.totalItems} items)
+                              </Typography>
                               {(project.memberCount ?? 0) > 0 && (
                                 <Tooltip title={`Shared with ${project.memberCount}`}>
                                   <IconButton
@@ -383,6 +386,9 @@ export default function Projects() {
                                 <Typography variant="body1" noWrap>
                                   {project.name}
                                 </Typography>
+                                <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
+                                  ({project.totalItems} items)
+                                </Typography>
                                 {(project.memberCount ?? 0) > 0 && (
                                   <Tooltip title={`Shared with ${project.memberCount}`}>
                                     <PeopleIcon
@@ -461,6 +467,9 @@ export default function Projects() {
                                   <Typography variant="h6" noWrap sx={{ flex: 1 }}>
                                     {project.name}
                                   </Typography>
+                                  <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
+                                    ({project.totalItems} items)
+                                  </Typography>
                                 </Box>
                                 <Chip
                                   label={STATUS_LABELS[project.status]}
@@ -522,6 +531,9 @@ export default function Projects() {
                                     </Tooltip>
                                     <Typography variant="body1" noWrap>
                                       {project.name}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
+                                      ({project.totalItems} items)
                                     </Typography>
                                     <Chip
                                       label={STATUS_LABELS[project.status]}
