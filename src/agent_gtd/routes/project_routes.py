@@ -45,6 +45,7 @@ def _project_response(
     raw_build_agent = row.get("build_dispatch_agent")
     raw_owner_email = row.get("owner_email")
     raw_member_count = row.get("member_count")
+    raw_total_items = row.get("total_items")
     is_owner = (
         (str(row.get("user_id", "")) == caller_user_id)
         if caller_user_id is not None
@@ -73,6 +74,7 @@ def _project_response(
         member_count=(
             int(str(raw_member_count)) if raw_member_count is not None else None
         ),
+        total_items=int(str(raw_total_items)) if raw_total_items is not None else 0,
     )
 
 

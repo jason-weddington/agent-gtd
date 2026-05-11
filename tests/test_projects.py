@@ -639,3 +639,60 @@ async def test_project_list_includes_member_count(
     assert res.status_code == 200
     project = next(p for p in res.json() if p["id"] == pid)
     assert project["member_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# total_items
+# ---------------------------------------------------------------------------
+
+
+async def test_get_project_total_items_nonzero(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """GET /api/projects/{id} returns total_items equal to the item count."""
+    # Create 3 items in the project
+    for i in range(3):
+        res = await client.post(
+            "/api/items",
+            json={"title": f"Item {i}", "project_id": project_id},
+            headers=auth_headers,
+        )
+        assert res.status_code == 201
+
+    res = await client.get(f"/api/projects/{project_id}", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["total_items"] == 3
+
+
+async def test_list_projects_total_items_nonzero(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """GET /api/projects returns total_items equal to the item count per project."""
+    # Create 2 items in the project
+    for i in range(2):
+        res = await client.post(
+            "/api/items",
+            json={"title": f"Task {i}", "project_id": project_id},
+            headers=auth_headers,
+        )
+        assert res.status_code == 201
+
+    res = await client.get("/api/projects", headers=auth_headers)
+    assert res.status_code == 200
+    project = next(p for p in res.json() if p["id"] == project_id)
+    assert project["total_items"] == 2
+
+
+async def test_project_total_items_zero_when_no_items(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """A project with no items returns total_items: 0 from both GET and list."""
+    # No items created — verify both endpoints return 0
+    res = await client.get(f"/api/projects/{project_id}", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["total_items"] == 0
+
+    res = await client.get("/api/projects", headers=auth_headers)
+    assert res.status_code == 200
+    project = next(p for p in res.json() if p["id"] == project_id)
+    assert project["total_items"] == 0
