@@ -2,6 +2,44 @@
 
 <!-- version list -->
 
+## v1.87.0 (2026-05-12)
+
+### Features
+
+- **projects**: Add total_items count to project responses (SMOKE-1 + SMOKE-2)
+  ([`f128288`](https://github.com/jason-weddington/agent-gtd/commit/f1282880eba794fd9c528583d0ce6e934d6119d3))
+
+- **ui**: Show item count next to project names (SMOKE-3)
+  ([`03e9755`](https://github.com/jason-weddington/agent-gtd/commit/03e9755a7f8d8ad21d8eb4b77b9e8325e5d6bbf8))
+
+- **wave-manager**: Add advance/complete/halt/replan + wave_routes
+  ([`257c1e7`](https://github.com/jason-weddington/agent-gtd/commit/257c1e79799bc06f1ca7761577f05f5f255f7038))
+
+- **wave-manager**: Add plan_wave MCP tool with legality contract
+  ([`6fce9fc`](https://github.com/jason-weddington/agent-gtd/commit/6fce9fce9fae130c1bb36f7446d708668bcb4426))
+
+- **wave-manager**: Add reaper background job + ping_wave heartbeat
+  ([`089eb0b`](https://github.com/jason-weddington/agent-gtd/commit/089eb0bce21516b0e2f89e703d95f8359df746be))
+
+- **wave-manager**: Add schema for autonomous wave runs
+  ([`a672954`](https://github.com/jason-weddington/agent-gtd/commit/a6729542703db7fff52ca7cd32e427e02fc7e8b7))
+
+- **wave-manager**: Dispatch_item supports wave_run_id + mode=manage launch
+  ([`2eb8ea9`](https://github.com/jason-weddington/agent-gtd/commit/2eb8ea9b70098ebd33f10bc9d7d1340206618dc2))
+
+- **wave-manager**: Expose plan_wave via REST so HttpBackend works
+  ([`8c63c5c`](https://github.com/jason-weddington/agent-gtd/commit/8c63c5c9595c4da2915495693999318d1e770fde))
+
+- **wave-manager**: Frontend banner + apt-style event feed + halt card
+  ([`ae30905`](https://github.com/jason-weddington/agent-gtd/commit/ae30905baca8ba7247e92727619f36c1321688fb))
+
+- **wave-manager**: SSE wave_events fan-out to project members
+  ([`280a18a`](https://github.com/jason-weddington/agent-gtd/commit/280a18ade76c5d63788b8a56b3189ba955ba72ca))
+
+- **wave-manager**: Wave-scoped item lock + dispatch endpoint guard
+  ([`473e45b`](https://github.com/jason-weddington/agent-gtd/commit/473e45becfe7f42779056d0afc17e32e9a3ac3a3))
+
+
 ## v1.86.0 (2026-05-09)
 
 ### Features
