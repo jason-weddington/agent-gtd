@@ -204,13 +204,16 @@ async def create_run(
     row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
     assert row is not None  # noqa: S101
 
-    # Set item status to active — backend owns this, regardless of dispatch origin
-    try:
-        await update_item(db, user_id, item_id, status="active")
-    except Exception:
-        logger.exception(
-            "Failed to set item %s status to active after dispatch", item_id
-        )
+    # Set item status to active — skip for manage mode, where the item_id is a
+    # positional placeholder that the manage agent ignores entirely; its status
+    # must not be touched (Bug 2 of kb-01515).
+    if mode != "manage":
+        try:
+            await update_item(db, user_id, item_id, status="active")
+        except Exception:
+            logger.exception(
+                "Failed to set item %s status to active after dispatch", item_id
+            )
 
     return row_to_dict(row)
 

@@ -1304,6 +1304,67 @@ async def test_build_dispatch_with_non_running_wave_raises_validation_error(
         )
 
 
+async def test_manage_dispatch_does_not_flip_item_status(
+    client: AsyncClient, _mock_dispatch_preflight
+):
+    """manage dispatch does NOT change the launch item's status (regression: kb-01515).
+
+    Before the fix, create_run() unconditionally called update_item(status='active'),
+    which left the placeholder item stuck in 'active' and prevented it from being
+    included in future wave plans (plan_wave rejects items whose status != 'ready').
+    """
+    from agent_gtd.auth import create_token, register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.services.settings_service import set_user_setting
+
+    db = await get_db()
+    user = await register_user("wave-manage-status@test.com", "pw")
+    user_id = user.id
+    project_id = await _make_project(db, user_id)
+
+    now = _now()
+    await db.execute(
+        "UPDATE projects SET git_origin = $1, updated_at = $2 WHERE id = $3",
+        "git@github.com:test/manage-status.git",
+        now,
+        project_id,
+    )
+    await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
+    await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
+
+    # Create the placeholder item in 'ready' status
+    item_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO items"
+        " (id, project_id, user_id, title, status, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        item_id,
+        project_id,
+        user_id,
+        "Wave manager placeholder",
+        "ready",
+        now,
+        now,
+    )
+
+    wave_run_id = await _make_wave_run(db, user_id, project_id, status="pending")
+
+    token = create_token(user_id)
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={"mode": "manage", "wave_run_id": wave_run_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 201, res.text
+
+    # Item status must be unchanged — manage mode must NOT flip to 'active'
+    row = await db.fetchrow("SELECT status FROM items WHERE id = $1", item_id)
+    assert row is not None
+    assert row["status"] == "ready", (
+        f"Expected item status 'ready' after manage dispatch, got '{row['status']}'"
+    )
+
+
 async def test_manage_dispatch_without_wave_run_id_rejected(
     client: AsyncClient, _mock_dispatch_preflight
 ):
