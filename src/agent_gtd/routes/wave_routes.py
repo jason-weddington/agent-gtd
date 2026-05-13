@@ -10,6 +10,7 @@ halt card UI.
 
 Endpoints (planning + executor):
     POST /api/wave-runs                               → plan_wave result
+    POST /api/wave-runs/{wave_run_id}/start           → updated wave run
     GET  /api/wave-runs/{wave_run_id}/advance         → advance_wave result
     POST /api/wave-runs/{wave_run_id}/complete-item   → complete_in_wave result
     POST /api/wave-runs/{wave_run_id}/halt            → updated wave run
@@ -255,6 +256,30 @@ async def cancel_wave(
             wave_run_id,
             body.reason,
         )
+    except (NotFoundError, ValidationError) as exc:
+        raise _map_exc(exc) from exc
+
+
+@router.post("/{wave_run_id}/start")
+async def start_wave(
+    wave_run_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Flip a pending wave to running without launching a manage agent.
+
+    Useful for lead-as-manager debugging and human-driven rollouts.  Only
+    accepts waves in ``pending`` status — rejects all others with 422.
+
+    Args:
+        wave_run_id: The wave run to start.
+        user: Injected authenticated user.
+
+    Returns:
+        The updated autonomous_wave_runs row dict.
+    """
+    db = await get_db()
+    try:
+        return await wave_service.start_wave(db, user.id, wave_run_id)
     except (NotFoundError, ValidationError) as exc:
         raise _map_exc(exc) from exc
 

@@ -8,12 +8,13 @@ import httpx
 import pytest
 
 from agent_gtd.database import encode_json_list, get_db
-from agent_gtd.exceptions import LegalityContractError, ValidationError
+from agent_gtd.exceptions import LegalityContractError, NotFoundError, ValidationError
 from agent_gtd.services.wave_service import (
     call_planner,
     cancel_wave,
     has_acceptance_criteria,
     parse_declared_files,
+    start_wave,
     validate_legality_contract,
 )
 
@@ -651,6 +652,95 @@ async def test_cancel_wave_completed_items_untouched(db):
         await cancel_wave(db, user_id, wave_id, "cancel with done items")
 
     assert await _get_wave_item_status(db, wave_id, item_done) == "completed"
+
+
+# ---------------------------------------------------------------------------
+# start_wave
+# ---------------------------------------------------------------------------
+
+
+async def test_start_wave_pending_to_running(db):
+    """pending → running transition works; started_at is set."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    wave_id = await _make_wave_run(db, user_id, project_id, status="pending")
+
+    with patch("agent_gtd.services.wave_service._publish_wave_event"):
+        result = await start_wave(db, user_id, wave_id)
+
+    assert result["status"] == "running"
+    assert result["started_at"] is not None
+
+
+async def test_start_wave_rejects_running(db):
+    """ValidationError if wave is already running."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
+
+    with pytest.raises(ValidationError):
+        await start_wave(db, user_id, wave_id)
+
+
+async def test_start_wave_rejects_halted(db):
+    """ValidationError if wave is halted."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    wave_id = await _make_wave_run(db, user_id, project_id, status="halted")
+
+    with pytest.raises(ValidationError):
+        await start_wave(db, user_id, wave_id)
+
+
+async def test_start_wave_rejects_cancelled(db):
+    """ValidationError if wave is cancelled."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    wave_id = await _make_wave_run(db, user_id, project_id, status="cancelled")
+
+    with pytest.raises(ValidationError):
+        await start_wave(db, user_id, wave_id)
+
+
+async def test_start_wave_rejects_done(db):
+    """ValidationError if wave is done."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    wave_id = await _make_wave_run(db, user_id, project_id, status="done")
+
+    with pytest.raises(ValidationError):
+        await start_wave(db, user_id, wave_id)
+
+
+async def test_start_wave_wrong_user(db):
+    """NotFoundError for wrong user_id."""
+    user_id = await _make_user(db)
+    other_user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    wave_id = await _make_wave_run(db, user_id, project_id, status="pending")
+
+    with pytest.raises(NotFoundError):
+        await start_wave(db, other_user_id, wave_id)
+
+
+async def test_start_wave_emits_wave_started_event(db):
+    """wave_started event with kind='wave_started' appears in wave_events."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    wave_id = await _make_wave_run(db, user_id, project_id, status="pending")
+
+    with patch("agent_gtd.services.wave_service._publish_wave_event") as mock_pub:
+        await start_wave(db, user_id, wave_id)
+
+    # Check the event was written to the DB
+    row = await db.fetchrow(
+        "SELECT kind, actor FROM wave_events WHERE wave_run_id = $1", wave_id
+    )
+    assert row is not None
+    assert row["kind"] == "wave_started"
+    assert row["actor"] == "lead"
+    # And publish was called once
+    mock_pub.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

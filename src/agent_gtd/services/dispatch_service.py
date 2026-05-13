@@ -189,34 +189,16 @@ async def create_run(
             project_id=str(project_id),
         )
 
-    # Manage-mode wave status flip: pending → running (atomic, race-safe)
+    # Manage-mode wave status flip: pending → running
     if mode == "manage" and wave_run_id is not None and wave is not None:
-        await db.execute(
-            "UPDATE autonomous_wave_runs"
-            " SET status = 'running', started_at = $1, updated_at = $2"
-            " WHERE id = $3 AND status = 'pending'",
-            now,
-            now,
-            wave_run_id,
-        )
-        # Append wave_started event and fan out via SSE
-        from agent_gtd.services.wave_service import (
-            _append_wave_event,
-            _publish_wave_event,
-        )
+        from agent_gtd.services.wave_service import start_wave
 
-        wave_event = await _append_wave_event(
+        await start_wave(
             db,
+            user_id,
             wave_run_id,
-            kind="wave_started",
             actor="manager",
-            payload={"manage_run_id": run_id},
-        )
-        _publish_wave_event(
-            db,
-            lead_user_id=user_id,
-            wave_event=wave_event,
-            project_id=str(project_id),
+            extra_payload={"manage_run_id": run_id},
         )
 
     row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)

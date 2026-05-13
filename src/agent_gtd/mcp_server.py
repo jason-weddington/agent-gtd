@@ -1265,6 +1265,36 @@ async def plan_wave(
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
+async def start_wave(
+    wave_run_id: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """Flip a wave from pending → running without launching a manage agent.
+
+    Useful for lead-as-manager debugging and human-driven rollouts where the
+    normal ``dispatch_item(mode="manage")`` path is not desired.  Both
+    ``update_wave_state`` and ``advance_wave`` require the wave to be running;
+    this tool performs the status flip so those tools become available.
+
+    Args:
+        wave_run_id: ID of the wave run to start.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        The updated autonomous_wave_runs row dict.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.start_wave(session["user_id"], wave_run_id)
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+    except ValidationError as e:
+        raise ToolError(e.detail) from None
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
 async def complete_in_wave(
     wave_run_id: str,
     item_id: str,

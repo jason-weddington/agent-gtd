@@ -1056,6 +1056,73 @@ async def cancel_wave(
     return row_to_dict(row)
 
 
+async def start_wave(
+    db: DbPool,
+    user_id: str,
+    wave_run_id: str,
+    *,
+    actor: str = "lead",
+    extra_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Flip a wave from pending → running.
+
+    Provides a way to start a wave without launching a manage agent —
+    useful for lead-as-manager debugging and human-driven rollouts.
+
+    Args:
+        db: Database pool.
+        user_id: Calling user's ID — must be the wave's lead_user_id.
+        wave_run_id: ID of the wave run to start.
+        actor: Attribution actor for the ``wave_started`` event (default
+            ``"lead"``; dispatch path passes ``"manager"``).
+        extra_payload: Additional keys merged into the event payload
+            (default ``None`` → empty payload ``{}``).
+
+    Returns:
+        The updated autonomous_wave_runs row dict.
+
+    Raises:
+        NotFoundError: If wave not found or caller doesn't own it.
+        ValidationError: If wave status is not ``"pending"``.
+    """
+    wave = await _get_wave_run(db, user_id, wave_run_id)
+
+    if wave["status"] != "pending":
+        raise ValidationError(
+            f"Wave {wave_run_id} cannot be started (status={wave['status']})"
+        )
+
+    now = datetime.now(UTC).isoformat()
+
+    await db.execute(
+        "UPDATE autonomous_wave_runs"
+        " SET status = 'running', started_at = $1, updated_at = $2"
+        " WHERE id = $3",
+        now,
+        now,
+        wave_run_id,
+    )
+
+    payload: dict[str, Any] = {}
+    if extra_payload:
+        payload.update(extra_payload)
+
+    wave_event = await _append_wave_event(
+        db,
+        wave_run_id,
+        kind="wave_started",
+        actor=actor,
+        payload=payload,
+    )
+    _publish_wave_event(db, user_id, wave_event, str(wave["project_id"]))
+
+    row = await db.fetchrow(
+        "SELECT * FROM autonomous_wave_runs WHERE id = $1", wave_run_id
+    )
+    assert row is not None  # noqa: S101
+    return row_to_dict(row)
+
+
 async def _call_planner(
     db: DbPool,
     user_id: str,
