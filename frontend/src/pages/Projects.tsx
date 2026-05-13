@@ -319,6 +319,11 @@ export default function Projects() {
                               sx={{ ml: 1, flexShrink: 0 }}
                             />
                           </Box>
+                          {project.descriptionPreview && (
+                            <Typography variant="caption" color="text.secondary" display="block" noWrap sx={{ mb: 0.5 }}>
+                              {project.descriptionPreview}
+                            </Typography>
+                          )}
                           <Typography
                             variant="body2"
                             color="text.secondary"
@@ -382,33 +387,40 @@ export default function Projects() {
                           <ListItemText
                             sx={{ overflow: 'hidden', minWidth: 0 }}
                             primary={
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Typography variant="body1" noWrap>
-                                  {project.name}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
-                                  ({project.totalItems} items)
-                                </Typography>
-                                {(project.memberCount ?? 0) > 0 && (
-                                  <Tooltip title={`Shared with ${project.memberCount}`}>
-                                    <PeopleIcon
-                                      fontSize="small"
-                                      sx={{ color: 'primary.main', flexShrink: 0, cursor: 'pointer' }}
-                                      onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}?tab=share`) }}
-                                    />
-                                  </Tooltip>
-                                )}
-                                <Chip
-                                  label={STATUS_LABELS[project.status]}
-                                  color={STATUS_COLORS[project.status]}
-                                  size="small"
-                                />
-                                {project.area && (
+                              <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <Typography variant="body1" noWrap>
+                                    {project.name}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
+                                    ({project.totalItems} items)
+                                  </Typography>
+                                  {(project.memberCount ?? 0) > 0 && (
+                                    <Tooltip title={`Shared with ${project.memberCount}`}>
+                                      <PeopleIcon
+                                        fontSize="small"
+                                        sx={{ color: 'primary.main', flexShrink: 0, cursor: 'pointer' }}
+                                        onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}?tab=share`) }}
+                                      />
+                                    </Tooltip>
+                                  )}
                                   <Chip
-                                    label={project.area}
+                                    label={STATUS_LABELS[project.status]}
+                                    color={STATUS_COLORS[project.status]}
                                     size="small"
-                                    variant="outlined"
                                   />
+                                  {project.area && (
+                                    <Chip
+                                      label={project.area}
+                                      size="small"
+                                      variant="outlined"
+                                    />
+                                  )}
+                                </Box>
+                                {project.descriptionPreview && (
+                                  <Typography variant="caption" color="text.secondary" noWrap>
+                                    {project.descriptionPreview}
+                                  </Typography>
                                 )}
                               </Box>
                             }
@@ -478,6 +490,11 @@ export default function Projects() {
                                   sx={{ ml: 1, flexShrink: 0 }}
                                 />
                               </Box>
+                              {project.descriptionPreview && (
+                                <Typography variant="caption" color="text.secondary" display="block" noWrap sx={{ mb: 0.5 }}>
+                                  {project.descriptionPreview}
+                                </Typography>
+                              )}
                               <Typography
                                 variant="body2"
                                 color="text.secondary"
@@ -525,27 +542,34 @@ export default function Projects() {
                               <ListItemText
                                 sx={{ overflow: 'hidden', minWidth: 0 }}
                                 primary={
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <Tooltip title={`Shared by ${project.ownerEmail ?? 'someone'}`}>
-                                      <PeopleOutlineIcon fontSize="small" sx={{ color: 'text.secondary', flexShrink: 0 }} />
-                                    </Tooltip>
-                                    <Typography variant="body1" noWrap>
-                                      {project.name}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
-                                      ({project.totalItems} items)
-                                    </Typography>
-                                    <Chip
-                                      label={STATUS_LABELS[project.status]}
-                                      color={STATUS_COLORS[project.status]}
-                                      size="small"
-                                    />
-                                    {project.area && (
+                                  <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                      <Tooltip title={`Shared by ${project.ownerEmail ?? 'someone'}`}>
+                                        <PeopleOutlineIcon fontSize="small" sx={{ color: 'text.secondary', flexShrink: 0 }} />
+                                      </Tooltip>
+                                      <Typography variant="body1" noWrap>
+                                        {project.name}
+                                      </Typography>
+                                      <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
+                                        ({project.totalItems} items)
+                                      </Typography>
                                       <Chip
-                                        label={project.area}
+                                        label={STATUS_LABELS[project.status]}
+                                        color={STATUS_COLORS[project.status]}
                                         size="small"
-                                        variant="outlined"
                                       />
+                                      {project.area && (
+                                        <Chip
+                                          label={project.area}
+                                          size="small"
+                                          variant="outlined"
+                                        />
+                                      )}
+                                    </Box>
+                                    {project.descriptionPreview && (
+                                      <Typography variant="caption" color="text.secondary" noWrap>
+                                        {project.descriptionPreview}
+                                      </Typography>
                                     )}
                                   </Box>
                                 }

@@ -93,6 +93,8 @@ export interface Project {
   buildDispatchAgent?: string | null
   /** Total number of items in this project (across all statuses). */
   totalItems: number
+  /** Short preview of the project description (first line). Null when description is empty. */
+  descriptionPreview: string | null
 }
 
 export interface MemberSummary {
