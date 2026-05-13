@@ -381,11 +381,14 @@ async def test_plan_wave_mcp_planner_failure_updates_wave_run_crashed(
     item_id = await _create_ready_item(user_id, project_id)
     await _configure_dispatch(user_id, "http://dispatch.test:8100", "test-api-key")
 
-    with patch(
-        "agent_gtd.services.wave_service.call_planner",
-        new_callable=AsyncMock,
-        side_effect=RuntimeError("Connection refused"),
-    ), pytest.raises(ToolError):
+    with (
+        patch(
+            "agent_gtd.services.wave_service.call_planner",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("Connection refused"),
+        ),
+        pytest.raises(ToolError),
+    ):
         await mcp_client_authed.call_tool("plan_wave", {"item_ids": [item_id]})
 
     db = await get_db()
@@ -418,3 +421,54 @@ async def test_plan_wave_mcp_no_db_rows_on_legality_failure(mcp_client_authed, u
     db = await get_db()
     rows = await db.fetch("SELECT id FROM autonomous_wave_runs")
     assert len(rows) == 0
+
+
+# ---------------------------------------------------------------------------
+# cancel_wave MCP tool tests
+# ---------------------------------------------------------------------------
+
+
+async def _create_wave_run(
+    user_id: str,
+    project_id: str,
+    status: str = "pending",
+) -> str:
+    """Insert a wave run row and return its ID."""
+    db = await get_db()
+    wave_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO autonomous_wave_runs"
+        " (id, project_id, lead_user_id, status, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6)",
+        wave_id,
+        project_id,
+        user_id,
+        status,
+        NOW,
+        NOW,
+    )
+    return wave_id
+
+
+async def test_cancel_wave_happy_path(mcp_client_authed, user_id):
+    """cancel_wave on a pending wave returns status='cancelled'."""
+    project_id = await _create_project(user_id)
+    wave_id = await _create_wave_run(user_id, project_id, status="pending")
+
+    result = _parse_result(
+        await mcp_client_authed.call_tool(
+            "cancel_wave",
+            {"wave_run_id": wave_id, "reason": "test_cancel"},
+        )
+    )
+    assert result["status"] == "cancelled"
+    assert result["id"] == wave_id
+
+
+async def test_cancel_wave_not_found(mcp_client_authed):
+    """cancel_wave with unknown ID raises ToolError."""
+    with pytest.raises(ToolError):
+        await mcp_client_authed.call_tool(
+            "cancel_wave",
+            {"wave_run_id": str(uuid.uuid4()), "reason": "ghost"},
+        )

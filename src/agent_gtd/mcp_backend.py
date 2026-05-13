@@ -317,6 +317,13 @@ class McpBackend(Protocol):
         item_id: str | None = None,
     ) -> dict[str, Any]: ...
 
+    async def cancel_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        reason: str,
+    ) -> dict[str, Any]: ...
+
     async def replan_wave(
         self,
         user_id: str,
@@ -1064,6 +1071,18 @@ class LocalBackend:
 
         db = await get_db()
         return await wave_service.start_wave(db, user_id, wave_run_id)
+
+    async def cancel_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import wave_service
+
+        db = await get_db()
+        return await wave_service.cancel_wave(db, user_id, wave_run_id, reason)
 
     async def replan_wave(
         self,
@@ -1922,6 +1941,21 @@ class HttpBackend:
         resp = await self._client.post(
             f"/api/wave-runs/{wave_run_id}/start",
             json={},
+            headers=self._headers(),
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def cancel_wave(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        resp = await self._client.post(
+            f"/api/wave-runs/{wave_run_id}/cancel",
+            json={"reason": reason},
             headers=self._headers(),
         )
         self._check(resp)

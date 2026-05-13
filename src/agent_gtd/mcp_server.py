@@ -1383,6 +1383,34 @@ async def halt_wave(
         raise ToolError(e.detail) from None
 
 
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True))
+async def cancel_wave(
+    wave_run_id: str,
+    reason: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """Cancel a wave, marking any remaining items as skipped.
+
+    Accepts waves in any non-terminal status (pending, planning, running,
+    halted, crashed). Idempotent for already-cancelled waves.
+
+    Args:
+        wave_run_id: ID of the wave run to cancel.
+        reason: Short machine-readable cancellation reason (e.g. "superseded").
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        The updated autonomous_wave_runs row dict.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.cancel_wave(session["user_id"], wave_run_id, reason)
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+    except ValidationError as e:
+        raise ToolError(e.detail) from None
+
+
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
