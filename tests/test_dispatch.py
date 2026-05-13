@@ -2168,7 +2168,7 @@ async def test_create_run_forwards_wave_run_id_to_dispatch_worker(
 async def test_run_response_includes_wave_run_id(
     client: AsyncClient, auth_headers: dict[str, str], user_id: str
 ):
-    """GET /api/runs/{run_id} returns wave_run_id (non-null) when the DB row has it set."""
+    """GET /api/runs/{run_id} returns wave_run_id (non-null) when DB row has it set."""
     import uuid
     from datetime import UTC, datetime
 

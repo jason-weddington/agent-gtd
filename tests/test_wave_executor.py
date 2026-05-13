@@ -1192,7 +1192,7 @@ async def test_manage_dispatch_rejected_if_wave_not_pending(
 async def test_build_dispatch_transitions_wave_plan_item_to_dispatched(
     client: AsyncClient, _mock_dispatch_preflight
 ):
-    """dispatch_item(mode='build', wave_run_id=...) transitions wave_plan_items to 'dispatched'."""
+    """build dispatch with wave_run_id flips wave_plan_items to 'dispatched'."""
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
     from agent_gtd.services.settings_service import set_user_setting
@@ -1231,7 +1231,7 @@ async def test_build_dispatch_transitions_wave_plan_item_to_dispatched(
 async def test_build_dispatch_sets_claude_run_id_on_wave_plan_item(
     client: AsyncClient, _mock_dispatch_preflight
 ):
-    """dispatch_item(mode='build') stores the new run ID in wave_plan_items.claude_run_id."""
+    """build dispatch stores new run ID in wave_plan_items.claude_run_id."""
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
     from agent_gtd.services.settings_service import set_user_setting
@@ -1272,7 +1272,7 @@ async def test_build_dispatch_sets_claude_run_id_on_wave_plan_item(
 async def test_build_dispatch_with_non_running_wave_raises_validation_error(
     client: AsyncClient, _mock_dispatch_preflight
 ):
-    """dispatch_item(mode='build') with a non-running wave returns 409 and leaves item unchanged."""
+    """build dispatch with non-running wave returns 409, leaves item unchanged."""
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
     from agent_gtd.services.settings_service import set_user_setting
@@ -1304,12 +1304,12 @@ async def test_build_dispatch_with_non_running_wave_raises_validation_error(
             headers={"Authorization": f"Bearer {token}"},
         )
         assert res.status_code == 409, (
-            f"Expected 409 for wave status={bad_status}, got {res.status_code}: {res.text}"
+            f"Expected 409 for status={bad_status}, got {res.status_code}: {res.text}"
         )
         # wave_plan_items row must remain unchanged
         row = await _get_wave_plan_item(db, wave_run_id, item_id)
         assert row["status"] == "ready", (
-            f"wave_plan_items should stay 'ready' when dispatch is rejected"
+            "wave_plan_items should stay 'ready' when dispatch is rejected"
         )
 
 
