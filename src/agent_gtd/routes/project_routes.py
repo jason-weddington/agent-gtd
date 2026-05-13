@@ -37,7 +37,9 @@ _DISPATCH_ONLY_FIELDS = {
 
 
 def _project_response(
-    row: dict[str, object], caller_user_id: str | None = None
+    row: dict[str, object],
+    caller_user_id: str | None = None,
+    description_preview: str | None = None,
 ) -> ProjectResponse:
     raw_turns = row.get("dispatch_max_turns")
     raw_timeout = row.get("dispatch_timeout_minutes")
@@ -75,6 +77,7 @@ def _project_response(
             int(str(raw_member_count)) if raw_member_count is not None else None
         ),
         total_items=int(str(raw_total_items)) if raw_total_items is not None else 0,
+        description_preview=description_preview,
     )
 
 

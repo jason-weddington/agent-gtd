@@ -426,6 +426,7 @@ class ProjectResponse(BaseModel):
     owner_email: str | None = None
     member_count: int | None = None
     total_items: int = 0
+    description_preview: str | None = None
 
 
 # --- Member Schemas ---
