@@ -1,3 +1,12 @@
+## Setup (do this first)
+
+```bash
+uv sync
+uv run pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type post-commit --hook-type pre-push
+```
+
+Without local hooks installed, working-tree edits that haven't been staged can land on origin/main as lint/format regressions — happened three times on 2026-05-13. Run this every time you clone fresh.
+
 ## Check the Knowledge Base First
 
 A personal-kb MCP server is available. **Before guessing, searching the filesystem, or asking the user**, search the KB for answers:
