@@ -759,3 +759,19 @@ class ResumeWaveRequest(BaseModel):
     """Request body for POST /api/wave-runs/{id}/resume."""
 
     answer: str
+
+
+class ActivityEvent(BaseModel):
+    """A single enriched wave activity event returned from GET /activity."""
+
+    id: str
+    wave_run_id: str
+    seq: int
+    ts: str
+    actor: str
+    event_type: str
+    item_id: str | None
+    item_title: str | None
+    run_id: str | None
+    decision_rule: str | None
+    payload: dict[str, Any]

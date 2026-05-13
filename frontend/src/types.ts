@@ -214,6 +214,20 @@ export interface WaveEvent {
   payload: Record<string, unknown>
 }
 
+export interface ActivityEvent {
+  id: string
+  waveRunId: string
+  seq: number
+  ts: string
+  actor: string
+  eventType: string
+  itemId: string | null
+  itemTitle: string | null
+  runId: string | null
+  decisionRule: string | null
+  payload: Record<string, unknown>
+}
+
 // --- Attachments ---
 
 export interface AttachmentResponse {

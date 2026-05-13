@@ -346,6 +346,36 @@ async def get_wave_events(
     return {"events": events}
 
 
+@router.get("/{wave_run_id}/activity")
+async def get_wave_activity(
+    wave_run_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(default=200, ge=1, le=200),
+    before_seq: int | None = Query(default=None),
+) -> dict[str, Any]:
+    """Return enriched activity events for a wave run, newest first.
+
+    Excludes heartbeat events. Supports cursor-based pagination via before_seq.
+    Each event is enriched with item_id, item_title, and run_id.
+
+    Args:
+        wave_run_id: The wave run to query.
+        user: Injected authenticated user.
+        limit: Max events to return (1-200, default 200).
+        before_seq: If provided, return only events with seq < before_seq.
+
+    Returns:
+        Dict with ``events`` list and ``has_more`` boolean.
+    """
+    db = await get_db()
+    try:
+        return await wave_service.get_wave_activity(
+            db, wave_run_id, user.id, limit=limit, before_seq=before_seq
+        )
+    except (NotFoundError, ValidationError) as exc:
+        raise _map_exc(exc) from exc
+
+
 @router.post("/{wave_run_id}/resume")
 async def resume_wave(
     wave_run_id: str,

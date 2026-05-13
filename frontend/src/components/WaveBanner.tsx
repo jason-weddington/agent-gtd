@@ -12,6 +12,8 @@ import {
   Box,
   Chip,
   LinearProgress,
+  Tab,
+  Tabs,
   Typography,
 } from '@mui/material'
 import { api, ApiError } from '../api'
@@ -19,6 +21,7 @@ import type { WaveEvent, WaveRun, WaveRunStatus } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
 import type { ServerEvent } from '../hooks/useEventStream'
 import WaveEventFeed from './WaveEventFeed'
+import WaveActivityTab from './WaveActivityTab'
 import WaveHaltCard from './WaveHaltCard'
 
 // ---------------------------------------------------------------------------
@@ -127,6 +130,7 @@ export default function WaveBanner({ projectId, onActiveChange }: WaveBannerProp
   const [events, setEvents] = useState<WaveEvent[]>([])
   const [eventsLoading, setEventsLoading] = useState(false)
   const [bannerError, setBannerError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState(0)
 
   const { onEvent } = useEvents()
   const waveRef = useRef<WaveRun | null>(null)
@@ -309,8 +313,29 @@ export default function WaveBanner({ projectId, onActiveChange }: WaveBannerProp
         />
       )}
 
-      {/* Event feed (AC-6 through AC-11) */}
-      <WaveEventFeed events={events} loading={eventsLoading} projectId={projectId} />
+      {/* Events / Activity tabs */}
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mt: 1 }}>
+        <Tabs
+          value={activeTab}
+          onChange={(_e, v: number) => setActiveTab(v)}
+          textColor="inherit"
+          indicatorColor="primary"
+          sx={{ minHeight: 32 }}
+        >
+          <Tab label="Events" sx={{ minHeight: 32, py: 0.5, fontSize: '0.75rem' }} />
+          <Tab label="Activity" sx={{ minHeight: 32, py: 0.5, fontSize: '0.75rem' }} />
+        </Tabs>
+      </Box>
+
+      {/* Events tab (AC-6 through AC-11) */}
+      {activeTab === 0 && (
+        <WaveEventFeed events={events} loading={eventsLoading} projectId={projectId} />
+      )}
+
+      {/* Activity tab */}
+      {activeTab === 1 && wave && (
+        <WaveActivityTab waveRunId={wave.id} />
+      )}
     </Box>
   )
 }

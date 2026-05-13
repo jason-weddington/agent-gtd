@@ -169,6 +169,25 @@ async def create_run(
             wave_run_id,
             item_id,
         )
+        # Append item_dispatched event and fan out via SSE
+        from agent_gtd.services.wave_service import (
+            _append_wave_event,
+            _publish_wave_event,
+        )
+
+        item_dispatched_event = await _append_wave_event(
+            db,
+            wave_run_id,
+            kind="item_dispatched",
+            actor="manager",
+            payload={"item_id": item_id, "run_id": run_id},
+        )
+        _publish_wave_event(
+            db,
+            lead_user_id=user_id,
+            wave_event=item_dispatched_event,
+            project_id=str(project_id),
+        )
 
     # Manage-mode wave status flip: pending → running (atomic, race-safe)
     if mode == "manage" and wave_run_id is not None and wave is not None:

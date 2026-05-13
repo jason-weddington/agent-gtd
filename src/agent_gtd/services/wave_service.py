@@ -389,6 +389,20 @@ async def plan_wave(
         wave_run_id,
     )
 
+    # Emit wave_planned event and publish via SSE (resolves TODO f0689a01).
+    wave_planned_event = await _append_wave_event(
+        db,
+        wave_run_id,
+        kind="wave_planned",
+        actor="manager",
+        payload={
+            "item_count": len(nodes),
+            "planner_model": planner_model,
+            "plan_id": plan_id,
+        },
+    )
+    _publish_wave_event(db, user_id, wave_planned_event, project_id)
+
     # Step 10: Build per_item list with predecessor mapping.
     predecessors: dict[str, list[str]] = {nid: [] for nid in nodes}
     for edge in edges:
@@ -558,10 +572,6 @@ def _publish_wave_event(
         )
     except Exception:
         logger.exception("Failed to publish wave_event SSE event")
-
-
-# TODO: f0689a01 — call _publish_wave_event after plan_wave writes wave_events
-# NOTE: reaper (ad6e62ca) must also call _publish_wave_event after wave_events INSERTs
 
 
 def _build_predecessor_map(
@@ -922,6 +932,19 @@ async def halt_wave(
         created_by="wave-manager",
     )
     comment_id = str(comment_result["id"])
+
+    # Emit comment_posted event for the halt reason comment
+    comment_posted_event = await _append_wave_event(
+        db,
+        wave_run_id,
+        kind="comment_posted",
+        actor="manager",
+        payload={
+            "comment_id": comment_id,
+            "comment_type": "halt_reason",
+        },
+    )
+    _publish_wave_event(db, user_id, comment_posted_event, str(wave["project_id"]))
 
     # Emit wave_halted event and publish to SSE subscribers
     wave_event = await _append_wave_event(
@@ -1463,13 +1486,27 @@ async def resume_wave(
 
     from agent_gtd.services.comment_service import create_comment
 
-    await create_comment(
+    resume_comment_result = await create_comment(
         db,
         user_id,
         project_id=project_id,
         content_markdown=answer,
         created_by="human",
     )
+    resume_comment_id = str(resume_comment_result["id"])
+
+    # Emit comment_posted event for the resume answer comment
+    resume_comment_event = await _append_wave_event(
+        db,
+        wave_run_id,
+        kind="comment_posted",
+        actor="human",
+        payload={
+            "comment_id": resume_comment_id,
+            "comment_type": "resume_answer",
+        },
+    )
+    _publish_wave_event(db, user_id, resume_comment_event, project_id)
 
     item_rows = await db.fetch(
         "SELECT item_id, status FROM wave_plan_items WHERE wave_run_id = $1",
@@ -1554,3 +1591,125 @@ async def resume_wave(
     total_count = len(count_rows)
     done_count = sum(1 for r in count_rows if r["status"] in ("completed", "skipped"))
     return {**wave_data, "total_count": total_count, "done_count": done_count}
+
+
+async def get_wave_activity(
+    db: DbPool,
+    wave_run_id: str,
+    user_id: str,
+    limit: int = 200,
+    before_seq: int | None = None,
+) -> dict[str, Any]:
+    """Return enriched activity events for a wave run, ordered by seq descending.
+
+    Excludes ``heartbeat`` events (operational noise).  Supports cursor-based
+    pagination via ``before_seq``.  Each event is enriched with ``item_id``,
+    ``item_title``, and ``run_id`` extracted from the payload / joined tables.
+
+    Args:
+        db: Database pool.
+        wave_run_id: The wave run to query.
+        user_id: The calling user's ID — must own the wave.
+        limit: Maximum number of events to return (capped at 200).
+        before_seq: If provided, return only events with ``seq < before_seq``
+            (cursor pagination, most-recent-first order).
+
+    Returns:
+        Dict with ``events`` list and ``has_more`` boolean.
+
+    Raises:
+        NotFoundError: If wave not found or caller doesn't own it.
+    """
+    await _get_wave_run(db, user_id, wave_run_id)
+
+    effective_limit = min(max(1, limit), 200)
+    # Fetch one extra to detect has_more
+    fetch_limit = effective_limit + 1
+
+    if before_seq is not None:
+        rows = await db.fetch(
+            "SELECT * FROM wave_events"
+            " WHERE wave_run_id = $1 AND kind != 'heartbeat' AND seq < $2"
+            " ORDER BY seq DESC LIMIT $3",
+            wave_run_id,
+            before_seq,
+            fetch_limit,
+        )
+    else:
+        rows = await db.fetch(
+            "SELECT * FROM wave_events"
+            " WHERE wave_run_id = $1 AND kind != 'heartbeat'"
+            " ORDER BY seq DESC LIMIT $2",
+            wave_run_id,
+            fetch_limit,
+        )
+
+    has_more = len(rows) > effective_limit
+    rows = rows[:effective_limit]
+
+    # Parse events and decode payloads
+    events: list[dict[str, Any]] = []
+    for r in rows:
+        d = row_to_dict(r)
+        if isinstance(d.get("payload"), str):
+            try:
+                d["payload"] = json.loads(d["payload"])
+            except (json.JSONDecodeError, TypeError):
+                d["payload"] = {}
+        events.append(d)
+
+    # Collect item_ids referenced in payloads
+    item_ids: set[str] = set()
+    for e in events:
+        payload = e.get("payload")
+        if isinstance(payload, dict):
+            raw_id = payload.get("item_id")
+            if raw_id and isinstance(raw_id, str):
+                item_ids.add(raw_id)
+
+    # Batch-fetch item titles
+    item_titles: dict[str, str] = {}
+    if item_ids:
+        id_list = list(item_ids)
+        placeholders = ", ".join(f"${i + 1}" for i in range(len(id_list)))
+        item_rows = await db.fetch(
+            f"SELECT id, title FROM items WHERE id IN ({placeholders})",  # noqa: S608
+            *id_list,
+        )
+        item_titles = {str(r["id"]): str(r["title"]) for r in item_rows}
+
+    # Fetch run_ids from wave_plan_items for item linkage
+    plan_rows = await db.fetch(
+        "SELECT item_id, claude_run_id FROM wave_plan_items WHERE wave_run_id = $1",
+        wave_run_id,
+    )
+    item_run_ids: dict[str, str] = {
+        str(r["item_id"]): str(r["claude_run_id"])
+        for r in plan_rows
+        if r["claude_run_id"]
+    }
+
+    # Build enriched event dicts
+    result: list[dict[str, Any]] = []
+    for e in events:
+        payload = e.get("payload") or {}
+        raw_item_id = payload.get("item_id")
+        item_id_str: str | None = str(raw_item_id) if raw_item_id else None
+        decision_rule_val = e.get("decision_rule")
+        result.append(
+            {
+                "id": e["id"],
+                "wave_run_id": e["wave_run_id"],
+                "seq": e["seq"],
+                "ts": e["ts"],
+                "actor": e["actor"],
+                "event_type": e["kind"],
+                "item_id": item_id_str,
+                "item_title": item_titles.get(item_id_str) if item_id_str else None,
+                "run_id": item_run_ids.get(item_id_str) if item_id_str else None,
+                "decision_rule": decision_rule_val if decision_rule_val else None,
+                "payload": payload,
+            }
+        )
+
+    return {"events": result, "has_more": has_more}

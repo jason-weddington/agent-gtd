@@ -192,7 +192,9 @@ async def test_halt_wave_publishes_sse(_setup_db):
         await halt_wave(db, user_id, wave_run_id, reason="test_halt")
         await asyncio.sleep(0)
 
-    mock_bus.publish.assert_called_once()
+    # halt_wave now emits 2 SSE events: comment_posted + wave_halted
+    assert mock_bus.publish.call_count == 2
+    # The last call should be wave_halted
     call_kwargs = mock_bus.publish.call_args.kwargs
     assert call_kwargs["event_type"] == "wave_event"
     assert call_kwargs["entity_type"] == "wave_run"
@@ -221,9 +223,12 @@ async def test_replan_wave_publishes_sse(_setup_db):
     mock_bus = AsyncMock()
     mock_bus.publish = AsyncMock(return_value="event-id")
 
-    with patch("agent_gtd.event_bus.get_event_bus", return_value=mock_bus), patch(
-        "agent_gtd.services.wave_service._call_planner",
-        return_value=mock_planner_result,
+    with (
+        patch("agent_gtd.event_bus.get_event_bus", return_value=mock_bus),
+        patch(
+            "agent_gtd.services.wave_service._call_planner",
+            return_value=mock_planner_result,
+        ),
     ):
         await replan_wave(db, user_id, wave_run_id)
         await asyncio.sleep(0)
@@ -304,9 +309,7 @@ async def test_wave_event_persisted_in_events_table(_setup_db):
     await complete_in_wave(db, user_id, wave_run_id, item_id, "completed")
     await asyncio.sleep(0)  # let the task execute and persist
 
-    rows = await db.fetch(
-        "SELECT * FROM events WHERE event_type = 'wave_event'"
-    )
+    rows = await db.fetch("SELECT * FROM events WHERE event_type = 'wave_event'")
     assert len(rows) == 1
     assert rows[0]["entity_type"] == "wave_run"
     assert rows[0]["entity_id"] == wave_run_id

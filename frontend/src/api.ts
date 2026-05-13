@@ -1,4 +1,4 @@
-import type { AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Run, UserResponse, WaveEvent, WaveRun } from './types'
+import type { ActivityEvent, AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Run, UserResponse, WaveEvent, WaveRun } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -255,6 +255,15 @@ export const api = {
     /** GET /api/wave-runs/{id}/events?limit=N — newest first. */
     events: (waveRunId: string, limit = 50) =>
       request<{ events: WaveEvent[] }>('GET', `/wave-runs/${waveRunId}/events?limit=${limit}`),
+    /** GET /api/wave-runs/{id}/activity?limit=N&before_seq=N — enriched activity log. */
+    activity: (waveRunId: string, limit = 200, beforeSeq?: number) => {
+      const params = new URLSearchParams({ limit: String(limit) })
+      if (beforeSeq !== undefined) params.set('before_seq', String(beforeSeq))
+      return request<{ events: ActivityEvent[]; hasMore: boolean }>(
+        'GET',
+        `/wave-runs/${waveRunId}/activity?${params.toString()}`,
+      )
+    },
     /** POST /api/wave-runs/{id}/complete-item */
     completeItem: (waveRunId: string, itemId: string, outcome: string) =>
       request<unknown>('POST', `/wave-runs/${waveRunId}/complete-item`, { itemId, outcome }),
