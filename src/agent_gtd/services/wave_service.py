@@ -724,6 +724,8 @@ async def complete_in_wave(
         Dict with keys:
           - wave_plan_item (dict): The updated wave_plan_items row.
           - newly_ready (list[str]): Item IDs transitioned to 'ready'.
+          - graph_complete (bool): True when the wave closed as a result of
+            this call (all items are now terminal); False otherwise.
 
     Raises:
         NotFoundError: If wave or item not found or caller doesn't own it.
@@ -782,6 +784,12 @@ async def complete_in_wave(
 
     await release_wave_item(db, wave_run_id, item_id)
 
+    # Cascade GTD item status to 'done' when outcome is completed
+    if outcome == "completed":
+        from agent_gtd.services.item_service import complete_item
+
+        await complete_item(db, user_id, item_id)
+
     updated_row = await db.fetchrow(
         "SELECT * FROM wave_plan_items WHERE wave_run_id = $1 AND item_id = $2",
         wave_run_id,
@@ -824,7 +832,8 @@ async def complete_in_wave(
             newly_ready.append(downstream_id)
 
     # Close the wave if every item is now terminal
-    if all(s in _TERMINAL_STATUSES for s in item_statuses.values()):
+    graph_complete = all(s in _TERMINAL_STATUSES for s in item_statuses.values())
+    if graph_complete:
         await db.execute(
             "UPDATE autonomous_wave_runs"
             " SET status = 'completed', ended_at = $1, updated_at = $2"
@@ -852,6 +861,7 @@ async def complete_in_wave(
     return {
         "wave_plan_item": row_to_dict(updated_row),
         "newly_ready": newly_ready,
+        "graph_complete": graph_complete,
     }
 
 

@@ -12,6 +12,7 @@ from agent_gtd.exceptions import LegalityContractError, NotFoundError, Validatio
 from agent_gtd.services.wave_service import (
     call_planner,
     cancel_wave,
+    complete_in_wave,
     has_acceptance_criteria,
     parse_declared_files,
     start_wave,
@@ -893,3 +894,127 @@ async def test_plan_wave_project_not_found(db):
 
     with pytest.raises(ValidationError, match="not found"):
         await plan_wave(db, user_id, [item_id])
+
+
+# ---------------------------------------------------------------------------
+# complete_in_wave — cascade + graph_complete
+# ---------------------------------------------------------------------------
+
+
+async def test_complete_in_wave_completed_cascades_item_done(db):
+    """outcome='completed' flips the GTD item to done with completed_at set."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, status="review")
+    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, wave_id, item_id, status="dispatched")
+
+    with (
+        patch(
+            "agent_gtd.services.wave_lock_service.release_wave_item",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.wave_service._publish_wave_event"),
+    ):
+        await complete_in_wave(db, user_id, wave_id, item_id, outcome="completed")
+
+    row = await db.fetchrow(
+        "SELECT status, completed_at FROM items WHERE id = $1", item_id
+    )
+    assert row is not None
+    assert row["status"] == "done"
+    assert row["completed_at"] is not None
+
+
+async def test_complete_in_wave_halted_does_not_cascade(db):
+    """outcome='halted' leaves the GTD item status unchanged."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, status="review")
+    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, wave_id, item_id, status="dispatched")
+
+    with (
+        patch(
+            "agent_gtd.services.wave_lock_service.release_wave_item",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.wave_service._publish_wave_event"),
+    ):
+        await complete_in_wave(db, user_id, wave_id, item_id, outcome="halted")
+
+    row = await db.fetchrow("SELECT status FROM items WHERE id = $1", item_id)
+    assert row is not None
+    assert row["status"] == "review"
+
+
+async def test_complete_in_wave_skipped_does_not_cascade(db):
+    """outcome='skipped' leaves the GTD item status unchanged."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, status="active")
+    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, wave_id, item_id, status="dispatched")
+
+    with (
+        patch(
+            "agent_gtd.services.wave_lock_service.release_wave_item",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.wave_service._publish_wave_event"),
+    ):
+        await complete_in_wave(db, user_id, wave_id, item_id, outcome="skipped")
+
+    row = await db.fetchrow("SELECT status FROM items WHERE id = $1", item_id)
+    assert row is not None
+    assert row["status"] == "active"
+
+
+async def test_complete_in_wave_graph_complete_true_when_last_item(db):
+    """Single-item wave: completing the last item returns graph_complete=True."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, status="review")
+    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, wave_id, item_id, status="dispatched")
+
+    with (
+        patch(
+            "agent_gtd.services.wave_lock_service.release_wave_item",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.wave_service._publish_wave_event"),
+    ):
+        result = await complete_in_wave(
+            db, user_id, wave_id, item_id, outcome="completed"
+        )
+
+    assert result["graph_complete"] is True
+
+
+async def test_complete_in_wave_graph_complete_false_when_items_remain(db):
+    """Two-item wave: completing one dispatched item returns graph_complete=False."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item1_id = await _make_item(
+        db, user_id, project_id, status="active", title="Item 1"
+    )
+    item2_id = await _make_item(
+        db, user_id, project_id, status="active", title="Item 2"
+    )
+    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, wave_id, item1_id, status="dispatched")
+    await _make_wave_plan_item(db, wave_id, item2_id, status="pending")
+
+    with (
+        patch(
+            "agent_gtd.services.wave_lock_service.release_wave_item",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.wave_service._publish_wave_event"),
+    ):
+        result = await complete_in_wave(
+            db, user_id, wave_id, item1_id, outcome="completed"
+        )
+
+    assert result["graph_complete"] is False

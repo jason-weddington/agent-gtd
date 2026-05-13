@@ -271,16 +271,22 @@ async def test_wave_event_fan_out_to_members(_setup_db):
         # (bus.publish does multiple DB awaits, so a single sleep(0) is not enough)
         await asyncio.sleep(0.05)
 
-        # Both queues should receive the wave_event
-        assert not owner_queue.empty(), "owner queue should have received wave_event"
-        owner_event = owner_queue.get_nowait()
-        assert owner_event["event_type"] == "wave_event"
+        # Both queues should receive the wave_event. complete_in_wave now also
+        # cascades the item status to 'done' which emits an item_updated event
+        # first — drain the queue and look for the wave_event specifically.
+        def _drain_for_wave_event(q):
+            events = []
+            while not q.empty():
+                events.append(q.get_nowait())
+            wave_events = [e for e in events if e["event_type"] == "wave_event"]
+            assert wave_events, f"queue should contain a wave_event, got: {events}"
+            return wave_events[0]
+
+        owner_event = _drain_for_wave_event(owner_queue)
         assert owner_event["entity_type"] == "wave_run"
         assert owner_event["project_id"] == project_id
 
-        assert not member_queue.empty(), "member queue should have received wave_event"
-        member_event = member_queue.get_nowait()
-        assert member_event["event_type"] == "wave_event"
+        member_event = _drain_for_wave_event(member_queue)
         assert member_event["entity_type"] == "wave_run"
         assert member_event["project_id"] == project_id
     finally:
