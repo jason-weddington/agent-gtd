@@ -113,7 +113,7 @@ export default function WaveHaltCard({
     setAborting(true)
     setAbortError(null)
     try {
-      await api.waves.halt(waveRun.id, 'Manually aborted by user')
+      await api.waves.cancel(waveRun.id, 'Manually aborted by user')
       setAbortOpen(false)
       onAbort()
     } catch (err) {

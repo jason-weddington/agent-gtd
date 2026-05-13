@@ -11,6 +11,7 @@ from agent_gtd.database import encode_json_list, get_db
 from agent_gtd.exceptions import LegalityContractError, ValidationError
 from agent_gtd.services.wave_service import (
     call_planner,
+    cancel_wave,
     has_acceptance_criteria,
     parse_declared_files,
     validate_legality_contract,
@@ -499,6 +500,157 @@ async def test_plan_wave_no_wave_run_inserted_on_empty_list(db):
 
     rows = await db.fetch("SELECT id FROM autonomous_wave_runs")
     assert len(rows) == 0
+
+
+# ---------------------------------------------------------------------------
+# cancel_wave — DB-backed tests
+# ---------------------------------------------------------------------------
+
+
+async def _make_wave_run(
+    db, user_id: str, project_id: str, *, status: str = "halted"
+) -> str:
+    """Insert an autonomous_wave_runs row and return its ID."""
+    wave_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO autonomous_wave_runs"
+        " (id, project_id, lead_user_id, status, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6)",
+        wave_id,
+        project_id,
+        user_id,
+        status,
+        NOW,
+        NOW,
+    )
+    return wave_id
+
+
+async def _make_wave_plan_item(
+    db,
+    wave_run_id: str,
+    item_id: str,
+    *,
+    status: str = "pending",
+) -> None:
+    """Insert a wave_plan_items row."""
+    await db.execute(
+        "INSERT INTO wave_plan_items (wave_run_id, item_id, status)"
+        " VALUES ($1, $2, $3)",
+        wave_run_id,
+        item_id,
+        status,
+    )
+
+
+async def _get_wave_item_status(db, wave_run_id: str, item_id: str) -> str:
+    """Return the status of a wave_plan_items row."""
+    row = await db.fetchrow(
+        "SELECT status FROM wave_plan_items WHERE wave_run_id = $1 AND item_id = $2",
+        wave_run_id,
+        item_id,
+    )
+    assert row is not None
+    return row["status"]  # type: ignore[return-value]
+
+
+async def test_cancel_wave_halted_to_cancelled(db):
+    """halted → cancelled transition works."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    wave_id = await _make_wave_run(db, user_id, project_id, status="halted")
+
+    with (
+        patch(
+            "agent_gtd.services.wave_lock_service.release_wave_locks",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.wave_service._publish_wave_event"),
+    ):
+        result = await cancel_wave(db, user_id, wave_id, "test abort")
+
+    assert result["status"] == "cancelled"
+    assert result["halt_reason"] == "test abort"
+
+
+async def test_cancel_wave_running_to_cancelled(db):
+    """running → cancelled transition works."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
+
+    with (
+        patch(
+            "agent_gtd.services.wave_lock_service.release_wave_locks",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.wave_service._publish_wave_event"),
+    ):
+        result = await cancel_wave(db, user_id, wave_id, "running abort")
+
+    assert result["status"] == "cancelled"
+
+
+async def test_cancel_wave_idempotent(db):
+    """Cancelling an already-cancelled wave returns success without error."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    wave_id = await _make_wave_run(db, user_id, project_id, status="cancelled")
+
+    # No patch needed — the early-return path skips release_wave_locks and publish.
+    result = await cancel_wave(db, user_id, wave_id, "re-cancel")
+
+    assert result["status"] == "cancelled"
+
+
+async def test_cancel_wave_marks_in_progress_items_skipped(db):
+    """Non-terminal wave plan items are marked skipped."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    wave_id = await _make_wave_run(db, user_id, project_id, status="halted")
+
+    item_pending = await _make_item(db, user_id, project_id, title="Pending item")
+    item_halted_i = await _make_item(db, user_id, project_id, title="Halted item")
+    item_completed = await _make_item(db, user_id, project_id, title="Completed item")
+
+    await _make_wave_plan_item(db, wave_id, item_pending, status="pending")
+    await _make_wave_plan_item(db, wave_id, item_halted_i, status="halted")
+    await _make_wave_plan_item(db, wave_id, item_completed, status="completed")
+
+    with (
+        patch(
+            "agent_gtd.services.wave_lock_service.release_wave_locks",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.wave_service._publish_wave_event"),
+    ):
+        await cancel_wave(db, user_id, wave_id, "abort all")
+
+    assert await _get_wave_item_status(db, wave_id, item_pending) == "skipped"
+    assert await _get_wave_item_status(db, wave_id, item_halted_i) == "skipped"
+    # completed items are untouched
+    assert await _get_wave_item_status(db, wave_id, item_completed) == "completed"
+
+
+async def test_cancel_wave_completed_items_untouched(db):
+    """Completed wave plan items are not modified by cancel."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    wave_id = await _make_wave_run(db, user_id, project_id, status="halted")
+
+    item_done = await _make_item(db, user_id, project_id, title="Done item")
+    await _make_wave_plan_item(db, wave_id, item_done, status="completed")
+
+    with (
+        patch(
+            "agent_gtd.services.wave_lock_service.release_wave_locks",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.wave_service._publish_wave_event"),
+    ):
+        await cancel_wave(db, user_id, wave_id, "cancel with done items")
+
+    assert await _get_wave_item_status(db, wave_id, item_done) == "completed"
 
 
 # ---------------------------------------------------------------------------

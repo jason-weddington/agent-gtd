@@ -944,6 +944,95 @@ async def halt_wave(
     return row_to_dict(row)
 
 
+async def cancel_wave(
+    db: DbPool,
+    user_id: str,
+    wave_run_id: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Cancel a wave, marking remaining items as skipped.
+
+    Transitions the wave to ``cancelled`` status and marks any non-terminal
+    wave plan items as ``skipped``.  Accepts waves in any non-terminal status
+    (pending, planning, running, halted, crashed).  Idempotent — cancelling an
+    already-cancelled wave returns success without error.
+
+    The active-waves query (``get_active_wave_for_project``) does not include
+    ``cancelled`` waves, so the halt card disappears from the dashboard once
+    this operation completes.
+
+    Args:
+        db: Database pool.
+        user_id: Calling user's ID — must be the wave's lead_user_id.
+        wave_run_id: ID of the wave run to cancel.
+        reason: Short human-readable reason for cancellation.
+
+    Returns:
+        The updated autonomous_wave_runs row dict.
+
+    Raises:
+        NotFoundError: If wave not found or caller doesn't own it.
+        ValidationError: If wave is in a terminal non-cancellable status
+            (``done`` / ``completed``).
+    """
+    wave = await _get_wave_run(db, user_id, wave_run_id)
+
+    # Idempotent: already cancelled is a no-op success.
+    if wave["status"] == "cancelled":
+        row = await db.fetchrow(
+            "SELECT * FROM autonomous_wave_runs WHERE id = $1", wave_run_id
+        )
+        assert row is not None  # noqa: S101
+        return row_to_dict(row)
+
+    cancellable_statuses = {"pending", "planning", "running", "halted", "crashed"}
+    if wave["status"] not in cancellable_statuses:
+        raise ValidationError(
+            f"Wave {wave_run_id} cannot be cancelled (status={wave['status']})"
+        )
+
+    now = datetime.now(UTC).isoformat()
+
+    await db.execute(
+        "UPDATE autonomous_wave_runs"
+        " SET status = 'cancelled', halt_reason = $1, ended_at = $2, updated_at = $3"
+        " WHERE id = $4",
+        reason,
+        now,
+        now,
+        wave_run_id,
+    )
+
+    # Mark all non-terminal wave plan items as skipped.
+    await db.execute(
+        "UPDATE wave_plan_items SET status = 'skipped'"
+        " WHERE wave_run_id = $1"
+        "   AND status IN ('pending', 'ready', 'dispatched', 'halted')",
+        wave_run_id,
+    )
+
+    # Release any remaining wave-scoped item locks (best effort).
+    from agent_gtd.services.wave_lock_service import release_wave_locks
+
+    await release_wave_locks(db, wave_run_id)
+
+    # Emit wave_cancelled event and publish to SSE subscribers.
+    wave_event = await _append_wave_event(
+        db,
+        wave_run_id,
+        kind="wave_cancelled",
+        actor="human",
+        payload={"reason": reason},
+    )
+    _publish_wave_event(db, user_id, wave_event, str(wave["project_id"]))
+
+    row = await db.fetchrow(
+        "SELECT * FROM autonomous_wave_runs WHERE id = $1", wave_run_id
+    )
+    assert row is not None  # noqa: S101
+    return row_to_dict(row)
+
+
 async def _call_planner(
     db: DbPool,
     user_id: str,
@@ -1317,8 +1406,7 @@ async def get_wave_events(
 
     effective_limit = min(max(1, limit), 200)
     rows = await db.fetch(
-        "SELECT * FROM wave_events WHERE wave_run_id = $1"
-        " ORDER BY seq DESC LIMIT $2",
+        "SELECT * FROM wave_events WHERE wave_run_id = $1 ORDER BY seq DESC LIMIT $2",
         wave_run_id,
         effective_limit,
     )

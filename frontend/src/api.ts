@@ -261,6 +261,9 @@ export const api = {
     /** POST /api/wave-runs/{id}/halt */
     halt: (waveRunId: string, reason: string) =>
       request<unknown>('POST', `/wave-runs/${waveRunId}/halt`, { reason }),
+    /** POST /api/wave-runs/{id}/cancel */
+    cancel: (waveRunId: string, reason: string) =>
+      request<unknown>('POST', `/wave-runs/${waveRunId}/cancel`, { reason }),
     /** POST /api/wave-runs/{id}/resume */
     resume: (waveRunId: string, answer: string) =>
       request<WaveRun>('POST', `/wave-runs/${waveRunId}/resume`, { answer }),

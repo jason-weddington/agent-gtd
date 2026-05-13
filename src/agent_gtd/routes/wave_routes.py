@@ -67,6 +67,12 @@ class HaltWaveRequest(BaseModel):
     item_id: str | None = None
 
 
+class CancelWaveRequest(BaseModel):
+    """Request body for POST /cancel."""
+
+    reason: str
+
+
 class ReplanWaveRequest(BaseModel):
     """Request body for POST /replan."""
 
@@ -214,6 +220,37 @@ async def halt_wave(
         raise _map_exc(exc) from exc
 
 
+@router.post("/{wave_run_id}/cancel")
+async def cancel_wave(
+    wave_run_id: str,
+    body: CancelWaveRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Cancel a wave, marking any remaining items as skipped.
+
+    Accepts waves in any non-terminal status (pending, planning, running,
+    halted, crashed).  Idempotent for already-cancelled waves.
+
+    Args:
+        wave_run_id: The wave run to cancel.
+        body: reason for cancellation.
+        user: Injected authenticated user.
+
+    Returns:
+        The updated autonomous_wave_runs row dict.
+    """
+    db = await get_db()
+    try:
+        return await wave_service.cancel_wave(
+            db,
+            user.id,
+            wave_run_id,
+            body.reason,
+        )
+    except (NotFoundError, ValidationError) as exc:
+        raise _map_exc(exc) from exc
+
+
 @router.post("/{wave_run_id}/replan")
 async def replan_wave(
     wave_run_id: str,
@@ -270,9 +307,7 @@ async def get_active_wave(
     """
     db = await get_db()
     try:
-        wave = await wave_service.get_active_wave_for_project(
-            db, project_id, user.id
-        )
+        wave = await wave_service.get_active_wave_for_project(db, project_id, user.id)
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=exc.detail) from exc
 
@@ -337,9 +372,7 @@ async def resume_wave(
     """
     db = await get_db()
     try:
-        return await wave_service.resume_wave(
-            db, wave_run_id, body.answer, user.id
-        )
+        return await wave_service.resume_wave(db, wave_run_id, body.answer, user.id)
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=exc.detail) from exc
     except ValidationError as exc:
