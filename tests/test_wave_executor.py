@@ -1182,3 +1182,256 @@ async def test_manage_dispatch_rejected_if_wave_not_pending(
             f"Expected 409 for status={bad_status}, "
             f"got {res.status_code}: {res.text}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Build-mode wave linkage tests (AC-A1, AC-A2, AC-A3)
+# ---------------------------------------------------------------------------
+
+
+async def test_build_dispatch_transitions_wave_plan_item_to_dispatched(
+    client: AsyncClient, _mock_dispatch_preflight
+):
+    """dispatch_item(mode='build', wave_run_id=...) transitions wave_plan_items to 'dispatched'."""
+    from agent_gtd.auth import create_token, register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.services.settings_service import set_user_setting
+
+    db = await get_db()
+    user = await register_user("wave-build-1@test.com", "pw")
+    user_id = user.id
+    project_id = await _make_project(db, user_id)
+
+    now = _now()
+    await db.execute(
+        "UPDATE projects SET git_origin = $1, updated_at = $2 WHERE id = $3",
+        "git@github.com:test/build-repo1.git",
+        now,
+        project_id,
+    )
+    await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
+    await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
+
+    item_id = await _make_item(db, user_id, project_id, "Build task 1")
+    wave_run_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_item(db, wave_run_id, item_id, status="ready")
+
+    token = create_token(user_id)
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={"mode": "build", "wave_run_id": wave_run_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 201, res.text
+
+    row = await _get_wave_plan_item(db, wave_run_id, item_id)
+    assert row["status"] == "dispatched"
+
+
+async def test_build_dispatch_sets_claude_run_id_on_wave_plan_item(
+    client: AsyncClient, _mock_dispatch_preflight
+):
+    """dispatch_item(mode='build') stores the new run ID in wave_plan_items.claude_run_id."""
+    from agent_gtd.auth import create_token, register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.services.settings_service import set_user_setting
+
+    db = await get_db()
+    user = await register_user("wave-build-2@test.com", "pw")
+    user_id = user.id
+    project_id = await _make_project(db, user_id)
+
+    now = _now()
+    await db.execute(
+        "UPDATE projects SET git_origin = $1, updated_at = $2 WHERE id = $3",
+        "git@github.com:test/build-repo2.git",
+        now,
+        project_id,
+    )
+    await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
+    await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
+
+    item_id = await _make_item(db, user_id, project_id, "Build task 2")
+    wave_run_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_item(db, wave_run_id, item_id, status="ready")
+
+    token = create_token(user_id)
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={"mode": "build", "wave_run_id": wave_run_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 201, res.text
+    run_id = res.json()["id"]
+
+    row = await _get_wave_plan_item(db, wave_run_id, item_id)
+    assert row["status"] == "dispatched"
+    assert str(row["claude_run_id"]) == run_id
+
+
+async def test_build_dispatch_with_non_running_wave_raises_validation_error(
+    client: AsyncClient, _mock_dispatch_preflight
+):
+    """dispatch_item(mode='build') with a non-running wave returns 409 and leaves item unchanged."""
+    from agent_gtd.auth import create_token, register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.services.settings_service import set_user_setting
+
+    db = await get_db()
+    user = await register_user("wave-build-3@test.com", "pw")
+    user_id = user.id
+    project_id = await _make_project(db, user_id)
+
+    now = _now()
+    await db.execute(
+        "UPDATE projects SET git_origin = $1, updated_at = $2 WHERE id = $3",
+        "git@github.com:test/build-repo3.git",
+        now,
+        project_id,
+    )
+    await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
+    await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
+
+    for bad_status in ("pending", "halted", "completed"):
+        item_id = await _make_item(db, user_id, project_id, f"Build task {bad_status}")
+        wave_run_id = await _make_wave_run(db, user_id, project_id, status=bad_status)
+        await _make_wave_item(db, wave_run_id, item_id, status="ready")
+
+        token = create_token(user_id)
+        res = await client.post(
+            f"/api/items/{item_id}/dispatch",
+            json={"mode": "build", "wave_run_id": wave_run_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert res.status_code == 409, (
+            f"Expected 409 for wave status={bad_status}, got {res.status_code}: {res.text}"
+        )
+        # wave_plan_items row must remain unchanged
+        row = await _get_wave_plan_item(db, wave_run_id, item_id)
+        assert row["status"] == "ready", (
+            f"wave_plan_items should stay 'ready' when dispatch is rejected"
+        )
+
+
+async def test_manage_dispatch_without_wave_run_id_rejected(
+    client: AsyncClient, _mock_dispatch_preflight
+):
+    """dispatch_item(mode='manage') without wave_run_id returns 409."""
+    from agent_gtd.auth import create_token, register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.services.settings_service import set_user_setting
+
+    db = await get_db()
+    user = await register_user("wave-manage-no-wrid@test.com", "pw")
+    user_id = user.id
+    project_id = await _make_project(db, user_id)
+
+    now = _now()
+    await db.execute(
+        "UPDATE projects SET git_origin = $1, updated_at = $2 WHERE id = $3",
+        "git@github.com:test/manage-no-wrid.git",
+        now,
+        project_id,
+    )
+    await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
+    await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
+
+    item_id = await _make_item(db, user_id, project_id, "Manager task no wrid")
+
+    token = create_token(user_id)
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={"mode": "manage"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 409, res.text
+
+
+async def test_happy_path_plan_wave_to_complete_in_wave(
+    client: AsyncClient, _mock_dispatch_preflight
+):
+    """Full happy path: manage dispatch → build dispatch → complete_in_wave.
+
+    Wave transitions: pending→running (manage), ready→dispatched (build),
+    dispatched→completed (complete_in_wave).  Downstream item B becomes 'ready'.
+    """
+    from agent_gtd.auth import create_token, register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.services.settings_service import set_user_setting
+
+    db = await get_db()
+    user = await register_user("wave-happy-path@test.com", "pw")
+    user_id = user.id
+    project_id = await _make_project(db, user_id)
+
+    now = _now()
+    await db.execute(
+        "UPDATE projects SET git_origin = $1, updated_at = $2 WHERE id = $3",
+        "git@github.com:test/happy-path-repo.git",
+        now,
+        project_id,
+    )
+    await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
+    await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
+
+    # Create items: A (wave-1), B (wave-2, blocked by A)
+    item_a_id = await _make_item(db, user_id, project_id, "Happy Item A")
+    item_b_id = await _make_item(db, user_id, project_id, "Happy Item B")
+    manager_item_id = await _make_item(db, user_id, project_id, "Manager")
+
+    # Create a pending wave
+    wave_run_id = await _make_wave_run(db, user_id, project_id, status="pending")
+
+    # Create DAG: A → B (B blocked by A)
+    await _make_wave_plan(
+        db,
+        wave_run_id,
+        nodes=[item_a_id, item_b_id],
+        edges=[{"from_item_id": item_a_id, "to_item_id": item_b_id}],
+    )
+    # Wave-1: A is ready; B is pending (blocked)
+    await _make_wave_item(db, wave_run_id, item_a_id, status="ready")
+    await _make_wave_item(db, wave_run_id, item_b_id, status="pending")
+
+    token = create_token(user_id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Step 1: manage dispatch → wave becomes 'running'
+    res = await client.post(
+        f"/api/items/{manager_item_id}/dispatch",
+        json={"mode": "manage", "wave_run_id": wave_run_id},
+        headers=headers,
+    )
+    assert res.status_code == 201, f"manage dispatch failed: {res.text}"
+
+    wave = await _get_wave_run(db, wave_run_id)
+    assert wave["status"] == "running"
+
+    # Step 2: build dispatch for item A → wave_plan_items A becomes 'dispatched'
+    res = await client.post(
+        f"/api/items/{item_a_id}/dispatch",
+        json={"mode": "build", "wave_run_id": wave_run_id},
+        headers=headers,
+    )
+    assert res.status_code == 201, f"build dispatch failed: {res.text}"
+    run_id = res.json()["id"]
+
+    row_a = await _get_wave_plan_item(db, wave_run_id, item_a_id)
+    assert row_a["status"] == "dispatched"
+    assert str(row_a["claude_run_id"]) == run_id
+
+    # Step 3: complete item A → B unblocked (becomes 'ready')
+    res = await client.post(
+        f"/api/wave-runs/{wave_run_id}/complete-item",
+        json={"item_id": item_a_id, "outcome": "completed"},
+        headers=headers,
+    )
+    assert res.status_code == 200, f"complete_in_wave failed: {res.text}"
+    data = res.json()
+    assert item_b_id in data["newly_ready"]
+
+    # Final DB state
+    row_a = await _get_wave_plan_item(db, wave_run_id, item_a_id)
+    row_b = await _get_wave_plan_item(db, wave_run_id, item_b_id)
+    assert row_a["status"] == "completed"
+    assert row_b["status"] == "ready"

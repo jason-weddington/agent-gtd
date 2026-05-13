@@ -93,6 +93,21 @@ async def create_run(
     if unresolved:
         raise BlockersUnresolvedError("dispatch this item", unresolved)
 
+    # Manage-mode requires wave_run_id (service-level guard; MCP layer also checks)
+    if mode == "manage" and wave_run_id is None:
+        raise ValidationError("wave_run_id is required for mode='manage'")
+
+    # Build-mode wave pre-flight: validate wave exists, is owned, and is running
+    if mode == "build" and wave_run_id is not None:
+        from agent_gtd.services.wave_service import _get_wave_run
+
+        wave_build = await _get_wave_run(db, user_id, wave_run_id)
+        if wave_build["status"] != "running":
+            raise ValidationError(
+                f"Wave {wave_run_id} is not running (status={wave_build['status']}); "
+                "build-mode dispatch requires a running wave"
+            )
+
     # Manage-mode pre-flight: validate the wave exists, is owned, and is pending
     wave: dict[str, Any] | None = None
     if mode == "manage" and wave_run_id is not None:
@@ -143,6 +158,17 @@ async def create_run(
         now,
         now,
     )
+
+    # Build-mode wave linkage: transition wave_plan_items ready → dispatched
+    if mode == "build" and wave_run_id is not None:
+        await db.execute(
+            "UPDATE wave_plan_items"
+            " SET status = 'dispatched', claude_run_id = $1"
+            " WHERE wave_run_id = $2 AND item_id = $3 AND status = 'ready'",
+            run_id,
+            wave_run_id,
+            item_id,
+        )
 
     # Manage-mode wave status flip: pending → running (atomic, race-safe)
     if mode == "manage" and wave_run_id is not None and wave is not None:

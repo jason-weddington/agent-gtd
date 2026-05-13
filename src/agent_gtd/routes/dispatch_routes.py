@@ -57,6 +57,7 @@ def _run_response(row: dict[str, object]) -> RunResponse:
         workspace_dir=str(row.get("workspace_dir", "")),
         max_turns=int(str(row.get("max_turns", 50))),
         mode=str(row.get("mode", "build")),
+        wave_run_id=str(row["wave_run_id"]) if row.get("wave_run_id") else None,
         started_at=(
             datetime.fromisoformat(str(row["started_at"]))
             if row.get("started_at")

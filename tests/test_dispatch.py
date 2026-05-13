@@ -2163,3 +2163,49 @@ async def test_create_run_forwards_wave_run_id_to_dispatch_worker(
     await execute_run(db, run, item, project)
 
     assert captured_body["wave_run_id"] == wave_id
+
+
+async def test_run_response_includes_wave_run_id(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+):
+    """GET /api/runs/{run_id} returns wave_run_id (non-null) when the DB row has it set."""
+    import uuid
+    from datetime import UTC, datetime
+
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    # Insert a running wave so the FK reference is valid
+    wave_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO autonomous_wave_runs"
+        " (id, project_id, lead_user_id, status, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6)",
+        wave_id,
+        project_id,
+        user_id,
+        "running",
+        now,
+        now,
+    )
+
+    # Dispatch with wave_run_id (mode=build, running wave → passes pre-flight)
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={"mode": "build", "wave_run_id": wave_id},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201, res.text
+    run_id = res.json()["id"]
+
+    # The dispatch response itself should include wave_run_id
+    assert res.json()["wave_run_id"] == wave_id
+
+    # GET /api/runs/{run_id} should also return wave_run_id
+    get_res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
+    assert get_res.status_code == 200
+    assert get_res.json()["wave_run_id"] == wave_id
