@@ -79,6 +79,14 @@ class ReplanWaveRequest(BaseModel):
     from_item: str | None = None
 
 
+class UpdateWaveStateRequest(BaseModel):
+    """Request body for POST /state."""
+
+    phase: str
+    current_item_id: str | None = None
+    current_step: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -274,6 +282,39 @@ async def replan_wave(
             user.id,
             wave_run_id,
             from_item=body.from_item,
+        )
+    except (NotFoundError, ValidationError) as exc:
+        raise _map_exc(exc) from exc
+
+
+@router.post("/{wave_run_id}/state")
+async def update_wave_state(
+    wave_run_id: str,
+    body: UpdateWaveStateRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Update the manager's current semantic state for a running wave.
+
+    Called by the manage-mode agent (via HttpBackend) at each major workflow
+    transition to publish semantic state to the dashboard.
+
+    Args:
+        wave_run_id: The wave run to update.
+        body: phase, optional current_item_id, optional current_step.
+        user: Injected authenticated user.
+
+    Returns:
+        Dict with wave_run_id, ts, phase, current_item_id, current_step.
+    """
+    db = await get_db()
+    try:
+        return await wave_service.update_wave_state(
+            db,
+            user.id,
+            wave_run_id,
+            phase=body.phase,
+            current_item_id=body.current_item_id,
+            current_step=body.current_step,
         )
     except (NotFoundError, ValidationError) as exc:
         raise _map_exc(exc) from exc

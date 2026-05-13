@@ -239,7 +239,11 @@ _SCHEMA_STATEMENTS: list[str] = [
         started_at TEXT,
         ended_at TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        manager_phase TEXT,
+        manager_current_item_id TEXT,
+        manager_current_step TEXT,
+        manager_state_updated_at TEXT
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_wave_runs_project_id "
@@ -434,6 +438,11 @@ _MIGRATIONS: list[str] = [
     "ON wave_events(wave_run_id)",
     # Wave item lock column.
     "ALTER TABLE items ADD COLUMN locked_by_wave_id TEXT",
+    # Manager state heartbeat columns (AC-1).
+    "ALTER TABLE autonomous_wave_runs ADD COLUMN manager_phase TEXT",
+    "ALTER TABLE autonomous_wave_runs ADD COLUMN manager_current_item_id TEXT",
+    "ALTER TABLE autonomous_wave_runs ADD COLUMN manager_current_step TEXT",
+    "ALTER TABLE autonomous_wave_runs ADD COLUMN manager_state_updated_at TEXT",
 ]
 
 

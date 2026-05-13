@@ -96,6 +96,9 @@ function shortId(id: unknown): string {
 }
 
 export default function WaveEventFeed({ events, loading }: WaveEventFeedProps) {
+  // AC-6: filter out manager_state_update events — state ≠ activity log.
+  const displayEvents = events.filter((e) => e.kind !== 'manager_state_update')
+
   if (loading) {
     return (
       <Box sx={{ mt: 1 }}>
@@ -106,7 +109,7 @@ export default function WaveEventFeed({ events, loading }: WaveEventFeedProps) {
     )
   }
 
-  if (events.length === 0) {
+  if (displayEvents.length === 0) {
     // AC-9: empty state
     return (
       <Box sx={{ py: 2, textAlign: 'center' }}>
@@ -145,7 +148,7 @@ export default function WaveEventFeed({ events, loading }: WaveEventFeedProps) {
           </TableRow>
         </TableHead>
         <TableBody>
-          {events.map((event) => {
+          {displayEvents.map((event) => {
             const itemId =
               (event.payload.item_id as string | undefined) ?? null
             return (

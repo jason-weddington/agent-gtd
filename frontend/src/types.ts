@@ -201,6 +201,11 @@ export interface WaveRun {
   updatedAt: string
   totalCount: number
   doneCount: number
+  managerPhase: string | null
+  managerCurrentItemId: string | null
+  managerCurrentStep: string | null
+  managerStateUpdatedAt: string | null
+  managerCurrentItemTitle: string | null
 }
 
 export interface WaveEvent {

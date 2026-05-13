@@ -1433,6 +1433,51 @@ async def ping_wave(
         raise ToolError(e.detail) from None
 
 
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+async def update_wave_state(
+    wave_run_id: str,
+    phase: str,
+    ctx: Context,
+    current_item_id: str | None = None,
+    current_step: str | None = None,
+) -> dict[str, Any]:
+    """Publish the manager's current semantic state for a running wave.
+
+    The manage-mode agent calls this at each major workflow transition so the
+    dashboard can display "Manager: merging · working on <item> · last updated
+    2 min ago" instead of just elapsed time.
+
+    Valid ``phase`` values: ``"warm_up"``, ``"dispatching"``, ``"polling"``,
+    ``"reviewing"``, ``"merging"``, ``"reconciling_ac"``, ``"halted"``.
+
+    Args:
+        wave_run_id: ID of the wave run to update.
+        phase: Current execution phase of the manager.
+        ctx: MCP context (injected automatically).
+        current_item_id: The item ID being acted on, or ``None``.
+        current_step: Short free-form description of the current step.
+
+    Returns:
+        Dict with keys ``wave_run_id``, ``ts``, ``phase``,
+        ``current_item_id``, ``current_step``.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.update_wave_state(
+            session["user_id"],
+            wave_run_id,
+            phase=phase,
+            current_item_id=current_item_id,
+            current_step=current_step,
+        )
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+    except ValidationError as e:
+        raise ToolError(e.detail) from None
+
+
 # --- Entry point ---
 
 

@@ -1259,6 +1259,22 @@ _VALID_PHASES = frozenset(
     ("", "planning", "dispatching", "monitoring", "merging", "halted")
 )
 
+# ---------------------------------------------------------------------------
+# Manager state heartbeat (semantic observability)
+# ---------------------------------------------------------------------------
+
+_VALID_MANAGER_PHASES = frozenset(
+    (
+        "warm_up",
+        "dispatching",
+        "polling",
+        "reviewing",
+        "merging",
+        "reconciling_ac",
+        "halted",
+    )
+)
+
 
 async def ping_wave(
     db: DbPool,
@@ -1327,6 +1343,94 @@ async def ping_wave(
     }
 
 
+async def update_wave_state(
+    db: DbPool,
+    user_id: str,
+    wave_run_id: str,
+    phase: str,
+    current_item_id: str | None = None,
+    current_step: str | None = None,
+) -> dict[str, Any]:
+    """Record the manager's current semantic state for a running wave.
+
+    The manage-mode agent calls this at each major workflow transition so the
+    dashboard can display "Manager: merging · working on <item> · last updated
+    2 min ago" instead of just elapsed time.
+
+    Args:
+        db: Database pool.
+        user_id: Calling user's ID — must be the wave's lead_user_id.
+        wave_run_id: ID of the wave run to update.
+        phase: Current execution phase. Must be one of
+            ``warm_up | dispatching | polling | reviewing | merging |
+            reconciling_ac | halted``.
+        current_item_id: The item ID the manager is currently acting on,
+            or ``None`` if not item-specific.
+        current_step: Short free-form description of the current step,
+            e.g. ``"Merging feat/abc → main"``.
+
+    Returns:
+        Dict with keys ``wave_run_id``, ``ts``, ``phase``,
+        ``current_item_id``, ``current_step``.
+
+    Raises:
+        NotFoundError: If wave not found or caller doesn't own it.
+        ValidationError: If wave status is not ``'running'`` or phase is
+            invalid.
+    """
+    if phase not in _VALID_MANAGER_PHASES:
+        raise ValidationError(
+            f"Invalid phase '{phase}' — must be one of: "
+            + ", ".join(sorted(_VALID_MANAGER_PHASES))
+        )
+
+    wave = await _get_wave_run(db, user_id, wave_run_id)
+    if wave["status"] != "running":
+        raise ValidationError(
+            f"Wave {wave_run_id} is not running (status={wave['status']})"
+        )
+
+    now = datetime.now(UTC).isoformat()
+
+    await db.execute(
+        """
+        UPDATE autonomous_wave_runs
+        SET manager_phase = $1,
+            manager_current_item_id = $2,
+            manager_current_step = $3,
+            manager_state_updated_at = $4,
+            updated_at = $5
+        WHERE id = $6
+        """,
+        phase,
+        current_item_id,
+        current_step,
+        now,
+        now,
+        wave_run_id,
+    )
+
+    await _append_wave_event(
+        db,
+        wave_run_id,
+        kind="manager_state_update",
+        actor="manager",
+        payload={
+            "phase": phase,
+            "current_item_id": current_item_id,
+            "current_step": current_step,
+        },
+    )
+
+    return {
+        "wave_run_id": wave_run_id,
+        "ts": now,
+        "phase": phase,
+        "current_item_id": current_item_id,
+        "current_step": current_step,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Frontend-facing service functions (active wave query, events list, resume)
 # ---------------------------------------------------------------------------
@@ -1378,13 +1482,15 @@ async def get_active_wave_for_project(
 
     row = await db.fetchrow(
         """
-        SELECT * FROM autonomous_wave_runs
-        WHERE project_id = $1
+        SELECT wr.*, i.title AS manager_current_item_title
+        FROM autonomous_wave_runs wr
+        LEFT JOIN items i ON wr.manager_current_item_id = i.id
+        WHERE wr.project_id = $1
           AND (
-            status IN ('pending', 'planning', 'running', 'halted')
-            OR (status IN ('completed', 'crashed') AND created_at >= $2)
+            wr.status IN ('pending', 'planning', 'running', 'halted')
+            OR (wr.status IN ('completed', 'crashed') AND wr.created_at >= $2)
           )
-        ORDER BY created_at DESC
+        ORDER BY wr.created_at DESC
         LIMIT 1
         """,
         project_id,

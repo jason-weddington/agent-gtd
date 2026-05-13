@@ -912,9 +912,7 @@ async def test_replan_wave_readiness_regression(
 # ---------------------------------------------------------------------------
 
 
-async def _make_ready_item(
-    db: Any, user_id: str, project_id: str, title: str
-) -> str:
+async def _make_ready_item(db: Any, user_id: str, project_id: str, title: str) -> str:
     """Insert a GTD item that satisfies the wave legality contract."""
     from agent_gtd.auth import register_user as _ignored  # noqa: F401
 
@@ -941,9 +939,7 @@ async def _make_ready_item(
     return item_id
 
 
-async def _configure_dispatch(
-    db: Any, user_id: str, url: str, api_key: str
-) -> None:
+async def _configure_dispatch(db: Any, user_id: str, url: str, api_key: str) -> None:
     """Insert per-user dispatch config rows."""
     now = _now()
     for k, v in (
@@ -1002,9 +998,7 @@ async def test_plan_wave_route_legality_failure_returns_422(
     assert detail["failures"][0]["item_id"] == bad_item_id
 
 
-async def test_plan_wave_route_happy_path_returns_dag(
-    client: AsyncClient, _setup_db
-):
+async def test_plan_wave_route_happy_path_returns_dag(client: AsyncClient, _setup_db):
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
 
@@ -1038,9 +1032,7 @@ async def test_plan_wave_route_happy_path_returns_dag(
     assert "wave_run_id" in body
     assert body["status"] == "pending"
     assert body["item_count"] == 2
-    assert body["plan"]["edges"] == [
-        {"from_item_id": item_a, "to_item_id": item_b}
-    ]
+    assert body["plan"]["edges"] == [{"from_item_id": item_a, "to_item_id": item_b}]
 
 
 # ---------------------------------------------------------------------------
@@ -1179,8 +1171,7 @@ async def test_manage_dispatch_rejected_if_wave_not_pending(
             headers={"Authorization": f"Bearer {token}"},
         )
         assert res.status_code == 409, (
-            f"Expected 409 for status={bad_status}, "
-            f"got {res.status_code}: {res.text}"
+            f"Expected 409 for status={bad_status}, got {res.status_code}: {res.text}"
         )
 
 
@@ -1435,3 +1426,144 @@ async def test_happy_path_plan_wave_to_complete_in_wave(
     row_b = await _get_wave_plan_item(db, wave_run_id, item_b_id)
     assert row_a["status"] == "completed"
     assert row_b["status"] == "ready"
+
+
+# ---------------------------------------------------------------------------
+# update_wave_state tests (AC-2, AC-10)
+# ---------------------------------------------------------------------------
+
+
+async def test_update_wave_state_valid_phase(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """Valid phase updates manager state columns and appends an event."""
+    w = linear_wave
+    db = w["db"]
+
+    resp = await client.post(
+        f"/api/wave-runs/{w['wave_run_id']}/state",
+        json={
+            "phase": "dispatching",
+            "current_item_id": w["item_a_id"],
+            "current_step": "Dispatching Task A",
+        },
+        headers=w["headers"],
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["wave_run_id"] == w["wave_run_id"]
+    assert data["phase"] == "dispatching"
+    assert data["current_item_id"] == w["item_a_id"]
+    assert data["current_step"] == "Dispatching Task A"
+    assert "ts" in data
+
+    # DB columns updated
+    wave = await _get_wave_run(db, w["wave_run_id"])
+    assert wave["manager_phase"] == "dispatching"
+    assert wave["manager_current_item_id"] == w["item_a_id"]
+    assert wave["manager_current_step"] == "Dispatching Task A"
+    assert wave["manager_state_updated_at"] is not None
+
+    # SSE event appended (AC-5)
+    event = await _get_wave_event(db, w["wave_run_id"], "manager_state_update")
+    assert event is not None
+    assert event["actor"] == "manager"
+    assert event["payload"]["phase"] == "dispatching"
+
+
+async def test_update_wave_state_all_phases(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """All valid phase values are accepted."""
+    w = linear_wave
+    valid_phases = [
+        "warm_up",
+        "dispatching",
+        "polling",
+        "reviewing",
+        "merging",
+        "reconciling_ac",
+        "halted",
+    ]
+    for phase in valid_phases:
+        resp = await client.post(
+            f"/api/wave-runs/{w['wave_run_id']}/state",
+            json={"phase": phase},
+            headers=w["headers"],
+        )
+        assert resp.status_code == 200, f"phase '{phase}' was rejected"
+
+
+async def test_update_wave_state_invalid_phase(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """Invalid phase value returns 422 Unprocessable Entity."""
+    w = linear_wave
+    resp = await client.post(
+        f"/api/wave-runs/{w['wave_run_id']}/state",
+        json={"phase": "not_a_real_phase"},
+        headers=w["headers"],
+    )
+    assert resp.status_code == 422
+
+
+async def test_update_wave_state_non_running_wave(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """Calling update_wave_state on a halted wave returns 422."""
+    w = linear_wave
+    db = w["db"]
+
+    # Manually flip wave to halted
+    await db.execute(
+        "UPDATE autonomous_wave_runs SET status = 'halted' WHERE id = $1",
+        w["wave_run_id"],
+    )
+
+    resp = await client.post(
+        f"/api/wave-runs/{w['wave_run_id']}/state",
+        json={"phase": "merging"},
+        headers=w["headers"],
+    )
+    assert resp.status_code == 422
+
+
+async def test_update_wave_state_unauthorized(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """Caller that does not own the wave gets 404."""
+    from agent_gtd.auth import create_token, register_user
+
+    w = linear_wave
+
+    # Create a different user
+    other_user = await register_user("other-wave-user@example.com", "pw")
+    other_headers = {"Authorization": f"Bearer {create_token(other_user.id)}"}
+
+    resp = await client.post(
+        f"/api/wave-runs/{w['wave_run_id']}/state",
+        json={"phase": "merging"},
+        headers=other_headers,
+    )
+    assert resp.status_code == 404
+
+
+async def test_update_wave_state_null_item(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """update_wave_state with no current_item_id stores null correctly."""
+    w = linear_wave
+    db = w["db"]
+
+    resp = await client.post(
+        f"/api/wave-runs/{w['wave_run_id']}/state",
+        json={"phase": "polling", "current_step": "Waiting for build"},
+        headers=w["headers"],
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["current_item_id"] is None
+
+    wave = await _get_wave_run(db, w["wave_run_id"])
+    assert wave["manager_current_item_id"] is None
+    assert wave["manager_current_step"] == "Waiting for build"

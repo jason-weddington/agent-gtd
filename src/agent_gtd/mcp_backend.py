@@ -1084,6 +1084,27 @@ class LocalBackend:
             db, user_id, wave_run_id, phase=phase, waiting_on=waiting_on
         )
 
+    async def update_wave_state(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        phase: str,
+        current_item_id: str | None = None,
+        current_step: str | None = None,
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import wave_service
+
+        db = await get_db()
+        return await wave_service.update_wave_state(
+            db,
+            user_id,
+            wave_run_id,
+            phase=phase,
+            current_item_id=current_item_id,
+            current_step=current_step,
+        )
+
     async def close(self) -> None:
         pass
 
@@ -1911,6 +1932,27 @@ class HttpBackend:
         resp = await self._client.post(
             f"/api/wave-runs/{wave_run_id}/ping",
             json={"phase": phase, "waiting_on": waiting_on},
+            headers=self._headers(),
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def update_wave_state(
+        self,
+        user_id: str,
+        wave_run_id: str,
+        phase: str,
+        current_item_id: str | None = None,
+        current_step: str | None = None,
+    ) -> dict[str, Any]:
+        resp = await self._client.post(
+            f"/api/wave-runs/{wave_run_id}/state",
+            json={
+                "phase": phase,
+                "current_item_id": current_item_id,
+                "current_step": current_step,
+            },
             headers=self._headers(),
         )
         self._check(resp)

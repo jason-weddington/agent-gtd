@@ -18,6 +18,7 @@ import {
 } from '@mui/material'
 import { api, ApiError } from '../api'
 import type { WaveEvent, WaveRun, WaveRunStatus } from '../types'
+import { formatRelativeTime } from '../utils'
 import { useEvents } from '../contexts/EventStreamContext'
 import type { ServerEvent } from '../hooks/useEventStream'
 import WaveEventFeed from './WaveEventFeed'
@@ -77,6 +78,20 @@ export function getTitleText(status: WaveRunStatus): string {
 export function getProgressFraction(doneCount: number, totalCount: number): number {
   if (totalCount <= 0) return 0
   return Math.min(1, doneCount / totalCount)
+}
+
+/**
+ * Return true if the manager state is stale (updatedAt is more than
+ * thresholdMs milliseconds ago, or null).
+ *
+ * Used to render the state line in a muted colour with a ⚠ stale suffix.
+ */
+export function isStateStale(
+  updatedAt: string | null,
+  thresholdMs: number = 5 * 60 * 1000,
+): boolean {
+  if (updatedAt === null) return true
+  return Date.now() - new Date(updatedAt).getTime() > thresholdMs
 }
 
 // ---------------------------------------------------------------------------
@@ -299,6 +314,30 @@ export default function WaveBanner({ projectId, onActiveChange }: WaveBannerProp
             color={statusColor === 'default' ? undefined : statusColor}
             sx={{ borderRadius: 1, height: 6 }}
           />
+        )}
+        {/* Manager state line (AC-8, AC-9) */}
+        {wave.status === 'running' && wave.managerPhase !== null && (
+          <Typography
+            variant="caption"
+            sx={{
+              display: 'block',
+              mt: 0.75,
+              color: isStateStale(wave.managerStateUpdatedAt)
+                ? 'text.disabled'
+                : 'inherit',
+              opacity: isStateStale(wave.managerStateUpdatedAt) ? 0.8 : 1,
+            }}
+          >
+            {'Manager: '}
+            {wave.managerPhase}
+            {' · working on '}
+            {wave.managerCurrentItemTitle ?? wave.managerCurrentItemId ?? '—'}
+            {' · last updated '}
+            {wave.managerStateUpdatedAt
+              ? formatRelativeTime(wave.managerStateUpdatedAt)
+              : '—'}
+            {isStateStale(wave.managerStateUpdatedAt) ? ' ⚠ stale' : ''}
+          </Typography>
         )}
       </Box>
 
