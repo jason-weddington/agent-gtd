@@ -144,7 +144,10 @@ async def _add_blocker(db, item_id: str, blocker_item_id: str) -> None:
 
 
 def test_parse_declared_files_extracts_lines():
-    desc = "Intro\n\n## Files to Modify\n- src/foo.py\n- src/bar.py\n\n## Other\n- not this"
+    desc = (
+        "Intro\n\n## Files to Modify\n"
+        "- src/foo.py\n- src/bar.py\n\n## Other\n- not this"
+    )
     result = parse_declared_files(desc)
     assert result == ["- src/foo.py", "- src/bar.py"]
 
@@ -555,10 +558,13 @@ async def test_call_planner_http_status_error():
     )
     mock_client = _make_async_client_mock(response=mock_response)
 
-    with patch(
-        "agent_gtd.services.wave_service.httpx.AsyncClient",
-        return_value=mock_client,
-    ), pytest.raises(RuntimeError, match="Planner HTTP error 500"):
+    with (
+        patch(
+            "agent_gtd.services.wave_service.httpx.AsyncClient",
+            return_value=mock_client,
+        ),
+        pytest.raises(RuntimeError, match="Planner HTTP error 500"),
+    ):
         await call_planner("http://dispatch.test:8100", "key", ["item-1"])
 
 
@@ -568,10 +574,13 @@ async def test_call_planner_timeout_error():
         post_side_effect=httpx.TimeoutException("Request timed out")
     )
 
-    with patch(
-        "agent_gtd.services.wave_service.httpx.AsyncClient",
-        return_value=mock_client,
-    ), pytest.raises(RuntimeError, match="timed out"):
+    with (
+        patch(
+            "agent_gtd.services.wave_service.httpx.AsyncClient",
+            return_value=mock_client,
+        ),
+        pytest.raises(RuntimeError, match="timed out"),
+    ):
         await call_planner("http://dispatch.test:8100", "key", ["item-1"])
 
 
@@ -581,10 +590,13 @@ async def test_call_planner_network_error():
         post_side_effect=httpx.ConnectError("Connection refused")
     )
 
-    with patch(
-        "agent_gtd.services.wave_service.httpx.AsyncClient",
-        return_value=mock_client,
-    ), pytest.raises(RuntimeError, match="network error"):
+    with (
+        patch(
+            "agent_gtd.services.wave_service.httpx.AsyncClient",
+            return_value=mock_client,
+        ),
+        pytest.raises(RuntimeError, match="network error"),
+    ):
         await call_planner("http://dispatch.test:8100", "key", ["item-1"])
 
 

@@ -56,7 +56,9 @@ async def _make_project(db: Any, user_id: str, name: str = "Wave Test Project") 
     return project_id
 
 
-async def _make_item(db: Any, user_id: str, project_id: str, title: str = "Task") -> str:
+async def _make_item(
+    db: Any, user_id: str, project_id: str, title: str = "Task"
+) -> str:
     """Insert a GTD item and return its ID."""
     item_id = str(uuid.uuid4())
     now = _now()
@@ -87,7 +89,8 @@ async def _make_wave_run(
     now = _now()
     await db.execute(
         "INSERT INTO autonomous_wave_runs"
-        " (id, project_id, lead_user_id, status, halt_reason, started_at, created_at, updated_at)"
+        " (id, project_id, lead_user_id, status, halt_reason,"
+        " started_at, created_at, updated_at)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         wave_id,
         project_id,
@@ -364,9 +367,7 @@ class TestGetWaveEvents:
         self, client: AsyncClient, wave_setup: dict[str, Any]
     ) -> None:
         """Unauthenticated request is rejected."""
-        resp = await client.get(
-            f"/api/wave-runs/{wave_setup['wave_run_id']}/events"
-        )
+        resp = await client.get(f"/api/wave-runs/{wave_setup['wave_run_id']}/events")
         assert resp.status_code in (401, 403)
 
 
@@ -453,7 +454,8 @@ class TestResumeWave:
         assert resp.status_code == 200
 
         row = await db.fetchrow(
-            "SELECT status FROM wave_plan_items WHERE wave_run_id = $1 AND item_id = $2",
+            "SELECT status FROM wave_plan_items"
+            " WHERE wave_run_id = $1 AND item_id = $2",
             wave_run_id,
             item_id,
         )
