@@ -696,3 +696,159 @@ async def test_project_total_items_zero_when_no_items(
     assert res.status_code == 200
     project = next(p for p in res.json() if p["id"] == project_id)
     assert project["total_items"] == 0
+
+
+# ---------------------------------------------------------------------------
+# description_preview — pure helper unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_description_preview_helper_multiline():
+    """First non-empty line of a multi-line description is returned."""
+    from agent_gtd.services.project_service import _description_preview
+
+    assert _description_preview("Line one\nLine two\nLine three") == "Line one"
+
+
+def test_description_preview_helper_leading_blank_lines():
+    """Blank leading lines are skipped; first non-empty line is returned."""
+    from agent_gtd.services.project_service import _description_preview
+
+    assert _description_preview("\n\nActual content\nMore text") == "Actual content"
+
+
+def test_description_preview_helper_leading_whitespace_line():
+    """A line with only whitespace is skipped; next non-empty line is returned."""
+    from agent_gtd.services.project_service import _description_preview
+
+    assert _description_preview("   \nHello world") == "Hello world"
+
+
+def test_description_preview_helper_truncates_to_80_chars():
+    """First line longer than 80 chars is truncated to exactly 80."""
+    from agent_gtd.services.project_service import _description_preview
+
+    long_line = "x" * 100
+    result = _description_preview(long_line)
+    assert result == "x" * 80
+    assert len(result) == 80  # type: ignore[arg-type]
+
+
+def test_description_preview_helper_empty_string():
+    """Empty description returns None."""
+    from agent_gtd.services.project_service import _description_preview
+
+    assert _description_preview("") is None
+
+
+def test_description_preview_helper_none():
+    """None description returns None."""
+    from agent_gtd.services.project_service import _description_preview
+
+    assert _description_preview(None) is None
+
+
+def test_description_preview_helper_whitespace_only():
+    """Description with only whitespace/blank lines returns None."""
+    from agent_gtd.services.project_service import _description_preview
+
+    assert _description_preview("   \n\t\n  ") is None
+
+
+# ---------------------------------------------------------------------------
+# description_preview — integration tests via API
+# ---------------------------------------------------------------------------
+
+
+async def test_description_preview_multiline_via_api(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Project with multi-line description → preview is first non-empty line."""
+    res = await client.post(
+        "/api/projects",
+        json={"name": "Multi", "description": "First line\nSecond line\nThird"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    pid = res.json()["id"]
+
+    # Verify via GET
+    res = await client.get(f"/api/projects/{pid}", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["description_preview"] == "First line"
+
+    # Verify via LIST
+    res = await client.get("/api/projects", headers=auth_headers)
+    project = next(p for p in res.json() if p["id"] == pid)
+    assert project["description_preview"] == "First line"
+
+
+async def test_description_preview_leading_whitespace_via_api(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Project with leading-whitespace description still computes preview correctly."""
+    res = await client.post(
+        "/api/projects",
+        json={"name": "Ws", "description": "\n\n  Indented first\nSecond"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    pid = res.json()["id"]
+
+    res = await client.get(f"/api/projects/{pid}", headers=auth_headers)
+    assert res.json()["description_preview"] == "Indented first"
+
+
+async def test_description_preview_truncated_to_80_via_api(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Project with description longer than 80 chars → preview is truncated to 80."""
+    long_desc = "a" * 120
+    res = await client.post(
+        "/api/projects",
+        json={"name": "Long", "description": long_desc},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    pid = res.json()["id"]
+
+    res = await client.get(f"/api/projects/{pid}", headers=auth_headers)
+    preview = res.json()["description_preview"]
+    assert preview == "a" * 80
+    assert len(preview) == 80
+
+
+async def test_description_preview_empty_via_api(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Project with empty description → preview is None."""
+    res = await client.post(
+        "/api/projects",
+        json={"name": "Empty desc", "description": ""},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    pid = res.json()["id"]
+
+    res = await client.get(f"/api/projects/{pid}", headers=auth_headers)
+    assert res.json()["description_preview"] is None
+
+    res = await client.get("/api/projects", headers=auth_headers)
+    project = next(p for p in res.json() if p["id"] == pid)
+    assert project["description_preview"] is None
+
+
+async def test_description_preview_whitespace_only_via_api(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Project with whitespace-only description → preview is None."""
+    res = await client.post(
+        "/api/projects",
+        json={"name": "Ws only", "description": "   \n\t\n  "},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    pid = res.json()["id"]
+
+    res = await client.get(f"/api/projects/{pid}", headers=auth_headers)
+    assert res.json()["description_preview"] is None

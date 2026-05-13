@@ -95,7 +95,14 @@ async def list_projects(
         status=project_status.value if project_status else None,
         area=area,
     )
-    return [_project_response(r, caller_user_id=user.id) for r in rows]
+    return [
+        _project_response(
+            r,
+            caller_user_id=user.id,
+            description_preview=r.get("description_preview"),
+        )
+        for r in rows
+    ]
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)
@@ -129,7 +136,11 @@ async def get_project(
         row = await project_service.get_project(db, user.id, project_id)
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None
-    return _project_response(row, caller_user_id=user.id)
+    return _project_response(
+        row,
+        caller_user_id=user.id,
+        description_preview=row.get("description_preview"),
+    )
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)

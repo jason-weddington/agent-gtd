@@ -6,7 +6,7 @@ from httpx import AsyncClient
 async def test_list_projects_includes_description_preview(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """GET /api/projects responses include description_preview (None until SMOKE-5)."""
+    """GET /api/projects responses include description_preview populated from desc."""
     await client.post(
         "/api/projects",
         json={"name": "Preview Test Project", "description": "Some description"},
@@ -18,4 +18,4 @@ async def test_list_projects_includes_description_preview(
     projects = res.json()
     assert len(projects) == 1
     assert "description_preview" in projects[0]
-    assert projects[0]["description_preview"] is None
+    assert projects[0]["description_preview"] == "Some description"

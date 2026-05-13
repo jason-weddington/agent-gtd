@@ -13,6 +13,25 @@ from agent_gtd.exceptions import NotFoundError, ValidationError
 logger = logging.getLogger(__name__)
 
 
+def _description_preview(description: str | None) -> str | None:
+    """Return the first non-empty line of description, truncated to 80 chars.
+
+    Args:
+        description: Raw project description string, or None.
+
+    Returns:
+        First non-empty stripped line capped at 80 chars, or None if no such
+        line exists (empty string, None, or whitespace-only input).
+    """
+    if not description:
+        return None
+    for line in description.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped[:80]
+    return None
+
+
 async def accessible_project_ids(db: DbPool, user_id: str) -> list[str]:
     """Return all project IDs accessible to the user: owned + shared.
 
@@ -112,7 +131,10 @@ async def list_projects(
         f"WHERE {where} ORDER BY p.created_at DESC",
         *params,
     )
-    return [row_to_dict(r) for r in rows]
+    results = [row_to_dict(r) for r in rows]
+    for result in results:
+        result["description_preview"] = _description_preview(result.get("description"))
+    return results
 
 
 async def create_project(
@@ -192,7 +214,9 @@ async def get_project(db: DbPool, user_id: str, project_id: str) -> dict[str, An
     )
     if row is None:
         raise NotFoundError("Project", project_id)
-    return row_to_dict(row)
+    result = row_to_dict(row)
+    result["description_preview"] = _description_preview(result.get("description"))
+    return result
 
 
 async def update_project(
