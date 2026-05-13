@@ -22,13 +22,14 @@ from agent_gtd.exceptions import (
     ValidationError,
     VersionConflictError,
 )
+from agent_gtd.identity import compute_lead_attribution
 from agent_gtd.mcp_backend import LocalBackend, create_backend
 
 _backend = create_backend()
 _HTTP_MODE = not isinstance(_backend, LocalBackend)
 
 _ENV_API_KEY = os.environ.get("AGENT_GTD_API_KEY", "")
-_ENV_AGENT_NAME = os.environ.get("AGENT_GTD_AGENT_NAME", "mcp-agent")
+_ENV_AGENT_NAME: str | None = os.environ.get("AGENT_GTD_AGENT_NAME")
 
 
 @asynccontextmanager
@@ -103,17 +104,20 @@ async def _get_session(ctx: Context) -> dict[str, str]:
 
             session = {
                 "user_id": LOCAL_USER_ID,
-                "agent_name": "local-agent",
+                "agent_name": (
+                    _ENV_AGENT_NAME or compute_lead_attribution(LOCAL_USER_ID)
+                ),
             }
             await ctx.set_state("agent_session", session)
             return session
 
     # Auto-login via env var
     if _ENV_API_KEY:
-        result = await _backend.login(_ENV_API_KEY, _ENV_AGENT_NAME)
+        result = await _backend.login(_ENV_API_KEY, _ENV_AGENT_NAME or "")
+        agent_name = _ENV_AGENT_NAME or compute_lead_attribution(result["user_id"])
         session = {
             "user_id": result["user_id"],
-            "agent_name": result["agent_name"],
+            "agent_name": agent_name,
         }
         await ctx.set_state("agent_session", session)
         return session
@@ -1094,9 +1098,7 @@ async def dispatch_item(
     )
 
     if mode == "manage" and wave_run_id is None:
-        raise ToolError(
-            "wave_run_id is required when mode='manage'"
-        )
+        raise ToolError("wave_run_id is required when mode='manage'")
 
     session = await _get_session(ctx)
     try:

@@ -1134,6 +1134,7 @@ async def test_execute_run_success(
         api_key,
         engine="claude",
         agent_name="",
+        attribution="",
         wave_run_id=None,
         timeout_minutes=30,
     ):
@@ -1201,6 +1202,7 @@ async def test_execute_run_remote_failure(
         api_key,
         engine="claude",
         agent_name="",
+        attribution="",
         wave_run_id=None,
         timeout_minutes=30,
     ):
@@ -1351,6 +1353,7 @@ async def test_configure_and_dispatch(
         api_key,
         engine="claude",
         agent_name="",
+        attribution="",
         wave_run_id=None,
         timeout_minutes=30,
     ):
@@ -1632,6 +1635,7 @@ async def test_dispatch_uses_project_agent_override(
         api_key,
         engine="claude",
         agent_name="",
+        attribution="",
         wave_run_id=None,
         timeout_minutes=30,
     ):
@@ -1696,6 +1700,7 @@ async def test_dispatch_falls_back_to_global_agent_when_project_unset(
         api_key,
         engine="claude",
         agent_name="",
+        attribution="",
         wave_run_id=None,
         timeout_minutes=30,
     ):
@@ -1759,6 +1764,7 @@ async def test_dispatch_omits_agent_when_neither_set(
         api_key,
         engine="claude",
         agent_name="",
+        attribution="",
         wave_run_id=None,
         timeout_minutes=30,
     ):
@@ -2131,9 +2137,7 @@ async def test_create_run_forwards_wave_run_id_to_dispatch_worker(
     run = row_to_dict(run_row)
     item_row = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
     item = row_to_dict(item_row)
-    proj_row = await db.fetchrow(
-        "SELECT * FROM projects WHERE id = $1", project_id
-    )
+    proj_row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     project = row_to_dict(proj_row)
 
     captured_body: dict = {}
@@ -2149,6 +2153,7 @@ async def test_create_run_forwards_wave_run_id_to_dispatch_worker(
         api_key,
         engine="claude",
         agent_name="",
+        attribution="",
         timeout_minutes=30,
     ):
         captured_body["wave_run_id"] = wave_run_id

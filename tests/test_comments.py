@@ -49,6 +49,21 @@ async def test_create_project_comment_with_created_by(
     assert res.json()["created_by"] == "claude-code"
 
 
+async def test_comment_created_by_build_attribution(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Regression: build-mode attribution created_by is stored and returned."""
+    attribution = "claude-build-abc12345"
+    res = await client.post(
+        f"/api/projects/{project_id}/comments",
+        json={"content_markdown": "Build agent comment", "created_by": attribution},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["created_by"].startswith("claude-build-")
+    assert res.json()["created_by"] == attribution
+
+
 async def test_create_project_comment_not_found(
     client: AsyncClient, auth_headers: dict[str, str]
 ):

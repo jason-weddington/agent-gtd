@@ -13,6 +13,8 @@ from typing import Any
 
 import httpx
 
+from agent_gtd.identity import compute_run_attribution
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -188,6 +190,7 @@ async def _dispatch_to_remote(
     api_key: str,
     engine: str = "claude",
     agent_name: str = "",
+    attribution: str = "",
     timeout_minutes: int = 30,
 ) -> dict[str, Any]:
     """POST /dispatch to the remote service. Returns the remote run dict."""
@@ -200,6 +203,8 @@ async def _dispatch_to_remote(
     }
     if agent_name:
         body["agent_name"] = agent_name
+    if attribution:
+        body["attribution"] = attribution
     if wave_run_id:
         body["wave_run_id"] = wave_run_id
     resp = await client.post(
@@ -472,6 +477,7 @@ async def execute_run(
     user_id = str(run["user_id"])
     max_turns = int(str(run["max_turns"]))
     mode = str(run.get("mode", "build"))
+    attribution = compute_run_attribution(mode, run_id)
 
     # Dispatch config belongs to the project owner, not the caller.
     # Inbox items (no project) use the caller's own config.
@@ -543,6 +549,7 @@ async def execute_run(
                 api_key=dispatch_api_key,
                 engine=engine,
                 agent_name=agent_name,
+                attribution=attribution,
                 timeout_minutes=effective_timeout_minutes,
             )
             remote_run_id = remote_run["id"]

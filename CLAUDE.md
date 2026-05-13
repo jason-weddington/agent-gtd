@@ -143,6 +143,26 @@ This project ships with a **working app** — not just boilerplate. Before writi
 - App shell with sidebar navigation, header, and content area
 - API client (`api.ts`) that handles auth tokens and snake/camelCase conversion automatically
 
+## Agent Attribution (`created_by`)
+
+Every comment and item created via MCP carries a `created_by` field. Attribution
+scheme (live as of cutover date 2026-05-13):
+
+| Value | Who |
+|---|---|
+| `claude-build-<run_id_short>` | Dispatched build-mode agent (8-char run UUID prefix) |
+| `claude-plan-<run_id_short>` | Dispatched plan-mode agent |
+| `claude-manage-<run_id_short>` | Dispatched manage-mode agent |
+| `claude-lead-<user_id_short>` | Interactive lead (Claude Code in terminal) |
+| `wave-manager` | Wave service server-side status comments |
+| `human` | Human user via the web UI |
+| `mcp-agent` | **Legacy** — comments predating 2026-05-13 |
+
+Helpers live in `src/agent_gtd/identity.py`.
+
+When reading old `"mcp-agent"` comments, infer actor from branch names,
+timestamps, and wave context. Attribution is trustworthy only after cutover.
+
 ## Where to Put New Code
 
 | What you're adding | Where it goes |
