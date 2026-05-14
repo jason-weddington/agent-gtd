@@ -458,6 +458,8 @@ _MIGRATIONS: list[str] = [
     "ALTER TABLE claude_runs RENAME COLUMN wave_run_id TO rollout_id",
     "ALTER TABLE items RENAME COLUMN locked_by_wave_id TO locked_by_rollout_id",
     "ALTER TABLE claude_runs ALTER COLUMN item_id DROP NOT NULL",
+    # Manage subprocess auto-recovery retry counter.
+    "ALTER TABLE autonomous_rollouts ADD COLUMN manage_retry_count INTEGER NOT NULL DEFAULT 0",  # noqa: E501
 ]
 
 

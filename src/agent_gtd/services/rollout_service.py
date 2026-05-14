@@ -899,7 +899,7 @@ async def halt_rollout(
         ValidationError: If wave status is not 'running'.
     """
     wave = await _get_rollout(db, user_id, rollout_id)
-    if wave["status"] != "running":
+    if wave["status"] not in {"running", "pending"}:
         raise ValidationError(
             f"Wave {rollout_id} is not running (status={wave['status']})"
         )
@@ -976,6 +976,78 @@ async def halt_rollout(
     )
     assert row is not None  # noqa: S101
     return row_to_dict(row)
+
+
+async def get_rollout(
+    db: DbPool,
+    user_id: str,
+    rollout_id: str,
+) -> dict[str, Any]:
+    """Fetch a rollout by ID (caller must be the lead_user_id).
+
+    Args:
+        db: Database pool.
+        user_id: Calling user's ID — must match lead_user_id.
+        rollout_id: The rollout to fetch.
+
+    Returns:
+        The autonomous_rollouts row as a dict.
+
+    Raises:
+        NotFoundError: If not found or not owned by the caller.
+    """
+    return await _get_rollout(db, user_id, rollout_id)
+
+
+async def relaunch_manage_rollout(
+    db: DbPool,
+    user_id: str,
+    rollout_id: str,
+) -> dict[str, Any]:
+    """Atomically increment manage_retry_count and emit a manage_relaunched event.
+
+    Called by the dispatch service when a manage subprocess exits unexpectedly
+    and a new manage agent will be started.  The incremented count is used by
+    the dispatch service to decide whether to retry or halt.
+
+    Args:
+        db: Database pool.
+        user_id: Calling user's ID — must be the rollout's lead_user_id.
+        rollout_id: The rollout whose manager is being relaunched.
+
+    Returns:
+        The updated autonomous_rollouts row as a dict (includes manage_retry_count).
+
+    Raises:
+        NotFoundError: If not found or not owned by the caller.
+    """
+    wave = await _get_rollout(db, user_id, rollout_id)
+    project_id = str(wave["project_id"])
+
+    now = datetime.now(UTC).isoformat()
+    row = await db.fetchrow(
+        "UPDATE autonomous_rollouts"
+        " SET manage_retry_count = manage_retry_count + 1, updated_at = $1"
+        " WHERE id = $2"
+        " RETURNING *",
+        now,
+        rollout_id,
+    )
+    assert row is not None  # noqa: S101
+    updated = row_to_dict(row)
+
+    new_count = int(updated["manage_retry_count"])
+
+    wave_event = await _append_rollout_event(
+        db,
+        rollout_id,
+        kind="manage_relaunched",
+        actor="dispatch",
+        payload={"retry_count": new_count},
+    )
+    _publish_rollout_event(db, user_id, wave_event, project_id)
+
+    return updated
 
 
 async def cancel_rollout(

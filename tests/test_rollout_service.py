@@ -1023,3 +1023,200 @@ async def test_complete_item_in_rollout_graph_complete_false_when_items_remain(d
         )
 
     assert result["graph_complete"] is False
+
+
+# ---------------------------------------------------------------------------
+# relaunch_manage_rollout — new for manage subprocess auto-recovery
+# ---------------------------------------------------------------------------
+
+
+from agent_gtd.services.rollout_service import (  # noqa: E402
+    get_rollout,
+    halt_rollout,
+    relaunch_manage_rollout,
+)
+
+
+async def test_get_rollout_returns_dict(db):
+    """get_rollout returns the rollout row as a dict."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+
+    result = await get_rollout(db, user_id, rollout_id)
+
+    assert result["id"] == rollout_id
+    assert result["status"] == "running"
+    assert result["lead_user_id"] == user_id
+
+
+async def test_get_rollout_not_found_raises(db):
+    """get_rollout raises NotFoundError for unknown IDs."""
+    user_id = await _make_user(db)
+
+    with pytest.raises(NotFoundError):
+        await get_rollout(db, user_id, "nonexistent-id")
+
+
+async def test_get_rollout_wrong_user_raises(db):
+    """get_rollout raises NotFoundError when caller doesn't own the rollout."""
+    user_id = await _make_user(db)
+    other_user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+
+    with pytest.raises(NotFoundError):
+        await get_rollout(db, other_user_id, rollout_id)
+
+
+async def test_relaunch_manage_increments_count(db):
+    """relaunch_manage_rollout atomically increments manage_retry_count."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        result = await relaunch_manage_rollout(db, user_id, rollout_id)
+
+    assert result["manage_retry_count"] == 1
+
+    # Second call increments again
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        result2 = await relaunch_manage_rollout(db, user_id, rollout_id)
+
+    assert result2["manage_retry_count"] == 2
+
+
+async def test_relaunch_manage_emits_correct_event(db):
+    """relaunch_manage_rollout emits a manage_relaunched event with retry_count."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+
+    emitted_events: list[dict] = []
+
+    def _capture_publish(db, lead_user_id, event, proj_id):
+        emitted_events.append(event)
+
+    with patch(
+        "agent_gtd.services.rollout_service._publish_rollout_event",
+        side_effect=_capture_publish,
+    ):
+        result = await relaunch_manage_rollout(db, user_id, rollout_id)
+
+    assert len(emitted_events) == 1
+    event = emitted_events[0]
+    assert event["kind"] == "manage_relaunched"
+    assert event["actor"] == "dispatch"
+    assert event["payload"]["retry_count"] == 1
+    assert result["manage_retry_count"] == 1
+
+
+async def test_relaunch_manage_not_found_raises(db):
+    """relaunch_manage_rollout raises NotFoundError for unknown rollout."""
+    user_id = await _make_user(db)
+
+    with pytest.raises(NotFoundError):
+        await relaunch_manage_rollout(db, user_id, "no-such-rollout")
+
+
+async def test_relaunch_manage_wrong_user_raises(db):
+    """relaunch_manage_rollout raises NotFoundError for wrong user."""
+    user_id = await _make_user(db)
+    other_user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+
+    with pytest.raises(NotFoundError):
+        await relaunch_manage_rollout(db, other_user_id, rollout_id)
+
+
+async def test_relaunch_manage_returns_updated_dict(db):
+    """relaunch_manage_rollout returns the updated row as a dict."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        result = await relaunch_manage_rollout(db, user_id, rollout_id)
+
+    assert isinstance(result, dict)
+    assert "id" in result
+    assert "status" in result
+    assert "manage_retry_count" in result
+    assert result["manage_retry_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# halt_rollout — accepts pending status (updated validation)
+# ---------------------------------------------------------------------------
+
+
+async def test_halt_rollout_accepts_running_status(db):
+    """halt_rollout succeeds when rollout status is 'running'."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+
+    with (
+        patch(
+            "agent_gtd.services.rollout_lock_service.release_rollout_locks",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
+        patch(
+            "agent_gtd.services.comment_service.create_comment",
+            new_callable=AsyncMock,
+            return_value={"id": "comment-id"},
+        ),
+    ):
+        result = await halt_rollout(db, user_id, rollout_id, "test_halt")
+
+    assert result["status"] == "halted"
+    assert result["halt_reason"] == "test_halt"
+
+
+async def test_halt_rollout_accepts_pending_status(db):
+    """halt_rollout accepts pending status (for cap-exceeded path)."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="pending")
+
+    with (
+        patch(
+            "agent_gtd.services.rollout_lock_service.release_rollout_locks",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
+        patch(
+            "agent_gtd.services.comment_service.create_comment",
+            new_callable=AsyncMock,
+            return_value={"id": "comment-id"},
+        ),
+    ):
+        result = await halt_rollout(
+            db, user_id, rollout_id, "manage_relaunch_cap_exceeded"
+        )
+
+    assert result["status"] == "halted"
+    assert result["halt_reason"] == "manage_relaunch_cap_exceeded"
+
+
+async def test_halt_rollout_rejects_completed_status(db):
+    """halt_rollout still rejects completed status."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="completed")
+
+    with pytest.raises(ValidationError):
+        await halt_rollout(db, user_id, rollout_id, "should_fail")
+
+
+async def test_halt_rollout_rejects_halted_status(db):
+    """halt_rollout still rejects already-halted status."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="halted")
+
+    with pytest.raises(ValidationError):
+        await halt_rollout(db, user_id, rollout_id, "should_fail")
