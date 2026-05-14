@@ -1,10 +1,10 @@
-"""Tests for GET /api/wave-runs/{id}/activity endpoint.
+"""Tests for GET /api/rollouts/{id}/activity endpoint.
 
 Covers:
 - Basic activity fetch (no heartbeat events, seq DESC order)
 - before_seq cursor pagination
 - item_title enrichment from items table
-- run_id enrichment from wave_plan_items
+- run_id enrichment from rollout_items
 - Auth: 404 for unknown wave, 404 for wrong user
 """
 
@@ -78,7 +78,7 @@ async def _make_wave_run(
 ) -> str:
     wave_id = str(uuid.uuid4())
     await db.execute(
-        "INSERT INTO autonomous_wave_runs"
+        "INSERT INTO autonomous_rollouts"
         " (id, project_id, lead_user_id, status, started_at, created_at, updated_at)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7)",
         wave_id,
@@ -94,7 +94,7 @@ async def _make_wave_run(
 
 async def _make_wave_event(
     db: Any,
-    wave_run_id: str,
+    rollout_id: str,
     kind: str,
     seq: int,
     actor: str = "manager",
@@ -102,11 +102,11 @@ async def _make_wave_event(
 ) -> str:
     event_id = str(uuid.uuid4())
     await db.execute(
-        "INSERT INTO wave_events"
-        " (id, wave_run_id, seq, ts, kind, actor, decision_rule, payload)"
+        "INSERT INTO rollout_events"
+        " (id, rollout_id, seq, ts, kind, actor, decision_rule, payload)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         event_id,
-        wave_run_id,
+        rollout_id,
         seq,
         _now(),
         kind,
@@ -122,13 +122,13 @@ async def _make_claude_run(
     user_id: str,
     item_id: str,
     project_id: str,
-    wave_run_id: str | None = None,
+    rollout_id: str | None = None,
 ) -> str:
     run_id = str(uuid.uuid4())
     await db.execute(
         "INSERT INTO claude_runs"
         " (id, item_id, project_id, user_id, status, feature_branch,"
-        "  max_turns, mode, wave_run_id, created_at, updated_at)"
+        "  max_turns, mode, rollout_id, created_at, updated_at)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         run_id,
         item_id,
@@ -138,7 +138,7 @@ async def _make_claude_run(
         "feat/test",
         100,
         "build",
-        wave_run_id,
+        rollout_id,
         _now(),
         _now(),
     )
@@ -147,15 +147,15 @@ async def _make_claude_run(
 
 async def _make_wave_plan_item(
     db: Any,
-    wave_run_id: str,
+    rollout_id: str,
     item_id: str,
     status: str = "completed",
     claude_run_id: str | None = None,
 ) -> None:
     await db.execute(
-        "INSERT INTO wave_plan_items (wave_run_id, item_id, status, claude_run_id)"
+        "INSERT INTO rollout_items (rollout_id, item_id, status, claude_run_id)"
         " VALUES ($1, $2, $3, $4)",
-        wave_run_id,
+        rollout_id,
         item_id,
         status,
         claude_run_id,
@@ -183,7 +183,7 @@ async def activity_setup(client: AsyncClient):
     wave_id = await _make_wave_run(db, user.id, project_id)
 
     run_id = await _make_claude_run(
-        db, user.id, item_id, project_id, wave_run_id=wave_id
+        db, user.id, item_id, project_id, rollout_id=wave_id
     )
     await _make_wave_plan_item(
         db, wave_id, item_id, status="completed", claude_run_id=run_id
@@ -243,7 +243,7 @@ async def test_activity_basic(client: AsyncClient, activity_setup: dict[str, Any
     headers = activity_setup["headers"]
 
     res = await client.get(
-        f"/api/wave-runs/{wave_id}/activity?limit=200",
+        f"/api/rollouts/{wave_id}/activity?limit=200",
         headers=headers,
     )
     assert res.status_code == 200
@@ -275,7 +275,7 @@ async def test_activity_item_enrichment(
     headers = activity_setup["headers"]
 
     res = await client.get(
-        f"/api/wave-runs/{wave_id}/activity",
+        f"/api/rollouts/{wave_id}/activity",
         headers=headers,
     )
     assert res.status_code == 200
@@ -304,7 +304,7 @@ async def test_activity_before_seq_cursor(
     # seq 4 is item_outcome, seq 2 is item_dispatched, seq 1 is wave_planned
     # before_seq=4 should return seq 1 and 2 (not 4, heartbeat seq 3 excluded)
     res = await client.get(
-        f"/api/wave-runs/{wave_id}/activity?before_seq=4",
+        f"/api/rollouts/{wave_id}/activity?before_seq=4",
         headers=headers,
     )
     assert res.status_code == 200
@@ -323,7 +323,7 @@ async def test_activity_has_more_false(
     headers = activity_setup["headers"]
 
     res = await client.get(
-        f"/api/wave-runs/{wave_id}/activity?limit=200",
+        f"/api/rollouts/{wave_id}/activity?limit=200",
         headers=headers,
     )
     assert res.status_code == 200
@@ -347,7 +347,7 @@ async def test_activity_has_more_true(
     )
 
     res = await client.get(
-        f"/api/wave-runs/{wave_id}/activity?limit=3",
+        f"/api/rollouts/{wave_id}/activity?limit=3",
         headers=headers,
     )
     assert res.status_code == 200
@@ -367,7 +367,7 @@ async def test_activity_wrong_user(client: AsyncClient, activity_setup: dict[str
 
     wave_id = activity_setup["wave_id"]
     res = await client.get(
-        f"/api/wave-runs/{wave_id}/activity",
+        f"/api/rollouts/{wave_id}/activity",
         headers=other_headers,
     )
     assert res.status_code == 404
@@ -380,7 +380,7 @@ async def test_activity_unknown_wave(
     """Returns 404 for a non-existent wave run ID."""
     headers = activity_setup["headers"]
     res = await client.get(
-        f"/api/wave-runs/{uuid.uuid4()}/activity",
+        f"/api/rollouts/{uuid.uuid4()}/activity",
         headers=headers,
     )
     assert res.status_code == 404
@@ -401,7 +401,7 @@ async def test_activity_empty(client: AsyncClient, activity_setup: dict[str, Any
     await _make_wave_event(db, wave_id, "heartbeat", seq=1)
 
     res = await client.get(
-        f"/api/wave-runs/{wave_id}/activity",
+        f"/api/rollouts/{wave_id}/activity",
         headers=headers,
     )
     assert res.status_code == 200

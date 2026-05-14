@@ -185,7 +185,7 @@ async def _dispatch_to_remote(
     max_turns: int,
     mode: str = "build",
     *,
-    wave_run_id: str | None = None,
+    rollout_id: str | None = None,
     url: str,
     api_key: str,
     engine: str = "claude",
@@ -205,8 +205,8 @@ async def _dispatch_to_remote(
         body["agent_name"] = agent_name
     if attribution:
         body["attribution"] = attribution
-    if wave_run_id:
-        body["wave_run_id"] = wave_run_id
+    if rollout_id:
+        body["rollout_id"] = rollout_id
     resp = await client.post(
         f"{url}/dispatch",
         json=body,
@@ -544,7 +544,7 @@ async def execute_run(
                 item_id,
                 max_turns,
                 mode,
-                wave_run_id=str(run["wave_run_id"]) if run.get("wave_run_id") else None,
+                rollout_id=str(run["rollout_id"]) if run.get("rollout_id") else None,
                 url=dispatch_url,
                 api_key=dispatch_api_key,
                 engine=engine,

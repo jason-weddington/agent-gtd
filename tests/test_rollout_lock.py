@@ -8,11 +8,11 @@ import pytest
 from httpx import AsyncClient
 
 from agent_gtd.database import get_db
-from agent_gtd.exceptions import ValidationError, WaveItemLockedError
-from agent_gtd.services.wave_lock_service import (
-    lock_items_for_wave,
-    release_wave_item,
-    release_wave_locks,
+from agent_gtd.exceptions import RolloutItemLockedError, ValidationError
+from agent_gtd.services.rollout_lock_service import (
+    lock_items_for_rollout,
+    release_rollout_item,
+    release_rollout_locks,
 )
 
 # ---------------------------------------------------------------------------
@@ -96,19 +96,19 @@ async def _seed_item(db, user_id: str, title: str = "Seeded item") -> str:
 # ---------------------------------------------------------------------------
 
 
-async def test_lock_items_for_wave(user_id: str):
-    """lock_items_for_wave sets locked_by_wave_id on each item."""
+async def test_lock_items_for_rollout(user_id: str):
+    """lock_items_for_rollout sets locked_by_rollout_id on each item."""
     db = await get_db()
     item_id = await _seed_item(db, user_id, "Lock me")
 
-    wave_run_id = "wave-aaa-111"
-    await lock_items_for_wave(db, wave_run_id, [item_id])
+    rollout_id = "wave-aaa-111"
+    await lock_items_for_rollout(db, rollout_id, [item_id])
 
     row = await db.fetchrow(
-        "SELECT locked_by_wave_id FROM items WHERE id = $1", item_id
+        "SELECT locked_by_rollout_id FROM items WHERE id = $1", item_id
     )
     assert row is not None
-    assert row["locked_by_wave_id"] == wave_run_id
+    assert row["locked_by_rollout_id"] == rollout_id
 
 
 async def test_lock_same_wave_idempotent(user_id: str):
@@ -116,61 +116,64 @@ async def test_lock_same_wave_idempotent(user_id: str):
     db = await get_db()
     item_id = await _seed_item(db, user_id, "Idempotent item")
 
-    wave_run_id = "wave-bbb-222"
-    await lock_items_for_wave(db, wave_run_id, [item_id])
+    rollout_id = "wave-bbb-222"
+    await lock_items_for_rollout(db, rollout_id, [item_id])
     # Second call with same wave should not raise
-    await lock_items_for_wave(db, wave_run_id, [item_id])
+    await lock_items_for_rollout(db, rollout_id, [item_id])
 
     row = await db.fetchrow(
-        "SELECT locked_by_wave_id FROM items WHERE id = $1", item_id
+        "SELECT locked_by_rollout_id FROM items WHERE id = $1", item_id
     )
     assert row is not None
-    assert row["locked_by_wave_id"] == wave_run_id
+    assert row["locked_by_rollout_id"] == rollout_id
 
 
 async def test_lock_already_locked_by_different_wave_raises(user_id: str):
-    """lock_items_for_wave raises ValidationError if item is locked by another wave."""
+    """lock_items_for_rollout raises ValidationError if item is locked
+    by another rollout."""
     db = await get_db()
     item_id = await _seed_item(db, user_id, "Conflict item")
 
-    await lock_items_for_wave(db, "wave-first-111", [item_id])
+    await lock_items_for_rollout(db, "wave-first-111", [item_id])
 
-    with pytest.raises(ValidationError, match="already locked by wave wave-first-111"):
-        await lock_items_for_wave(db, "wave-second-222", [item_id])
+    with pytest.raises(
+        ValidationError, match="already locked by rollout wave-first-111"
+    ):
+        await lock_items_for_rollout(db, "wave-second-222", [item_id])
 
 
-async def test_release_wave_item(user_id: str):
-    """release_wave_item clears the lock on a single item."""
+async def test_release_rollout_item(user_id: str):
+    """release_rollout_item clears the lock on a single item."""
     db = await get_db()
     item_id = await _seed_item(db, user_id, "Release me")
 
-    wave_run_id = "wave-ccc-333"
-    await lock_items_for_wave(db, wave_run_id, [item_id])
-    await release_wave_item(db, wave_run_id, item_id)
+    rollout_id = "wave-ccc-333"
+    await lock_items_for_rollout(db, rollout_id, [item_id])
+    await release_rollout_item(db, rollout_id, item_id)
 
     row = await db.fetchrow(
-        "SELECT locked_by_wave_id FROM items WHERE id = $1", item_id
+        "SELECT locked_by_rollout_id FROM items WHERE id = $1", item_id
     )
     assert row is not None
-    assert row["locked_by_wave_id"] is None
+    assert row["locked_by_rollout_id"] is None
 
 
-async def test_release_wave_locks_bulk(user_id: str):
-    """release_wave_locks clears all locks held by a wave."""
+async def test_release_rollout_locks_bulk(user_id: str):
+    """release_rollout_locks clears all locks held by a wave."""
     db = await get_db()
     item_id_1 = await _seed_item(db, user_id, "Bulk item 1")
     item_id_2 = await _seed_item(db, user_id, "Bulk item 2")
 
-    wave_run_id = "wave-ddd-444"
-    await lock_items_for_wave(db, wave_run_id, [item_id_1, item_id_2])
-    await release_wave_locks(db, wave_run_id)
+    rollout_id = "wave-ddd-444"
+    await lock_items_for_rollout(db, rollout_id, [item_id_1, item_id_2])
+    await release_rollout_locks(db, rollout_id)
 
     for item_id in (item_id_1, item_id_2):
         row = await db.fetchrow(
-            "SELECT locked_by_wave_id FROM items WHERE id = $1", item_id
+            "SELECT locked_by_rollout_id FROM items WHERE id = $1", item_id
         )
         assert row is not None
-        assert row["locked_by_wave_id"] is None
+        assert row["locked_by_rollout_id"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -194,20 +197,20 @@ async def test_dispatch_unlocked_item_succeeds(
 async def test_dispatch_locked_item_returns_409(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """Dispatching a locked item returns HTTP 409 with the wave_run_id in the detail."""
+    """Dispatching a locked item returns HTTP 409 with the rollout_id in the detail."""
     project_id = await _create_project_with_origin(client, auth_headers)
     item_id = await _create_item(client, auth_headers, project_id)
 
-    wave_run_id = "wave-lock-http-test"
+    rollout_id = "wave-lock-http-test"
     db = await get_db()
-    await lock_items_for_wave(db, wave_run_id, [item_id])
+    await lock_items_for_rollout(db, rollout_id, [item_id])
 
     res = await client.post(
         f"/api/items/{item_id}/dispatch", json={}, headers=auth_headers
     )
     assert res.status_code == 409
     detail = res.json()["detail"]
-    assert wave_run_id in detail
+    assert rollout_id in detail
     assert item_id in detail
 
 
@@ -219,9 +222,9 @@ async def test_wave_lock_does_not_block_other_items(
     item_a = await _create_item(client, auth_headers, project_id, "Item A")
     item_b = await _create_item(client, auth_headers, project_id, "Item B")
 
-    wave_run_id = "wave-isolation-test"
+    rollout_id = "wave-isolation-test"
     db = await get_db()
-    await lock_items_for_wave(db, wave_run_id, [item_a])
+    await lock_items_for_rollout(db, rollout_id, [item_a])
 
     # Dispatching item B (unlocked) must succeed
     res = await client.post(
@@ -237,9 +240,9 @@ async def test_dispatch_after_release_succeeds(
     project_id = await _create_project_with_origin(client, auth_headers)
     item_id = await _create_item(client, auth_headers, project_id)
 
-    wave_run_id = "wave-release-test"
+    rollout_id = "wave-release-test"
     db = await get_db()
-    await lock_items_for_wave(db, wave_run_id, [item_id])
+    await lock_items_for_rollout(db, rollout_id, [item_id])
 
     # Locked → 409
     res = await client.post(
@@ -248,7 +251,7 @@ async def test_dispatch_after_release_succeeds(
     assert res.status_code == 409
 
     # Release the lock
-    await release_wave_item(db, wave_run_id, item_id)
+    await release_rollout_item(db, rollout_id, item_id)
 
     # Now dispatch must succeed
     res = await client.post(
@@ -265,22 +268,22 @@ async def test_dispatch_after_release_succeeds(
 async def test_dispatch_locked_item_mcp_raises_tool_error(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """WaveItemLockedError from dispatch_service propagates as ToolError in MCP.
+    """RolloutItemLockedError from dispatch_service propagates as ToolError in MCP.
 
-    We verify the error shape here (detail string contains wave_run_id and item_id)
+    We verify the error shape here (detail string contains rollout_id and item_id)
     since the actual MCP ToolError wrapping requires a live MCP session. The
     mcp_server.py wire-up is covered by code review of the catch clause.
     """
     project_id = await _create_project_with_origin(client, auth_headers)
     item_id = await _create_item(client, auth_headers, project_id)
 
-    wave_run_id = "wave-mcp-test"
+    rollout_id = "wave-mcp-test"
     db = await get_db()
-    await lock_items_for_wave(db, wave_run_id, [item_id])
+    await lock_items_for_rollout(db, rollout_id, [item_id])
 
     # Confirm the exception shape — detail is what ToolError receives
-    err = WaveItemLockedError(item_id, wave_run_id)
-    assert wave_run_id in err.detail
+    err = RolloutItemLockedError(item_id, rollout_id)
+    assert rollout_id in err.detail
     assert item_id in err.detail
     assert isinstance(err.detail, str)
 
@@ -289,4 +292,4 @@ async def test_dispatch_locked_item_mcp_raises_tool_error(
         f"/api/items/{item_id}/dispatch", json={}, headers=auth_headers
     )
     assert res.status_code == 409
-    assert wave_run_id in res.json()["detail"]
+    assert rollout_id in res.json()["detail"]

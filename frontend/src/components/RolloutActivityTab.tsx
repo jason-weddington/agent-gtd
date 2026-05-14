@@ -1,7 +1,7 @@
 /**
- * WaveActivityTab — unified per-wave activity timeline.
+ * RolloutActivityTab — unified per-rollout activity timeline.
  *
- * Calls GET /api/wave-runs/{id}/activity on mount and renders a vertical list
+ * Calls GET /api/rollout-runs/{id}/activity on mount and renders a vertical list
  * of enriched events with role-coloured actor pills, one-line descriptions,
  * and expandable raw-payload rows.
  */
@@ -152,11 +152,11 @@ function EventRow({ event }: EventRowProps) {
 // Main component
 // ---------------------------------------------------------------------------
 
-interface WaveActivityTabProps {
-  waveRunId: string
+interface RolloutActivityTabProps {
+  rolloutId: string
 }
 
-export default function WaveActivityTab({ waveRunId }: WaveActivityTabProps) {
+export default function RolloutActivityTab({ rolloutId }: RolloutActivityTabProps) {
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [hasMore, setHasMore] = useState(false)
@@ -167,7 +167,7 @@ export default function WaveActivityTab({ waveRunId }: WaveActivityTabProps) {
     setLoading(true)
     setError(null)
     try {
-      const res = await api.waves.activity(waveRunId, 200)
+      const res = await api.rollouts.activity(rolloutId, 200)
       setEvents(res.events)
       setHasMore(res.hasMore)
     } catch {
@@ -176,7 +176,7 @@ export default function WaveActivityTab({ waveRunId }: WaveActivityTabProps) {
     } finally {
       setLoading(false)
     }
-  }, [waveRunId])
+  }, [rolloutId])
 
   useEffect(() => {
     loadActivity().catch(() => {/* handled */})
@@ -187,7 +187,7 @@ export default function WaveActivityTab({ waveRunId }: WaveActivityTabProps) {
     const minSeq = events[events.length - 1].seq
     setLoadingMore(true)
     try {
-      const res = await api.waves.activity(waveRunId, 200, minSeq)
+      const res = await api.rollouts.activity(rolloutId, 200, minSeq)
       setEvents((prev) => [...prev, ...res.events])
       setHasMore(res.hasMore)
     } catch {
@@ -195,7 +195,7 @@ export default function WaveActivityTab({ waveRunId }: WaveActivityTabProps) {
     } finally {
       setLoadingMore(false)
     }
-  }, [waveRunId, events])
+  }, [rolloutId, events])
 
   if (loading) {
     return (
@@ -217,7 +217,7 @@ export default function WaveActivityTab({ waveRunId }: WaveActivityTabProps) {
     return (
       <Box sx={{ py: 2, textAlign: 'center' }}>
         <Typography variant="body2" color="text.secondary">
-          No activity recorded for this wave
+          No activity recorded for this rollout
         </Typography>
       </Box>
     )

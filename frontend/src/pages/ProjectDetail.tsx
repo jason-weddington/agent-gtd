@@ -63,7 +63,7 @@ import ItemDetailDrawer from '../components/ItemDetailDrawer'
 import ShareTab from '../components/ShareTab'
 import MarkdownContent from '../components/MarkdownContent'
 import ProjectEditDialog from '../components/ProjectEditDialog'
-import WaveBanner from '../components/WaveBanner'
+import RolloutBanner from '../components/RolloutBanner'
 
 // Local extension of Item for optimistic UI — never exported or added to types.ts
 type DisplayItem = Item & { _optimistic?: true }
@@ -464,7 +464,7 @@ export default function ProjectDetail() {
       sortOrder: 0,
       labels: [],
       blockers: [],
-      lockedByWaveId: null,
+      lockedByRolloutId: null,
       version: 0,
       createdAt: now,
       updatedAt: now,
@@ -515,7 +515,7 @@ export default function ProjectDetail() {
       sortOrder: 0,
       labels: [],
       blockers: [],
-      lockedByWaveId: null,
+      lockedByRolloutId: null,
       version: 0,
       createdAt: now,
       updatedAt: now,
@@ -831,7 +831,7 @@ export default function ProjectDetail() {
 
       {/* Wave banner (AC-1 through AC-21) — above items list / Kanban view */}
       {projectId && (
-        <WaveBanner
+        <RolloutBanner
           projectId={projectId}
           onActiveChange={setHasActiveWave}
         />

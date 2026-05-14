@@ -1,19 +1,19 @@
 /**
- * Tests for WaveBanner pure helper functions.
+ * Tests for RolloutBanner pure helper functions.
  *
  * AC-3, AC-4, AC-5 (pure helper coverage).
  * AC-9, AC-10 (isStateStale helper).
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { getStatusColor, getTitleText, getProgressFraction, isStateStale } from '../components/WaveBanner'
-import type { WaveRunStatus } from '../types'
+import { getStatusColor, getTitleText, getProgressFraction, isStateStale } from '../components/RolloutBanner'
+import type { RolloutStatus } from '../types'
 
 // ---------------------------------------------------------------------------
 // getStatusColor (AC-4)
 // ---------------------------------------------------------------------------
 
 describe('getStatusColor', () => {
-  const cases: Array<[WaveRunStatus, string]> = [
+  const cases: Array<[RolloutStatus, string]> = [
     ['pending', 'default'],
     ['planning', 'default'],
     ['running', 'info'],

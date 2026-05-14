@@ -1,5 +1,5 @@
-"""Tests for wave-manager schema additions (autonomous_wave_runs, wave_plans,
-wave_plan_items, wave_events) and corresponding Pydantic models."""
+"""Tests for wave-manager schema additions (autonomous_rollouts, rollout_plans,
+rollout_items, rollout_events) and corresponding Pydantic models."""
 
 import json
 import uuid
@@ -52,18 +52,18 @@ async def _seed_user_and_project(pool: SqlitePool) -> tuple[str, str]:
 
 async def _seed_wave_run(pool: SqlitePool, project_id: str, user_id: str) -> str:
     """Insert a minimal wave run and return its id."""
-    wave_run_id = str(uuid.uuid4())
+    rollout_id = str(uuid.uuid4())
     await pool.execute(
-        "INSERT INTO autonomous_wave_runs "
+        "INSERT INTO autonomous_rollouts "
         "(id, project_id, lead_user_id, created_at, updated_at) "
         "VALUES ($1, $2, $3, $4, $5)",
-        wave_run_id,
+        rollout_id,
         project_id,
         user_id,
         NOW,
         NOW,
     )
-    return wave_run_id
+    return rollout_id
 
 
 async def _seed_item(pool: SqlitePool, project_id: str, user_id: str) -> str:
@@ -88,49 +88,49 @@ async def _seed_item(pool: SqlitePool, project_id: str, user_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def test_autonomous_wave_runs_table_exists():
+async def test_autonomous_rollouts_table_exists():
     pool = await _make_pool()
     tables = await pool.fetch(
         "SELECT name FROM sqlite_master WHERE type='table' "
-        "AND name='autonomous_wave_runs'"
+        "AND name='autonomous_rollouts'"
     )
     assert len(tables) == 1
-    assert tables[0]["name"] == "autonomous_wave_runs"
+    assert tables[0]["name"] == "autonomous_rollouts"
     await pool.close()
 
 
-async def test_wave_plans_table_exists():
+async def test_rollout_plans_table_exists():
     pool = await _make_pool()
     tables = await pool.fetch(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='wave_plans'"
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='rollout_plans'"
     )
     assert len(tables) == 1
     await pool.close()
 
 
-async def test_wave_plan_items_table_exists():
+async def test_rollout_items_table_exists():
     pool = await _make_pool()
     tables = await pool.fetch(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='wave_plan_items'"
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='rollout_items'"
     )
     assert len(tables) == 1
     await pool.close()
 
 
-async def test_wave_events_table_exists():
+async def test_rollout_events_table_exists():
     pool = await _make_pool()
     tables = await pool.fetch(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='wave_events'"
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='rollout_events'"
     )
     assert len(tables) == 1
     await pool.close()
 
 
-async def test_claude_runs_has_wave_run_id_column():
+async def test_claude_runs_has_rollout_id_column():
     pool = await _make_pool()
     cols = await pool.fetch("PRAGMA table_info(claude_runs)")
     col_names = [row["name"] for row in cols]
-    assert "wave_run_id" in col_names
+    assert "rollout_id" in col_names
     await pool.close()
 
 
@@ -142,10 +142,10 @@ async def test_claude_runs_has_wave_run_id_column():
 async def test_insert_and_select_wave_run():
     pool = await _make_pool()
     user_id, project_id = await _seed_user_and_project(pool)
-    wave_run_id = await _seed_wave_run(pool, project_id, user_id)
+    rollout_id = await _seed_wave_run(pool, project_id, user_id)
 
     row = await pool.fetchrow(
-        "SELECT * FROM autonomous_wave_runs WHERE id = $1", wave_run_id
+        "SELECT * FROM autonomous_rollouts WHERE id = $1", rollout_id
     )
     assert row is not None
     assert row["project_id"] == project_id
@@ -158,26 +158,26 @@ async def test_insert_and_select_wave_run():
 async def test_insert_and_select_wave_plan():
     pool = await _make_pool()
     user_id, project_id = await _seed_user_and_project(pool)
-    wave_run_id = await _seed_wave_run(pool, project_id, user_id)
+    rollout_id = await _seed_wave_run(pool, project_id, user_id)
 
     plan_id = str(uuid.uuid4())
     nodes = json.dumps(["item-1", "item-2"])
     edges = json.dumps([{"from": "item-1", "to": "item-2"}])
     await pool.execute(
-        "INSERT INTO wave_plans "
-        "(id, wave_run_id, nodes, edges, planner_model, created_at) "
+        "INSERT INTO rollout_plans "
+        "(id, rollout_id, nodes, edges, planner_model, created_at) "
         "VALUES ($1, $2, $3, $4, $5, $6)",
         plan_id,
-        wave_run_id,
+        rollout_id,
         nodes,
         edges,
         "claude-opus-4",
         NOW,
     )
 
-    row = await pool.fetchrow("SELECT * FROM wave_plans WHERE id = $1", plan_id)
+    row = await pool.fetchrow("SELECT * FROM rollout_plans WHERE id = $1", plan_id)
     assert row is not None
-    assert row["wave_run_id"] == wave_run_id
+    assert row["rollout_id"] == rollout_id
     assert row["version"] == 1
     assert json.loads(row["nodes"]) == ["item-1", "item-2"]
     assert json.loads(row["edges"]) == [{"from": "item-1", "to": "item-2"}]
@@ -187,18 +187,18 @@ async def test_insert_and_select_wave_plan():
 async def test_insert_and_select_wave_plan_item():
     pool = await _make_pool()
     user_id, project_id = await _seed_user_and_project(pool)
-    wave_run_id = await _seed_wave_run(pool, project_id, user_id)
+    rollout_id = await _seed_wave_run(pool, project_id, user_id)
     item_id = await _seed_item(pool, project_id, user_id)
 
     await pool.execute(
-        "INSERT INTO wave_plan_items (wave_run_id, item_id) VALUES ($1, $2)",
-        wave_run_id,
+        "INSERT INTO rollout_items (rollout_id, item_id) VALUES ($1, $2)",
+        rollout_id,
         item_id,
     )
 
     row = await pool.fetchrow(
-        "SELECT * FROM wave_plan_items WHERE wave_run_id = $1 AND item_id = $2",
-        wave_run_id,
+        "SELECT * FROM rollout_items WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
         item_id,
     )
     assert row is not None
@@ -211,16 +211,16 @@ async def test_insert_and_select_wave_plan_item():
 async def test_insert_and_select_wave_event():
     pool = await _make_pool()
     user_id, project_id = await _seed_user_and_project(pool)
-    wave_run_id = await _seed_wave_run(pool, project_id, user_id)
+    rollout_id = await _seed_wave_run(pool, project_id, user_id)
 
     event_id = str(uuid.uuid4())
     payload = json.dumps({"msg": "hello"})
     await pool.execute(
-        "INSERT INTO wave_events "
-        "(id, wave_run_id, seq, ts, kind, actor, payload) "
+        "INSERT INTO rollout_events "
+        "(id, rollout_id, seq, ts, kind, actor, payload) "
         "VALUES ($1, $2, $3, $4, $5, $6, $7)",
         event_id,
-        wave_run_id,
+        rollout_id,
         1,
         NOW,
         "run.started",
@@ -228,7 +228,7 @@ async def test_insert_and_select_wave_event():
         payload,
     )
 
-    row = await pool.fetchrow("SELECT * FROM wave_events WHERE id = $1", event_id)
+    row = await pool.fetchrow("SELECT * FROM rollout_events WHERE id = $1", event_id)
     assert row is not None
     assert row["seq"] == 1
     assert row["kind"] == "run.started"
@@ -243,39 +243,39 @@ async def test_insert_and_select_wave_event():
 # ---------------------------------------------------------------------------
 
 
-async def test_wave_plan_items_composite_pk_rejects_duplicate():
+async def test_rollout_items_composite_pk_rejects_duplicate():
     pool = await _make_pool()
     user_id, project_id = await _seed_user_and_project(pool)
-    wave_run_id = await _seed_wave_run(pool, project_id, user_id)
+    rollout_id = await _seed_wave_run(pool, project_id, user_id)
     item_id = await _seed_item(pool, project_id, user_id)
 
     await pool.execute(
-        "INSERT INTO wave_plan_items (wave_run_id, item_id) VALUES ($1, $2)",
-        wave_run_id,
+        "INSERT INTO rollout_items (rollout_id, item_id) VALUES ($1, $2)",
+        rollout_id,
         item_id,
     )
 
     with pytest.raises(Exception):  # noqa: B017
         await pool.execute(
-            "INSERT INTO wave_plan_items (wave_run_id, item_id) VALUES ($1, $2)",
-            wave_run_id,
+            "INSERT INTO rollout_items (rollout_id, item_id) VALUES ($1, $2)",
+            rollout_id,
             item_id,
         )
 
     await pool.close()
 
 
-async def test_wave_events_unique_seq_per_wave():
+async def test_rollout_events_unique_seq_per_wave():
     pool = await _make_pool()
     user_id, project_id = await _seed_user_and_project(pool)
-    wave_run_id = await _seed_wave_run(pool, project_id, user_id)
+    rollout_id = await _seed_wave_run(pool, project_id, user_id)
 
     await pool.execute(
-        "INSERT INTO wave_events "
-        "(id, wave_run_id, seq, ts, kind, actor) "
+        "INSERT INTO rollout_events "
+        "(id, rollout_id, seq, ts, kind, actor) "
         "VALUES ($1, $2, $3, $4, $5, $6)",
         str(uuid.uuid4()),
-        wave_run_id,
+        rollout_id,
         1,
         NOW,
         "run.started",
@@ -284,12 +284,12 @@ async def test_wave_events_unique_seq_per_wave():
 
     with pytest.raises(Exception):  # noqa: B017
         await pool.execute(
-            "INSERT INTO wave_events "
-            "(id, wave_run_id, seq, ts, kind, actor) "
+            "INSERT INTO rollout_events "
+            "(id, rollout_id, seq, ts, kind, actor) "
             "VALUES ($1, $2, $3, $4, $5, $6)",
             str(uuid.uuid4()),
-            wave_run_id,
-            1,  # duplicate seq for same wave_run_id
+            rollout_id,
+            1,  # duplicate seq for same rollout_id
             NOW,
             "run.started",
             "manager",
@@ -298,19 +298,19 @@ async def test_wave_events_unique_seq_per_wave():
     await pool.close()
 
 
-async def test_wave_events_same_seq_different_waves_allowed():
+async def test_rollout_events_same_seq_different_waves_allowed():
     """seq=1 in wave A and seq=1 in wave B should not conflict."""
     pool = await _make_pool()
     user_id, project_id = await _seed_user_and_project(pool)
-    wave_run_id_a = await _seed_wave_run(pool, project_id, user_id)
-    wave_run_id_b = await _seed_wave_run(pool, project_id, user_id)
+    rollout_id_a = await _seed_wave_run(pool, project_id, user_id)
+    rollout_id_b = await _seed_wave_run(pool, project_id, user_id)
 
     await pool.execute(
-        "INSERT INTO wave_events "
-        "(id, wave_run_id, seq, ts, kind, actor) "
+        "INSERT INTO rollout_events "
+        "(id, rollout_id, seq, ts, kind, actor) "
         "VALUES ($1, $2, $3, $4, $5, $6)",
         str(uuid.uuid4()),
-        wave_run_id_a,
+        rollout_id_a,
         1,
         NOW,
         "run.started",
@@ -318,11 +318,11 @@ async def test_wave_events_same_seq_different_waves_allowed():
     )
     # Must not raise
     await pool.execute(
-        "INSERT INTO wave_events "
-        "(id, wave_run_id, seq, ts, kind, actor) "
+        "INSERT INTO rollout_events "
+        "(id, rollout_id, seq, ts, kind, actor) "
         "VALUES ($1, $2, $3, $4, $5, $6)",
         str(uuid.uuid4()),
-        wave_run_id_b,
+        rollout_id_b,
         1,
         NOW,
         "run.started",
@@ -339,24 +339,24 @@ async def test_wave_events_same_seq_different_waves_allowed():
 async def test_wave_plan_json_roundtrip():
     pool = await _make_pool()
     user_id, project_id = await _seed_user_and_project(pool)
-    wave_run_id = await _seed_wave_run(pool, project_id, user_id)
+    rollout_id = await _seed_wave_run(pool, project_id, user_id)
 
     plan_id = str(uuid.uuid4())
     nodes_in = ["a", "b", "c"]
     edges_in = [{"from": "a", "to": "b"}, {"from": "b", "to": "c"}]
     await pool.execute(
-        "INSERT INTO wave_plans "
-        "(id, wave_run_id, nodes, edges, planner_model, created_at) "
+        "INSERT INTO rollout_plans "
+        "(id, rollout_id, nodes, edges, planner_model, created_at) "
         "VALUES ($1, $2, $3, $4, $5, $6)",
         plan_id,
-        wave_run_id,
+        rollout_id,
         json.dumps(nodes_in),
         json.dumps(edges_in),
         "test-model",
         NOW,
     )
 
-    row = await pool.fetchrow("SELECT * FROM wave_plans WHERE id = $1", plan_id)
+    row = await pool.fetchrow("SELECT * FROM rollout_plans WHERE id = $1", plan_id)
     assert row is not None
     assert isinstance(row["nodes"], str), "nodes must be stored as TEXT"
     assert isinstance(row["edges"], str), "edges must be stored as TEXT"
@@ -368,15 +368,15 @@ async def test_wave_plan_json_roundtrip():
 async def test_wave_event_payload_json_roundtrip():
     pool = await _make_pool()
     user_id, project_id = await _seed_user_and_project(pool)
-    wave_run_id = await _seed_wave_run(pool, project_id, user_id)
+    rollout_id = await _seed_wave_run(pool, project_id, user_id)
 
     payload_in: dict = {"reason": "ok", "items": [1, 2, 3], "nested": {"x": True}}
     await pool.execute(
-        "INSERT INTO wave_events "
-        "(id, wave_run_id, seq, ts, kind, actor, payload) "
+        "INSERT INTO rollout_events "
+        "(id, rollout_id, seq, ts, kind, actor, payload) "
         "VALUES ($1, $2, $3, $4, $5, $6, $7)",
         str(uuid.uuid4()),
-        wave_run_id,
+        rollout_id,
         1,
         NOW,
         "plan.ready",
@@ -385,7 +385,7 @@ async def test_wave_event_payload_json_roundtrip():
     )
 
     row = await pool.fetchrow(
-        "SELECT * FROM wave_events WHERE wave_run_id = $1", wave_run_id
+        "SELECT * FROM rollout_events WHERE rollout_id = $1", rollout_id
     )
     assert row is not None
     assert isinstance(row["payload"], str), "payload must be stored as TEXT"
@@ -411,13 +411,13 @@ async def test_init_db_idempotent(_setup_db):
 
 
 def test_wave_run_model():
-    from agent_gtd.models import WaveRun, WaveRunStatus
+    from agent_gtd.models import Rollout, RolloutStatus
 
-    run = WaveRun(
+    run = Rollout(
         id="wr-1",
         project_id="p-1",
         lead_user_id="u-1",
-        status=WaveRunStatus.RUNNING,
+        status=RolloutStatus.RUNNING,
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
         updated_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
@@ -427,12 +427,12 @@ def test_wave_run_model():
     assert run.ended_at is None
 
 
-def test_wave_plan_model():
-    from agent_gtd.models import WavePlan
+def test_rollout_plan_model():
+    from agent_gtd.models import RolloutPlan
 
-    plan = WavePlan(
+    plan = RolloutPlan(
         id="wp-1",
-        wave_run_id="wr-1",
+        rollout_id="wr-1",
         version=2,
         nodes=["a", "b"],
         edges=[{"from": "a", "to": "b"}],
@@ -445,12 +445,12 @@ def test_wave_plan_model():
 
 
 def test_wave_plan_item_model():
-    from agent_gtd.models import WavePlanItem, WavePlanItemStatus
+    from agent_gtd.models import RolloutItem, RolloutItemStatus
 
-    item = WavePlanItem(
-        wave_run_id="wr-1",
+    item = RolloutItem(
+        rollout_id="wr-1",
         item_id="i-1",
-        status=WavePlanItemStatus.DISPATCHED,
+        status=RolloutItemStatus.DISPATCHED,
     )
     assert item.status == "dispatched"
     assert item.claude_run_id is None
@@ -458,15 +458,15 @@ def test_wave_plan_item_model():
 
 
 def test_wave_event_model():
-    from agent_gtd.models import WaveEvent, WaveEventActor
+    from agent_gtd.models import RolloutEvent, RolloutEventActor
 
-    event = WaveEvent(
+    event = RolloutEvent(
         id="we-1",
-        wave_run_id="wr-1",
+        rollout_id="wr-1",
         seq=1,
         ts=datetime(2026, 1, 1, tzinfo=UTC),
         kind="run.started",
-        actor=WaveEventActor.MANAGER,
+        actor=RolloutEventActor.MANAGER,
         decision_rule="",
         payload={"key": "val"},
     )
@@ -474,7 +474,7 @@ def test_wave_event_model():
     assert event.payload == {"key": "val"}
 
 
-def test_run_response_has_wave_run_id():
+def test_run_response_has_rollout_id():
     from agent_gtd.models import RunResponse, RunStatus
 
     resp = RunResponse(
@@ -492,10 +492,10 @@ def test_run_response_has_wave_run_id():
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
         updated_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
-    assert resp.wave_run_id is None
+    assert resp.rollout_id is None
 
-    resp_with_wave = resp.model_copy(update={"wave_run_id": "wr-1"})
-    assert resp_with_wave.wave_run_id == "wr-1"
+    resp_with_wave = resp.model_copy(update={"rollout_id": "wr-1"})
+    assert resp_with_wave.rollout_id == "wr-1"
 
 
 # ---------------------------------------------------------------------------
@@ -504,33 +504,33 @@ def test_run_response_has_wave_run_id():
 
 
 def test_wave_run_status_values():
-    from agent_gtd.models import WaveRunStatus
+    from agent_gtd.models import RolloutStatus
 
-    assert WaveRunStatus.PENDING == "pending"
-    assert WaveRunStatus.PLANNING == "planning"
-    assert WaveRunStatus.RUNNING == "running"
-    assert WaveRunStatus.COMPLETED == "completed"
-    assert WaveRunStatus.HALTED == "halted"
-    assert WaveRunStatus.FAILED == "failed"
+    assert RolloutStatus.PENDING == "pending"
+    assert RolloutStatus.PLANNING == "planning"
+    assert RolloutStatus.RUNNING == "running"
+    assert RolloutStatus.COMPLETED == "completed"
+    assert RolloutStatus.HALTED == "halted"
+    assert RolloutStatus.FAILED == "failed"
 
 
 def test_wave_plan_item_status_values():
-    from agent_gtd.models import WavePlanItemStatus
+    from agent_gtd.models import RolloutItemStatus
 
-    assert WavePlanItemStatus.PENDING == "pending"
-    assert WavePlanItemStatus.READY == "ready"
-    assert WavePlanItemStatus.DISPATCHED == "dispatched"
-    assert WavePlanItemStatus.COMPLETED == "completed"
-    assert WavePlanItemStatus.HALTED == "halted"
-    assert WavePlanItemStatus.SKIPPED == "skipped"
+    assert RolloutItemStatus.PENDING == "pending"
+    assert RolloutItemStatus.READY == "ready"
+    assert RolloutItemStatus.DISPATCHED == "dispatched"
+    assert RolloutItemStatus.COMPLETED == "completed"
+    assert RolloutItemStatus.HALTED == "halted"
+    assert RolloutItemStatus.SKIPPED == "skipped"
 
 
 def test_wave_event_actor_values():
-    from agent_gtd.models import WaveEventActor
+    from agent_gtd.models import RolloutEventActor
 
-    assert WaveEventActor.MANAGER == "manager"
-    assert WaveEventActor.CHILD_AGENT == "child-agent"
-    assert WaveEventActor.HUMAN == "human"
+    assert RolloutEventActor.MANAGER == "manager"
+    assert RolloutEventActor.CHILD_AGENT == "child-agent"
+    assert RolloutEventActor.HUMAN == "human"
 
 
 def test_merge_actor_values():

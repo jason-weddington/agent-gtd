@@ -1,9 +1,9 @@
-"""Tests for wave frontend API routes.
+"""Tests for rollout frontend API routes.
 
 Covers:
-- GET /api/projects/{project_id}/active-wave (AC-22)
-- GET /api/wave-runs/{id}/events (AC-23)
-- POST /api/wave-runs/{id}/resume (AC-24)
+- GET /api/projects/{project_id}/active-rollout (AC-22)
+- GET /api/rollouts/{id}/events (AC-23)
+- POST /api/rollouts/{id}/resume (AC-24)
 """
 
 import json
@@ -23,7 +23,7 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-async def _make_user(db: Any, email: str = "wave-test@example.com") -> str:
+async def _make_user(db: Any, email: str = "rollout-test@example.com") -> str:
     """Insert a user row and return its ID."""
     from agent_gtd.auth import hash_password
 
@@ -77,22 +77,22 @@ async def _make_item(
     return item_id
 
 
-async def _make_wave_run(
+async def _make_rollout(
     db: Any,
     user_id: str,
     project_id: str,
     status: str = "running",
     halt_reason: str | None = None,
 ) -> str:
-    """Insert a wave_run row and return its ID."""
-    wave_id = str(uuid.uuid4())
+    """Insert an autonomous_rollouts row and return its ID."""
+    rollout_id = str(uuid.uuid4())
     now = _now()
     await db.execute(
-        "INSERT INTO autonomous_wave_runs"
+        "INSERT INTO autonomous_rollouts"
         " (id, project_id, lead_user_id, status, halt_reason,"
         " started_at, created_at, updated_at)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-        wave_id,
+        rollout_id,
         project_id,
         user_id,
         status,
@@ -101,17 +101,16 @@ async def _make_wave_run(
         now,
         now,
     )
-    return wave_id
+    return rollout_id
 
 
 async def _make_wave_item(
-    db: Any, wave_run_id: str, item_id: str, status: str = "pending"
+    db: Any, rollout_id: str, item_id: str, status: str = "pending"
 ) -> None:
-    """Insert a wave_plan_items row."""
+    """Insert a rollout_items row."""
     await db.execute(
-        "INSERT INTO wave_plan_items (wave_run_id, item_id, status)"
-        " VALUES ($1, $2, $3)",
-        wave_run_id,
+        "INSERT INTO rollout_items (rollout_id, item_id, status) VALUES ($1, $2, $3)",
+        rollout_id,
         item_id,
         status,
     )
@@ -119,19 +118,19 @@ async def _make_wave_item(
 
 async def _make_wave_event(
     db: Any,
-    wave_run_id: str,
+    rollout_id: str,
     kind: str = "item_dispatched",
     actor: str = "manager",
     seq: int = 1,
 ) -> str:
-    """Insert a wave_events row and return its ID."""
+    """Insert a rollout_events row and return its ID."""
     event_id = str(uuid.uuid4())
     now = _now()
     await db.execute(
-        "INSERT INTO wave_events (id, wave_run_id, seq, ts, kind, actor, payload)"
+        "INSERT INTO rollout_events (id, rollout_id, seq, ts, kind, actor, payload)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7)",
         event_id,
-        wave_run_id,
+        rollout_id,
         seq,
         now,
         kind,
@@ -142,16 +141,16 @@ async def _make_wave_event(
 
 
 async def _make_wave_plan(
-    db: Any, wave_run_id: str, nodes: list[str], edges: list[dict[str, str]]
+    db: Any, rollout_id: str, nodes: list[str], edges: list[dict[str, str]]
 ) -> str:
-    """Insert a wave_plans row and return its ID."""
+    """Insert a rollout_plans row and return its ID."""
     plan_id = str(uuid.uuid4())
     await db.execute(
-        "INSERT INTO wave_plans"
-        " (id, wave_run_id, version, nodes, edges, planner_model, created_at)"
+        "INSERT INTO rollout_plans"
+        " (id, rollout_id, version, nodes, edges, planner_model, created_at)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7)",
         plan_id,
-        wave_run_id,
+        rollout_id,
         1,
         json.dumps(nodes),
         json.dumps(edges),
@@ -170,24 +169,24 @@ async def _make_wave_plan(
 async def wave_setup(client: AsyncClient, auth_headers: dict[str, str]):
     """Provide a running wave with one item for testing.
 
-    Yields dict with: wave_run_id, item_id, user_id, project_id, db, headers.
+    Yields dict with: rollout_id, item_id, user_id, project_id, db, headers.
     """
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
 
     db = await get_db()
-    user = await register_user("wave-ui@example.com", "pass123")
+    user = await register_user("rollout-ui@example.com", "pass123")
     token = create_token(user.id)
     headers = {"Authorization": f"Bearer {token}"}
 
     project_id = await _make_project(db, user.id)
     item_id = await _make_item(db, user.id, project_id)
-    wave_run_id = await _make_wave_run(db, user.id, project_id, status="running")
-    await _make_wave_item(db, wave_run_id, item_id, status="dispatched")
-    await _make_wave_plan(db, wave_run_id, [item_id], [])
+    rollout_id = await _make_rollout(db, user.id, project_id, status="running")
+    await _make_wave_item(db, rollout_id, item_id, status="dispatched")
+    await _make_wave_plan(db, rollout_id, [item_id], [])
 
     yield {
-        "wave_run_id": wave_run_id,
+        "rollout_id": rollout_id,
         "item_id": item_id,
         "user_id": user.id,
         "project_id": project_id,
@@ -197,32 +196,32 @@ async def wave_setup(client: AsyncClient, auth_headers: dict[str, str]):
 
 
 # ---------------------------------------------------------------------------
-# AC-22: GET /api/projects/{project_id}/active-wave
+# AC-22: GET /api/projects/{project_id}/active-rollout
 # ---------------------------------------------------------------------------
 
 
-class TestGetActiveWave:
-    async def test_returns_running_wave(
+class TestGetActiveRollout:
+    async def test_returns_running_rollout(
         self, client: AsyncClient, wave_setup: dict[str, Any]
     ) -> None:
-        """Active running wave returns 200 with progress counts."""
+        """Active running rollout returns 200 with progress counts."""
         resp = await client.get(
-            f"/api/projects/{wave_setup['project_id']}/active-wave",
+            f"/api/projects/{wave_setup['project_id']}/active-rollout",
             headers=wave_setup["headers"],
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["id"] == wave_setup["wave_run_id"]
+        assert data["id"] == wave_setup["rollout_id"]
         assert data["status"] == "running"
         assert data["total_count"] == 1
         assert data["done_count"] == 0
 
-    async def test_404_when_no_active_wave(
+    async def test_404_when_no_active_rollout(
         self, client: AsyncClient, auth_headers: dict[str, str], project_id: str
     ) -> None:
-        """Returns 404 when no active wave exists for the project."""
+        """Returns 404 when no active rollout exists for the project."""
         resp = await client.get(
-            f"/api/projects/{project_id}/active-wave",
+            f"/api/projects/{project_id}/active-rollout",
             headers=auth_headers,
         )
         assert resp.status_code == 404
@@ -232,20 +231,20 @@ class TestGetActiveWave:
     ) -> None:
         """done_count reflects completed and skipped items."""
         db = wave_setup["db"]
-        wave_run_id = wave_setup["wave_run_id"]
+        rollout_id = wave_setup["rollout_id"]
         project_id = wave_setup["project_id"]
         user_id = wave_setup["user_id"]
 
         # Add a second item (completed)
         item2 = await _make_item(db, user_id, project_id, "Task 2")
-        await _make_wave_item(db, wave_run_id, item2, status="completed")
+        await _make_wave_item(db, rollout_id, item2, status="completed")
 
         # Add a third item (skipped)
         item3 = await _make_item(db, user_id, project_id, "Task 3")
-        await _make_wave_item(db, wave_run_id, item3, status="skipped")
+        await _make_wave_item(db, rollout_id, item3, status="skipped")
 
         resp = await client.get(
-            f"/api/projects/{project_id}/active-wave",
+            f"/api/projects/{project_id}/active-rollout",
             headers=wave_setup["headers"],
         )
         assert resp.status_code == 200
@@ -253,10 +252,10 @@ class TestGetActiveWave:
         assert data["total_count"] == 3
         assert data["done_count"] == 2
 
-    async def test_returns_halted_wave(
+    async def test_returns_halted_rollout(
         self, client: AsyncClient, auth_headers: dict[str, str]
     ) -> None:
-        """Halted wave (non-old) is returned as active."""
+        """Halted rollout (non-old) is returned as active."""
         from agent_gtd.database import get_db
 
         db = await get_db()
@@ -266,13 +265,13 @@ class TestGetActiveWave:
 
         proj_id = await _make_project(db, user_id, "Halted Project")
         item_id = await _make_item(db, user_id, proj_id)
-        wave_id = await _make_wave_run(
+        rollout_id = await _make_rollout(
             db, user_id, proj_id, status="halted", halt_reason="test failure"
         )
-        await _make_wave_item(db, wave_id, item_id, status="halted")
+        await _make_wave_item(db, rollout_id, item_id, status="halted")
 
         resp = await client.get(
-            f"/api/projects/{proj_id}/active-wave",
+            f"/api/projects/{proj_id}/active-rollout",
             headers=auth_headers,
         )
         assert resp.status_code == 200
@@ -285,36 +284,36 @@ class TestGetActiveWave:
     ) -> None:
         """Non-existent project returns 404."""
         resp = await client.get(
-            "/api/projects/no-such-project/active-wave",
+            "/api/projects/no-such-project/active-rollout",
             headers=auth_headers,
         )
         assert resp.status_code == 404
 
     async def test_requires_auth(self, client: AsyncClient, project_id: str) -> None:
         """Unauthenticated request is rejected."""
-        resp = await client.get(f"/api/projects/{project_id}/active-wave")
+        resp = await client.get(f"/api/projects/{project_id}/active-rollout")
         assert resp.status_code in (401, 403)
 
 
 # ---------------------------------------------------------------------------
-# AC-23: GET /api/wave-runs/{id}/events
+# AC-23: GET /api/rollouts/{id}/events
 # ---------------------------------------------------------------------------
 
 
-class TestGetWaveEvents:
+class TestGetRolloutEvents:
     async def test_returns_events_newest_first(
         self, client: AsyncClient, wave_setup: dict[str, Any]
     ) -> None:
         """Events are ordered newest first (seq DESC)."""
         db = wave_setup["db"]
-        wave_run_id = wave_setup["wave_run_id"]
+        rollout_id = wave_setup["rollout_id"]
         headers = wave_setup["headers"]
 
-        await _make_wave_event(db, wave_run_id, kind="item_dispatched", seq=1)
-        await _make_wave_event(db, wave_run_id, kind="item_outcome", seq=2)
+        await _make_wave_event(db, rollout_id, kind="item_dispatched", seq=1)
+        await _make_wave_event(db, rollout_id, kind="item_outcome", seq=2)
 
         resp = await client.get(
-            f"/api/wave-runs/{wave_run_id}/events",
+            f"/api/rollouts/{rollout_id}/events",
             headers=headers,
         )
         assert resp.status_code == 200
@@ -328,14 +327,14 @@ class TestGetWaveEvents:
     ) -> None:
         """limit query param caps the number of events returned."""
         db = wave_setup["db"]
-        wave_run_id = wave_setup["wave_run_id"]
+        rollout_id = wave_setup["rollout_id"]
         headers = wave_setup["headers"]
 
         for i in range(5):
-            await _make_wave_event(db, wave_run_id, seq=i + 1)
+            await _make_wave_event(db, rollout_id, seq=i + 1)
 
         resp = await client.get(
-            f"/api/wave-runs/{wave_run_id}/events?limit=3",
+            f"/api/rollouts/{rollout_id}/events?limit=3",
             headers=headers,
         )
         assert resp.status_code == 200
@@ -347,18 +346,18 @@ class TestGetWaveEvents:
     ) -> None:
         """Wave with no events returns empty list."""
         resp = await client.get(
-            f"/api/wave-runs/{wave_setup['wave_run_id']}/events",
+            f"/api/rollouts/{wave_setup['rollout_id']}/events",
             headers=wave_setup["headers"],
         )
         assert resp.status_code == 200
         assert resp.json()["events"] == []
 
-    async def test_404_for_unknown_wave(
+    async def test_404_for_unknown_rollout(
         self, client: AsyncClient, auth_headers: dict[str, str]
     ) -> None:
-        """Unknown wave_run_id returns 404."""
+        """Unknown rollout_id returns 404."""
         resp = await client.get(
-            "/api/wave-runs/no-such-wave/events",
+            "/api/rollouts/no-such-wave/events",
             headers=auth_headers,
         )
         assert resp.status_code == 404
@@ -367,21 +366,21 @@ class TestGetWaveEvents:
         self, client: AsyncClient, wave_setup: dict[str, Any]
     ) -> None:
         """Unauthenticated request is rejected."""
-        resp = await client.get(f"/api/wave-runs/{wave_setup['wave_run_id']}/events")
+        resp = await client.get(f"/api/rollouts/{wave_setup['rollout_id']}/events")
         assert resp.status_code in (401, 403)
 
 
 # ---------------------------------------------------------------------------
-# AC-24: POST /api/wave-runs/{id}/resume
+# AC-24: POST /api/rollouts/{id}/resume
 # ---------------------------------------------------------------------------
 
 
 class TestResumeWave:
     @pytest.fixture
-    async def halted_wave(
+    async def halted_rollout(
         self, client: AsyncClient, auth_headers: dict[str, str]
     ) -> dict[str, Any]:
-        """Provide a halted wave with one halted item."""
+        """Provide a halted rollout with one halted item."""
         from agent_gtd.database import get_db
 
         db = await get_db()
@@ -390,14 +389,14 @@ class TestResumeWave:
 
         proj_id = await _make_project(db, user_id, "Halted Resume Project")
         item_id = await _make_item(db, user_id, proj_id)
-        wave_id = await _make_wave_run(
+        rollout_id = await _make_rollout(
             db, user_id, proj_id, status="halted", halt_reason="merge failure"
         )
-        await _make_wave_item(db, wave_id, item_id, status="halted")
-        await _make_wave_plan(db, wave_id, [item_id], [])
+        await _make_wave_item(db, rollout_id, item_id, status="halted")
+        await _make_wave_plan(db, rollout_id, [item_id], [])
 
         return {
-            "wave_run_id": wave_id,
+            "rollout_id": rollout_id,
             "item_id": item_id,
             "project_id": proj_id,
             "user_id": user_id,
@@ -406,57 +405,56 @@ class TestResumeWave:
         }
 
     async def test_resume_transitions_to_running(
-        self, client: AsyncClient, halted_wave: dict[str, Any]
+        self, client: AsyncClient, halted_rollout: dict[str, Any]
     ) -> None:
-        """Resume sets wave status back to 'running'."""
+        """Resume sets rollout status back to 'running'."""
         resp = await client.post(
-            f"/api/wave-runs/{halted_wave['wave_run_id']}/resume",
+            f"/api/rollouts/{halted_rollout['rollout_id']}/resume",
             json={"answer": "Please retry the failing CI step"},
-            headers=halted_wave["headers"],
+            headers=halted_rollout["headers"],
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "running"
 
     async def test_resume_posts_comment(
-        self, client: AsyncClient, halted_wave: dict[str, Any]
+        self, client: AsyncClient, halted_rollout: dict[str, Any]
     ) -> None:
         """Resume posts the answer as a comment on the project."""
         resp = await client.post(
-            f"/api/wave-runs/{halted_wave['wave_run_id']}/resume",
+            f"/api/rollouts/{halted_rollout['rollout_id']}/resume",
             json={"answer": "My answer text"},
-            headers=halted_wave["headers"],
+            headers=halted_rollout["headers"],
         )
         assert resp.status_code == 200
 
         # Verify comment was created
         comments_resp = await client.get(
-            f"/api/projects/{halted_wave['project_id']}/comments",
-            headers=halted_wave["headers"],
+            f"/api/projects/{halted_rollout['project_id']}/comments",
+            headers=halted_rollout["headers"],
         )
         assert comments_resp.status_code == 200
         comments = comments_resp.json()
         assert any("My answer text" in c["content_markdown"] for c in comments)
 
     async def test_resume_transitions_halted_items_to_ready(
-        self, client: AsyncClient, halted_wave: dict[str, Any]
+        self, client: AsyncClient, halted_rollout: dict[str, Any]
     ) -> None:
         """Resume transitions halted items with no predecessors to 'ready'."""
-        db = halted_wave["db"]
-        wave_run_id = halted_wave["wave_run_id"]
-        item_id = halted_wave["item_id"]
+        db = halted_rollout["db"]
+        rollout_id = halted_rollout["rollout_id"]
+        item_id = halted_rollout["item_id"]
 
         resp = await client.post(
-            f"/api/wave-runs/{wave_run_id}/resume",
+            f"/api/rollouts/{rollout_id}/resume",
             json={"answer": "Let's go"},
-            headers=halted_wave["headers"],
+            headers=halted_rollout["headers"],
         )
         assert resp.status_code == 200
 
         row = await db.fetchrow(
-            "SELECT status FROM wave_plan_items"
-            " WHERE wave_run_id = $1 AND item_id = $2",
-            wave_run_id,
+            "SELECT status FROM rollout_items WHERE rollout_id = $1 AND item_id = $2",
+            rollout_id,
             item_id,
         )
         assert row is not None
@@ -467,7 +465,7 @@ class TestResumeWave:
     ) -> None:
         """Resume returns 409 when wave is not halted."""
         resp = await client.post(
-            f"/api/wave-runs/{wave_setup['wave_run_id']}/resume",
+            f"/api/rollouts/{wave_setup['rollout_id']}/resume",
             json={"answer": "This should fail"},
             headers=wave_setup["headers"],
         )
@@ -478,19 +476,19 @@ class TestResumeWave:
     ) -> None:
         """Unauthenticated request is rejected."""
         resp = await client.post(
-            f"/api/wave-runs/{wave_setup['wave_run_id']}/resume",
+            f"/api/rollouts/{wave_setup['rollout_id']}/resume",
             json={"answer": "nope"},
         )
         assert resp.status_code in (401, 403)
 
     async def test_resume_returns_progress_counts(
-        self, client: AsyncClient, halted_wave: dict[str, Any]
+        self, client: AsyncClient, halted_rollout: dict[str, Any]
     ) -> None:
         """Resume response includes total_count and done_count."""
         resp = await client.post(
-            f"/api/wave-runs/{halted_wave['wave_run_id']}/resume",
+            f"/api/rollouts/{halted_rollout['rollout_id']}/resume",
             json={"answer": "Let's resume"},
-            headers=halted_wave["headers"],
+            headers=halted_rollout["headers"],
         )
         assert resp.status_code == 200
         data = resp.json()

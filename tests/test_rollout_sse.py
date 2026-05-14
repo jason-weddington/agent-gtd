@@ -1,4 +1,4 @@
-"""Tests for SSE wave_event fan-out via the event bus.
+"""Tests for SSE rollout_event fan-out via the event bus.
 
 Covers AC-7: fan-out unit tests, integration fan-out to project members,
 event persistence, and SSE replay.
@@ -92,7 +92,7 @@ async def _make_wave_run(
     wave_id = str(uuid.uuid4())
     now = _now()
     await db.execute(
-        "INSERT INTO autonomous_wave_runs"
+        "INSERT INTO autonomous_rollouts"
         " (id, project_id, lead_user_id, status, started_at, created_at, updated_at)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7)",
         wave_id,
@@ -108,20 +108,20 @@ async def _make_wave_run(
 
 async def _make_wave_plan(
     db: Any,
-    wave_run_id: str,
+    rollout_id: str,
     nodes: list[str],
     edges: list[dict[str, str]],
     version: int = 1,
 ) -> str:
-    """Insert a wave_plans row and return its ID."""
+    """Insert a rollout_plans row and return its ID."""
     plan_id = str(uuid.uuid4())
     now = _now()
     await db.execute(
-        "INSERT INTO wave_plans"
-        " (id, wave_run_id, version, nodes, edges, planner_model, created_at)"
+        "INSERT INTO rollout_plans"
+        " (id, rollout_id, version, nodes, edges, planner_model, created_at)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7)",
         plan_id,
-        wave_run_id,
+        rollout_id,
         version,
         json.dumps(nodes),
         json.dumps(edges),
@@ -132,13 +132,12 @@ async def _make_wave_plan(
 
 
 async def _make_wave_item(
-    db: Any, wave_run_id: str, item_id: str, status: str = "pending"
+    db: Any, rollout_id: str, item_id: str, status: str = "pending"
 ) -> None:
-    """Insert a wave_plan_items row."""
+    """Insert a rollout_items row."""
     await db.execute(
-        "INSERT INTO wave_plan_items (wave_run_id, item_id, status)"
-        " VALUES ($1, $2, $3)",
-        wave_run_id,
+        "INSERT INTO rollout_items (rollout_id, item_id, status) VALUES ($1, $2, $3)",
+        rollout_id,
         item_id,
         status,
     )
@@ -149,71 +148,72 @@ async def _make_wave_item(
 # ---------------------------------------------------------------------------
 
 
-async def test_complete_in_wave_publishes_sse(_setup_db):
-    """After complete_in_wave(), publish is called with event_type='wave_event'."""
-    from agent_gtd.services.wave_service import complete_in_wave
+async def test_complete_item_in_rollout_publishes_sse(_setup_db):
+    """After complete_item_in_rollout(), publish is called
+    with event_type='rollout_event'."""
+    from agent_gtd.services.rollout_service import complete_item_in_rollout
 
     db = await get_db()
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
     item_id = await _make_item(db, user_id, project_id)
-    wave_run_id = await _make_wave_run(db, user_id, project_id, status="running")
-    await _make_wave_plan(db, wave_run_id, [item_id], [])
-    await _make_wave_item(db, wave_run_id, item_id, status="dispatched")
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_plan(db, rollout_id, [item_id], [])
+    await _make_wave_item(db, rollout_id, item_id, status="dispatched")
 
     mock_bus = AsyncMock()
     mock_bus.publish = AsyncMock(return_value="event-id")
 
     with patch("agent_gtd.event_bus.get_event_bus", return_value=mock_bus):
-        await complete_in_wave(db, user_id, wave_run_id, item_id, "completed")
+        await complete_item_in_rollout(db, user_id, rollout_id, item_id, "completed")
         await asyncio.sleep(0)  # let the create_task coroutine execute
 
     mock_bus.publish.assert_called_once()
     call_kwargs = mock_bus.publish.call_args.kwargs
-    assert call_kwargs["event_type"] == "wave_event"
-    assert call_kwargs["entity_type"] == "wave_run"
+    assert call_kwargs["event_type"] == "rollout_event"
+    assert call_kwargs["entity_type"] == "rollout"
     assert call_kwargs["project_id"] == project_id
-    assert call_kwargs["entity_id"] == wave_run_id
+    assert call_kwargs["entity_id"] == rollout_id
 
 
-async def test_halt_wave_publishes_sse(_setup_db):
-    """After halt_wave(), publish is called with kind='wave_halted' in payload."""
-    from agent_gtd.services.wave_service import halt_wave
+async def test_halt_rollout_publishes_sse(_setup_db):
+    """After halt_rollout(), publish is called with kind='wave_halted' in payload."""
+    from agent_gtd.services.rollout_service import halt_rollout
 
     db = await get_db()
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    wave_run_id = await _make_wave_run(db, user_id, project_id, status="running")
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="running")
 
     mock_bus = AsyncMock()
     mock_bus.publish = AsyncMock(return_value="event-id")
 
     with patch("agent_gtd.event_bus.get_event_bus", return_value=mock_bus):
-        await halt_wave(db, user_id, wave_run_id, reason="test_halt")
+        await halt_rollout(db, user_id, rollout_id, reason="test_halt")
         await asyncio.sleep(0)
 
-    # halt_wave now emits 2 SSE events: comment_posted + wave_halted
+    # halt_rollout now emits 2 SSE events: comment_posted + wave_halted
     assert mock_bus.publish.call_count == 2
     # The last call should be wave_halted
     call_kwargs = mock_bus.publish.call_args.kwargs
-    assert call_kwargs["event_type"] == "wave_event"
-    assert call_kwargs["entity_type"] == "wave_run"
+    assert call_kwargs["event_type"] == "rollout_event"
+    assert call_kwargs["entity_type"] == "rollout"
     assert call_kwargs["project_id"] == project_id
     payload = call_kwargs["payload"]
     assert payload["kind"] == "wave_halted"
 
 
-async def test_replan_wave_publishes_sse(_setup_db):
-    """After replan_wave(), bus.publish is called once with kind='wave_replanned'."""
-    from agent_gtd.services.wave_service import replan_wave
+async def test_replan_rollout_publishes_sse(_setup_db):
+    """After replan_rollout(), bus.publish is called once with kind='wave_replanned'."""
+    from agent_gtd.services.rollout_service import replan_rollout
 
     db = await get_db()
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
     item_id = await _make_item(db, user_id, project_id)
-    wave_run_id = await _make_wave_run(db, user_id, project_id, status="running")
-    await _make_wave_plan(db, wave_run_id, [item_id], [], version=1)
-    await _make_wave_item(db, wave_run_id, item_id, status="pending")
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_plan(db, rollout_id, [item_id], [], version=1)
+    await _make_wave_item(db, rollout_id, item_id, status="pending")
 
     mock_planner_result = {
         "nodes": [item_id],
@@ -226,16 +226,16 @@ async def test_replan_wave_publishes_sse(_setup_db):
     with (
         patch("agent_gtd.event_bus.get_event_bus", return_value=mock_bus),
         patch(
-            "agent_gtd.services.wave_service._call_planner",
+            "agent_gtd.services.rollout_service._call_planner",
             return_value=mock_planner_result,
         ),
     ):
-        await replan_wave(db, user_id, wave_run_id)
+        await replan_rollout(db, user_id, rollout_id)
         await asyncio.sleep(0)
 
     mock_bus.publish.assert_called_once()
     call_kwargs = mock_bus.publish.call_args.kwargs
-    assert call_kwargs["event_type"] == "wave_event"
+    assert call_kwargs["event_type"] == "rollout_event"
     payload = call_kwargs["payload"]
     assert payload["kind"] == "wave_replanned"
 
@@ -245,9 +245,9 @@ async def test_replan_wave_publishes_sse(_setup_db):
 # ---------------------------------------------------------------------------
 
 
-async def test_wave_event_fan_out_to_members(_setup_db):
-    """wave_event is delivered to both owner and project member queues."""
-    from agent_gtd.services.wave_service import complete_in_wave
+async def test_rollout_event_fan_out_to_members(_setup_db):
+    """rollout_event is delivered to both owner and project member queues."""
+    from agent_gtd.services.rollout_service import complete_item_in_rollout
 
     db = await get_db()
     bus = get_event_bus()
@@ -258,36 +258,39 @@ async def test_wave_event_fan_out_to_members(_setup_db):
     await _add_project_member(db, project_id, member_id)
 
     item_id = await _make_item(db, owner_id, project_id)
-    wave_run_id = await _make_wave_run(db, owner_id, project_id, status="running")
-    await _make_wave_plan(db, wave_run_id, [item_id], [])
-    await _make_wave_item(db, wave_run_id, item_id, status="dispatched")
+    rollout_id = await _make_wave_run(db, owner_id, project_id, status="running")
+    await _make_wave_plan(db, rollout_id, [item_id], [])
+    await _make_wave_item(db, rollout_id, item_id, status="dispatched")
 
     owner_queue = bus.subscribe(owner_id)
     member_queue = bus.subscribe(member_id)
 
     try:
-        await complete_in_wave(db, owner_id, wave_run_id, item_id, "completed")
+        await complete_item_in_rollout(db, owner_id, rollout_id, item_id, "completed")
         # Give the event loop enough time to run the fire-and-forget publish task
         # (bus.publish does multiple DB awaits, so a single sleep(0) is not enough)
         await asyncio.sleep(0.05)
 
-        # Both queues should receive the wave_event. complete_in_wave now also
+        # Both queues should receive the rollout_event.
+        # complete_item_in_rollout now also
         # cascades the item status to 'done' which emits an item_updated event
-        # first — drain the queue and look for the wave_event specifically.
-        def _drain_for_wave_event(q):
+        # first — drain the queue and look for the rollout_event specifically.
+        def _drain_for_rollout_event(q):
             events = []
             while not q.empty():
                 events.append(q.get_nowait())
-            wave_events = [e for e in events if e["event_type"] == "wave_event"]
-            assert wave_events, f"queue should contain a wave_event, got: {events}"
-            return wave_events[0]
+            rollout_events = [e for e in events if e["event_type"] == "rollout_event"]
+            assert rollout_events, (
+                f"queue should contain a rollout_event, got: {events}"
+            )
+            return rollout_events[0]
 
-        owner_event = _drain_for_wave_event(owner_queue)
-        assert owner_event["entity_type"] == "wave_run"
+        owner_event = _drain_for_rollout_event(owner_queue)
+        assert owner_event["entity_type"] == "rollout"
         assert owner_event["project_id"] == project_id
 
-        member_event = _drain_for_wave_event(member_queue)
-        assert member_event["entity_type"] == "wave_run"
+        member_event = _drain_for_rollout_event(member_queue)
+        assert member_event["entity_type"] == "rollout"
         assert member_event["project_id"] == project_id
     finally:
         bus.unsubscribe(owner_id, owner_queue)
@@ -295,43 +298,44 @@ async def test_wave_event_fan_out_to_members(_setup_db):
 
 
 # ---------------------------------------------------------------------------
-# Persistence test — wave_event rows land in the events table
+# Persistence test — rollout_event rows land in the events table
 # ---------------------------------------------------------------------------
 
 
-async def test_wave_event_persisted_in_events_table(_setup_db):
-    """After complete_in_wave(), one wave_event row exists in the events table."""
-    from agent_gtd.services.wave_service import complete_in_wave
+async def test_rollout_event_persisted_in_events_table(_setup_db):
+    """After complete_item_in_rollout(), one rollout_event row
+    exists in the events table."""
+    from agent_gtd.services.rollout_service import complete_item_in_rollout
 
     db = await get_db()
 
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
     item_id = await _make_item(db, user_id, project_id)
-    wave_run_id = await _make_wave_run(db, user_id, project_id, status="running")
-    await _make_wave_plan(db, wave_run_id, [item_id], [])
-    await _make_wave_item(db, wave_run_id, item_id, status="dispatched")
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_plan(db, rollout_id, [item_id], [])
+    await _make_wave_item(db, rollout_id, item_id, status="dispatched")
 
-    await complete_in_wave(db, user_id, wave_run_id, item_id, "completed")
+    await complete_item_in_rollout(db, user_id, rollout_id, item_id, "completed")
     await asyncio.sleep(0)  # let the task execute and persist
 
-    rows = await db.fetch("SELECT * FROM events WHERE event_type = 'wave_event'")
+    rows = await db.fetch("SELECT * FROM events WHERE event_type = 'rollout_event'")
     assert len(rows) == 1
-    assert rows[0]["entity_type"] == "wave_run"
-    assert rows[0]["entity_id"] == wave_run_id
+    assert rows[0]["entity_type"] == "rollout"
+    assert rows[0]["entity_id"] == rollout_id
     assert rows[0]["project_id"] == project_id
     payload = json.loads(rows[0]["payload"])
     assert payload["kind"] == "item_outcome"
 
 
 # ---------------------------------------------------------------------------
-# Replay test — wave_event rows are returned by replay_since
+# Replay test — rollout_event rows are returned by replay_since
 # ---------------------------------------------------------------------------
 
 
-async def test_wave_event_replay(_setup_db):
-    """SSE replay since a prior event ID returns the wave_event row."""
-    from agent_gtd.services.wave_service import complete_in_wave
+async def test_rollout_event_replay(_setup_db):
+    """SSE replay since a prior event ID returns the rollout_event row."""
+    from agent_gtd.services.rollout_service import complete_item_in_rollout
 
     db = await get_db()
     bus = get_event_bus()
@@ -339,9 +343,9 @@ async def test_wave_event_replay(_setup_db):
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
     item_id = await _make_item(db, user_id, project_id)
-    wave_run_id = await _make_wave_run(db, user_id, project_id, status="running")
-    await _make_wave_plan(db, wave_run_id, [item_id], [])
-    await _make_wave_item(db, wave_run_id, item_id, status="dispatched")
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_plan(db, rollout_id, [item_id], [])
+    await _make_wave_item(db, rollout_id, item_id, status="dispatched")
 
     # Publish a baseline event to anchor the since_id
     since_id = await bus.publish(
@@ -355,12 +359,13 @@ async def test_wave_event_replay(_setup_db):
 
     await asyncio.sleep(0.01)  # ensure created_at ordering
 
-    await complete_in_wave(db, user_id, wave_run_id, item_id, "completed")
+    await complete_item_in_rollout(db, user_id, rollout_id, item_id, "completed")
     await asyncio.sleep(0.01)  # let task execute and persist
 
-    # replay_since with the project_id so wave_event (published by user_id) is included
+    # replay_since with the project_id so rollout_event (published by user_id)
+    # is included
     replayed = await bus.replay_since(db, user_id, since_id, project_ids=[project_id])
     replayed_types = [e["event_type"] for e in replayed]
-    assert "wave_event" in replayed_types, (
-        "wave_event should appear in SSE replay after complete_in_wave"
+    assert "rollout_event" in replayed_types, (
+        "wave_event should appear in SSE replay after complete_item_in_rollout"
     )

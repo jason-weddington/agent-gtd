@@ -53,8 +53,10 @@ def _item_response(
         sort_order=float(str(row["sort_order"])),
         labels=decode_json_list(str(row["labels"])),
         version=int(str(row["version"])),
-        locked_by_wave_id=(
-            str(row["locked_by_wave_id"]) if row.get("locked_by_wave_id") else None
+        locked_by_rollout_id=(
+            str(row["locked_by_rollout_id"])
+            if row.get("locked_by_rollout_id")
+            else None
         ),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),

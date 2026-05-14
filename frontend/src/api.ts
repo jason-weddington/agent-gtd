@@ -1,4 +1,4 @@
-import type { ActivityEvent, AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Run, UserResponse, WaveEvent, WaveRun } from './types'
+import type { ActivityEvent, AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Rollout, RolloutEvent, Run, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -248,34 +248,37 @@ export const api = {
     delete: (id: string) => request<void>('DELETE', `/comments/${id}`),
   },
 
-  waves: {
-    /** GET /api/projects/{projectId}/active-wave — 404 if none active. */
+  rollouts: {
+    /** GET /api/projects/{projectId}/active-rollout — 404 if none active. */
     getActiveForProject: (projectId: string) =>
-      request<WaveRun>('GET', `/projects/${projectId}/active-wave`),
-    /** GET /api/wave-runs/{id}/events?limit=N — newest first. */
-    events: (waveRunId: string, limit = 50) =>
-      request<{ events: WaveEvent[] }>('GET', `/wave-runs/${waveRunId}/events?limit=${limit}`),
-    /** GET /api/wave-runs/{id}/activity?limit=N&before_seq=N — enriched activity log. */
-    activity: (waveRunId: string, limit = 200, beforeSeq?: number) => {
+      request<Rollout>('GET', `/projects/${projectId}/active-rollout`),
+    /** GET /api/rollouts/{id}/events?limit=N — newest first. */
+    events: (rolloutId: string, limit = 50) =>
+      request<{ events: RolloutEvent[] }>('GET', `/rollouts/${rolloutId}/events?limit=${limit}`),
+    /** GET /api/rollouts/{id}/activity?limit=N&before_seq=N — enriched activity log. */
+    activity: (rolloutId: string, limit = 200, beforeSeq?: number) => {
       const params = new URLSearchParams({ limit: String(limit) })
       if (beforeSeq !== undefined) params.set('before_seq', String(beforeSeq))
       return request<{ events: ActivityEvent[]; hasMore: boolean }>(
         'GET',
-        `/wave-runs/${waveRunId}/activity?${params.toString()}`,
+        `/rollouts/${rolloutId}/activity?${params.toString()}`,
       )
     },
-    /** POST /api/wave-runs/{id}/complete-item */
-    completeItem: (waveRunId: string, itemId: string, outcome: string) =>
-      request<unknown>('POST', `/wave-runs/${waveRunId}/complete-item`, { itemId, outcome }),
-    /** POST /api/wave-runs/{id}/halt */
-    halt: (waveRunId: string, reason: string) =>
-      request<unknown>('POST', `/wave-runs/${waveRunId}/halt`, { reason }),
-    /** POST /api/wave-runs/{id}/cancel */
-    cancel: (waveRunId: string, reason: string) =>
-      request<unknown>('POST', `/wave-runs/${waveRunId}/cancel`, { reason }),
-    /** POST /api/wave-runs/{id}/resume */
-    resume: (waveRunId: string, answer: string) =>
-      request<WaveRun>('POST', `/wave-runs/${waveRunId}/resume`, { answer }),
+    /** POST /api/rollouts/{id}/complete-item */
+    completeItem: (rolloutId: string, itemId: string, outcome: string) =>
+      request<unknown>('POST', `/rollouts/${rolloutId}/complete-item`, { itemId, outcome }),
+    /** POST /api/rollouts/{id}/halt */
+    halt: (rolloutId: string, reason: string) =>
+      request<unknown>('POST', `/rollouts/${rolloutId}/halt`, { reason }),
+    /** POST /api/rollouts/{id}/cancel */
+    cancel: (rolloutId: string, reason: string) =>
+      request<unknown>('POST', `/rollouts/${rolloutId}/cancel`, { reason }),
+    /** POST /api/rollouts/{id}/resume */
+    resume: (rolloutId: string, answer: string) =>
+      request<Rollout>('POST', `/rollouts/${rolloutId}/resume`, { answer }),
+    /** POST /api/rollouts/{id}/dispatch — launch the manage agent */
+    dispatchRollout: (rolloutId: string) =>
+      request<Run>('POST', `/rollouts/${rolloutId}/dispatch`),
   },
 
   dispatch: {

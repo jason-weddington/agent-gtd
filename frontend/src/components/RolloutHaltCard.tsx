@@ -1,5 +1,5 @@
 /**
- * WaveHaltCard — shown when wave_run.status === 'halted'.
+ * RolloutHaltCard — shown when wave_run.status === 'halted'.
  *
  * AC-12 through AC-18.
  */
@@ -19,25 +19,25 @@ import {
   Typography,
 } from '@mui/material'
 import { api, ApiError } from '../api'
-import type { Comment, WaveEvent, WaveRun } from '../types'
+import type { Comment, RolloutEvent, Rollout } from '../types'
 import MarkdownContent from './MarkdownContent'
 
-interface WaveHaltCardProps {
-  waveRun: WaveRun
+interface RolloutHaltCardProps {
+  waveRun: Rollout
   /** The most recent wave_halted event (for comment_id and item_id). */
-  latestHaltEvent: WaveEvent | null
+  latestHaltEvent: RolloutEvent | null
   onResume: () => void
   onSkip: () => void
   onAbort: () => void
 }
 
-export default function WaveHaltCard({
+export default function RolloutHaltCard({
   waveRun,
   latestHaltEvent,
   onResume,
   onSkip,
   onAbort,
-}: WaveHaltCardProps) {
+}: RolloutHaltCardProps) {
   // --- Comment fetching (AC-14) ---
   const commentId =
     latestHaltEvent
@@ -70,12 +70,12 @@ export default function WaveHaltCard({
     setResuming(true)
     setResumeError(null)
     try {
-      await api.waves.resume(waveRun.id, answerText.trim())
+      await api.rollouts.resume(waveRun.id, answerText.trim())
       setResumeOpen(false)
       setAnswerText('')
       onResume()
     } catch (err) {
-      setResumeError(err instanceof ApiError ? err.detail : 'Failed to resume wave')
+      setResumeError(err instanceof ApiError ? err.detail : 'Failed to resume rollout')
     } finally {
       setResuming(false)
     }
@@ -95,7 +95,7 @@ export default function WaveHaltCard({
     setSkipping(true)
     setSkipError(null)
     try {
-      await api.waves.completeItem(waveRun.id, offendingItemId, 'skipped')
+      await api.rollouts.completeItem(waveRun.id, offendingItemId, 'skipped')
       onSkip()
     } catch (err) {
       setSkipError(err instanceof ApiError ? err.detail : 'Failed to skip item')
@@ -113,11 +113,11 @@ export default function WaveHaltCard({
     setAborting(true)
     setAbortError(null)
     try {
-      await api.waves.cancel(waveRun.id, 'Manually aborted by user')
+      await api.rollouts.cancel(waveRun.id, 'Manually aborted by user')
       setAbortOpen(false)
       onAbort()
     } catch (err) {
-      setAbortError(err instanceof ApiError ? err.detail : 'Failed to abort wave')
+      setAbortError(err instanceof ApiError ? err.detail : 'Failed to abort rollout')
     } finally {
       setAborting(false)
     }
@@ -186,7 +186,7 @@ export default function WaveHaltCard({
             size="small"
             onClick={() => setAbortOpen(true)}
           >
-            Abort wave
+            Abort rollout
           </Button>
         </CardActions>
       </Card>
@@ -240,7 +240,7 @@ export default function WaveHaltCard({
         <DialogTitle>Abort Wave?</DialogTitle>
         <DialogContent>
           <Typography variant="body2">
-            Are you sure you want to abort this wave? All remaining items will
+            Are you sure you want to abort this rollout? All remaining items will
             be marked skipped.
           </Typography>
           {abortError && (

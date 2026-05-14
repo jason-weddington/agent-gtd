@@ -56,8 +56,8 @@ class RunStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
-class WaveRunStatus(StrEnum):
-    """Autonomous wave run lifecycle status."""
+class RolloutStatus(StrEnum):
+    """Autonomous rollout lifecycle status."""
 
     PENDING = "pending"
     PLANNING = "planning"
@@ -67,8 +67,8 @@ class WaveRunStatus(StrEnum):
     FAILED = "failed"
 
 
-class WavePlanItemStatus(StrEnum):
-    """Status of a single item within a wave plan."""
+class RolloutItemStatus(StrEnum):
+    """Status of a single item within a rollout plan."""
 
     PENDING = "pending"
     READY = "ready"
@@ -78,8 +78,8 @@ class WavePlanItemStatus(StrEnum):
     SKIPPED = "skipped"
 
 
-class WaveEventActor(StrEnum):
-    """Actor that generated a wave event."""
+class RolloutEventActor(StrEnum):
+    """Actor that generated a rollout event."""
 
     MANAGER = "manager"
     CHILD_AGENT = "child-agent"
@@ -144,7 +144,7 @@ class Item(BaseModel):
     sort_order: float = 0
     labels: list[str] = []
     version: int = 1
-    locked_by_wave_id: str | None = None
+    locked_by_rollout_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -200,13 +200,13 @@ class Attachment(BaseModel):
     created_at: datetime
 
 
-class WaveRun(BaseModel):
-    """An autonomous wave run coordinating multiple agent dispatches."""
+class Rollout(BaseModel):
+    """An autonomous rollout coordinating multiple agent dispatches."""
 
     id: str
     project_id: str
     lead_user_id: str
-    status: WaveRunStatus
+    status: RolloutStatus
     halt_reason: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
@@ -214,11 +214,11 @@ class WaveRun(BaseModel):
     updated_at: datetime
 
 
-class WavePlan(BaseModel):
-    """A DAG plan produced by the wave planner for a wave run."""
+class RolloutPlan(BaseModel):
+    """A DAG plan produced by the planner for a rollout."""
 
     id: str
-    wave_run_id: str
+    rollout_id: str
     version: int
     nodes: list[str]
     edges: list[dict[str, str]]
@@ -226,26 +226,26 @@ class WavePlan(BaseModel):
     created_at: datetime
 
 
-class WavePlanItem(BaseModel):
-    """Tracking record for a single item within a wave plan."""
+class RolloutItem(BaseModel):
+    """Tracking record for a single item within a rollout plan."""
 
-    wave_run_id: str
+    rollout_id: str
     item_id: str
-    status: WavePlanItemStatus
+    status: RolloutItemStatus
     claude_run_id: str | None = None
     completed_at: datetime | None = None
     merge_actor: MergeActor | None = None
 
 
-class WaveEvent(BaseModel):
-    """A structured event emitted during a wave run."""
+class RolloutEvent(BaseModel):
+    """A structured event emitted during a rollout."""
 
     id: str
-    wave_run_id: str
+    rollout_id: str
     seq: int
     ts: datetime
     kind: str
-    actor: WaveEventActor
+    actor: RolloutEventActor
     decision_rule: str
     payload: dict[str, Any]
 
@@ -534,7 +534,7 @@ class ItemResponse(BaseModel):
     sort_order: float
     labels: list[str]
     version: int
-    locked_by_wave_id: str | None = None
+    locked_by_rollout_id: str | None = None
     created_at: datetime
     updated_at: datetime
     blockers: list[BlockerSummary] = []
@@ -607,7 +607,7 @@ class CreateRunRequest(BaseModel):
 
     max_turns: int | None = None
     mode: str = "build"
-    wave_run_id: str | None = None
+    rollout_id: str | None = None
 
 
 class MaxConcurrentRequest(BaseModel):
@@ -658,7 +658,7 @@ class RunResponse(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     error_msg: str
-    wave_run_id: str | None = None
+    rollout_id: str | None = None
     created_at: datetime
     updated_at: datetime
     dispatched_by_email: str | None = None
@@ -696,42 +696,42 @@ class DispatchCapabilitiesResponse(BaseModel):
     agents: list[DispatchAgentInfo] = []
 
 
-# --- Wave Manager Schemas ---
+# --- Rollout Manager Schemas ---
 
 
-class PlanWaveItemSummary(BaseModel):
-    """Per-item summary within a wave plan result."""
+class PlanRolloutItemSummary(BaseModel):
+    """Per-item summary within a rollout plan result."""
 
     item_id: str
     title: str
     predecessors: list[str] = []
 
 
-class PlanWavePlan(BaseModel):
-    """The DAG plan nested inside a PlanWaveResult."""
+class PlanRolloutPlan(BaseModel):
+    """The DAG plan nested inside a PlanRolloutResult."""
 
     nodes: list[str]
     edges: list[dict[str, str]]
 
 
-class PlanWaveResult(BaseModel):
-    """Response returned by the plan_wave MCP tool on success."""
+class PlanRolloutResult(BaseModel):
+    """Response returned by the plan_rollout MCP tool on success."""
 
-    wave_run_id: str
-    status: WaveRunStatus
-    plan: PlanWavePlan
+    rollout_id: str
+    status: RolloutStatus
+    plan: PlanRolloutPlan
     planner_model: str
     item_count: int
-    per_item: list[PlanWaveItemSummary]
+    per_item: list[PlanRolloutItemSummary]
 
 
-class WaveRunResponse(BaseModel):
-    """Wave run data returned from the API, augmented with progress counts."""
+class RolloutResponse(BaseModel):
+    """Rollout data returned from the API, augmented with progress counts."""
 
     id: str
     project_id: str
     lead_user_id: str
-    status: WaveRunStatus
+    status: RolloutStatus
     halt_reason: str | None
     started_at: str | None
     ended_at: str | None
@@ -741,30 +741,30 @@ class WaveRunResponse(BaseModel):
     done_count: int
 
 
-class WaveEventResponse(BaseModel):
-    """A single wave event row returned from the API."""
+class RolloutEventResponse(BaseModel):
+    """A single rollout event row returned from the API."""
 
     id: str
-    wave_run_id: str
+    rollout_id: str
     seq: int
     ts: str
     kind: str
-    actor: WaveEventActor
+    actor: RolloutEventActor
     decision_rule: str
     payload: dict[str, Any]
 
 
-class ResumeWaveRequest(BaseModel):
-    """Request body for POST /api/wave-runs/{id}/resume."""
+class ResumeRolloutRequest(BaseModel):
+    """Request body for POST /api/rollouts/{id}/resume."""
 
     answer: str
 
 
 class ActivityEvent(BaseModel):
-    """A single enriched wave activity event returned from GET /activity."""
+    """A single enriched rollout activity event returned from GET /activity."""
 
     id: str
-    wave_run_id: str
+    rollout_id: str
     seq: int
     ts: str
     actor: str

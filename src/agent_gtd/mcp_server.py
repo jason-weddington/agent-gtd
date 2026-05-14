@@ -1069,7 +1069,7 @@ async def dispatch_item(
     ctx: Context,
     max_turns: int | None = None,
     mode: str = "build",
-    wave_run_id: str | None = None,
+    rollout_id: str | None = None,
 ) -> dict[str, Any]:
     """Dispatch a headless Claude Code agent to work on an item.
 
@@ -1085,20 +1085,20 @@ async def dispatch_item(
             "plan" (groom task: write acceptance criteria, identify files,
             ask clarifying questions), or "manage" (launch a wave manager
             agent that drives an autonomous wave run). Default: "build".
-        wave_run_id: Required when mode="manage". The wave run ID that this
-            manager agent will drive. The wave must be in status="pending".
+        rollout_id: Required when mode="manage". The rollout ID that this
+            manager agent will drive. The rollout must be in status="pending".
 
     Returns:
         The created run dict with status and branch name.
     """
     from agent_gtd.exceptions import (
+        RolloutItemLockedError,
         RunActiveError,
         ValidationError,
-        WaveItemLockedError,
     )
 
-    if mode == "manage" and wave_run_id is None:
-        raise ToolError("wave_run_id is required when mode='manage'")
+    if mode == "manage" and rollout_id is None:
+        raise ToolError("rollout_id is required when mode='manage'")
 
     session = await _get_session(ctx)
     try:
@@ -1107,9 +1107,9 @@ async def dispatch_item(
             item_id,
             max_turns=max_turns,
             mode=mode,
-            wave_run_id=wave_run_id,
+            rollout_id=rollout_id,
         )
-    except WaveItemLockedError as e:
+    except RolloutItemLockedError as e:
         raise ToolError(e.detail) from None
     except BlockersUnresolvedError as e:
         raise ToolError(e.detail) from None
@@ -1178,23 +1178,23 @@ async def list_runs(
     return await _backend.list_runs(session["user_id"], item_id=item_id, status=status)
 
 
-# --- Wave manager tools ---
+# --- Rollout manager tools ---
 
 
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
-async def advance_wave(
-    wave_run_id: str,
+async def advance_rollout(
+    rollout_id: str,
     ctx: Context,
 ) -> dict[str, Any]:
-    """Return the current readiness snapshot for a wave run.
+    """Return the current readiness snapshot for a rollout.
 
     Pure read — no mutations, no events written.  Use this in the executor
     loop to determine which items can be dispatched next.
 
     Args:
-        wave_run_id: ID of the wave run to inspect.
+        rollout_id: ID of the rollout to inspect.
         ctx: MCP context (injected automatically).
 
     Returns:
@@ -1206,7 +1206,7 @@ async def advance_wave(
     """
     session = await _get_session(ctx)
     try:
-        return await _backend.advance_wave(session["user_id"], wave_run_id)
+        return await _backend.advance_rollout(session["user_id"], rollout_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except ValidationError as e:
@@ -1216,11 +1216,11 @@ async def advance_wave(
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
-async def plan_wave(
+async def plan_rollout(
     item_ids: list[str],
     ctx: Context,
 ) -> dict[str, Any]:
-    """Plan a wave: validate items, call the remote planner, and return the DAG.
+    """Plan a rollout: validate items, call the remote planner, and return the DAG.
 
     Validates the legality contract for every item before touching the
     database:
@@ -1229,20 +1229,20 @@ async def plan_wave(
       section.
     - Each item description must contain a non-empty ``## Files to Modify``
       section.
-    - Each item must have no unresolved blockers outside the wave's own item
+    - Each item must have no unresolved blockers outside the rollout's own item
       set (internal blockers are fine — the planner handles ordering).
     - All items must belong to the same project.
 
-    On success, inserts an ``autonomous_wave_runs`` row, calls the dispatch
+    On success, inserts an ``autonomous_rollouts`` row, calls the dispatch
     service planner (``POST {dispatch_url}/plan``), persists the resulting
     DAG, and returns a plan summary for the lead to confirm.
 
     Args:
-        item_ids: IDs of the items to include in the wave (minimum 1).
+        item_ids: IDs of the items to include in the rollout (minimum 1).
         ctx: MCP context (injected automatically).
 
     Returns:
-        Dict with ``wave_run_id``, ``status``, ``plan`` (nodes + edges),
+        Dict with ``rollout_id``, ``status``, ``plan`` (nodes + edges),
         ``planner_model``, ``item_count``, and ``per_item`` list
         (each entry has ``item_id``, ``title``, ``predecessors``).
     """
@@ -1250,7 +1250,7 @@ async def plan_wave(
 
     session = await _get_session(ctx)
     try:
-        return await _backend.plan_wave(session["user_id"], item_ids)
+        return await _backend.plan_rollout(session["user_id"], item_ids)
     except LegalityContractError as exc:
         raise ToolError(
             f"Legality contract failed for {len(exc.failures)} item(s):\n"
@@ -1265,27 +1265,27 @@ async def plan_wave(
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
-async def start_wave(
-    wave_run_id: str,
+async def start_rollout(
+    rollout_id: str,
     ctx: Context,
 ) -> dict[str, Any]:
-    """Flip a wave from pending → running without launching a manage agent.
+    """Flip a rollout from pending → running without launching a manage agent.
 
     Useful for lead-as-manager debugging and human-driven rollouts where the
-    normal ``dispatch_item(mode="manage")`` path is not desired.  Both
-    ``update_wave_state`` and ``advance_wave`` require the wave to be running;
+    normal ``dispatch_rollout`` path is not desired.  Both
+    ``update_rollout_state`` and ``advance_rollout`` require the rollout to be running;
     this tool performs the status flip so those tools become available.
 
     Args:
-        wave_run_id: ID of the wave run to start.
+        rollout_id: ID of the rollout to start.
         ctx: MCP context (injected automatically).
 
     Returns:
-        The updated autonomous_wave_runs row dict.
+        The updated autonomous_rollouts row dict.
     """
     session = await _get_session(ctx)
     try:
-        return await _backend.start_wave(session["user_id"], wave_run_id)
+        return await _backend.start_rollout(session["user_id"], rollout_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except ValidationError as e:
@@ -1295,23 +1295,23 @@ async def start_wave(
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
-async def complete_in_wave(
-    wave_run_id: str,
+async def complete_item_in_rollout(
+    rollout_id: str,
     item_id: str,
     outcome: str,
     ctx: Context,
     merge_actor: str = "",
     decision_rule: str = "",
 ) -> dict[str, Any]:
-    """Mark a dispatched wave item as done and unblock downstream items.
+    """Mark a dispatched rollout item as done and unblock downstream items.
 
     After the item is recorded as terminal, each downstream item whose only
     remaining blocking predecessor was this one is transitioned to 'ready'.
-    If all items in the wave are now terminal the wave run is closed.
+    If all items in the rollout are now terminal the rollout is closed.
 
     Args:
-        wave_run_id: ID of the wave run.
-        item_id: ID of the wave_plan_items row to complete.
+        rollout_id: ID of the rollout.
+        item_id: ID of the rollout_items row to complete.
         outcome: One of ``"completed"``, ``"halted"``, ``"skipped"``.
         ctx: MCP context (injected automatically).
         merge_actor: Who merged the PR (``"human"``,
@@ -1321,14 +1321,14 @@ async def complete_in_wave(
 
     Returns:
         Dict with keys:
-          - wave_plan_item (dict): The updated wave_plan_items row.
+          - rollout_item (dict): The updated rollout_items row.
           - newly_ready (list[str]): Item IDs newly transitioned to 'ready'.
     """
     session = await _get_session(ctx)
     try:
-        return await _backend.complete_in_wave(
+        return await _backend.complete_item_in_rollout(
             session["user_id"],
-            wave_run_id,
+            rollout_id,
             item_id,
             outcome,
             merge_actor=merge_actor,
@@ -1343,36 +1343,36 @@ async def complete_in_wave(
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
 )
-async def halt_wave(
-    wave_run_id: str,
+async def halt_rollout(
+    rollout_id: str,
     reason: str,
     ctx: Context,
     comment: str | None = None,
     item_id: str | None = None,
 ) -> dict[str, Any]:
-    """Halt a running wave — terminal operation.
+    """Halt a running rollout — terminal operation.
 
-    Transitions all in-flight items to 'halted', releases all wave-scoped
+    Transitions all in-flight items to 'halted', releases all rollout-scoped
     item locks, posts a GTD comment on the project, and appends a
     ``wave_halted`` event.  The event payload includes the offending item ID
     (if any) and the comment ID so the halt card UI can render both without
     an extra round trip.
 
     Args:
-        wave_run_id: ID of the wave run to halt.
+        rollout_id: ID of the rollout to halt.
         reason: Short machine-readable halt reason (e.g. ``"merge_rejected"``).
         ctx: MCP context (injected automatically).
         comment: Optional human-readable context appended to the GTD comment.
         item_id: Optional ID of the item that triggered the halt.
 
     Returns:
-        The updated autonomous_wave_runs row dict.
+        The updated autonomous_rollouts row dict.
     """
     session = await _get_session(ctx)
     try:
-        return await _backend.halt_wave(
+        return await _backend.halt_rollout(
             session["user_id"],
-            wave_run_id,
+            rollout_id,
             reason,
             comment=comment,
             item_id=item_id,
@@ -1384,27 +1384,27 @@ async def halt_wave(
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True))
-async def cancel_wave(
-    wave_run_id: str,
+async def cancel_rollout(
+    rollout_id: str,
     reason: str,
     ctx: Context,
 ) -> dict[str, Any]:
-    """Cancel a wave, marking any remaining items as skipped.
+    """Cancel a rollout, marking any remaining items as skipped.
 
-    Accepts waves in any non-terminal status (pending, planning, running,
-    halted, failed). Idempotent for already-cancelled waves.
+    Accepts rollouts in any non-terminal status (pending, planning, running,
+    halted, failed). Idempotent for already-cancelled rollouts.
 
     Args:
-        wave_run_id: ID of the wave run to cancel.
+        rollout_id: ID of the rollout to cancel.
         reason: Short machine-readable cancellation reason (e.g. "superseded").
         ctx: MCP context (injected automatically).
 
     Returns:
-        The updated autonomous_wave_runs row dict.
+        The updated autonomous_rollouts row dict.
     """
     session = await _get_session(ctx)
     try:
-        return await _backend.cancel_wave(session["user_id"], wave_run_id, reason)
+        return await _backend.cancel_rollout(session["user_id"], rollout_id, reason)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except ValidationError as e:
@@ -1414,19 +1414,19 @@ async def cancel_wave(
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
-async def replan_wave(
-    wave_run_id: str,
+async def replan_rollout(
+    rollout_id: str,
     ctx: Context,
     from_item: str | None = None,
 ) -> dict[str, Any]:
-    """Re-plan the remaining subgraph for an in-progress wave.
+    """Re-plan the remaining subgraph for an in-progress rollout.
 
-    Calls the dispatch-worker planner (same mechanism as plan_wave) scoped
-    to the remaining pending/ready items, persists a new wave_plans version,
+    Calls the dispatch-worker planner (same mechanism as plan_rollout) scoped
+    to the remaining pending/ready items, persists a new rollout_plans version,
     updates item readiness, and emits a ``wave_replanned`` event.
 
     Args:
-        wave_run_id: ID of the wave run to replan.
+        rollout_id: ID of the rollout to replan.
         ctx: MCP context (injected automatically).
         from_item: Optional item ID to restrict replanning to its downstream
             subgraph (depth-first traversal from this item).
@@ -1435,13 +1435,13 @@ async def replan_wave(
         Dict with keys:
           - old_version (int): The previous plan version.
           - new_version (int): The newly created plan version.
-          - new_plan (dict): The new wave_plans row.
+          - new_plan (dict): The new rollout_plans row.
     """
     session = await _get_session(ctx)
     try:
-        return await _backend.replan_wave(
+        return await _backend.replan_rollout(
             session["user_id"],
-            wave_run_id,
+            rollout_id,
             from_item=from_item,
         )
     except NotFoundError as e:
@@ -1453,14 +1453,14 @@ async def replan_wave(
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
-async def update_wave_state(
-    wave_run_id: str,
+async def update_rollout_state(
+    rollout_id: str,
     phase: str,
     ctx: Context,
     current_item_id: str | None = None,
     current_step: str | None = None,
 ) -> dict[str, Any]:
-    """Publish the manager's current semantic state for a running wave.
+    """Publish the manager's current semantic state for a running rollout.
 
     The manage-mode agent calls this at each major workflow transition so the
     dashboard can display "Manager: merging · working on <item> · last updated
@@ -1470,21 +1470,21 @@ async def update_wave_state(
     ``"reviewing"``, ``"merging"``, ``"reconciling_ac"``, ``"halted"``.
 
     Args:
-        wave_run_id: ID of the wave run to update.
+        rollout_id: ID of the rollout to update.
         phase: Current execution phase of the manager.
         ctx: MCP context (injected automatically).
         current_item_id: The item ID being acted on, or ``None``.
         current_step: Short free-form description of the current step.
 
     Returns:
-        Dict with keys ``wave_run_id``, ``ts``, ``phase``,
+        Dict with keys ``rollout_id``, ``ts``, ``phase``,
         ``current_item_id``, ``current_step``.
     """
     session = await _get_session(ctx)
     try:
-        return await _backend.update_wave_state(
+        return await _backend.update_rollout_state(
             session["user_id"],
-            wave_run_id,
+            rollout_id,
             phase=phase,
             current_item_id=current_item_id,
             current_step=current_step,
@@ -1492,6 +1492,39 @@ async def update_wave_state(
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except ValidationError as e:
+        raise ToolError(e.detail) from None
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+async def dispatch_rollout(
+    rollout_id: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """Dispatch the wave manager agent for this rollout.
+
+    Use this instead of dispatch_item when launching a manage-mode run.
+    Creates a manage-mode claude_runs row scoped to the rollout (no item_id),
+    and transitions the rollout from pending → running.
+
+    Args:
+        rollout_id: ID of the rollout to dispatch.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        The created run dict with status and branch name.
+    """
+    from agent_gtd.exceptions import (
+        ValidationError as _ValidationError,
+    )
+
+    session = await _get_session(ctx)
+    try:
+        return await _backend.dispatch_rollout(session["user_id"], rollout_id)
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+    except _ValidationError as e:
         raise ToolError(e.detail) from None
 
 

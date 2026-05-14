@@ -1135,7 +1135,7 @@ async def test_execute_run_success(
         engine="claude",
         agent_name="",
         attribution="",
-        wave_run_id=None,
+        rollout_id=None,
         timeout_minutes=30,
     ):
         return {"id": "remote-123", "status": "pending"}
@@ -1203,7 +1203,7 @@ async def test_execute_run_remote_failure(
         engine="claude",
         agent_name="",
         attribution="",
-        wave_run_id=None,
+        rollout_id=None,
         timeout_minutes=30,
     ):
         return {"id": "remote-456", "status": "pending"}
@@ -1354,7 +1354,7 @@ async def test_configure_and_dispatch(
         engine="claude",
         agent_name="",
         attribution="",
-        wave_run_id=None,
+        rollout_id=None,
         timeout_minutes=30,
     ):
         return {"id": "remote-ok", "status": "pending"}
@@ -1636,7 +1636,7 @@ async def test_dispatch_uses_project_agent_override(
         engine="claude",
         agent_name="",
         attribution="",
-        wave_run_id=None,
+        rollout_id=None,
         timeout_minutes=30,
     ):
         dispatched_agent.append(agent_name)
@@ -1701,7 +1701,7 @@ async def test_dispatch_falls_back_to_global_agent_when_project_unset(
         engine="claude",
         agent_name="",
         attribution="",
-        wave_run_id=None,
+        rollout_id=None,
         timeout_minutes=30,
     ):
         dispatched_agent.append(agent_name)
@@ -1765,7 +1765,7 @@ async def test_dispatch_omits_agent_when_neither_set(
         engine="claude",
         agent_name="",
         attribution="",
-        wave_run_id=None,
+        rollout_id=None,
         timeout_minutes=30,
     ):
         dispatched_agent.append(agent_name)
@@ -2033,31 +2033,31 @@ async def test_dispatch_cancelled_blocker_passes(
 
 
 # ---------------------------------------------------------------------------
-# wave_run_id threading (AC-1)
+# rollout_id threading (AC-1)
 # ---------------------------------------------------------------------------
 
 
-async def test_dispatch_request_accepts_wave_run_id(
+async def test_dispatch_request_accepts_rollout_id(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """DispatchRunRequest accepts an optional wave_run_id field (body parsing)."""
+    """DispatchRunRequest accepts an optional rollout_id field (body parsing)."""
     project_id = await _create_project_with_origin(client, auth_headers)
     item_id = await _create_item_in_project(client, auth_headers, project_id)
 
-    # wave_run_id=None is valid; the route accepts and ignores it for non-manage mode
+    # rollout_id=None is valid; the route accepts and ignores it for non-manage mode
     res = await client.post(
         f"/api/items/{item_id}/dispatch",
-        json={"wave_run_id": None},
+        json={"rollout_id": None},
         headers=auth_headers,
     )
     assert res.status_code == 201
     assert res.json()["mode"] == "build"
 
 
-async def test_create_run_persists_wave_run_id(
+async def test_create_run_persists_rollout_id(
     client: AsyncClient, auth_headers: dict[str, str], user_id: str
 ):
-    """create_run() stores wave_run_id on the claude_runs row (DB round-trip)."""
+    """create_run() stores rollout_id on the claude_runs row (DB round-trip)."""
     import uuid
     from datetime import UTC, datetime
 
@@ -2072,7 +2072,7 @@ async def test_create_run_persists_wave_run_id(
     wave_id = str(uuid.uuid4())
     now = datetime.now(UTC).isoformat()
     await db.execute(
-        "INSERT INTO autonomous_wave_runs"
+        "INSERT INTO autonomous_rollouts"
         " (id, project_id, lead_user_id, status, created_at, updated_at)"
         " VALUES ($1, $2, $3, $4, $5, $6)",
         wave_id,
@@ -2083,15 +2083,15 @@ async def test_create_run_persists_wave_run_id(
         now,
     )
 
-    # mode="build" just persists wave_run_id without the manage-mode flip
-    row = await create_run(db, user_id, item_id, mode="build", wave_run_id=wave_id)
-    assert row["wave_run_id"] == wave_id
+    # mode="build" just persists rollout_id without the manage-mode flip
+    row = await create_run(db, user_id, item_id, mode="build", rollout_id=wave_id)
+    assert row["rollout_id"] == wave_id
 
 
-async def test_create_run_forwards_wave_run_id_to_dispatch_worker(
+async def test_create_run_forwards_rollout_id_to_dispatch_worker(
     client: AsyncClient, auth_headers: dict[str, str], user_id: str, monkeypatch
 ):
-    """execute_run() forwards wave_run_id to the remote dispatch worker."""
+    """execute_run() forwards rollout_id to the remote dispatch worker."""
     import uuid
     from datetime import UTC, datetime
 
@@ -2113,7 +2113,7 @@ async def test_create_run_forwards_wave_run_id_to_dispatch_worker(
     wave_id = str(uuid.uuid4())
     now = datetime.now(UTC).isoformat()
     await db.execute(
-        "INSERT INTO autonomous_wave_runs"
+        "INSERT INTO autonomous_rollouts"
         " (id, project_id, lead_user_id, status, created_at, updated_at)"
         " VALUES ($1, $2, $3, $4, $5, $6)",
         wave_id,
@@ -2124,10 +2124,10 @@ async def test_create_run_forwards_wave_run_id_to_dispatch_worker(
         now,
     )
 
-    # Dispatch with wave_run_id (mode=build so no manage flip)
+    # Dispatch with rollout_id (mode=build so no manage flip)
     res = await client.post(
         f"/api/items/{item_id}/dispatch",
-        json={"wave_run_id": wave_id},
+        json={"rollout_id": wave_id},
         headers=auth_headers,
     )
     assert res.status_code == 201
@@ -2148,7 +2148,7 @@ async def test_create_run_forwards_wave_run_id_to_dispatch_worker(
         max_turns,
         mode="build",
         *,
-        wave_run_id=None,
+        rollout_id=None,
         url,
         api_key,
         engine="claude",
@@ -2156,7 +2156,7 @@ async def test_create_run_forwards_wave_run_id_to_dispatch_worker(
         attribution="",
         timeout_minutes=30,
     ):
-        captured_body["wave_run_id"] = wave_run_id
+        captured_body["rollout_id"] = rollout_id
         return {"id": "remote-wave-123", "status": "pending"}
 
     async def mock_poll(http_client, remote_run_id, *, url, api_key):
@@ -2167,13 +2167,13 @@ async def test_create_run_forwards_wave_run_id_to_dispatch_worker(
 
     await execute_run(db, run, item, project)
 
-    assert captured_body["wave_run_id"] == wave_id
+    assert captured_body["rollout_id"] == wave_id
 
 
-async def test_run_response_includes_wave_run_id(
+async def test_run_response_includes_rollout_id(
     client: AsyncClient, auth_headers: dict[str, str], user_id: str
 ):
-    """GET /api/runs/{run_id} returns wave_run_id (non-null) when DB row has it set."""
+    """GET /api/runs/{run_id} returns rollout_id (non-null) when DB row has it set."""
     import uuid
     from datetime import UTC, datetime
 
@@ -2187,7 +2187,7 @@ async def test_run_response_includes_wave_run_id(
     wave_id = str(uuid.uuid4())
     now = datetime.now(UTC).isoformat()
     await db.execute(
-        "INSERT INTO autonomous_wave_runs"
+        "INSERT INTO autonomous_rollouts"
         " (id, project_id, lead_user_id, status, created_at, updated_at)"
         " VALUES ($1, $2, $3, $4, $5, $6)",
         wave_id,
@@ -2198,19 +2198,19 @@ async def test_run_response_includes_wave_run_id(
         now,
     )
 
-    # Dispatch with wave_run_id (mode=build, running wave → passes pre-flight)
+    # Dispatch with rollout_id (mode=build, running rollout → passes pre-flight)
     res = await client.post(
         f"/api/items/{item_id}/dispatch",
-        json={"mode": "build", "wave_run_id": wave_id},
+        json={"mode": "build", "rollout_id": wave_id},
         headers=auth_headers,
     )
     assert res.status_code == 201, res.text
     run_id = res.json()["id"]
 
-    # The dispatch response itself should include wave_run_id
-    assert res.json()["wave_run_id"] == wave_id
+    # The dispatch response itself should include rollout_id
+    assert res.json()["rollout_id"] == wave_id
 
-    # GET /api/runs/{run_id} should also return wave_run_id
+    # GET /api/runs/{run_id} should also return rollout_id
     get_res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
     assert get_res.status_code == 200
-    assert get_res.json()["wave_run_id"] == wave_id
+    assert get_res.json()["rollout_id"] == wave_id

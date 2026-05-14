@@ -15,9 +15,9 @@ from agent_gtd.database import get_db
 from agent_gtd.exceptions import (
     BlockersUnresolvedError,
     NotFoundError,
+    RolloutItemLockedError,
     RunActiveError,
     ValidationError,
-    WaveItemLockedError,
 )
 from agent_gtd.models import (
     CreateRunRequest,
@@ -57,7 +57,7 @@ def _run_response(row: dict[str, object]) -> RunResponse:
         workspace_dir=str(row.get("workspace_dir", "")),
         max_turns=int(str(row.get("max_turns", 50))),
         mode=str(row.get("mode", "build")),
-        wave_run_id=str(row["wave_run_id"]) if row.get("wave_run_id") else None,
+        rollout_id=str(row["rollout_id"]) if row.get("rollout_id") else None,
         started_at=(
             datetime.fromisoformat(str(row["started_at"]))
             if row.get("started_at")
@@ -265,9 +265,9 @@ async def dispatch_item(
             item_id,
             max_turns=body.max_turns,
             mode=body.mode,
-            wave_run_id=body.wave_run_id,
+            rollout_id=body.rollout_id,
         )
-    except WaveItemLockedError as e:
+    except RolloutItemLockedError as e:
         raise HTTPException(status_code=409, detail=e.detail) from None
     except BlockersUnresolvedError as e:
         return JSONResponse(

@@ -1,5 +1,5 @@
 /**
- * WaveEventFeed — apt-style structured event table for a wave run.
+ * RolloutEventFeed — apt-style structured event table for a rollout run.
  *
  * Pure presentational component. Parent owns data fetching.
  * AC-6, AC-7, AC-8, AC-9.
@@ -18,10 +18,10 @@ import {
 import SmartToyIcon from '@mui/icons-material/SmartToy'
 import CodeIcon from '@mui/icons-material/Code'
 import PersonIcon from '@mui/icons-material/Person'
-import type { WaveEvent, WaveEventActor } from '../types'
+import type { RolloutEvent, RolloutEventActor } from '../types'
 
-interface WaveEventFeedProps {
-  events: WaveEvent[]
+interface RolloutEventFeedProps {
+  events: RolloutEvent[]
   loading: boolean
   /** Optional: project-relative short IDs for linking. Not used for routing — just display. */
   projectId?: string
@@ -29,8 +29,8 @@ interface WaveEventFeedProps {
 
 // --- Actor icon + label mapping (AC-8) ---
 
-function ActorCell({ actor }: { actor: WaveEventActor }) {
-  const config: Record<WaveEventActor, { icon: React.ReactNode; label: string }> = {
+function ActorCell({ actor }: { actor: RolloutEventActor }) {
+  const config: Record<RolloutEventActor, { icon: React.ReactNode; label: string }> = {
     manager: { icon: <SmartToyIcon fontSize="small" />, label: 'Manager' },
     'child-agent': { icon: <CodeIcon fontSize="small" />, label: 'Agent' },
     human: { icon: <PersonIcon fontSize="small" />, label: 'Human' },
@@ -61,7 +61,7 @@ function formatTimestamp(ts: string): string {
 
 // --- Message summariser ---
 
-function formatMessage(event: WaveEvent): string {
+function formatMessage(event: RolloutEvent): string {
   const { kind, payload } = event
   switch (kind) {
     case 'wave_halted':
@@ -93,7 +93,7 @@ function shortId(id: unknown): string {
   return id.slice(0, 8)
 }
 
-export default function WaveEventFeed({ events, loading }: WaveEventFeedProps) {
+export default function RolloutEventFeed({ events, loading }: RolloutEventFeedProps) {
   // AC-6: filter out manager_state_update events — state ≠ activity log.
   const displayEvents = events.filter((e) => e.kind !== 'manager_state_update')
 

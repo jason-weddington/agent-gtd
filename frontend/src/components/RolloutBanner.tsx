@@ -1,8 +1,8 @@
 /**
- * WaveBanner — persistent banner above the project board when a wave is active.
+ * RolloutBanner — persistent banner above the project board when a rollout is active.
  *
- * Owns wave state fetch and SSE subscription. Renders WaveEventFeed and
- * WaveHaltCard as children when appropriate.
+ * Owns rollout state fetch and SSE subscription. Renders RolloutEventFeed and
+ * RolloutHaltCard as children when appropriate.
  *
  * AC-1 through AC-18.
  */
@@ -17,23 +17,23 @@ import {
   Typography,
 } from '@mui/material'
 import { api, ApiError } from '../api'
-import type { WaveEvent, WaveRun, WaveRunStatus } from '../types'
+import type { Rollout, RolloutEvent, RolloutStatus } from '../types'
 import { formatRelativeTime } from '../utils'
 import { useEvents } from '../contexts/EventStreamContext'
 import type { ServerEvent } from '../hooks/useEventStream'
-import WaveEventFeed from './WaveEventFeed'
-import WaveActivityTab from './WaveActivityTab'
-import WaveHaltCard from './WaveHaltCard'
+import RolloutEventFeed from './RolloutEventFeed'
+import RolloutActivityTab from './RolloutActivityTab'
+import RolloutHaltCard from './RolloutHaltCard'
 
 // ---------------------------------------------------------------------------
-// Exported pure helpers (tested in WaveBanner.test.tsx)
+// Exported pure helpers (tested in RolloutBanner.test.tsx)
 // ---------------------------------------------------------------------------
 
 /**
- * Return the MUI colour palette key for a given wave status (AC-4).
+ * Return the MUI colour palette key for a given rollout status (AC-4).
  */
 export function getStatusColor(
-  status: WaveRunStatus,
+  status: RolloutStatus,
 ): 'default' | 'info' | 'warning' | 'error' | 'success' {
   switch (status) {
     case 'pending':
@@ -53,9 +53,9 @@ export function getStatusColor(
 }
 
 /**
- * Return the banner title text for a given wave status (AC-3).
+ * Return the banner title text for a given rollout status (AC-3).
  */
-export function getTitleText(status: WaveRunStatus): string {
+export function getTitleText(status: RolloutStatus): string {
   switch (status) {
     case 'pending':
     case 'planning':
@@ -73,7 +73,7 @@ export function getTitleText(status: WaveRunStatus): string {
 }
 
 /**
- * Return a 0–1 progress fraction for the wave (AC-5).
+ * Return a 0–1 progress fraction for the rollout (AC-5).
  */
 export function getProgressFraction(doneCount: number, totalCount: number): number {
   if (totalCount <= 0) return 0
@@ -115,15 +115,15 @@ function colorToSx(color: MuiColor): Record<string, unknown> {
 // Main component
 // ---------------------------------------------------------------------------
 
-interface WaveBannerProps {
+interface RolloutBannerProps {
   projectId: string
-  /** Callback fired whenever the wave active status changes, so the parent can
+  /** Callback fired whenever the rollout active status changes, so the parent can
    *  disable Dispatch tab controls (AC-19, AC-20). */
   onActiveChange?: (hasActiveWave: boolean) => void
 }
 
 /** Statuses that block Dispatch tab editing. */
-const BLOCKING_STATUSES: ReadonlySet<WaveRunStatus> = new Set([
+const BLOCKING_STATUSES: ReadonlySet<RolloutStatus> = new Set([
   'pending',
   'planning',
   'running',
@@ -131,7 +131,7 @@ const BLOCKING_STATUSES: ReadonlySet<WaveRunStatus> = new Set([
 ])
 
 /** Re-fetch on these status values (show banner). */
-const VISIBLE_STATUSES: ReadonlySet<WaveRunStatus> = new Set([
+const VISIBLE_STATUSES: ReadonlySet<RolloutStatus> = new Set([
   'pending',
   'planning',
   'running',
@@ -140,34 +140,34 @@ const VISIBLE_STATUSES: ReadonlySet<WaveRunStatus> = new Set([
   'completed',
 ])
 
-export default function WaveBanner({ projectId, onActiveChange }: WaveBannerProps) {
-  const [wave, setWave] = useState<WaveRun | null>(null)
-  const [events, setEvents] = useState<WaveEvent[]>([])
+export default function RolloutBanner({ projectId, onActiveChange }: RolloutBannerProps) {
+  const [rollout, setRollout] = useState<Rollout | null>(null)
+  const [events, setEvents] = useState<RolloutEvent[]>([])
   const [eventsLoading, setEventsLoading] = useState(false)
   const [bannerError, setBannerError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState(0)
 
   const { onEvent } = useEvents()
-  const waveRef = useRef<WaveRun | null>(null)
-  waveRef.current = wave
+  const rolloutRef = useRef<Rollout | null>(null)
+  rolloutRef.current = rollout
 
   // ---------------------------------------------------------------------------
-  // Load active wave for this project
+  // Load active rollout for this project
   // ---------------------------------------------------------------------------
 
-  const loadWave = useCallback(async () => {
+  const loadRollout = useCallback(async () => {
     try {
-      const w = await api.waves.getActiveForProject(projectId)
-      setWave(w)
+      const w = await api.rollouts.getActiveForProject(projectId)
+      setRollout(w)
       setBannerError(null)
       return w
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
-        // No active wave — clear banner
-        setWave(null)
+        // No active rollout — clear banner
+        setRollout(null)
         return null
       }
-      setBannerError(err instanceof ApiError ? err.detail : 'Failed to load wave status')
+      setBannerError(err instanceof ApiError ? err.detail : 'Failed to load rollout status')
       return null
     }
   }, [projectId])
@@ -176,10 +176,10 @@ export default function WaveBanner({ projectId, onActiveChange }: WaveBannerProp
   // Load historical events (AC-10)
   // ---------------------------------------------------------------------------
 
-  const loadEvents = useCallback(async (waveRunId: string) => {
+  const loadEvents = useCallback(async (rolloutId: string) => {
     setEventsLoading(true)
     try {
-      const res = await api.waves.events(waveRunId, 50)
+      const res = await api.rollouts.events(rolloutId, 50)
       setEvents(res.events)
     } catch {
       setEvents([])
@@ -194,22 +194,22 @@ export default function WaveBanner({ projectId, onActiveChange }: WaveBannerProp
 
   useEffect(() => {
     let cancelled = false
-    loadWave().then((w) => {
+    loadRollout().then((w) => {
       if (!cancelled && w) {
         loadEvents(w.id).catch(() => {/* non-critical */})
       }
-    }).catch(() => {/* handled in loadWave */})
+    }).catch(() => {/* handled in loadRollout */})
     return () => { cancelled = true }
-  }, [loadWave, loadEvents])
+  }, [loadRollout, loadEvents])
 
   // ---------------------------------------------------------------------------
   // Notify parent of active status changes (AC-19, AC-20)
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    const isActive = wave !== null && BLOCKING_STATUSES.has(wave.status)
+    const isActive = rollout !== null && BLOCKING_STATUSES.has(rollout.status)
     onActiveChange?.(isActive)
-  }, [wave, onActiveChange])
+  }, [rollout, onActiveChange])
 
   // ---------------------------------------------------------------------------
   // SSE subscription (AC-2, AC-11)
@@ -222,23 +222,23 @@ export default function WaveBanner({ projectId, onActiveChange }: WaveBannerProp
 
       // AC-11: prepend the full wave_event object to the feed
       const rawPayload = sseEvent.payload as Record<string, unknown>
-      const waveEventData: WaveEvent = {
+      const waveEventData: RolloutEvent = {
         id: String(rawPayload.id ?? ''),
-        waveRunId: String(rawPayload.wave_run_id ?? ''),
+        rolloutId: String(rawPayload.rollout_id ?? ''),
         seq: Number(rawPayload.seq ?? 0),
         ts: String(rawPayload.ts ?? ''),
         kind: String(rawPayload.kind ?? ''),
-        actor: (rawPayload.actor as WaveEvent['actor']) ?? 'manager',
+        actor: (rawPayload.actor as RolloutEvent['actor']) ?? 'manager',
         decisionRule: String(rawPayload.decision_rule ?? ''),
         payload: (rawPayload.payload as Record<string, unknown>) ?? {},
       }
       setEvents((prev) => [waveEventData, ...prev])
 
-      // AC-2: re-fetch wave state so banner + progress update
-      loadWave().catch(() => {/* handled */})
+      // AC-2: re-fetch rollout state so banner + progress update
+      loadRollout().catch(() => {/* handled */})
     })
     return unsub
-  }, [onEvent, projectId, loadWave])
+  }, [onEvent, projectId, loadRollout])
 
   // ---------------------------------------------------------------------------
   // Halt card helpers
@@ -248,16 +248,16 @@ export default function WaveBanner({ projectId, onActiveChange }: WaveBannerProp
     events.find((e) => e.kind === 'wave_halted') ?? null
 
   const handleResume = useCallback(() => {
-    loadWave().catch(() => {/* handled */})
-  }, [loadWave])
+    loadRollout().catch(() => {/* handled */})
+  }, [loadRollout])
 
   const handleSkip = useCallback(() => {
-    loadWave().catch(() => {/* handled */})
-  }, [loadWave])
+    loadRollout().catch(() => {/* handled */})
+  }, [loadRollout])
 
   const handleAbort = useCallback(() => {
-    loadWave().catch(() => {/* handled */})
-  }, [loadWave])
+    loadRollout().catch(() => {/* handled */})
+  }, [loadRollout])
 
   // ---------------------------------------------------------------------------
   // Render
@@ -271,14 +271,14 @@ export default function WaveBanner({ projectId, onActiveChange }: WaveBannerProp
     )
   }
 
-  if (!wave || !VISIBLE_STATUSES.has(wave.status)) {
+  if (!rollout || !VISIBLE_STATUSES.has(rollout.status)) {
     return null
   }
 
-  const statusColor = getStatusColor(wave.status)
-  const titleText = getTitleText(wave.status)
-  const showProgress = ['running', 'halted', 'completed'].includes(wave.status)
-  const progressFraction = getProgressFraction(wave.doneCount, wave.totalCount)
+  const statusColor = getStatusColor(rollout.status)
+  const titleText = getTitleText(rollout.status)
+  const showProgress = ['running', 'halted', 'completed'].includes(rollout.status)
+  const progressFraction = getProgressFraction(rollout.doneCount, rollout.totalCount)
 
   return (
     <Box sx={{ mb: 2 }}>
@@ -293,7 +293,7 @@ export default function WaveBanner({ projectId, onActiveChange }: WaveBannerProp
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: showProgress ? 1 : 0 }}>
           <Chip
-            label={wave.status.toUpperCase()}
+            label={rollout.status.toUpperCase()}
             size="small"
             color={statusColor === 'default' ? undefined : statusColor}
             sx={{ fontWeight: 700, fontSize: '0.65rem' }}
@@ -303,7 +303,7 @@ export default function WaveBanner({ projectId, onActiveChange }: WaveBannerProp
           </Typography>
           {showProgress && (
             <Typography variant="caption" sx={{ whiteSpace: 'nowrap' }}>
-              {wave.doneCount} / {wave.totalCount} items done
+              {rollout.doneCount} / {rollout.totalCount} items done
             </Typography>
           )}
         </Box>
@@ -316,35 +316,35 @@ export default function WaveBanner({ projectId, onActiveChange }: WaveBannerProp
           />
         )}
         {/* Manager state line (AC-8, AC-9) */}
-        {wave.status === 'running' && wave.managerPhase !== null && (
+        {rollout.status === 'running' && rollout.managerPhase !== null && (
           <Typography
             variant="caption"
             sx={{
               display: 'block',
               mt: 0.75,
-              color: isStateStale(wave.managerStateUpdatedAt)
+              color: isStateStale(rollout.managerStateUpdatedAt)
                 ? 'text.disabled'
                 : 'inherit',
-              opacity: isStateStale(wave.managerStateUpdatedAt) ? 0.8 : 1,
+              opacity: isStateStale(rollout.managerStateUpdatedAt) ? 0.8 : 1,
             }}
           >
             {'Manager: '}
-            {wave.managerPhase}
+            {rollout.managerPhase}
             {' · working on '}
-            {wave.managerCurrentItemTitle ?? wave.managerCurrentItemId ?? '—'}
+            {rollout.managerCurrentItemTitle ?? rollout.managerCurrentItemId ?? '—'}
             {' · last updated '}
-            {wave.managerStateUpdatedAt
-              ? formatRelativeTime(wave.managerStateUpdatedAt)
+            {rollout.managerStateUpdatedAt
+              ? formatRelativeTime(rollout.managerStateUpdatedAt)
               : '—'}
-            {isStateStale(wave.managerStateUpdatedAt) ? ' ⚠ stale' : ''}
+            {isStateStale(rollout.managerStateUpdatedAt) ? ' ⚠ stale' : ''}
           </Typography>
         )}
       </Box>
 
       {/* Halt card (AC-12 through AC-18) */}
-      {wave.status === 'halted' && (
-        <WaveHaltCard
-          waveRun={wave}
+      {rollout.status === 'halted' && (
+        <RolloutHaltCard
+          waveRun={rollout}
           latestHaltEvent={latestHaltEvent}
           onResume={handleResume}
           onSkip={handleSkip}
@@ -368,12 +368,12 @@ export default function WaveBanner({ projectId, onActiveChange }: WaveBannerProp
 
       {/* Events tab (AC-6 through AC-11) */}
       {activeTab === 0 && (
-        <WaveEventFeed events={events} loading={eventsLoading} projectId={projectId} />
+        <RolloutEventFeed events={events} loading={eventsLoading} projectId={projectId} />
       )}
 
       {/* Activity tab */}
-      {activeTab === 1 && wave && (
-        <WaveActivityTab waveRunId={wave.id} />
+      {activeTab === 1 && rollout && (
+        <RolloutActivityTab rolloutId={rollout.id} />
       )}
     </Box>
   )

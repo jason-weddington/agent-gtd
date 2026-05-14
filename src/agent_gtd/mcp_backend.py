@@ -235,7 +235,11 @@ class McpBackend(Protocol):
         *,
         max_turns: int | None = None,
         mode: str = "build",
-        wave_run_id: str | None = None,
+        rollout_id: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def dispatch_rollout(
+        self, user_id: str, rollout_id: str
     ) -> dict[str, Any]: ...
 
     async def get_run(self, user_id: str, run_id: str) -> dict[str, Any]: ...
@@ -288,18 +292,20 @@ class McpBackend(Protocol):
         project_id: str,
     ) -> list[dict[str, Any]]: ...
 
-    async def plan_wave(
+    async def plan_rollout(
         self,
         user_id: str,
         item_ids: list[str],
     ) -> dict[str, Any]: ...
 
-    async def advance_wave(self, user_id: str, wave_run_id: str) -> dict[str, Any]: ...
+    async def advance_rollout(
+        self, user_id: str, rollout_id: str
+    ) -> dict[str, Any]: ...
 
-    async def complete_in_wave(
+    async def complete_item_in_rollout(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
         item_id: str,
         outcome: str,
         *,
@@ -307,29 +313,44 @@ class McpBackend(Protocol):
         decision_rule: str = "",
     ) -> dict[str, Any]: ...
 
-    async def halt_wave(
+    async def halt_rollout(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
         reason: str,
         *,
         comment: str | None = None,
         item_id: str | None = None,
     ) -> dict[str, Any]: ...
 
-    async def cancel_wave(
+    async def cancel_rollout(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
         reason: str,
     ) -> dict[str, Any]: ...
 
-    async def replan_wave(
+    async def replan_rollout(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
         *,
         from_item: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def start_rollout(
+        self,
+        user_id: str,
+        rollout_id: str,
+    ) -> dict[str, Any]: ...
+
+    async def update_rollout_state(
+        self,
+        user_id: str,
+        rollout_id: str,
+        phase: str,
+        current_item_id: str | None = None,
+        current_step: str | None = None,
     ) -> dict[str, Any]: ...
 
     async def close(self) -> None: ...
@@ -877,7 +898,7 @@ class LocalBackend:
         *,
         max_turns: int | None = None,
         mode: str = "build",
-        wave_run_id: str | None = None,
+        rollout_id: str | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services.dispatch_service import create_run
@@ -889,8 +910,19 @@ class LocalBackend:
             item_id,
             max_turns=max_turns,
             mode=mode,
-            wave_run_id=wave_run_id,
+            rollout_id=rollout_id,
         )
+
+    async def dispatch_rollout(
+        self,
+        user_id: str,
+        rollout_id: str,
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services.dispatch_service import dispatch_rollout_run
+
+        db = await get_db()
+        return await dispatch_rollout_run(db, user_id, rollout_id)
 
     async def get_run(self, user_id: str, run_id: str) -> dict[str, Any]:
         from agent_gtd.database import get_db
@@ -989,28 +1021,28 @@ class LocalBackend:
         db = await get_db()
         return await project_service.list_project_members(db, user_id, project_id)
 
-    async def plan_wave(
+    async def plan_rollout(
         self,
         user_id: str,
         item_ids: list[str],
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
-        from agent_gtd.services import wave_service
+        from agent_gtd.services import rollout_service
 
         db = await get_db()
-        return await wave_service.plan_wave(db, user_id, item_ids)
+        return await rollout_service.plan_rollout(db, user_id, item_ids)
 
-    async def advance_wave(self, user_id: str, wave_run_id: str) -> dict[str, Any]:
+    async def advance_rollout(self, user_id: str, rollout_id: str) -> dict[str, Any]:
         from agent_gtd.database import get_db
-        from agent_gtd.services import wave_service
+        from agent_gtd.services import rollout_service
 
         db = await get_db()
-        return await wave_service.advance_wave(db, user_id, wave_run_id)
+        return await rollout_service.advance_rollout(db, user_id, rollout_id)
 
-    async def complete_in_wave(
+    async def complete_item_in_rollout(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
         item_id: str,
         outcome: str,
         *,
@@ -1018,95 +1050,95 @@ class LocalBackend:
         decision_rule: str = "",
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
-        from agent_gtd.services import wave_service
+        from agent_gtd.services import rollout_service
 
         db = await get_db()
-        return await wave_service.complete_in_wave(
+        return await rollout_service.complete_item_in_rollout(
             db,
             user_id,
-            wave_run_id,
+            rollout_id,
             item_id,
             outcome,
             merge_actor=merge_actor,
             decision_rule=decision_rule,
         )
 
-    async def halt_wave(
+    async def halt_rollout(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
         reason: str,
         *,
         comment: str | None = None,
         item_id: str | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
-        from agent_gtd.services import wave_service
+        from agent_gtd.services import rollout_service
 
         db = await get_db()
-        return await wave_service.halt_wave(
+        return await rollout_service.halt_rollout(
             db,
             user_id,
-            wave_run_id,
+            rollout_id,
             reason,
             comment=comment,
             item_id=item_id,
         )
 
-    async def start_wave(
+    async def start_rollout(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
-        from agent_gtd.services import wave_service
+        from agent_gtd.services import rollout_service
 
         db = await get_db()
-        return await wave_service.start_wave(db, user_id, wave_run_id)
+        return await rollout_service.start_rollout(db, user_id, rollout_id)
 
-    async def cancel_wave(
+    async def cancel_rollout(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
         reason: str,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
-        from agent_gtd.services import wave_service
+        from agent_gtd.services import rollout_service
 
         db = await get_db()
-        return await wave_service.cancel_wave(db, user_id, wave_run_id, reason)
+        return await rollout_service.cancel_rollout(db, user_id, rollout_id, reason)
 
-    async def replan_wave(
+    async def replan_rollout(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
         *,
         from_item: str | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
-        from agent_gtd.services import wave_service
+        from agent_gtd.services import rollout_service
 
         db = await get_db()
-        return await wave_service.replan_wave(
-            db, user_id, wave_run_id, from_item=from_item
+        return await rollout_service.replan_rollout(
+            db, user_id, rollout_id, from_item=from_item
         )
 
-    async def update_wave_state(
+    async def update_rollout_state(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
         phase: str,
         current_item_id: str | None = None,
         current_step: str | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
-        from agent_gtd.services import wave_service
+        from agent_gtd.services import rollout_service
 
         db = await get_db()
-        return await wave_service.update_wave_state(
+        return await rollout_service.update_rollout_state(
             db,
             user_id,
-            wave_run_id,
+            rollout_id,
             phase=phase,
             current_item_id=current_item_id,
             current_step=current_step,
@@ -1695,15 +1727,29 @@ class HttpBackend:
         *,
         max_turns: int | None = None,
         mode: str = "build",
-        wave_run_id: str | None = None,
+        rollout_id: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"mode": mode}
         if max_turns is not None:
             body["max_turns"] = max_turns
-        if wave_run_id is not None:
-            body["wave_run_id"] = wave_run_id
+        if rollout_id is not None:
+            body["rollout_id"] = rollout_id
         resp = await self._client.post(
             f"/api/items/{item_id}/dispatch", json=body, headers=self._headers()
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def dispatch_rollout(
+        self,
+        user_id: str,
+        rollout_id: str,
+    ) -> dict[str, Any]:
+        resp = await self._client.post(
+            f"/api/rollouts/{rollout_id}/dispatch",
+            json={},
+            headers=self._headers(),
         )
         self._check(resp)
         result: dict[str, Any] = resp.json()
@@ -1818,7 +1864,7 @@ class HttpBackend:
         result: list[dict[str, Any]] = resp.json()
         return result
 
-    async def plan_wave(
+    async def plan_rollout(
         self,
         user_id: str,
         item_ids: list[str],
@@ -1826,10 +1872,10 @@ class HttpBackend:
         from agent_gtd.exceptions import LegalityContractError
 
         resp = await self._client.post(
-            "/api/wave-runs",
+            "/api/rollouts",
             json={"item_ids": item_ids},
             headers=self._headers(),
-            # Planner can take 30-60s for medium waves; default httpx timeout
+            # Planner can take 30-60s for medium rollouts; default httpx timeout
             # is 5s. Bump to 5min.
             timeout=300.0,
         )
@@ -1851,19 +1897,19 @@ class HttpBackend:
         result: dict[str, Any] = resp.json()
         return result
 
-    async def advance_wave(self, user_id: str, wave_run_id: str) -> dict[str, Any]:
+    async def advance_rollout(self, user_id: str, rollout_id: str) -> dict[str, Any]:
         resp = await self._client.get(
-            f"/api/wave-runs/{wave_run_id}/advance",
+            f"/api/rollouts/{rollout_id}/advance",
             headers=self._headers(),
         )
         self._check(resp)
         result: dict[str, Any] = resp.json()
         return result
 
-    async def complete_in_wave(
+    async def complete_item_in_rollout(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
         item_id: str,
         outcome: str,
         *,
@@ -1879,7 +1925,7 @@ class HttpBackend:
         if decision_rule:
             body["decision_rule"] = decision_rule
         resp = await self._client.post(
-            f"/api/wave-runs/{wave_run_id}/complete-item",
+            f"/api/rollouts/{rollout_id}/complete-item",
             json=body,
             headers=self._headers(),
         )
@@ -1887,10 +1933,10 @@ class HttpBackend:
         result: dict[str, Any] = resp.json()
         return result
 
-    async def halt_wave(
+    async def halt_rollout(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
         reason: str,
         *,
         comment: str | None = None,
@@ -1902,7 +1948,7 @@ class HttpBackend:
         if item_id is not None:
             body["item_id"] = item_id
         resp = await self._client.post(
-            f"/api/wave-runs/{wave_run_id}/halt",
+            f"/api/rollouts/{rollout_id}/halt",
             json=body,
             headers=self._headers(),
         )
@@ -1910,13 +1956,13 @@ class HttpBackend:
         result: dict[str, Any] = resp.json()
         return result
 
-    async def start_wave(
+    async def start_rollout(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
     ) -> dict[str, Any]:
         resp = await self._client.post(
-            f"/api/wave-runs/{wave_run_id}/start",
+            f"/api/rollouts/{rollout_id}/start",
             json={},
             headers=self._headers(),
         )
@@ -1924,14 +1970,14 @@ class HttpBackend:
         result: dict[str, Any] = resp.json()
         return result
 
-    async def cancel_wave(
+    async def cancel_rollout(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
         reason: str,
     ) -> dict[str, Any]:
         resp = await self._client.post(
-            f"/api/wave-runs/{wave_run_id}/cancel",
+            f"/api/rollouts/{rollout_id}/cancel",
             json={"reason": reason},
             headers=self._headers(),
         )
@@ -1939,10 +1985,10 @@ class HttpBackend:
         result: dict[str, Any] = resp.json()
         return result
 
-    async def replan_wave(
+    async def replan_rollout(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
         *,
         from_item: str | None = None,
     ) -> dict[str, Any]:
@@ -1950,7 +1996,7 @@ class HttpBackend:
         if from_item is not None:
             body["from_item"] = from_item
         resp = await self._client.post(
-            f"/api/wave-runs/{wave_run_id}/replan",
+            f"/api/rollouts/{rollout_id}/replan",
             json=body,
             headers=self._headers(),
         )
@@ -1958,16 +2004,16 @@ class HttpBackend:
         result: dict[str, Any] = resp.json()
         return result
 
-    async def update_wave_state(
+    async def update_rollout_state(
         self,
         user_id: str,
-        wave_run_id: str,
+        rollout_id: str,
         phase: str,
         current_item_id: str | None = None,
         current_step: str | None = None,
     ) -> dict[str, Any]:
         resp = await self._client.post(
-            f"/api/wave-runs/{wave_run_id}/state",
+            f"/api/rollouts/{rollout_id}/state",
             json={
                 "phase": phase,
                 "current_item_id": current_item_id,

@@ -9,13 +9,13 @@ import pytest
 
 from agent_gtd.database import encode_json_list, get_db
 from agent_gtd.exceptions import LegalityContractError, NotFoundError, ValidationError
-from agent_gtd.services.wave_service import (
+from agent_gtd.services.rollout_service import (
     call_planner,
-    cancel_wave,
-    complete_in_wave,
+    cancel_rollout,
+    complete_item_in_rollout,
     has_acceptance_criteria,
     parse_declared_files,
-    start_wave,
+    start_rollout,
     validate_legality_contract,
 )
 
@@ -33,13 +33,13 @@ Some intro text.
 - [ ] Second criterion
 
 ## Files to Modify
-- src/agent_gtd/services/wave_service.py
-- tests/test_wave_service.py
+- src/agent_gtd/services/rollout_service.py
+- tests/test_rollout_service.py
 """
 
 NO_AC_DESC = """\
 ## Files to Modify
-- src/agent_gtd/services/wave_service.py
+- src/agent_gtd/services/rollout_service.py
 """
 
 NO_FILES_DESC = """\
@@ -235,9 +235,9 @@ async def test_validate_multiple_valid_items_same_project(db):
 
 
 async def test_validate_empty_list_not_raised_here(db):
-    """validate_legality_contract does not check for empty list (plan_wave does)."""
+    """validate_legality_contract does not check for empty list (plan_rollout does)."""
     # Empty list — validate_legality_contract sees zero items and raises nothing.
-    # The empty-list guard lives in plan_wave, not here.
+    # The empty-list guard lives in plan_rollout, not here.
     # This test just confirms no exception for an empty list at this layer.
     user_id = await _make_user(db)
     await validate_legality_contract(db, user_id, [])
@@ -451,34 +451,34 @@ async def test_validate_multiple_failures_same_item(db):
 
 
 # ---------------------------------------------------------------------------
-# plan_wave — ValidationError for empty list
+# plan_rollout — ValidationError for empty list
 # ---------------------------------------------------------------------------
 
 
-async def test_plan_wave_empty_item_ids_raises(db):
-    """plan_wave raises ValidationError for empty item_ids before any DB reads."""
-    from agent_gtd.services.wave_service import plan_wave
+async def test_plan_rollout_empty_item_ids_raises(db):
+    """plan_rollout raises ValidationError for empty item_ids before any DB reads."""
+    from agent_gtd.services.rollout_service import plan_rollout
 
     user_id = await _make_user(db)
     with pytest.raises(ValidationError, match="empty"):
-        await plan_wave(db, user_id, [])
+        await plan_rollout(db, user_id, [])
 
 
-async def test_plan_wave_no_dispatch_config_raises(db):
-    """plan_wave raises ValidationError when dispatch is not configured."""
-    from agent_gtd.services.wave_service import plan_wave
+async def test_plan_rollout_no_dispatch_config_raises(db):
+    """plan_rollout raises ValidationError when dispatch is not configured."""
+    from agent_gtd.services.rollout_service import plan_rollout
 
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
     item_id = await _make_item(db, user_id, project_id)
     # No dispatch config configured → should raise
     with pytest.raises(ValidationError, match="not configured"):
-        await plan_wave(db, user_id, [item_id])
+        await plan_rollout(db, user_id, [item_id])
 
 
-async def test_plan_wave_no_wave_run_inserted_on_legality_failure(db):
-    """No autonomous_wave_runs row is inserted when legality fails."""
-    from agent_gtd.services.wave_service import plan_wave
+async def test_plan_rollout_no_rollout_inserted_on_legality_failure(db):
+    """No autonomous_rollouts row is inserted when legality fails."""
+    from agent_gtd.services.rollout_service import plan_rollout
 
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
@@ -486,256 +486,255 @@ async def test_plan_wave_no_wave_run_inserted_on_legality_failure(db):
     item_id = await _make_item(db, user_id, project_id, status="new")
 
     with pytest.raises(LegalityContractError):
-        await plan_wave(db, user_id, [item_id])
+        await plan_rollout(db, user_id, [item_id])
 
-    rows = await db.fetch("SELECT id FROM autonomous_wave_runs")
+    rows = await db.fetch("SELECT id FROM autonomous_rollouts")
     assert len(rows) == 0
 
 
-async def test_plan_wave_no_wave_run_inserted_on_empty_list(db):
+async def test_plan_rollout_no_rollout_inserted_on_empty_list(db):
     """No DB writes happen when item_ids is empty."""
-    from agent_gtd.services.wave_service import plan_wave
+    from agent_gtd.services.rollout_service import plan_rollout
 
     user_id = await _make_user(db)
     with pytest.raises(ValidationError):
-        await plan_wave(db, user_id, [])
+        await plan_rollout(db, user_id, [])
 
-    rows = await db.fetch("SELECT id FROM autonomous_wave_runs")
+    rows = await db.fetch("SELECT id FROM autonomous_rollouts")
     assert len(rows) == 0
 
 
 # ---------------------------------------------------------------------------
-# cancel_wave — DB-backed tests
+# cancel_rollout — DB-backed tests
 # ---------------------------------------------------------------------------
 
 
-async def _make_wave_run(
+async def _make_rollout(
     db, user_id: str, project_id: str, *, status: str = "halted"
 ) -> str:
-    """Insert an autonomous_wave_runs row and return its ID."""
-    wave_id = str(uuid.uuid4())
+    """Insert an autonomous_rollouts row and return its ID."""
+    rollout_id = str(uuid.uuid4())
     await db.execute(
-        "INSERT INTO autonomous_wave_runs"
+        "INSERT INTO autonomous_rollouts"
         " (id, project_id, lead_user_id, status, created_at, updated_at)"
         " VALUES ($1, $2, $3, $4, $5, $6)",
-        wave_id,
+        rollout_id,
         project_id,
         user_id,
         status,
         NOW,
         NOW,
     )
-    return wave_id
+    return rollout_id
 
 
 async def _make_wave_plan_item(
     db,
-    wave_run_id: str,
+    rollout_id: str,
     item_id: str,
     *,
     status: str = "pending",
 ) -> None:
-    """Insert a wave_plan_items row."""
+    """Insert a rollout_items row."""
     await db.execute(
-        "INSERT INTO wave_plan_items (wave_run_id, item_id, status)"
-        " VALUES ($1, $2, $3)",
-        wave_run_id,
+        "INSERT INTO rollout_items (rollout_id, item_id, status) VALUES ($1, $2, $3)",
+        rollout_id,
         item_id,
         status,
     )
 
 
-async def _get_wave_item_status(db, wave_run_id: str, item_id: str) -> str:
-    """Return the status of a wave_plan_items row."""
+async def _get_wave_item_status(db, rollout_id: str, item_id: str) -> str:
+    """Return the status of a rollout_items row."""
     row = await db.fetchrow(
-        "SELECT status FROM wave_plan_items WHERE wave_run_id = $1 AND item_id = $2",
-        wave_run_id,
+        "SELECT status FROM rollout_items WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
         item_id,
     )
     assert row is not None
     return row["status"]  # type: ignore[return-value]
 
 
-async def test_cancel_wave_halted_to_cancelled(db):
+async def test_cancel_rollout_halted_to_cancelled(db):
     """halted → cancelled transition works."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    wave_id = await _make_wave_run(db, user_id, project_id, status="halted")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="halted")
 
     with (
         patch(
-            "agent_gtd.services.wave_lock_service.release_wave_locks",
+            "agent_gtd.services.rollout_lock_service.release_rollout_locks",
             new_callable=AsyncMock,
         ),
-        patch("agent_gtd.services.wave_service._publish_wave_event"),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
     ):
-        result = await cancel_wave(db, user_id, wave_id, "test abort")
+        result = await cancel_rollout(db, user_id, rollout_id, "test abort")
 
     assert result["status"] == "cancelled"
     assert result["halt_reason"] == "test abort"
 
 
-async def test_cancel_wave_running_to_cancelled(db):
+async def test_cancel_rollout_running_to_cancelled(db):
     """running → cancelled transition works."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
 
     with (
         patch(
-            "agent_gtd.services.wave_lock_service.release_wave_locks",
+            "agent_gtd.services.rollout_lock_service.release_rollout_locks",
             new_callable=AsyncMock,
         ),
-        patch("agent_gtd.services.wave_service._publish_wave_event"),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
     ):
-        result = await cancel_wave(db, user_id, wave_id, "running abort")
+        result = await cancel_rollout(db, user_id, rollout_id, "running abort")
 
     assert result["status"] == "cancelled"
 
 
-async def test_cancel_wave_idempotent(db):
+async def test_cancel_rollout_idempotent(db):
     """Cancelling an already-cancelled wave returns success without error."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    wave_id = await _make_wave_run(db, user_id, project_id, status="cancelled")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="cancelled")
 
-    # No patch needed — the early-return path skips release_wave_locks and publish.
-    result = await cancel_wave(db, user_id, wave_id, "re-cancel")
+    # No patch needed — the early-return path skips release_rollout_locks and publish.
+    result = await cancel_rollout(db, user_id, rollout_id, "re-cancel")
 
     assert result["status"] == "cancelled"
 
 
-async def test_cancel_wave_marks_in_progress_items_skipped(db):
+async def test_cancel_rollout_marks_in_progress_items_skipped(db):
     """Non-terminal wave plan items are marked skipped."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    wave_id = await _make_wave_run(db, user_id, project_id, status="halted")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="halted")
 
     item_pending = await _make_item(db, user_id, project_id, title="Pending item")
     item_halted_i = await _make_item(db, user_id, project_id, title="Halted item")
     item_completed = await _make_item(db, user_id, project_id, title="Completed item")
 
-    await _make_wave_plan_item(db, wave_id, item_pending, status="pending")
-    await _make_wave_plan_item(db, wave_id, item_halted_i, status="halted")
-    await _make_wave_plan_item(db, wave_id, item_completed, status="completed")
+    await _make_wave_plan_item(db, rollout_id, item_pending, status="pending")
+    await _make_wave_plan_item(db, rollout_id, item_halted_i, status="halted")
+    await _make_wave_plan_item(db, rollout_id, item_completed, status="completed")
 
     with (
         patch(
-            "agent_gtd.services.wave_lock_service.release_wave_locks",
+            "agent_gtd.services.rollout_lock_service.release_rollout_locks",
             new_callable=AsyncMock,
         ),
-        patch("agent_gtd.services.wave_service._publish_wave_event"),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
     ):
-        await cancel_wave(db, user_id, wave_id, "abort all")
+        await cancel_rollout(db, user_id, rollout_id, "abort all")
 
-    assert await _get_wave_item_status(db, wave_id, item_pending) == "skipped"
-    assert await _get_wave_item_status(db, wave_id, item_halted_i) == "skipped"
+    assert await _get_wave_item_status(db, rollout_id, item_pending) == "skipped"
+    assert await _get_wave_item_status(db, rollout_id, item_halted_i) == "skipped"
     # completed items are untouched
-    assert await _get_wave_item_status(db, wave_id, item_completed) == "completed"
+    assert await _get_wave_item_status(db, rollout_id, item_completed) == "completed"
 
 
-async def test_cancel_wave_completed_items_untouched(db):
+async def test_cancel_rollout_completed_items_untouched(db):
     """Completed wave plan items are not modified by cancel."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    wave_id = await _make_wave_run(db, user_id, project_id, status="halted")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="halted")
 
     item_done = await _make_item(db, user_id, project_id, title="Done item")
-    await _make_wave_plan_item(db, wave_id, item_done, status="completed")
+    await _make_wave_plan_item(db, rollout_id, item_done, status="completed")
 
     with (
         patch(
-            "agent_gtd.services.wave_lock_service.release_wave_locks",
+            "agent_gtd.services.rollout_lock_service.release_rollout_locks",
             new_callable=AsyncMock,
         ),
-        patch("agent_gtd.services.wave_service._publish_wave_event"),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
     ):
-        await cancel_wave(db, user_id, wave_id, "cancel with done items")
+        await cancel_rollout(db, user_id, rollout_id, "cancel with done items")
 
-    assert await _get_wave_item_status(db, wave_id, item_done) == "completed"
+    assert await _get_wave_item_status(db, rollout_id, item_done) == "completed"
 
 
 # ---------------------------------------------------------------------------
-# start_wave
+# start_rollout
 # ---------------------------------------------------------------------------
 
 
-async def test_start_wave_pending_to_running(db):
+async def test_start_rollout_pending_to_running(db):
     """pending → running transition works; started_at is set."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    wave_id = await _make_wave_run(db, user_id, project_id, status="pending")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="pending")
 
-    with patch("agent_gtd.services.wave_service._publish_wave_event"):
-        result = await start_wave(db, user_id, wave_id)
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        result = await start_rollout(db, user_id, rollout_id)
 
     assert result["status"] == "running"
     assert result["started_at"] is not None
 
 
-async def test_start_wave_rejects_running(db):
+async def test_start_rollout_rejects_running(db):
     """ValidationError if wave is already running."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
 
     with pytest.raises(ValidationError):
-        await start_wave(db, user_id, wave_id)
+        await start_rollout(db, user_id, rollout_id)
 
 
-async def test_start_wave_rejects_halted(db):
+async def test_start_rollout_rejects_halted(db):
     """ValidationError if wave is halted."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    wave_id = await _make_wave_run(db, user_id, project_id, status="halted")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="halted")
 
     with pytest.raises(ValidationError):
-        await start_wave(db, user_id, wave_id)
+        await start_rollout(db, user_id, rollout_id)
 
 
-async def test_start_wave_rejects_cancelled(db):
+async def test_start_rollout_rejects_cancelled(db):
     """ValidationError if wave is cancelled."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    wave_id = await _make_wave_run(db, user_id, project_id, status="cancelled")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="cancelled")
 
     with pytest.raises(ValidationError):
-        await start_wave(db, user_id, wave_id)
+        await start_rollout(db, user_id, rollout_id)
 
 
-async def test_start_wave_rejects_done(db):
+async def test_start_rollout_rejects_done(db):
     """ValidationError if wave is done."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    wave_id = await _make_wave_run(db, user_id, project_id, status="done")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="done")
 
     with pytest.raises(ValidationError):
-        await start_wave(db, user_id, wave_id)
+        await start_rollout(db, user_id, rollout_id)
 
 
-async def test_start_wave_wrong_user(db):
+async def test_start_rollout_wrong_user(db):
     """NotFoundError for wrong user_id."""
     user_id = await _make_user(db)
     other_user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    wave_id = await _make_wave_run(db, user_id, project_id, status="pending")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="pending")
 
     with pytest.raises(NotFoundError):
-        await start_wave(db, other_user_id, wave_id)
+        await start_rollout(db, other_user_id, rollout_id)
 
 
-async def test_start_wave_emits_wave_started_event(db):
-    """wave_started event with kind='wave_started' appears in wave_events."""
+async def test_start_rollout_emits_wave_started_event(db):
+    """wave_started event with kind='wave_started' appears in rollout_events."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    wave_id = await _make_wave_run(db, user_id, project_id, status="pending")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="pending")
 
-    with patch("agent_gtd.services.wave_service._publish_wave_event") as mock_pub:
-        await start_wave(db, user_id, wave_id)
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event") as mock_pub:
+        await start_rollout(db, user_id, rollout_id)
 
     # Check the event was written to the DB
     row = await db.fetchrow(
-        "SELECT kind, actor FROM wave_events WHERE wave_run_id = $1", wave_id
+        "SELECT kind, actor FROM rollout_events WHERE rollout_id = $1", rollout_id
     )
     assert row is not None
     assert row["kind"] == "wave_started"
@@ -803,7 +802,7 @@ async def test_call_planner_http_status_error():
 
     with (
         patch(
-            "agent_gtd.services.wave_service.httpx.AsyncClient",
+            "agent_gtd.services.rollout_service.httpx.AsyncClient",
             return_value=mock_client,
         ),
         pytest.raises(RuntimeError, match="Planner HTTP error 500"),
@@ -819,7 +818,7 @@ async def test_call_planner_timeout_error():
 
     with (
         patch(
-            "agent_gtd.services.wave_service.httpx.AsyncClient",
+            "agent_gtd.services.rollout_service.httpx.AsyncClient",
             return_value=mock_client,
         ),
         pytest.raises(RuntimeError, match="timed out"),
@@ -835,7 +834,7 @@ async def test_call_planner_network_error():
 
     with (
         patch(
-            "agent_gtd.services.wave_service.httpx.AsyncClient",
+            "agent_gtd.services.rollout_service.httpx.AsyncClient",
             return_value=mock_client,
         ),
         pytest.raises(RuntimeError, match="network error"),
@@ -855,7 +854,7 @@ async def test_call_planner_success():
     mock_client = _make_async_client_mock(response=mock_response)
 
     with patch(
-        "agent_gtd.services.wave_service.httpx.AsyncClient",
+        "agent_gtd.services.rollout_service.httpx.AsyncClient",
         return_value=mock_client,
     ):
         result = await call_planner("http://dispatch.test:8100", "key", ["item-1"])
@@ -865,13 +864,13 @@ async def test_call_planner_success():
 
 
 # ---------------------------------------------------------------------------
-# plan_wave — project not found (line 309)
+# plan_rollout — project not found (line 309)
 # ---------------------------------------------------------------------------
 
 
-async def test_plan_wave_project_not_found(db):
-    """plan_wave raises ValidationError when item's project_id doesn't exist."""
-    from agent_gtd.services.wave_service import plan_wave
+async def test_plan_rollout_project_not_found(db):
+    """plan_rollout raises ValidationError when item's project_id doesn't exist."""
+    from agent_gtd.services.rollout_service import plan_rollout
 
     user_id = await _make_user(db)
     # Insert an inbox item (no project) — it has no project_id
@@ -893,30 +892,32 @@ async def test_plan_wave_project_not_found(db):
     )
 
     with pytest.raises(ValidationError, match="not found"):
-        await plan_wave(db, user_id, [item_id])
+        await plan_rollout(db, user_id, [item_id])
 
 
 # ---------------------------------------------------------------------------
-# complete_in_wave — cascade + graph_complete
+# complete_item_in_rollout — cascade + graph_complete
 # ---------------------------------------------------------------------------
 
 
-async def test_complete_in_wave_completed_cascades_item_done(db):
+async def test_complete_item_in_rollout_completed_cascades_item_done(db):
     """outcome='completed' flips the GTD item to done with completed_at set."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
     item_id = await _make_item(db, user_id, project_id, status="review")
-    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
-    await _make_wave_plan_item(db, wave_id, item_id, status="dispatched")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, rollout_id, item_id, status="dispatched")
 
     with (
         patch(
-            "agent_gtd.services.wave_lock_service.release_wave_item",
+            "agent_gtd.services.rollout_lock_service.release_rollout_item",
             new_callable=AsyncMock,
         ),
-        patch("agent_gtd.services.wave_service._publish_wave_event"),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
     ):
-        await complete_in_wave(db, user_id, wave_id, item_id, outcome="completed")
+        await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="completed"
+        )
 
     row = await db.fetchrow(
         "SELECT status, completed_at FROM items WHERE id = $1", item_id
@@ -926,73 +927,77 @@ async def test_complete_in_wave_completed_cascades_item_done(db):
     assert row["completed_at"] is not None
 
 
-async def test_complete_in_wave_halted_does_not_cascade(db):
+async def test_complete_item_in_rollout_halted_does_not_cascade(db):
     """outcome='halted' leaves the GTD item status unchanged."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
     item_id = await _make_item(db, user_id, project_id, status="review")
-    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
-    await _make_wave_plan_item(db, wave_id, item_id, status="dispatched")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, rollout_id, item_id, status="dispatched")
 
     with (
         patch(
-            "agent_gtd.services.wave_lock_service.release_wave_item",
+            "agent_gtd.services.rollout_lock_service.release_rollout_item",
             new_callable=AsyncMock,
         ),
-        patch("agent_gtd.services.wave_service._publish_wave_event"),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
     ):
-        await complete_in_wave(db, user_id, wave_id, item_id, outcome="halted")
+        await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="halted"
+        )
 
     row = await db.fetchrow("SELECT status FROM items WHERE id = $1", item_id)
     assert row is not None
     assert row["status"] == "review"
 
 
-async def test_complete_in_wave_skipped_does_not_cascade(db):
+async def test_complete_item_in_rollout_skipped_does_not_cascade(db):
     """outcome='skipped' leaves the GTD item status unchanged."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
     item_id = await _make_item(db, user_id, project_id, status="active")
-    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
-    await _make_wave_plan_item(db, wave_id, item_id, status="dispatched")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, rollout_id, item_id, status="dispatched")
 
     with (
         patch(
-            "agent_gtd.services.wave_lock_service.release_wave_item",
+            "agent_gtd.services.rollout_lock_service.release_rollout_item",
             new_callable=AsyncMock,
         ),
-        patch("agent_gtd.services.wave_service._publish_wave_event"),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
     ):
-        await complete_in_wave(db, user_id, wave_id, item_id, outcome="skipped")
+        await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="skipped"
+        )
 
     row = await db.fetchrow("SELECT status FROM items WHERE id = $1", item_id)
     assert row is not None
     assert row["status"] == "active"
 
 
-async def test_complete_in_wave_graph_complete_true_when_last_item(db):
+async def test_complete_item_in_rollout_graph_complete_true_when_last_item(db):
     """Single-item wave: completing the last item returns graph_complete=True."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
     item_id = await _make_item(db, user_id, project_id, status="review")
-    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
-    await _make_wave_plan_item(db, wave_id, item_id, status="dispatched")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, rollout_id, item_id, status="dispatched")
 
     with (
         patch(
-            "agent_gtd.services.wave_lock_service.release_wave_item",
+            "agent_gtd.services.rollout_lock_service.release_rollout_item",
             new_callable=AsyncMock,
         ),
-        patch("agent_gtd.services.wave_service._publish_wave_event"),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
     ):
-        result = await complete_in_wave(
-            db, user_id, wave_id, item_id, outcome="completed"
+        result = await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="completed"
         )
 
     assert result["graph_complete"] is True
 
 
-async def test_complete_in_wave_graph_complete_false_when_items_remain(db):
+async def test_complete_item_in_rollout_graph_complete_false_when_items_remain(db):
     """Two-item wave: completing one dispatched item returns graph_complete=False."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
@@ -1002,19 +1007,19 @@ async def test_complete_in_wave_graph_complete_false_when_items_remain(db):
     item2_id = await _make_item(
         db, user_id, project_id, status="active", title="Item 2"
     )
-    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
-    await _make_wave_plan_item(db, wave_id, item1_id, status="dispatched")
-    await _make_wave_plan_item(db, wave_id, item2_id, status="pending")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, rollout_id, item1_id, status="dispatched")
+    await _make_wave_plan_item(db, rollout_id, item2_id, status="pending")
 
     with (
         patch(
-            "agent_gtd.services.wave_lock_service.release_wave_item",
+            "agent_gtd.services.rollout_lock_service.release_rollout_item",
             new_callable=AsyncMock,
         ),
-        patch("agent_gtd.services.wave_service._publish_wave_event"),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
     ):
-        result = await complete_in_wave(
-            db, user_id, wave_id, item1_id, outcome="completed"
+        result = await complete_item_in_rollout(
+            db, user_id, rollout_id, item1_id, outcome="completed"
         )
 
     assert result["graph_complete"] is False

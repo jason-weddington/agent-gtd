@@ -1,4 +1,4 @@
-"""Integration tests for the plan_wave MCP tool (happy path and error cases)."""
+"""Integration tests for the plan_rollout MCP tool (happy path and error cases)."""
 
 import json
 import uuid
@@ -27,7 +27,7 @@ VALID_DESC = """\
 - [ ] Second criterion done
 
 ## Files to Modify
-- src/agent_gtd/services/wave_service.py
+- src/agent_gtd/services/rollout_service.py
 - tests/test_mcp_wave.py
 """
 
@@ -163,8 +163,8 @@ async def _create_ready_item(
 # ---------------------------------------------------------------------------
 
 
-async def test_plan_wave_happy_path_single_item(mcp_client_authed, user_id):
-    """plan_wave with one valid item and mocked planner returns a pending wave run."""
+async def test_plan_rollout_happy_path_single_item(mcp_client_authed, user_id):
+    """plan_rollout with one valid item and mocked planner returns a pending rollout."""
     project_id = await _create_project(user_id)
     item_id = await _create_ready_item(user_id, project_id)
     await _configure_dispatch(user_id, "http://dispatch.test:8100", "test-api-key")
@@ -176,16 +176,18 @@ async def test_plan_wave_happy_path_single_item(mcp_client_authed, user_id):
     }
 
     with patch(
-        "agent_gtd.services.wave_service.call_planner",
+        "agent_gtd.services.rollout_service.call_planner",
         new_callable=AsyncMock,
         return_value=mock_plan_response,
     ):
-        result = await mcp_client_authed.call_tool("plan_wave", {"item_ids": [item_id]})
+        result = await mcp_client_authed.call_tool(
+            "plan_rollout", {"item_ids": [item_id]}
+        )
 
     data = _parse_result(result)
 
     assert data["status"] == "pending"
-    assert data["wave_run_id"] is not None
+    assert data["rollout_id"] is not None
     assert data["item_count"] == 1
     assert data["planner_model"] == "claude-sonnet-4-6"
     assert data["plan"]["nodes"] == [item_id]
@@ -198,8 +200,8 @@ async def test_plan_wave_happy_path_single_item(mcp_client_authed, user_id):
     assert per["predecessors"] == []
 
 
-async def test_plan_wave_happy_path_two_items_with_edge(mcp_client_authed, user_id):
-    """plan_wave with two items and an edge correctly sets in-degree statuses."""
+async def test_plan_rollout_happy_path_two_items_with_edge(mcp_client_authed, user_id):
+    """plan_rollout with two items and an edge correctly sets in-degree statuses."""
     project_id = await _create_project(user_id)
     item_a = await _create_ready_item(user_id, project_id, title="Item A")
     item_b = await _create_ready_item(user_id, project_id, title="Item B")
@@ -213,12 +215,12 @@ async def test_plan_wave_happy_path_two_items_with_edge(mcp_client_authed, user_
     }
 
     with patch(
-        "agent_gtd.services.wave_service.call_planner",
+        "agent_gtd.services.rollout_service.call_planner",
         new_callable=AsyncMock,
         return_value=mock_plan_response,
     ):
         result = await mcp_client_authed.call_tool(
-            "plan_wave", {"item_ids": [item_a, item_b]}
+            "plan_rollout", {"item_ids": [item_a, item_b]}
         )
 
     data = _parse_result(result)
@@ -232,15 +234,15 @@ async def test_plan_wave_happy_path_two_items_with_edge(mcp_client_authed, user_
 
     # Check DB: A should be 'ready', B should be 'pending'
     db = await get_db()
-    wave_run_id = data["wave_run_id"]
+    rollout_id = data["rollout_id"]
     row_a = await db.fetchrow(
-        "SELECT status FROM wave_plan_items WHERE wave_run_id = $1 AND item_id = $2",
-        wave_run_id,
+        "SELECT status FROM rollout_items WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
         item_a,
     )
     row_b = await db.fetchrow(
-        "SELECT status FROM wave_plan_items WHERE wave_run_id = $1 AND item_id = $2",
-        wave_run_id,
+        "SELECT status FROM rollout_items WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
         item_b,
     )
     assert row_a is not None
@@ -254,8 +256,8 @@ async def test_plan_wave_happy_path_two_items_with_edge(mcp_client_authed, user_
 # ---------------------------------------------------------------------------
 
 
-async def test_plan_wave_inserts_wave_run_as_pending(mcp_client_authed, user_id):
-    """After plan_wave, the wave run is stored with status=pending."""
+async def test_plan_rollout_inserts_wave_run_as_pending(mcp_client_authed, user_id):
+    """After plan_rollout, the wave run is stored with status=pending."""
     project_id = await _create_project(user_id)
     item_id = await _create_ready_item(user_id, project_id)
     await _configure_dispatch(user_id, "http://dispatch.test:8100", "test-api-key")
@@ -267,20 +269,22 @@ async def test_plan_wave_inserts_wave_run_as_pending(mcp_client_authed, user_id)
     }
 
     with patch(
-        "agent_gtd.services.wave_service.call_planner",
+        "agent_gtd.services.rollout_service.call_planner",
         new_callable=AsyncMock,
         return_value=mock_plan,
     ):
-        result = await mcp_client_authed.call_tool("plan_wave", {"item_ids": [item_id]})
+        result = await mcp_client_authed.call_tool(
+            "plan_rollout", {"item_ids": [item_id]}
+        )
 
     data = _parse_result(result)
-    wave_run_id = data["wave_run_id"]
+    rollout_id = data["rollout_id"]
 
     db = await get_db()
     row = await db.fetchrow(
         "SELECT status, project_id, lead_user_id "
-        "FROM autonomous_wave_runs WHERE id = $1",
-        wave_run_id,
+        "FROM autonomous_rollouts WHERE id = $1",
+        rollout_id,
     )
     assert row is not None
     assert row["status"] == "pending"
@@ -288,8 +292,8 @@ async def test_plan_wave_inserts_wave_run_as_pending(mcp_client_authed, user_id)
     assert row["lead_user_id"] == user_id
 
 
-async def test_plan_wave_inserts_wave_plan(mcp_client_authed, user_id):
-    """After plan_wave, a wave_plans row is persisted with nodes and edges."""
+async def test_plan_rollout_inserts_wave_plan(mcp_client_authed, user_id):
+    """After plan_rollout, a rollout_plans row is persisted with nodes and edges."""
     project_id = await _create_project(user_id)
     item_id = await _create_ready_item(user_id, project_id)
     await _configure_dispatch(user_id, "http://dispatch.test:8100", "test-api-key")
@@ -301,20 +305,22 @@ async def test_plan_wave_inserts_wave_plan(mcp_client_authed, user_id):
     }
 
     with patch(
-        "agent_gtd.services.wave_service.call_planner",
+        "agent_gtd.services.rollout_service.call_planner",
         new_callable=AsyncMock,
         return_value=mock_plan,
     ):
-        result = await mcp_client_authed.call_tool("plan_wave", {"item_ids": [item_id]})
+        result = await mcp_client_authed.call_tool(
+            "plan_rollout", {"item_ids": [item_id]}
+        )
 
     data = _parse_result(result)
-    wave_run_id = data["wave_run_id"]
+    rollout_id = data["rollout_id"]
 
     db = await get_db()
     plan_row = await db.fetchrow(
         "SELECT version, nodes, edges, planner_model "
-        "FROM wave_plans WHERE wave_run_id = $1",
-        wave_run_id,
+        "FROM rollout_plans WHERE rollout_id = $1",
+        rollout_id,
     )
     assert plan_row is not None
     assert plan_row["version"] == 1
@@ -328,15 +334,15 @@ async def test_plan_wave_inserts_wave_plan(mcp_client_authed, user_id):
 # ---------------------------------------------------------------------------
 
 
-async def test_plan_wave_mcp_empty_item_ids_raises_tool_error(
+async def test_plan_rollout_mcp_empty_item_ids_raises_tool_error(
     mcp_client_authed, user_id
 ):
     """Empty item_ids raises ToolError via the MCP tool."""
     with pytest.raises(ToolError, match="empty"):
-        await mcp_client_authed.call_tool("plan_wave", {"item_ids": []})
+        await mcp_client_authed.call_tool("plan_rollout", {"item_ids": []})
 
 
-async def test_plan_wave_mcp_legality_failure_raises_tool_error(
+async def test_plan_rollout_mcp_legality_failure_raises_tool_error(
     mcp_client_authed, user_id
 ):
     """Items that fail the legality contract raise ToolError listing failures."""
@@ -359,10 +365,10 @@ async def test_plan_wave_mcp_legality_failure_raises_tool_error(
         NOW,
     )
     with pytest.raises(ToolError, match="Legality contract failed"):
-        await mcp_client_authed.call_tool("plan_wave", {"item_ids": [item_id]})
+        await mcp_client_authed.call_tool("plan_rollout", {"item_ids": [item_id]})
 
 
-async def test_plan_wave_mcp_dispatch_not_configured_raises_tool_error(
+async def test_plan_rollout_mcp_dispatch_not_configured_raises_tool_error(
     mcp_client_authed, user_id
 ):
     """ToolError is raised when dispatch service is not configured."""
@@ -370,10 +376,10 @@ async def test_plan_wave_mcp_dispatch_not_configured_raises_tool_error(
     item_id = await _create_ready_item(user_id, project_id)
     # No dispatch config → ValidationError → ToolError
     with pytest.raises(ToolError, match="not configured"):
-        await mcp_client_authed.call_tool("plan_wave", {"item_ids": [item_id]})
+        await mcp_client_authed.call_tool("plan_rollout", {"item_ids": [item_id]})
 
 
-async def test_plan_wave_mcp_planner_failure_updates_wave_run_failed(
+async def test_plan_rollout_mcp_planner_failure_updates_wave_run_failed(
     mcp_client_authed, user_id
 ):
     """When the planner HTTP call fails, wave run is set to 'failed'."""
@@ -383,17 +389,17 @@ async def test_plan_wave_mcp_planner_failure_updates_wave_run_failed(
 
     with (
         patch(
-            "agent_gtd.services.wave_service.call_planner",
+            "agent_gtd.services.rollout_service.call_planner",
             new_callable=AsyncMock,
             side_effect=RuntimeError("Connection refused"),
         ),
         pytest.raises(ToolError),
     ):
-        await mcp_client_authed.call_tool("plan_wave", {"item_ids": [item_id]})
+        await mcp_client_authed.call_tool("plan_rollout", {"item_ids": [item_id]})
 
     db = await get_db()
     rows = await db.fetch(
-        "SELECT status, halt_reason FROM autonomous_wave_runs WHERE project_id = $1",
+        "SELECT status, halt_reason FROM autonomous_rollouts WHERE project_id = $1",
         project_id,
     )
     assert len(rows) == 1
@@ -406,8 +412,10 @@ async def test_plan_wave_mcp_planner_failure_updates_wave_run_failed(
 # ---------------------------------------------------------------------------
 
 
-async def test_plan_wave_mcp_no_db_rows_on_legality_failure(mcp_client_authed, user_id):
-    """No autonomous_wave_runs rows are written when legality contract fails."""
+async def test_plan_rollout_mcp_no_db_rows_on_legality_failure(
+    mcp_client_authed, user_id
+):
+    """No autonomous_rollouts rows are written when legality contract fails."""
     project_id = await _create_project(user_id)
     item_id = await _create_ready_item(
         user_id,
@@ -416,15 +424,15 @@ async def test_plan_wave_mcp_no_db_rows_on_legality_failure(mcp_client_authed, u
     )
 
     with pytest.raises(ToolError):
-        await mcp_client_authed.call_tool("plan_wave", {"item_ids": [item_id]})
+        await mcp_client_authed.call_tool("plan_rollout", {"item_ids": [item_id]})
 
     db = await get_db()
-    rows = await db.fetch("SELECT id FROM autonomous_wave_runs")
+    rows = await db.fetch("SELECT id FROM autonomous_rollouts")
     assert len(rows) == 0
 
 
 # ---------------------------------------------------------------------------
-# cancel_wave MCP tool tests
+# cancel_rollout MCP tool tests
 # ---------------------------------------------------------------------------
 
 
@@ -437,7 +445,7 @@ async def _create_wave_run(
     db = await get_db()
     wave_id = str(uuid.uuid4())
     await db.execute(
-        "INSERT INTO autonomous_wave_runs"
+        "INSERT INTO autonomous_rollouts"
         " (id, project_id, lead_user_id, status, created_at, updated_at)"
         " VALUES ($1, $2, $3, $4, $5, $6)",
         wave_id,
@@ -450,25 +458,25 @@ async def _create_wave_run(
     return wave_id
 
 
-async def test_cancel_wave_happy_path(mcp_client_authed, user_id):
-    """cancel_wave on a pending wave returns status='cancelled'."""
+async def test_cancel_rollout_happy_path(mcp_client_authed, user_id):
+    """cancel_rollout on a pending wave returns status='cancelled'."""
     project_id = await _create_project(user_id)
     wave_id = await _create_wave_run(user_id, project_id, status="pending")
 
     result = _parse_result(
         await mcp_client_authed.call_tool(
-            "cancel_wave",
-            {"wave_run_id": wave_id, "reason": "test_cancel"},
+            "cancel_rollout",
+            {"rollout_id": wave_id, "reason": "test_cancel"},
         )
     )
     assert result["status"] == "cancelled"
     assert result["id"] == wave_id
 
 
-async def test_cancel_wave_not_found(mcp_client_authed):
-    """cancel_wave with unknown ID raises ToolError."""
+async def test_cancel_rollout_not_found(mcp_client_authed):
+    """cancel_rollout with unknown ID raises ToolError."""
     with pytest.raises(ToolError):
         await mcp_client_authed.call_tool(
-            "cancel_wave",
-            {"wave_run_id": str(uuid.uuid4()), "reason": "ghost"},
+            "cancel_rollout",
+            {"rollout_id": str(uuid.uuid4()), "reason": "ghost"},
         )

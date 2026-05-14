@@ -1350,10 +1350,10 @@ async def test_dispatch_item_blocked(registered_client, user_id):
         )
 
 
-async def test_dispatch_item_manage_mode_requires_wave_run_id(
+async def test_dispatch_item_manage_mode_requires_rollout_id(
     registered_client, user_id
 ):
-    """dispatch_item raises ToolError when mode='manage' and wave_run_id is missing."""
+    """dispatch_item raises ToolError when mode='manage' and rollout_id is missing."""
     from agent_gtd.database import get_db
     from agent_gtd.services import project_service
 
@@ -1370,17 +1370,17 @@ async def test_dispatch_item_manage_mode_requires_wave_run_id(
     )
     item_id = _parse_result(item_result)["id"]
 
-    with pytest.raises(ToolError, match="wave_run_id is required"):
+    with pytest.raises(ToolError, match="rollout_id is required"):
         await registered_client.call_tool(
             "dispatch_item",
             {"item_id": item_id, "mode": "manage"},
         )
 
 
-async def test_dispatch_item_manage_mode_passes_wave_run_id_to_backend(
+async def test_dispatch_item_manage_mode_passes_rollout_id_to_backend(
     registered_client, user_id, monkeypatch
 ):
-    """dispatch_item with mode='manage' forwards wave_run_id to the backend."""
+    """dispatch_item with mode='manage' forwards rollout_id to the backend."""
     import uuid
 
     import agent_gtd.mcp_server as srv
@@ -1396,10 +1396,10 @@ async def test_dispatch_item_manage_mode_passes_wave_run_id_to_backend(
             *,
             max_turns=None,
             mode="build",
-            wave_run_id=None,
+            rollout_id=None,
         ):
             captured["mode"] = mode
-            captured["wave_run_id"] = wave_run_id
+            captured["rollout_id"] = rollout_id
             # Return a minimal run dict to avoid DB interaction
             raise RuntimeError("captured")
 
@@ -1425,11 +1425,11 @@ async def test_dispatch_item_manage_mode_passes_wave_run_id_to_backend(
     with pytest.raises(ToolError):
         await registered_client.call_tool(
             "dispatch_item",
-            {"item_id": item_id, "mode": "manage", "wave_run_id": fake_wave_id},
+            {"item_id": item_id, "mode": "manage", "rollout_id": fake_wave_id},
         )
 
     assert captured.get("mode") == "manage"
-    assert captured.get("wave_run_id") == fake_wave_id
+    assert captured.get("rollout_id") == fake_wave_id
 
 
 # --- Dispatch config via MCP ---

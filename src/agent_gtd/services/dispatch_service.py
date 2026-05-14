@@ -16,9 +16,9 @@ from agent_gtd.db_types import DbPool
 from agent_gtd.exceptions import (
     BlockersUnresolvedError,
     NotFoundError,
+    RolloutItemLockedError,
     RunActiveError,
     ValidationError,
-    WaveItemLockedError,
 )
 from agent_gtd.services.item_service import (
     get_item,
@@ -46,7 +46,7 @@ async def create_run(
     *,
     max_turns: int | None = None,
     mode: str = "build",
-    wave_run_id: str | None = None,
+    rollout_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a new dispatch run for an item.
 
@@ -54,7 +54,7 @@ async def create_run(
     - Item exists and belongs to user
     - Item has a project with git_origin configured
     - No other active run exists for this item
-    - When mode="manage" with wave_run_id: wave exists, is owned by caller,
+    - When mode="manage" with rollout_id: wave exists, is owned by caller,
       and has status="pending" (manage-mode launch is one-shot).
 
     Raises:
@@ -65,8 +65,8 @@ async def create_run(
     item = await get_item(db, user_id, item_id)
 
     # Wave lock guard: items in an active wave cannot be re-dispatched
-    if item.get("locked_by_wave_id"):
-        raise WaveItemLockedError(item_id, str(item["locked_by_wave_id"]))
+    if item.get("locked_by_rollout_id"):
+        raise RolloutItemLockedError(item_id, str(item["locked_by_rollout_id"]))
 
     project_id = item.get("project_id")
     if not project_id:
@@ -93,30 +93,31 @@ async def create_run(
     if unresolved:
         raise BlockersUnresolvedError("dispatch this item", unresolved)
 
-    # Manage-mode requires wave_run_id (service-level guard; MCP layer also checks)
-    if mode == "manage" and wave_run_id is None:
-        raise ValidationError("wave_run_id is required for mode='manage'")
+    # Manage-mode requires rollout_id (service-level guard; MCP layer also checks)
+    if mode == "manage" and rollout_id is None:
+        raise ValidationError("rollout_id is required for mode='manage'")
 
     # Build-mode wave pre-flight: validate wave exists, is owned, and is running
-    if mode == "build" and wave_run_id is not None:
-        from agent_gtd.services.wave_service import _get_wave_run
+    if mode == "build" and rollout_id is not None:
+        from agent_gtd.services.rollout_service import _get_rollout
 
-        wave_build = await _get_wave_run(db, user_id, wave_run_id)
-        if wave_build["status"] != "running":
+        rollout_build = await _get_rollout(db, user_id, rollout_id)
+        if rollout_build["status"] != "running":
             raise ValidationError(
-                f"Wave {wave_run_id} is not running (status={wave_build['status']}); "
-                "build-mode dispatch requires a running wave"
+                f"Rollout {rollout_id} is not running"
+                f" (status={rollout_build['status']}); "
+                "build-mode dispatch requires a running rollout"
             )
 
-    # Manage-mode pre-flight: validate the wave exists, is owned, and is pending
-    wave: dict[str, Any] | None = None
-    if mode == "manage" and wave_run_id is not None:
-        from agent_gtd.services.wave_service import _get_wave_run
+    # Manage-mode pre-flight: validate the rollout exists, is owned, and is pending
+    rollout: dict[str, Any] | None = None
+    if mode == "manage" and rollout_id is not None:
+        from agent_gtd.services.rollout_service import _get_rollout
 
-        wave = await _get_wave_run(db, user_id, wave_run_id)
-        if wave["status"] != "pending":
+        rollout = await _get_rollout(db, user_id, rollout_id)
+        if rollout["status"] != "pending":
             raise ValidationError(
-                f"Wave {wave_run_id} is not pending (status={wave['status']}); "
+                f"Rollout {rollout_id} is not pending (status={rollout['status']}); "
                 "manage-mode launch is one-shot"
             )
 
@@ -144,7 +145,7 @@ async def create_run(
     await db.execute(
         "INSERT INTO claude_runs"
         " (id, item_id, project_id, user_id, status, feature_branch,"
-        "  max_turns, mode, wave_run_id, created_at, updated_at)"
+        "  max_turns, mode, rollout_id, created_at, updated_at)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         run_id,
         item_id,
@@ -154,49 +155,49 @@ async def create_run(
         branch,
         effective_max_turns,
         mode,
-        wave_run_id,
+        rollout_id,
         now,
         now,
     )
 
-    # Build-mode wave linkage: transition wave_plan_items ready → dispatched
-    if mode == "build" and wave_run_id is not None:
+    # Build-mode wave linkage: transition rollout_items ready → dispatched
+    if mode == "build" and rollout_id is not None:
         await db.execute(
-            "UPDATE wave_plan_items"
+            "UPDATE rollout_items"
             " SET status = 'dispatched', claude_run_id = $1"
-            " WHERE wave_run_id = $2 AND item_id = $3 AND status = 'ready'",
+            " WHERE rollout_id = $2 AND item_id = $3 AND status = 'ready'",
             run_id,
-            wave_run_id,
+            rollout_id,
             item_id,
         )
         # Append item_dispatched event and fan out via SSE
-        from agent_gtd.services.wave_service import (
-            _append_wave_event,
-            _publish_wave_event,
+        from agent_gtd.services.rollout_service import (
+            _append_rollout_event,
+            _publish_rollout_event,
         )
 
-        item_dispatched_event = await _append_wave_event(
+        item_dispatched_event = await _append_rollout_event(
             db,
-            wave_run_id,
+            rollout_id,
             kind="item_dispatched",
             actor="manager",
             payload={"item_id": item_id, "run_id": run_id},
         )
-        _publish_wave_event(
+        _publish_rollout_event(
             db,
             lead_user_id=user_id,
-            wave_event=item_dispatched_event,
+            rollout_event=item_dispatched_event,
             project_id=str(project_id),
         )
 
     # Manage-mode wave status flip: pending → running
-    if mode == "manage" and wave_run_id is not None and wave is not None:
-        from agent_gtd.services.wave_service import start_wave
+    if mode == "manage" and rollout_id is not None and rollout is not None:
+        from agent_gtd.services.rollout_service import start_rollout
 
-        await start_wave(
+        await start_rollout(
             db,
             user_id,
-            wave_run_id,
+            rollout_id,
             actor="manager",
             extra_payload={"manage_run_id": run_id},
         )
@@ -215,6 +216,88 @@ async def create_run(
                 "Failed to set item %s status to active after dispatch", item_id
             )
 
+    return row_to_dict(row)
+
+
+async def dispatch_rollout_run(
+    db: DbPool,
+    user_id: str,
+    rollout_id: str,
+) -> dict[str, Any]:
+    """Create a manage-mode dispatch run scoped to a rollout (no item_id).
+
+    Validates:
+    - Rollout exists and is owned by user
+    - Rollout has status="pending" (one-shot)
+
+    Creates a claude_runs row with item_id=NULL, mode="manage".
+    Transitions rollout pending → running.
+
+    Raises:
+        NotFoundError: If rollout not found or not owned by user.
+        ValidationError: If rollout is not in pending status.
+    """
+    from agent_gtd.services.rollout_service import _get_rollout, start_rollout
+
+    rollout = await _get_rollout(db, user_id, rollout_id)
+    if rollout["status"] != "pending":
+        raise ValidationError(
+            f"Rollout {rollout_id} is not pending (status={rollout['status']}); "
+            "manage-mode launch is one-shot"
+        )
+
+    project_id = str(rollout["project_id"])
+    project = await get_project(db, user_id, project_id)
+    if not project.get("git_origin"):
+        raise NotFoundError(
+            "git_origin",
+            f"Project '{project['name']}' has no git_origin configured",
+        )
+
+    from agent_gtd.dispatch_worker import DEFAULT_MAX_TURNS, resolve_max_turns
+    from agent_gtd.services import settings_service
+
+    stored = await settings_service.get_setting(db, "dispatch.default_max_turns")
+    global_default = int(stored) if stored is not None else DEFAULT_MAX_TURNS
+    raw_project_turns = project.get("dispatch_max_turns")
+    project_dispatch_max_turns = (
+        int(raw_project_turns) if raw_project_turns is not None else None
+    )
+    effective_max_turns = resolve_max_turns(project_dispatch_max_turns, global_default)
+
+    now = datetime.now(UTC).isoformat()
+    run_id = str(uuid.uuid4())
+    branch = make_branch_name(rollout_id, "manage")
+
+    await db.execute(
+        "INSERT INTO claude_runs"
+        " (id, item_id, project_id, user_id, status, feature_branch,"
+        "  max_turns, mode, rollout_id, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        run_id,
+        None,  # item_id is NULL for manage-mode rollout runs
+        project_id,
+        user_id,
+        "pending",
+        branch,
+        effective_max_turns,
+        "manage",
+        rollout_id,
+        now,
+        now,
+    )
+
+    # Transition rollout pending → running
+    await start_rollout(
+        db,
+        user_id,
+        rollout_id,
+        actor="manager",
+        extra_payload={"manage_run_id": run_id},
+    )
+
+    row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
+    assert row is not None  # noqa: S101
     return row_to_dict(row)
 
 

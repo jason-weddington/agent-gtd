@@ -119,7 +119,7 @@ export interface Item {
   labels: string[]
   blockers?: BlockerSummary[]
   version: number
-  lockedByWaveId: string | null
+  lockedByRolloutId: string | null
   createdAt: string
   updatedAt: string
 }
@@ -173,7 +173,7 @@ export interface Run {
 
 // --- Wave Manager ---
 
-export type WaveRunStatus =
+export type RolloutStatus =
   | 'pending'
   | 'planning'
   | 'running'
@@ -181,7 +181,7 @@ export type WaveRunStatus =
   | 'failed'
   | 'completed'
 
-export type WavePlanItemStatus =
+export type RolloutItemStatus =
   | 'pending'
   | 'ready'
   | 'dispatched'
@@ -189,13 +189,13 @@ export type WavePlanItemStatus =
   | 'halted'
   | 'skipped'
 
-export type WaveEventActor = 'manager' | 'child-agent' | 'human'
+export type RolloutEventActor = 'manager' | 'child-agent' | 'human'
 
-export interface WaveRun {
+export interface Rollout {
   id: string
   projectId: string
   leadUserId: string
-  status: WaveRunStatus
+  status: RolloutStatus
   haltReason: string | null
   startedAt: string | null
   endedAt: string | null
@@ -210,20 +210,20 @@ export interface WaveRun {
   managerCurrentItemTitle: string | null
 }
 
-export interface WaveEvent {
+export interface RolloutEvent {
   id: string
-  waveRunId: string
+  rolloutId: string
   seq: number
   ts: string
   kind: string
-  actor: WaveEventActor
+  actor: RolloutEventActor
   decisionRule: string
   payload: Record<string, unknown>
 }
 
 export interface ActivityEvent {
   id: string
-  waveRunId: string
+  rolloutId: string
   seq: number
   ts: string
   actor: string

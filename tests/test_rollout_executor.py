@@ -1,10 +1,11 @@
 """Tests for the wave executor cycle MCP tools.
 
-Covers: advance_wave, complete_in_wave, halt_wave, replan_wave — both the
+Covers: advance_rollout, complete_item_in_rollout, halt_rollout, replan_rollout —
+both the
 service layer and the FastAPI REST routes.
 
 The in-memory SQLite fixture from conftest.py is used for all tests.  The
-dispatch-worker planner HTTP call inside replan_wave is mocked so no real
+dispatch-worker planner HTTP call inside replan_rollout is mocked so no real
 HTTP request is made.
 """
 
@@ -90,7 +91,7 @@ async def _make_wave_run(
     wave_id = str(uuid.uuid4())
     now = _now()
     await db.execute(
-        "INSERT INTO autonomous_wave_runs"
+        "INSERT INTO autonomous_rollouts"
         " (id, project_id, lead_user_id, status, started_at, created_at, updated_at)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7)",
         wave_id,
@@ -106,20 +107,20 @@ async def _make_wave_run(
 
 async def _make_wave_plan(
     db: Any,
-    wave_run_id: str,
+    rollout_id: str,
     nodes: list[str],
     edges: list[dict[str, str]],
     version: int = 1,
 ) -> str:
-    """Insert a wave_plans row and return its ID."""
+    """Insert a rollout_plans row and return its ID."""
     plan_id = str(uuid.uuid4())
     now = _now()
     await db.execute(
-        "INSERT INTO wave_plans"
-        " (id, wave_run_id, version, nodes, edges, planner_model, created_at)"
+        "INSERT INTO rollout_plans"
+        " (id, rollout_id, version, nodes, edges, planner_model, created_at)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7)",
         plan_id,
-        wave_run_id,
+        rollout_id,
         version,
         json.dumps(nodes),
         json.dumps(edges),
@@ -131,27 +132,24 @@ async def _make_wave_plan(
 
 async def _make_wave_item(
     db: Any,
-    wave_run_id: str,
+    rollout_id: str,
     item_id: str,
     status: str = "pending",
 ) -> None:
-    """Insert a wave_plan_items row."""
+    """Insert a rollout_items row."""
     await db.execute(
-        "INSERT INTO wave_plan_items (wave_run_id, item_id, status)"
-        " VALUES ($1, $2, $3)",
-        wave_run_id,
+        "INSERT INTO rollout_items (rollout_id, item_id, status) VALUES ($1, $2, $3)",
+        rollout_id,
         item_id,
         status,
     )
 
 
-async def _get_wave_event(
-    db: Any, wave_run_id: str, kind: str
-) -> dict[str, Any] | None:
+async def _get_wave_event(db: Any, rollout_id: str, kind: str) -> dict[str, Any] | None:
     """Fetch the first matching wave event (by kind) for a wave run."""
     row = await db.fetchrow(
-        "SELECT * FROM wave_events WHERE wave_run_id = $1 AND kind = $2",
-        wave_run_id,
+        "SELECT * FROM rollout_events WHERE rollout_id = $1 AND kind = $2",
+        rollout_id,
         kind,
     )
     if row is None:
@@ -161,23 +159,21 @@ async def _get_wave_event(
     return result
 
 
-async def _get_wave_plan_item(
-    db: Any, wave_run_id: str, item_id: str
-) -> dict[str, Any]:
-    """Fetch a wave_plan_items row as a dict."""
+async def _get_wave_plan_item(db: Any, rollout_id: str, item_id: str) -> dict[str, Any]:
+    """Fetch a rollout_items row as a dict."""
     row = await db.fetchrow(
-        "SELECT * FROM wave_plan_items WHERE wave_run_id = $1 AND item_id = $2",
-        wave_run_id,
+        "SELECT * FROM rollout_items WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
         item_id,
     )
     assert row is not None
     return dict(row)
 
 
-async def _get_wave_run(db: Any, wave_run_id: str) -> dict[str, Any]:
+async def _get_rollout(db: Any, rollout_id: str) -> dict[str, Any]:
     """Fetch a wave run row as a dict."""
     row = await db.fetchrow(
-        "SELECT * FROM autonomous_wave_runs WHERE id = $1", wave_run_id
+        "SELECT * FROM autonomous_rollouts WHERE id = $1", rollout_id
     )
     assert row is not None
     return dict(row)
@@ -192,7 +188,7 @@ async def _get_wave_run(db: Any, wave_run_id: str) -> dict[str, Any]:
 async def linear_wave(client: AsyncClient, auth_headers: dict[str, str]):
     """Set up a running wave with two items: A → B (linear DAG).
 
-    Yields a dict with wave_run_id, item_a_id, item_b_id, user_id,
+    Yields a dict with rollout_id, item_a_id, item_b_id, user_id,
     project_id, and a db handle.
     """
     from agent_gtd.auth import create_token, register_user
@@ -205,19 +201,19 @@ async def linear_wave(client: AsyncClient, auth_headers: dict[str, str]):
     project_id = await _make_project(db, user_id)
     item_a_id = await _make_item(db, user_id, project_id, "Task A")
     item_b_id = await _make_item(db, user_id, project_id, "Task B")
-    wave_run_id = await _make_wave_run(db, user_id, project_id, status="running")
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="running")
     # A → B: B can only start after A completes
     await _make_wave_plan(
         db,
-        wave_run_id,
+        rollout_id,
         nodes=[item_a_id, item_b_id],
         edges=[{"from_item_id": item_a_id, "to_item_id": item_b_id}],
     )
-    await _make_wave_item(db, wave_run_id, item_a_id, status="pending")
-    await _make_wave_item(db, wave_run_id, item_b_id, status="pending")
+    await _make_wave_item(db, rollout_id, item_a_id, status="pending")
+    await _make_wave_item(db, rollout_id, item_b_id, status="pending")
 
     yield {
-        "wave_run_id": wave_run_id,
+        "rollout_id": rollout_id,
         "item_a_id": item_a_id,
         "item_b_id": item_b_id,
         "user_id": user_id,
@@ -228,15 +224,15 @@ async def linear_wave(client: AsyncClient, auth_headers: dict[str, str]):
 
 
 # ---------------------------------------------------------------------------
-# advance_wave tests
+# advance_rollout tests
 # ---------------------------------------------------------------------------
 
 
-async def test_advance_wave_fresh(client: AsyncClient, linear_wave: dict):
+async def test_advance_rollout_fresh(client: AsyncClient, linear_wave: dict):
     """Fresh wave: A (no predecessors) is next_ready; B (blocked by A) is blocked."""
     w = linear_wave
     resp = await client.get(
-        f"/api/wave-runs/{w['wave_run_id']}/advance",
+        f"/api/rollouts/{w['rollout_id']}/advance",
         headers=w["headers"],
     )
     assert resp.status_code == 200
@@ -247,7 +243,7 @@ async def test_advance_wave_fresh(client: AsyncClient, linear_wave: dict):
     assert data["graph_complete"] is False
 
 
-async def test_advance_wave_after_dispatch(
+async def test_advance_rollout_after_dispatch(
     client: AsyncClient, linear_wave: dict
 ) -> None:
     """After A is dispatched: A in in_progress, B still blocked."""
@@ -255,14 +251,14 @@ async def test_advance_wave_after_dispatch(
     db = w["db"]
     # Simulate dispatch by updating A's status directly
     await db.execute(
-        "UPDATE wave_plan_items SET status = 'dispatched'"
-        " WHERE wave_run_id = $1 AND item_id = $2",
-        w["wave_run_id"],
+        "UPDATE rollout_items SET status = 'dispatched'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        w["rollout_id"],
         w["item_a_id"],
     )
 
     resp = await client.get(
-        f"/api/wave-runs/{w['wave_run_id']}/advance",
+        f"/api/rollouts/{w['rollout_id']}/advance",
         headers=w["headers"],
     )
     assert resp.status_code == 200
@@ -272,29 +268,30 @@ async def test_advance_wave_after_dispatch(
     assert data["next_ready"] == []
 
 
-async def test_advance_wave_after_complete(
+async def test_advance_rollout_after_complete(
     client: AsyncClient, linear_wave: dict
 ) -> None:
-    """After A completes: B should be next_ready (unblocked via complete_in_wave)."""
+    """After A completes: B should be next_ready
+    (unblocked via complete_item_in_rollout)."""
     w = linear_wave
     db = w["db"]
     # Dispatch A, then complete it so B is unblocked
     await db.execute(
-        "UPDATE wave_plan_items SET status = 'dispatched'"
-        " WHERE wave_run_id = $1 AND item_id = $2",
-        w["wave_run_id"],
+        "UPDATE rollout_items SET status = 'dispatched'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        w["rollout_id"],
         w["item_a_id"],
     )
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/complete-item",
+        f"/api/rollouts/{w['rollout_id']}/complete-item",
         json={"item_id": w["item_a_id"], "outcome": "completed"},
         headers=w["headers"],
     )
     assert resp.status_code == 200
 
-    # Now advance_wave should show B as next_ready
+    # Now advance_rollout should show B as next_ready
     resp = await client.get(
-        f"/api/wave-runs/{w['wave_run_id']}/advance",
+        f"/api/rollouts/{w['rollout_id']}/advance",
         headers=w["headers"],
     )
     assert resp.status_code == 200
@@ -303,7 +300,7 @@ async def test_advance_wave_after_complete(
     assert data["blocked"] == []
 
 
-async def test_advance_wave_graph_complete(
+async def test_advance_rollout_graph_complete(
     client: AsyncClient, linear_wave: dict
 ) -> None:
     """All items terminal → graph_complete=True."""
@@ -311,11 +308,11 @@ async def test_advance_wave_graph_complete(
     db = w["db"]
     # Complete both items by updating their status directly
     await db.execute(
-        "UPDATE wave_plan_items SET status = 'completed' WHERE wave_run_id = $1",
-        w["wave_run_id"],
+        "UPDATE rollout_items SET status = 'completed' WHERE rollout_id = $1",
+        w["rollout_id"],
     )
     resp = await client.get(
-        f"/api/wave-runs/{w['wave_run_id']}/advance",
+        f"/api/rollouts/{w['rollout_id']}/advance",
         headers=w["headers"],
     )
     assert resp.status_code == 200
@@ -327,24 +324,24 @@ async def test_advance_wave_graph_complete(
 
 
 # ---------------------------------------------------------------------------
-# complete_in_wave tests
+# complete_item_in_rollout tests
 # ---------------------------------------------------------------------------
 
 
-async def test_complete_in_wave_unblocks(
+async def test_complete_item_in_rollout_unblocks(
     client: AsyncClient, linear_wave: dict
 ) -> None:
     """Completing A transitions B from pending → ready (newly_ready)."""
     w = linear_wave
     db = w["db"]
     await db.execute(
-        "UPDATE wave_plan_items SET status = 'dispatched'"
-        " WHERE wave_run_id = $1 AND item_id = $2",
-        w["wave_run_id"],
+        "UPDATE rollout_items SET status = 'dispatched'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        w["rollout_id"],
         w["item_a_id"],
     )
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/complete-item",
+        f"/api/rollouts/{w['rollout_id']}/complete-item",
         json={"item_id": w["item_a_id"], "outcome": "completed"},
         headers=w["headers"],
     )
@@ -353,11 +350,11 @@ async def test_complete_in_wave_unblocks(
     assert w["item_b_id"] in data["newly_ready"]
 
     # Verify DB state
-    b_row = await _get_wave_plan_item(db, w["wave_run_id"], w["item_b_id"])
+    b_row = await _get_wave_plan_item(db, w["rollout_id"], w["item_b_id"])
     assert b_row["status"] == "ready"
 
 
-async def test_complete_in_wave_closes_wave(
+async def test_complete_item_in_rollout_closes_wave(
     client: AsyncClient, linear_wave: dict
 ) -> None:
     """When the last item completes the wave run status becomes 'completed'."""
@@ -365,63 +362,63 @@ async def test_complete_in_wave_closes_wave(
     db = w["db"]
     # Dispatch and complete A
     await db.execute(
-        "UPDATE wave_plan_items SET status = 'dispatched'"
-        " WHERE wave_run_id = $1 AND item_id = $2",
-        w["wave_run_id"],
+        "UPDATE rollout_items SET status = 'dispatched'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        w["rollout_id"],
         w["item_a_id"],
     )
     await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/complete-item",
+        f"/api/rollouts/{w['rollout_id']}/complete-item",
         json={"item_id": w["item_a_id"], "outcome": "completed"},
         headers=w["headers"],
     )
     # Dispatch and complete B (last item)
     await db.execute(
-        "UPDATE wave_plan_items SET status = 'dispatched'"
-        " WHERE wave_run_id = $1 AND item_id = $2",
-        w["wave_run_id"],
+        "UPDATE rollout_items SET status = 'dispatched'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        w["rollout_id"],
         w["item_b_id"],
     )
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/complete-item",
+        f"/api/rollouts/{w['rollout_id']}/complete-item",
         json={"item_id": w["item_b_id"], "outcome": "completed"},
         headers=w["headers"],
     )
     assert resp.status_code == 200
 
-    wave_run = await _get_wave_run(db, w["wave_run_id"])
-    assert wave_run["status"] == "completed"
-    assert wave_run["ended_at"] is not None
+    rollout = await _get_rollout(db, w["rollout_id"])
+    assert rollout["status"] == "completed"
+    assert rollout["ended_at"] is not None
 
 
-async def test_complete_in_wave_bad_status(
+async def test_complete_item_in_rollout_bad_status(
     client: AsyncClient, linear_wave: dict
 ) -> None:
     """Completing an item not in 'dispatched' → 422 error."""
     w = linear_wave
     # A is still 'pending', not 'dispatched'
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/complete-item",
+        f"/api/rollouts/{w['rollout_id']}/complete-item",
         json={"item_id": w["item_a_id"], "outcome": "completed"},
         headers=w["headers"],
     )
     assert resp.status_code == 422
 
 
-async def test_complete_in_wave_persists_merge_actor(
+async def test_complete_item_in_rollout_persists_merge_actor(
     client: AsyncClient, linear_wave: dict
 ) -> None:
-    """merge_actor is stored on the wave_plan_items row."""
+    """merge_actor is stored on the rollout_items row."""
     w = linear_wave
     db = w["db"]
     await db.execute(
-        "UPDATE wave_plan_items SET status = 'dispatched'"
-        " WHERE wave_run_id = $1 AND item_id = $2",
-        w["wave_run_id"],
+        "UPDATE rollout_items SET status = 'dispatched'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        w["rollout_id"],
         w["item_a_id"],
     )
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/complete-item",
+        f"/api/rollouts/{w['rollout_id']}/complete-item",
         json={
             "item_id": w["item_a_id"],
             "outcome": "completed",
@@ -431,27 +428,27 @@ async def test_complete_in_wave_persists_merge_actor(
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["wave_plan_item"]["merge_actor"] == "manager-allowlist"
+    assert data["rollout_item"]["merge_actor"] == "manager-allowlist"
 
     # Verify in DB
-    a_row = await _get_wave_plan_item(db, w["wave_run_id"], w["item_a_id"])
+    a_row = await _get_wave_plan_item(db, w["rollout_id"], w["item_a_id"])
     assert a_row["merge_actor"] == "manager-allowlist"
 
 
-async def test_complete_in_wave_decision_rule_in_event_payload(
+async def test_complete_item_in_rollout_decision_rule_in_event_payload(
     client: AsyncClient, linear_wave: dict
 ) -> None:
-    """decision_rule is stored in wave_events.payload for the item_outcome event."""
+    """decision_rule is stored in rollout_events.payload for the item_outcome event."""
     w = linear_wave
     db = w["db"]
     await db.execute(
-        "UPDATE wave_plan_items SET status = 'dispatched'"
-        " WHERE wave_run_id = $1 AND item_id = $2",
-        w["wave_run_id"],
+        "UPDATE rollout_items SET status = 'dispatched'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        w["rollout_id"],
         w["item_a_id"],
     )
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/complete-item",
+        f"/api/rollouts/{w['rollout_id']}/complete-item",
         json={
             "item_id": w["item_a_id"],
             "outcome": "completed",
@@ -461,22 +458,22 @@ async def test_complete_in_wave_decision_rule_in_event_payload(
     )
     assert resp.status_code == 200
 
-    event = await _get_wave_event(db, w["wave_run_id"], "item_outcome")
+    event = await _get_wave_event(db, w["rollout_id"], "item_outcome")
     assert event is not None
     assert event["payload"]["decision_rule"] == "patch-only"
 
 
 # ---------------------------------------------------------------------------
-# halt_wave tests
+# halt_rollout tests
 # ---------------------------------------------------------------------------
 
 
-async def test_halt_wave(client: AsyncClient, linear_wave: dict) -> None:
-    """halt_wave: wave → 'halted', all pending items → 'halted', event appended."""
+async def test_halt_rollout(client: AsyncClient, linear_wave: dict) -> None:
+    """halt_rollout: wave → 'halted', all pending items → 'halted', event appended."""
     w = linear_wave
     db = w["db"]
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/halt",
+        f"/api/rollouts/{w['rollout_id']}/halt",
         json={"reason": "test_reason"},
         headers=w["headers"],
     )
@@ -487,20 +484,22 @@ async def test_halt_wave(client: AsyncClient, linear_wave: dict) -> None:
 
     # All items should be halted
     for item_id in [w["item_a_id"], w["item_b_id"]]:
-        row = await _get_wave_plan_item(db, w["wave_run_id"], item_id)
+        row = await _get_wave_plan_item(db, w["rollout_id"], item_id)
         assert row["status"] == "halted"
 
     # Wave event should be appended
-    event = await _get_wave_event(db, w["wave_run_id"], "wave_halted")
+    event = await _get_wave_event(db, w["rollout_id"], "wave_halted")
     assert event is not None
 
 
-async def test_halt_wave_already_halted(client: AsyncClient, linear_wave: dict) -> None:
+async def test_halt_rollout_already_halted(
+    client: AsyncClient, linear_wave: dict
+) -> None:
     """Attempting to halt an already-halted wave raises 422."""
     w = linear_wave
     # First halt
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/halt",
+        f"/api/rollouts/{w['rollout_id']}/halt",
         json={"reason": "first_halt"},
         headers=w["headers"],
     )
@@ -508,45 +507,45 @@ async def test_halt_wave_already_halted(client: AsyncClient, linear_wave: dict) 
 
     # Second halt should fail
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/halt",
+        f"/api/rollouts/{w['rollout_id']}/halt",
         json={"reason": "second_halt"},
         headers=w["headers"],
     )
     assert resp.status_code == 422
 
 
-async def test_halt_wave_with_item_id_in_payload(
+async def test_halt_rollout_with_item_id_in_payload(
     client: AsyncClient, linear_wave: dict
 ) -> None:
     """item_id is included in the wave_halted event payload when supplied."""
     w = linear_wave
     db = w["db"]
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/halt",
+        f"/api/rollouts/{w['rollout_id']}/halt",
         json={"reason": "item_failed", "item_id": w["item_a_id"]},
         headers=w["headers"],
     )
     assert resp.status_code == 200
 
-    event = await _get_wave_event(db, w["wave_run_id"], "wave_halted")
+    event = await _get_wave_event(db, w["rollout_id"], "wave_halted")
     assert event is not None
     assert event["payload"]["item_id"] == w["item_a_id"]
 
 
-async def test_halt_wave_emits_comment_id_in_payload(
+async def test_halt_rollout_emits_comment_id_in_payload(
     client: AsyncClient, linear_wave: dict
 ) -> None:
     """The wave_halted event payload contains the comment_id of the created comment."""
     w = linear_wave
     db = w["db"]
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/halt",
+        f"/api/rollouts/{w['rollout_id']}/halt",
         json={"reason": "manual_halt", "comment": "Stopping for review."},
         headers=w["headers"],
     )
     assert resp.status_code == 200
 
-    event = await _get_wave_event(db, w["wave_run_id"], "wave_halted")
+    event = await _get_wave_event(db, w["rollout_id"], "wave_halted")
     assert event is not None
     comment_id = event["payload"].get("comment_id")
     assert comment_id is not None
@@ -558,31 +557,33 @@ async def test_halt_wave_emits_comment_id_in_payload(
 
 
 # ---------------------------------------------------------------------------
-# replan_wave tests
+# replan_rollout tests
 # ---------------------------------------------------------------------------
 
 
-async def test_replan_wave_no_remaining(client: AsyncClient, linear_wave: dict) -> None:
-    """When all items are terminal, replan_wave raises 422 (nothing to replan)."""
+async def test_replan_rollout_no_remaining(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """When all items are terminal, replan_rollout raises 422 (nothing to replan)."""
     w = linear_wave
     db = w["db"]
     # Mark all items as completed
     await db.execute(
-        "UPDATE wave_plan_items SET status = 'completed' WHERE wave_run_id = $1",
-        w["wave_run_id"],
+        "UPDATE rollout_items SET status = 'completed' WHERE rollout_id = $1",
+        w["rollout_id"],
     )
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/replan",
+        f"/api/rollouts/{w['rollout_id']}/replan",
         json={},
         headers=w["headers"],
     )
     assert resp.status_code == 422
 
 
-async def test_replan_wave_creates_new_version(
+async def test_replan_rollout_creates_new_version(
     client: AsyncClient, linear_wave: dict
 ) -> None:
-    """replan_wave creates a new wave_plans row with version = old_version + 1."""
+    """replan_rollout creates a new rollout_plans row with version = old_version + 1."""
     w = linear_wave
     db = w["db"]
 
@@ -593,19 +594,19 @@ async def test_replan_wave_creates_new_version(
     }
 
     with patch(
-        "agent_gtd.services.wave_service._call_planner",
+        "agent_gtd.services.rollout_service._call_planner",
         new_callable=AsyncMock,
         return_value=mock_plan,
     ):
         # Complete A so B is the only remaining item
         await db.execute(
-            "UPDATE wave_plan_items SET status = 'completed'"
-            " WHERE wave_run_id = $1 AND item_id = $2",
-            w["wave_run_id"],
+            "UPDATE rollout_items SET status = 'completed'"
+            " WHERE rollout_id = $1 AND item_id = $2",
+            w["rollout_id"],
             w["item_a_id"],
         )
         resp = await client.post(
-            f"/api/wave-runs/{w['wave_run_id']}/replan",
+            f"/api/rollouts/{w['rollout_id']}/replan",
             json={},
             headers=w["headers"],
         )
@@ -618,7 +619,7 @@ async def test_replan_wave_creates_new_version(
     assert data["new_plan"]["planner_model"] == "mock-model"
 
     # Verify a wave_replanned event was emitted
-    event = await _get_wave_event(db, w["wave_run_id"], "wave_replanned")
+    event = await _get_wave_event(db, w["rollout_id"], "wave_replanned")
     assert event is not None
     assert event["payload"]["old_version"] == 1
     assert event["payload"]["new_version"] == 2
@@ -629,59 +630,63 @@ async def test_replan_wave_creates_new_version(
 # ---------------------------------------------------------------------------
 
 
-async def test_advance_wave_not_found(client: AsyncClient, linear_wave: dict) -> None:
-    """advance_wave with a bad wave_run_id → 404."""
+async def test_advance_rollout_not_found(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """advance_rollout with a bad rollout_id → 404."""
     w = linear_wave
     resp = await client.get(
-        "/api/wave-runs/00000000-0000-0000-0000-000000000000/advance",
+        "/api/rollouts/00000000-0000-0000-0000-000000000000/advance",
         headers=w["headers"],
     )
     assert resp.status_code == 404
 
 
-async def test_advance_wave_not_running(client: AsyncClient, linear_wave: dict) -> None:
-    """advance_wave on a non-running wave → 422."""
+async def test_advance_rollout_not_running(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """advance_rollout on a non-running wave → 422."""
     w = linear_wave
     db = w["db"]
     # Halt the wave first
     await db.execute(
-        "UPDATE autonomous_wave_runs SET status = 'halted' WHERE id = $1",
-        w["wave_run_id"],
+        "UPDATE autonomous_rollouts SET status = 'halted' WHERE id = $1",
+        w["rollout_id"],
     )
     resp = await client.get(
-        f"/api/wave-runs/{w['wave_run_id']}/advance",
+        f"/api/rollouts/{w['rollout_id']}/advance",
         headers=w["headers"],
     )
     assert resp.status_code == 422
 
 
-async def test_complete_in_wave_invalid_outcome(
+async def test_complete_item_in_rollout_invalid_outcome(
     client: AsyncClient, linear_wave: dict
 ) -> None:
-    """complete_in_wave with an invalid outcome → 422."""
+    """complete_item_in_rollout with an invalid outcome → 422."""
     w = linear_wave
     db = w["db"]
     await db.execute(
-        "UPDATE wave_plan_items SET status = 'dispatched'"
-        " WHERE wave_run_id = $1 AND item_id = $2",
-        w["wave_run_id"],
+        "UPDATE rollout_items SET status = 'dispatched'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        w["rollout_id"],
         w["item_a_id"],
     )
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/complete-item",
+        f"/api/rollouts/{w['rollout_id']}/complete-item",
         json={"item_id": w["item_a_id"], "outcome": "invalid_outcome"},
         headers=w["headers"],
     )
     assert resp.status_code == 422
 
 
-async def test_complete_in_wave_item_not_found(
+async def test_complete_item_in_rollout_item_not_found(
     client: AsyncClient, linear_wave: dict
 ) -> None:
-    """complete_in_wave with an item not in the wave → 404."""
+    """complete_item_in_rollout with an item not in the wave → 404."""
     w = linear_wave
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/complete-item",
+        f"/api/rollouts/{w['rollout_id']}/complete-item",
         json={
             "item_id": "00000000-0000-0000-0000-000000000000",
             "outcome": "completed",
@@ -691,7 +696,7 @@ async def test_complete_in_wave_item_not_found(
     assert resp.status_code == 404
 
 
-async def test_complete_in_wave_downstream_not_pending(
+async def test_complete_item_in_rollout_downstream_not_pending(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
     """Downstream items already in non-pending state are skipped during unblocking."""
@@ -723,7 +728,7 @@ async def test_complete_in_wave_downstream_not_pending(
 
     headers = {"Authorization": f"Bearer {create_token(user_id)}"}
     resp = await client.post(
-        f"/api/wave-runs/{wave_id}/complete-item",
+        f"/api/rollouts/{wave_id}/complete-item",
         json={"item_id": item_a, "outcome": "completed"},
         headers=headers,
     )
@@ -734,26 +739,28 @@ async def test_complete_in_wave_downstream_not_pending(
     assert item_b not in data["newly_ready"]
 
 
-async def test_replan_wave_not_running(client: AsyncClient, linear_wave: dict) -> None:
-    """replan_wave on a non-running wave → 422."""
+async def test_replan_rollout_not_running(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """replan_rollout on a non-running wave → 422."""
     w = linear_wave
     db = w["db"]
     await db.execute(
-        "UPDATE autonomous_wave_runs SET status = 'halted' WHERE id = $1",
-        w["wave_run_id"],
+        "UPDATE autonomous_rollouts SET status = 'halted' WHERE id = $1",
+        w["rollout_id"],
     )
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/replan",
+        f"/api/rollouts/{w['rollout_id']}/replan",
         json={},
         headers=w["headers"],
     )
     assert resp.status_code == 422
 
 
-async def test_replan_wave_with_from_item(
+async def test_replan_rollout_with_from_item(
     client: AsyncClient, linear_wave: dict
 ) -> None:
-    """replan_wave with from_item restricts replanning to A's subgraph (B only)."""
+    """replan_rollout with from_item restricts replanning to A's subgraph (B only)."""
     w = linear_wave
     db = w["db"]
 
@@ -764,19 +771,19 @@ async def test_replan_wave_with_from_item(
     }
 
     with patch(
-        "agent_gtd.services.wave_service._call_planner",
+        "agent_gtd.services.rollout_service._call_planner",
         new_callable=AsyncMock,
         return_value=mock_plan,
     ):
         # Complete A so only B remains
         await db.execute(
-            "UPDATE wave_plan_items SET status = 'completed'"
-            " WHERE wave_run_id = $1 AND item_id = $2",
-            w["wave_run_id"],
+            "UPDATE rollout_items SET status = 'completed'"
+            " WHERE rollout_id = $1 AND item_id = $2",
+            w["rollout_id"],
             w["item_a_id"],
         )
         resp = await client.post(
-            f"/api/wave-runs/{w['wave_run_id']}/replan",
+            f"/api/rollouts/{w['rollout_id']}/replan",
             json={"from_item": w["item_a_id"]},
             headers=w["headers"],
         )
@@ -787,22 +794,22 @@ async def test_replan_wave_with_from_item(
     assert data["new_version"] == 2
 
 
-async def test_replan_wave_from_item_no_descendants(
+async def test_replan_rollout_from_item_no_descendants(
     client: AsyncClient, linear_wave: dict
 ) -> None:
-    """replan_wave with from_item that has no remaining descendants → 422."""
+    """replan_rollout with from_item that has no remaining descendants → 422."""
     w = linear_wave
     db = w["db"]
     # Mark B as completed so from_item=A has no remaining descendants
     await db.execute(
-        "UPDATE wave_plan_items SET status = 'completed'"
-        " WHERE wave_run_id = $1 AND item_id = $2",
-        w["wave_run_id"],
+        "UPDATE rollout_items SET status = 'completed'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        w["rollout_id"],
         w["item_b_id"],
     )
     # A is still pending; from_item=B (leaf) has no descendants at all
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/replan",
+        f"/api/rollouts/{w['rollout_id']}/replan",
         json={"from_item": w["item_b_id"]},
         headers=w["headers"],
     )
@@ -813,20 +820,20 @@ async def test_replan_wave_from_item_no_descendants(
 async def test_call_planner_no_config(linear_wave: dict) -> None:
     """_call_planner raises ValidationError when dispatch service is not configured."""
     from agent_gtd.exceptions import ValidationError
-    from agent_gtd.services.wave_service import _call_planner
+    from agent_gtd.services.rollout_service import _call_planner
 
     w = linear_wave
     db = w["db"]
     # user_id is w["user_id"] — no dispatch config has been set for this test user
     with pytest.raises(ValidationError, match="not configured"):
-        await _call_planner(db, w["user_id"], w["wave_run_id"], [w["item_a_id"]])
+        await _call_planner(db, w["user_id"], w["rollout_id"], [w["item_a_id"]])
 
 
 async def test_call_planner_http_error(linear_wave: dict) -> None:
     """_call_planner raises ValidationError when the planner HTTP call fails."""
     from agent_gtd.exceptions import ValidationError
+    from agent_gtd.services.rollout_service import _call_planner
     from agent_gtd.services.settings_service import set_user_setting
-    from agent_gtd.services.wave_service import _call_planner
 
     w = linear_wave
     db = w["db"]
@@ -852,13 +859,14 @@ async def test_call_planner_http_error(linear_wave: dict) -> None:
         mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
         with pytest.raises(ValidationError, match="Planner returned 500"):
-            await _call_planner(db, user_id, w["wave_run_id"], [w["item_a_id"]])
+            await _call_planner(db, user_id, w["rollout_id"], [w["item_a_id"]])
 
 
-async def test_replan_wave_readiness_regression(
+async def test_replan_rollout_readiness_regression(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    """replan_wave reverts a 'ready' item to 'pending' when it gains a predecessor."""
+    """replan_rollout reverts a 'ready' item to 'pending'
+    when it gains a predecessor."""
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
 
@@ -891,12 +899,12 @@ async def test_replan_wave_readiness_regression(
 
     headers = {"Authorization": f"Bearer {create_token(user_id)}"}
     with patch(
-        "agent_gtd.services.wave_service._call_planner",
+        "agent_gtd.services.rollout_service._call_planner",
         new_callable=AsyncMock,
         return_value=mock_plan,
     ):
         resp = await client.post(
-            f"/api/wave-runs/{wave_id}/replan",
+            f"/api/rollouts/{wave_id}/replan",
             json={},
             headers=headers,
         )
@@ -908,7 +916,7 @@ async def test_replan_wave_readiness_regression(
 
 
 # ---------------------------------------------------------------------------
-# POST /api/wave-runs (plan_wave route)
+# POST /api/rollouts (plan_rollout route)
 # ---------------------------------------------------------------------------
 
 
@@ -956,7 +964,7 @@ async def _configure_dispatch(db: Any, user_id: str, url: str, api_key: str) -> 
         )
 
 
-async def test_plan_wave_route_legality_failure_returns_422(
+async def test_plan_rollout_route_legality_failure_returns_422(
     client: AsyncClient, _setup_db
 ):
     from agent_gtd.auth import create_token, register_user
@@ -986,7 +994,7 @@ async def test_plan_wave_route_legality_failure_returns_422(
     await _configure_dispatch(db, user_id, "http://dispatch.test:8100", "k")
 
     resp = await client.post(
-        "/api/wave-runs",
+        "/api/rollouts",
         json={"item_ids": [bad_item_id]},
         headers={"Authorization": f"Bearer {create_token(user_id)}"},
     )
@@ -998,7 +1006,9 @@ async def test_plan_wave_route_legality_failure_returns_422(
     assert detail["failures"][0]["item_id"] == bad_item_id
 
 
-async def test_plan_wave_route_happy_path_returns_dag(client: AsyncClient, _setup_db):
+async def test_plan_rollout_route_happy_path_returns_dag(
+    client: AsyncClient, _setup_db
+):
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
 
@@ -1017,19 +1027,19 @@ async def test_plan_wave_route_happy_path_returns_dag(client: AsyncClient, _setu
     }
 
     with patch(
-        "agent_gtd.services.wave_service.call_planner",
+        "agent_gtd.services.rollout_service.call_planner",
         new_callable=AsyncMock,
         return_value=mock_plan,
     ):
         resp = await client.post(
-            "/api/wave-runs",
+            "/api/rollouts",
             json={"item_ids": [item_a, item_b]},
             headers={"Authorization": f"Bearer {create_token(user_id)}"},
         )
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert "wave_run_id" in body
+    assert "rollout_id" in body
     assert body["status"] == "pending"
     assert body["item_count"] == 2
     assert body["plan"]["edges"] == [{"from_item_id": item_a, "to_item_id": item_b}]
@@ -1055,7 +1065,7 @@ async def _mock_dispatch_preflight():
 async def test_manage_dispatch_flips_wave_to_running(
     client: AsyncClient, _mock_dispatch_preflight
 ):
-    """dispatch_item(mode='manage', wave_run_id=...) flips wave status to running."""
+    """dispatch_item(mode='manage', rollout_id=...) flips wave status to running."""
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
     from agent_gtd.services.settings_service import set_user_setting
@@ -1079,17 +1089,17 @@ async def test_manage_dispatch_flips_wave_to_running(
     await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
 
     item_id = await _make_item(db, user_id, project_id, "Manager task")
-    wave_run_id = await _make_wave_run(db, user_id, project_id, status="pending")
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="pending")
 
     token = create_token(user_id)
     res = await client.post(
         f"/api/items/{item_id}/dispatch",
-        json={"mode": "manage", "wave_run_id": wave_run_id},
+        json={"mode": "manage", "rollout_id": rollout_id},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert res.status_code == 201, res.text
 
-    wave = await _get_wave_run(db, wave_run_id)
+    wave = await _get_rollout(db, rollout_id)
     assert wave["status"] == "running"
     assert wave["started_at"] is not None
 
@@ -1097,7 +1107,7 @@ async def test_manage_dispatch_flips_wave_to_running(
 async def test_manage_dispatch_emits_wave_started_event(
     client: AsyncClient, _mock_dispatch_preflight
 ):
-    """dispatch_item(mode='manage') emits a wave_started event in wave_events."""
+    """dispatch_item(mode='manage') emits a wave_started event in rollout_events."""
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
     from agent_gtd.services.settings_service import set_user_setting
@@ -1119,18 +1129,18 @@ async def test_manage_dispatch_emits_wave_started_event(
     await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
 
     item_id = await _make_item(db, user_id, project_id, "Manager task 2")
-    wave_run_id = await _make_wave_run(db, user_id, project_id, status="pending")
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="pending")
 
     token = create_token(user_id)
     res = await client.post(
         f"/api/items/{item_id}/dispatch",
-        json={"mode": "manage", "wave_run_id": wave_run_id},
+        json={"mode": "manage", "rollout_id": rollout_id},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert res.status_code == 201, res.text
     manage_run_id = res.json()["id"]
 
-    event = await _get_wave_event(db, wave_run_id, "wave_started")
+    event = await _get_wave_event(db, rollout_id, "wave_started")
     assert event is not None
     assert event["actor"] == "manager"
     assert event["payload"]["manage_run_id"] == manage_run_id
@@ -1162,12 +1172,12 @@ async def test_manage_dispatch_rejected_if_wave_not_pending(
 
     for bad_status in ("running", "halted", "completed", "failed"):
         item_id = await _make_item(db, user_id, project_id, f"Task {bad_status}")
-        wave_run_id = await _make_wave_run(db, user_id, project_id, status=bad_status)
+        rollout_id = await _make_wave_run(db, user_id, project_id, status=bad_status)
 
         token = create_token(user_id)
         res = await client.post(
             f"/api/items/{item_id}/dispatch",
-            json={"mode": "manage", "wave_run_id": wave_run_id},
+            json={"mode": "manage", "rollout_id": rollout_id},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert res.status_code == 409, (
@@ -1183,7 +1193,7 @@ async def test_manage_dispatch_rejected_if_wave_not_pending(
 async def test_build_dispatch_transitions_wave_plan_item_to_dispatched(
     client: AsyncClient, _mock_dispatch_preflight
 ):
-    """build dispatch with wave_run_id flips wave_plan_items to 'dispatched'."""
+    """build dispatch with rollout_id flips rollout_items to 'dispatched'."""
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
     from agent_gtd.services.settings_service import set_user_setting
@@ -1204,25 +1214,25 @@ async def test_build_dispatch_transitions_wave_plan_item_to_dispatched(
     await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
 
     item_id = await _make_item(db, user_id, project_id, "Build task 1")
-    wave_run_id = await _make_wave_run(db, user_id, project_id, status="running")
-    await _make_wave_item(db, wave_run_id, item_id, status="ready")
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_item(db, rollout_id, item_id, status="ready")
 
     token = create_token(user_id)
     res = await client.post(
         f"/api/items/{item_id}/dispatch",
-        json={"mode": "build", "wave_run_id": wave_run_id},
+        json={"mode": "build", "rollout_id": rollout_id},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert res.status_code == 201, res.text
 
-    row = await _get_wave_plan_item(db, wave_run_id, item_id)
+    row = await _get_wave_plan_item(db, rollout_id, item_id)
     assert row["status"] == "dispatched"
 
 
 async def test_build_dispatch_sets_claude_run_id_on_wave_plan_item(
     client: AsyncClient, _mock_dispatch_preflight
 ):
-    """build dispatch stores new run ID in wave_plan_items.claude_run_id."""
+    """build dispatch stores new run ID in rollout_items.claude_run_id."""
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
     from agent_gtd.services.settings_service import set_user_setting
@@ -1243,19 +1253,19 @@ async def test_build_dispatch_sets_claude_run_id_on_wave_plan_item(
     await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
 
     item_id = await _make_item(db, user_id, project_id, "Build task 2")
-    wave_run_id = await _make_wave_run(db, user_id, project_id, status="running")
-    await _make_wave_item(db, wave_run_id, item_id, status="ready")
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_item(db, rollout_id, item_id, status="ready")
 
     token = create_token(user_id)
     res = await client.post(
         f"/api/items/{item_id}/dispatch",
-        json={"mode": "build", "wave_run_id": wave_run_id},
+        json={"mode": "build", "rollout_id": rollout_id},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert res.status_code == 201, res.text
     run_id = res.json()["id"]
 
-    row = await _get_wave_plan_item(db, wave_run_id, item_id)
+    row = await _get_wave_plan_item(db, rollout_id, item_id)
     assert row["status"] == "dispatched"
     assert str(row["claude_run_id"]) == run_id
 
@@ -1285,22 +1295,22 @@ async def test_build_dispatch_with_non_running_wave_raises_validation_error(
 
     for bad_status in ("pending", "halted", "completed"):
         item_id = await _make_item(db, user_id, project_id, f"Build task {bad_status}")
-        wave_run_id = await _make_wave_run(db, user_id, project_id, status=bad_status)
-        await _make_wave_item(db, wave_run_id, item_id, status="ready")
+        rollout_id = await _make_wave_run(db, user_id, project_id, status=bad_status)
+        await _make_wave_item(db, rollout_id, item_id, status="ready")
 
         token = create_token(user_id)
         res = await client.post(
             f"/api/items/{item_id}/dispatch",
-            json={"mode": "build", "wave_run_id": wave_run_id},
+            json={"mode": "build", "rollout_id": rollout_id},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert res.status_code == 409, (
             f"Expected 409 for status={bad_status}, got {res.status_code}: {res.text}"
         )
-        # wave_plan_items row must remain unchanged
-        row = await _get_wave_plan_item(db, wave_run_id, item_id)
+        # rollout_items row must remain unchanged
+        row = await _get_wave_plan_item(db, rollout_id, item_id)
         assert row["status"] == "ready", (
-            "wave_plan_items should stay 'ready' when dispatch is rejected"
+            "rollout_items should stay 'ready' when dispatch is rejected"
         )
 
 
@@ -1311,7 +1321,7 @@ async def test_manage_dispatch_does_not_flip_item_status(
 
     Before the fix, create_run() unconditionally called update_item(status='active'),
     which left the placeholder item stuck in 'active' and prevented it from being
-    included in future wave plans (plan_wave rejects items whose status != 'ready').
+    included in future wave plans (plan_rollout rejects items whose status != 'ready').
     """
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
@@ -1347,12 +1357,12 @@ async def test_manage_dispatch_does_not_flip_item_status(
         now,
     )
 
-    wave_run_id = await _make_wave_run(db, user_id, project_id, status="pending")
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="pending")
 
     token = create_token(user_id)
     res = await client.post(
         f"/api/items/{item_id}/dispatch",
-        json={"mode": "manage", "wave_run_id": wave_run_id},
+        json={"mode": "manage", "rollout_id": rollout_id},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert res.status_code == 201, res.text
@@ -1365,10 +1375,10 @@ async def test_manage_dispatch_does_not_flip_item_status(
     )
 
 
-async def test_manage_dispatch_without_wave_run_id_rejected(
+async def test_manage_dispatch_without_rollout_id_rejected(
     client: AsyncClient, _mock_dispatch_preflight
 ):
-    """dispatch_item(mode='manage') without wave_run_id returns 409."""
+    """dispatch_item(mode='manage') without rollout_id returns 409."""
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
     from agent_gtd.services.settings_service import set_user_setting
@@ -1399,13 +1409,13 @@ async def test_manage_dispatch_without_wave_run_id_rejected(
     assert res.status_code == 409, res.text
 
 
-async def test_happy_path_plan_wave_to_complete_in_wave(
+async def test_happy_path_plan_rollout_to_complete_item_in_rollout(
     client: AsyncClient, _mock_dispatch_preflight
 ):
-    """Full happy path: manage dispatch → build dispatch → complete_in_wave.
+    """Full happy path: manage dispatch → build dispatch → complete_item_in_rollout.
 
     Wave transitions: pending→running (manage), ready→dispatched (build),
-    dispatched→completed (complete_in_wave).  Downstream item B becomes 'ready'.
+    dispatched→completed (complete_item_in_rollout).  Downstream item B becomes 'ready'.
     """
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
@@ -1432,18 +1442,18 @@ async def test_happy_path_plan_wave_to_complete_in_wave(
     manager_item_id = await _make_item(db, user_id, project_id, "Manager")
 
     # Create a pending wave
-    wave_run_id = await _make_wave_run(db, user_id, project_id, status="pending")
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="pending")
 
     # Create DAG: A → B (B blocked by A)
     await _make_wave_plan(
         db,
-        wave_run_id,
+        rollout_id,
         nodes=[item_a_id, item_b_id],
         edges=[{"from_item_id": item_a_id, "to_item_id": item_b_id}],
     )
     # Wave-1: A is ready; B is pending (blocked)
-    await _make_wave_item(db, wave_run_id, item_a_id, status="ready")
-    await _make_wave_item(db, wave_run_id, item_b_id, status="pending")
+    await _make_wave_item(db, rollout_id, item_a_id, status="ready")
+    await _make_wave_item(db, rollout_id, item_b_id, status="pending")
 
     token = create_token(user_id)
     headers = {"Authorization": f"Bearer {token}"}
@@ -1451,50 +1461,50 @@ async def test_happy_path_plan_wave_to_complete_in_wave(
     # Step 1: manage dispatch → wave becomes 'running'
     res = await client.post(
         f"/api/items/{manager_item_id}/dispatch",
-        json={"mode": "manage", "wave_run_id": wave_run_id},
+        json={"mode": "manage", "rollout_id": rollout_id},
         headers=headers,
     )
     assert res.status_code == 201, f"manage dispatch failed: {res.text}"
 
-    wave = await _get_wave_run(db, wave_run_id)
+    wave = await _get_rollout(db, rollout_id)
     assert wave["status"] == "running"
 
-    # Step 2: build dispatch for item A → wave_plan_items A becomes 'dispatched'
+    # Step 2: build dispatch for item A → rollout_items A becomes 'dispatched'
     res = await client.post(
         f"/api/items/{item_a_id}/dispatch",
-        json={"mode": "build", "wave_run_id": wave_run_id},
+        json={"mode": "build", "rollout_id": rollout_id},
         headers=headers,
     )
     assert res.status_code == 201, f"build dispatch failed: {res.text}"
     run_id = res.json()["id"]
 
-    row_a = await _get_wave_plan_item(db, wave_run_id, item_a_id)
+    row_a = await _get_wave_plan_item(db, rollout_id, item_a_id)
     assert row_a["status"] == "dispatched"
     assert str(row_a["claude_run_id"]) == run_id
 
     # Step 3: complete item A → B unblocked (becomes 'ready')
     res = await client.post(
-        f"/api/wave-runs/{wave_run_id}/complete-item",
+        f"/api/rollouts/{rollout_id}/complete-item",
         json={"item_id": item_a_id, "outcome": "completed"},
         headers=headers,
     )
-    assert res.status_code == 200, f"complete_in_wave failed: {res.text}"
+    assert res.status_code == 200, f"complete_item_in_rollout failed: {res.text}"
     data = res.json()
     assert item_b_id in data["newly_ready"]
 
     # Final DB state
-    row_a = await _get_wave_plan_item(db, wave_run_id, item_a_id)
-    row_b = await _get_wave_plan_item(db, wave_run_id, item_b_id)
+    row_a = await _get_wave_plan_item(db, rollout_id, item_a_id)
+    row_b = await _get_wave_plan_item(db, rollout_id, item_b_id)
     assert row_a["status"] == "completed"
     assert row_b["status"] == "ready"
 
 
 # ---------------------------------------------------------------------------
-# update_wave_state tests (AC-2, AC-10)
+# update_rollout_state tests (AC-2, AC-10)
 # ---------------------------------------------------------------------------
 
 
-async def test_update_wave_state_valid_phase(
+async def test_update_rollout_state_valid_phase(
     client: AsyncClient, linear_wave: dict
 ) -> None:
     """Valid phase updates manager state columns and appends an event."""
@@ -1502,7 +1512,7 @@ async def test_update_wave_state_valid_phase(
     db = w["db"]
 
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/state",
+        f"/api/rollouts/{w['rollout_id']}/state",
         json={
             "phase": "dispatching",
             "current_item_id": w["item_a_id"],
@@ -1512,27 +1522,27 @@ async def test_update_wave_state_valid_phase(
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["wave_run_id"] == w["wave_run_id"]
+    assert data["rollout_id"] == w["rollout_id"]
     assert data["phase"] == "dispatching"
     assert data["current_item_id"] == w["item_a_id"]
     assert data["current_step"] == "Dispatching Task A"
     assert "ts" in data
 
     # DB columns updated
-    wave = await _get_wave_run(db, w["wave_run_id"])
+    wave = await _get_rollout(db, w["rollout_id"])
     assert wave["manager_phase"] == "dispatching"
     assert wave["manager_current_item_id"] == w["item_a_id"]
     assert wave["manager_current_step"] == "Dispatching Task A"
     assert wave["manager_state_updated_at"] is not None
 
     # SSE event appended (AC-5)
-    event = await _get_wave_event(db, w["wave_run_id"], "manager_state_update")
+    event = await _get_wave_event(db, w["rollout_id"], "manager_state_update")
     assert event is not None
     assert event["actor"] == "manager"
     assert event["payload"]["phase"] == "dispatching"
 
 
-async def test_update_wave_state_all_phases(
+async def test_update_rollout_state_all_phases(
     client: AsyncClient, linear_wave: dict
 ) -> None:
     """All valid phase values are accepted."""
@@ -1548,48 +1558,48 @@ async def test_update_wave_state_all_phases(
     ]
     for phase in valid_phases:
         resp = await client.post(
-            f"/api/wave-runs/{w['wave_run_id']}/state",
+            f"/api/rollouts/{w['rollout_id']}/state",
             json={"phase": phase},
             headers=w["headers"],
         )
         assert resp.status_code == 200, f"phase '{phase}' was rejected"
 
 
-async def test_update_wave_state_invalid_phase(
+async def test_update_rollout_state_invalid_phase(
     client: AsyncClient, linear_wave: dict
 ) -> None:
     """Invalid phase value returns 422 Unprocessable Entity."""
     w = linear_wave
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/state",
+        f"/api/rollouts/{w['rollout_id']}/state",
         json={"phase": "not_a_real_phase"},
         headers=w["headers"],
     )
     assert resp.status_code == 422
 
 
-async def test_update_wave_state_non_running_wave(
+async def test_update_rollout_state_non_running_wave(
     client: AsyncClient, linear_wave: dict
 ) -> None:
-    """Calling update_wave_state on a halted wave returns 422."""
+    """Calling update_rollout_state on a halted wave returns 422."""
     w = linear_wave
     db = w["db"]
 
     # Manually flip wave to halted
     await db.execute(
-        "UPDATE autonomous_wave_runs SET status = 'halted' WHERE id = $1",
-        w["wave_run_id"],
+        "UPDATE autonomous_rollouts SET status = 'halted' WHERE id = $1",
+        w["rollout_id"],
     )
 
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/state",
+        f"/api/rollouts/{w['rollout_id']}/state",
         json={"phase": "merging"},
         headers=w["headers"],
     )
     assert resp.status_code == 422
 
 
-async def test_update_wave_state_unauthorized(
+async def test_update_rollout_state_unauthorized(
     client: AsyncClient, linear_wave: dict
 ) -> None:
     """Caller that does not own the wave gets 404."""
@@ -1602,22 +1612,22 @@ async def test_update_wave_state_unauthorized(
     other_headers = {"Authorization": f"Bearer {create_token(other_user.id)}"}
 
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/state",
+        f"/api/rollouts/{w['rollout_id']}/state",
         json={"phase": "merging"},
         headers=other_headers,
     )
     assert resp.status_code == 404
 
 
-async def test_update_wave_state_null_item(
+async def test_update_rollout_state_null_item(
     client: AsyncClient, linear_wave: dict
 ) -> None:
-    """update_wave_state with no current_item_id stores null correctly."""
+    """update_rollout_state with no current_item_id stores null correctly."""
     w = linear_wave
     db = w["db"]
 
     resp = await client.post(
-        f"/api/wave-runs/{w['wave_run_id']}/state",
+        f"/api/rollouts/{w['rollout_id']}/state",
         json={"phase": "polling", "current_step": "Waiting for build"},
         headers=w["headers"],
     )
@@ -1625,6 +1635,6 @@ async def test_update_wave_state_null_item(
     data = resp.json()
     assert data["current_item_id"] is None
 
-    wave = await _get_wave_run(db, w["wave_run_id"])
+    wave = await _get_rollout(db, w["rollout_id"])
     assert wave["manager_current_item_id"] is None
     assert wave["manager_current_step"] == "Waiting for build"
