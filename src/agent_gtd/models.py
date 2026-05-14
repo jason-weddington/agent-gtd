@@ -64,7 +64,7 @@ class WaveRunStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     HALTED = "halted"
-    CRASHED = "crashed"
+    FAILED = "failed"
 
 
 class WavePlanItemStatus(StrEnum):
@@ -83,7 +83,6 @@ class WaveEventActor(StrEnum):
 
     MANAGER = "manager"
     CHILD_AGENT = "child-agent"
-    REAPER = "reaper"
     HUMAN = "human"
 
 

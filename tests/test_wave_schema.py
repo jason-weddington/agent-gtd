@@ -511,7 +511,7 @@ def test_wave_run_status_values():
     assert WaveRunStatus.RUNNING == "running"
     assert WaveRunStatus.COMPLETED == "completed"
     assert WaveRunStatus.HALTED == "halted"
-    assert WaveRunStatus.CRASHED == "crashed"
+    assert WaveRunStatus.FAILED == "failed"
 
 
 def test_wave_plan_item_status_values():
@@ -530,7 +530,6 @@ def test_wave_event_actor_values():
 
     assert WaveEventActor.MANAGER == "manager"
     assert WaveEventActor.CHILD_AGENT == "child-agent"
-    assert WaveEventActor.REAPER == "reaper"
     assert WaveEventActor.HUMAN == "human"
 
 

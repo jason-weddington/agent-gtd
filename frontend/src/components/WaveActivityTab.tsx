@@ -29,7 +29,7 @@ type PillColor = 'primary' | 'secondary' | 'warning' | 'success' | 'default'
 function actorColor(actor: string): PillColor {
   if (actor === 'manager' || actor.startsWith('claude-manage-')) return 'primary'
   if (actor === 'child-agent' || actor.startsWith('claude-build-')) return 'secondary'
-  if (actor === 'reaper' || actor.startsWith('system-')) return 'warning'
+  if (actor.startsWith('system-')) return 'warning'
   if (actor === 'human') return 'success'
   return 'default'
 }
@@ -65,8 +65,6 @@ function describeEvent(event: ActivityEvent): string {
       const newV = payload.new_version
       return `Replanned: v${String(oldV ?? '')} → v${String(newV ?? '')}`
     }
-    case 'wave_crashed':
-      return 'Wave crashed (reaped)'
     case 'comment_posted':
       return `Comment posted (${String(payload.comment_type ?? '')})`
     default:

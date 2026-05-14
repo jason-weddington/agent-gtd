@@ -18,7 +18,7 @@ describe('getStatusColor', () => {
     ['planning', 'default'],
     ['running', 'info'],
     ['halted', 'warning'],
-    ['crashed', 'error'],
+    ['failed', 'error'],
     ['completed', 'success'],
   ]
 
@@ -50,8 +50,8 @@ describe('getTitleText', () => {
     expect(getTitleText('halted')).toBe('Wave Halted — Review Needed')
   })
 
-  it('returns "Wave Crashed" for crashed', () => {
-    expect(getTitleText('crashed')).toBe('Wave Crashed')
+  it('returns "Wave Failed" for failed', () => {
+    expect(getTitleText('failed')).toBe('Wave Failed')
   })
 
   it('returns "Wave Completed" for completed', () => {

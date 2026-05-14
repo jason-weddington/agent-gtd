@@ -238,7 +238,7 @@ async def cancel_wave(
     """Cancel a wave, marking any remaining items as skipped.
 
     Accepts waves in any non-terminal status (pending, planning, running,
-    halted, crashed).  Idempotent for already-cancelled waves.
+    halted, failed).  Idempotent for already-cancelled waves.
 
     Args:
         wave_run_id: The wave run to cancel.
@@ -357,8 +357,8 @@ async def get_active_wave(
 ) -> dict[str, Any]:
     """Return the most recent active wave run for a project.
 
-    AC-22: Status in {pending, planning, running, halted, crashed} within
-    the last 30 minutes for completed/crashed waves; ongoing for others.
+    AC-22: Status in {pending, planning, running, halted, failed} within
+    the last 30 minutes for completed/failed waves; ongoing for others.
     Includes total_count and done_count for the progress fraction.
 
     Args:

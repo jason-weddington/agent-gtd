@@ -373,10 +373,10 @@ async def test_plan_wave_mcp_dispatch_not_configured_raises_tool_error(
         await mcp_client_authed.call_tool("plan_wave", {"item_ids": [item_id]})
 
 
-async def test_plan_wave_mcp_planner_failure_updates_wave_run_crashed(
+async def test_plan_wave_mcp_planner_failure_updates_wave_run_failed(
     mcp_client_authed, user_id
 ):
-    """When the planner HTTP call fails, wave run is set to 'crashed'."""
+    """When the planner HTTP call fails, wave run is set to 'failed'."""
     project_id = await _create_project(user_id)
     item_id = await _create_ready_item(user_id, project_id)
     await _configure_dispatch(user_id, "http://dispatch.test:8100", "test-api-key")
@@ -397,7 +397,7 @@ async def test_plan_wave_mcp_planner_failure_updates_wave_run_crashed(
         project_id,
     )
     assert len(rows) == 1
-    assert rows[0]["status"] == "crashed"
+    assert rows[0]["status"] == "failed"
     assert "Connection refused" in str(rows[0]["halt_reason"])
 
 

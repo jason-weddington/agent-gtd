@@ -1160,7 +1160,7 @@ async def test_manage_dispatch_rejected_if_wave_not_pending(
     await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
     await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
 
-    for bad_status in ("running", "halted", "completed", "crashed"):
+    for bad_status in ("running", "halted", "completed", "failed"):
         item_id = await _make_item(db, user_id, project_id, f"Task {bad_status}")
         wave_run_id = await _make_wave_run(db, user_id, project_id, status=bad_status)
 

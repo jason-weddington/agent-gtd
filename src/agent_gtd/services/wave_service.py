@@ -276,7 +276,7 @@ async def plan_wave(
             configured for the project owner.
         LegalityContractError: If any item fails the legality contract.
         RuntimeError: If the planner HTTP call fails.  The wave run is updated
-            to ``status='crashed'`` before the exception propagates.
+            to ``status='failed'`` before the exception propagates.
     """
     if not item_ids:
         raise ValidationError("item_ids must not be empty")
@@ -335,7 +335,7 @@ async def plan_wave(
             "UPDATE autonomous_wave_runs "
             "SET status = $1, halt_reason = $2, updated_at = $3 "
             "WHERE id = $4",
-            "crashed",
+            "failed",
             error_detail,
             err_now,
             wave_run_id,
@@ -987,7 +987,7 @@ async def cancel_wave(
 
     Transitions the wave to ``cancelled`` status and marks any non-terminal
     wave plan items as ``skipped``.  Accepts waves in any non-terminal status
-    (pending, planning, running, halted, crashed).  Idempotent — cancelling an
+    (pending, planning, running, halted, failed).  Idempotent — cancelling an
     already-cancelled wave returns success without error.
 
     The active-waves query (``get_active_wave_for_project``) does not include
@@ -1018,7 +1018,7 @@ async def cancel_wave(
         assert row is not None  # noqa: S101
         return row_to_dict(row)
 
-    cancellable_statuses = {"pending", "planning", "running", "halted", "crashed"}
+    cancellable_statuses = {"pending", "planning", "running", "halted", "failed"}
     if wave["status"] not in cancellable_statuses:
         raise ValidationError(
             f"Wave {wave_run_id} cannot be cancelled (status={wave['status']})"
@@ -1329,14 +1329,6 @@ async def replan_wave(
 
 
 # ---------------------------------------------------------------------------
-# Heartbeat / liveness ping (AC-5)
-# ---------------------------------------------------------------------------
-
-_VALID_PHASES = frozenset(
-    ("", "planning", "dispatching", "monitoring", "merging", "halted")
-)
-
-# ---------------------------------------------------------------------------
 # Manager state heartbeat (semantic observability)
 # ---------------------------------------------------------------------------
 
@@ -1351,73 +1343,6 @@ _VALID_MANAGER_PHASES = frozenset(
         "halted",
     )
 )
-
-
-async def ping_wave(
-    db: DbPool,
-    user_id: str,
-    wave_run_id: str,
-    phase: str = "",
-    waiting_on: str = "",
-) -> dict[str, Any]:
-    """Record a heartbeat event for a running wave and reset the reaper clock.
-
-    The lead executor calls this during idle wait loops to prove liveness.
-    Inserts a ``heartbeat`` wave event whose payload stores ``phase`` and
-    ``waiting_on`` for the UI feed and apt-style display.
-
-    Args:
-        db: Database pool.
-        user_id: Calling user's ID — must be the wave's lead_user_id.
-        wave_run_id: ID of the wave run to ping.
-        phase: Current phase of the executor.  One of ``""``,
-            ``"planning"``, ``"dispatching"``, ``"monitoring"``,
-            ``"merging"``, ``"halted"``.
-        waiting_on: Item ID (or empty string) the executor is currently
-            waiting on.
-
-    Returns:
-        Dict with keys ``wave_run_id``, ``ts``, ``phase``, ``waiting_on``.
-
-    Raises:
-        NotFoundError: If wave not found or caller doesn't own it.
-        ValidationError: If wave status is not ``'running'`` or phase is
-            invalid.
-    """
-    if phase not in _VALID_PHASES:
-        raise ValidationError(
-            f"Invalid phase '{phase}' — must be one of: "
-            + ", ".join(sorted(_VALID_PHASES))
-        )
-
-    wave = await _get_wave_run(db, user_id, wave_run_id)
-    if wave["status"] != "running":
-        raise ValidationError(
-            f"Wave {wave_run_id} is not running (status={wave['status']})"
-        )
-
-    now = datetime.now(UTC).isoformat()
-
-    await _append_wave_event(
-        db,
-        wave_run_id,
-        kind="heartbeat",
-        actor="manager",
-        payload={"phase": phase, "waiting_on": waiting_on},
-    )
-
-    await db.execute(
-        "UPDATE autonomous_wave_runs SET updated_at = $1 WHERE id = $2",
-        now,
-        wave_run_id,
-    )
-
-    return {
-        "wave_run_id": wave_run_id,
-        "ts": now,
-        "phase": phase,
-        "waiting_on": waiting_on,
-    }
 
 
 async def update_wave_state(
@@ -1520,8 +1445,8 @@ async def get_active_wave_for_project(
 ) -> dict[str, Any] | None:
     """Return the most recent active wave run for a project with progress counts.
 
-    An "active" wave has status in {pending, planning, running, halted, crashed}.
-    Completed/crashed waves older than 30 minutes are excluded via the caller's
+    An "active" wave has status in {pending, planning, running, halted, failed}.
+    Completed/failed waves older than 30 minutes are excluded via the caller's
     interpretation (the route returns 404 if None).
 
     Args:
@@ -1565,7 +1490,7 @@ async def get_active_wave_for_project(
         WHERE wr.project_id = $1
           AND (
             wr.status IN ('pending', 'planning', 'running', 'halted')
-            OR (wr.status IN ('completed', 'crashed') AND wr.created_at >= $2)
+            OR (wr.status IN ('completed', 'failed') AND wr.created_at >= $2)
           )
         ORDER BY wr.created_at DESC
         LIMIT 1

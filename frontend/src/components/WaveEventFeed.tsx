@@ -17,7 +17,6 @@ import {
 } from '@mui/material'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
 import CodeIcon from '@mui/icons-material/Code'
-import TimerIcon from '@mui/icons-material/Timer'
 import PersonIcon from '@mui/icons-material/Person'
 import type { WaveEvent, WaveEventActor } from '../types'
 
@@ -34,7 +33,6 @@ function ActorCell({ actor }: { actor: WaveEventActor }) {
   const config: Record<WaveEventActor, { icon: React.ReactNode; label: string }> = {
     manager: { icon: <SmartToyIcon fontSize="small" />, label: 'Manager' },
     'child-agent': { icon: <CodeIcon fontSize="small" />, label: 'Agent' },
-    reaper: { icon: <TimerIcon fontSize="small" />, label: 'Reaper' },
     human: { icon: <PersonIcon fontSize="small" />, label: 'Human' },
   }
   const { icon, label } = config[actor] ?? { icon: null, label: actor }

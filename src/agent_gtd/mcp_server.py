@@ -1392,7 +1392,7 @@ async def cancel_wave(
     """Cancel a wave, marking any remaining items as skipped.
 
     Accepts waves in any non-terminal status (pending, planning, running,
-    halted, crashed). Idempotent for already-cancelled waves.
+    halted, failed). Idempotent for already-cancelled waves.
 
     Args:
         wave_run_id: ID of the wave run to cancel.
@@ -1443,47 +1443,6 @@ async def replan_wave(
             session["user_id"],
             wave_run_id,
             from_item=from_item,
-        )
-    except NotFoundError as e:
-        raise ToolError(e.detail) from None
-    except ValidationError as e:
-        raise ToolError(e.detail) from None
-
-
-@mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
-)
-async def ping_wave(
-    wave_run_id: str,
-    ctx: Context,
-    phase: str = "",
-    waiting_on: str = "",
-) -> dict[str, Any]:
-    """Record a heartbeat for a running wave and reset the reaper clock.
-
-    The lead executor calls this during idle wait loops to prove liveness.
-    Inserts a ``heartbeat`` wave event whose payload stores ``phase`` and
-    ``waiting_on`` for the UI feed and apt-style display.
-
-    Valid ``phase`` values: ``""``, ``"planning"``, ``"dispatching"``,
-    ``"monitoring"``, ``"merging"``, ``"halted"``.
-
-    Args:
-        wave_run_id: ID of the wave run to ping.
-        ctx: MCP context (injected automatically).
-        phase: Current execution phase of the lead executor.
-        waiting_on: Item ID (or empty string) the executor is waiting on.
-
-    Returns:
-        Dict with keys ``wave_run_id``, ``ts``, ``phase``, ``waiting_on``.
-    """
-    session = await _get_session(ctx)
-    try:
-        return await _backend.ping_wave(
-            session["user_id"],
-            wave_run_id,
-            phase=phase,
-            waiting_on=waiting_on,
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None

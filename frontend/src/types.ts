@@ -178,7 +178,7 @@ export type WaveRunStatus =
   | 'planning'
   | 'running'
   | 'halted'
-  | 'crashed'
+  | 'failed'
   | 'completed'
 
 export type WavePlanItemStatus =
@@ -189,7 +189,7 @@ export type WavePlanItemStatus =
   | 'halted'
   | 'skipped'
 
-export type WaveEventActor = 'manager' | 'child-agent' | 'reaper' | 'human'
+export type WaveEventActor = 'manager' | 'child-agent' | 'human'
 
 export interface WaveRun {
   id: string

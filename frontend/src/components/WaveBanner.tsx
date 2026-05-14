@@ -43,7 +43,7 @@ export function getStatusColor(
       return 'info'
     case 'halted':
       return 'warning'
-    case 'crashed':
+    case 'failed':
       return 'error'
     case 'completed':
       return 'success'
@@ -63,8 +63,8 @@ export function getTitleText(status: WaveRunStatus): string {
       return 'Autonomous Dispatch Management in Progress'
     case 'halted':
       return 'Wave Halted — Review Needed'
-    case 'crashed':
-      return 'Wave Crashed'
+    case 'failed':
+      return 'Wave Failed'
     case 'completed':
       return 'Wave Completed'
     default:
@@ -136,7 +136,7 @@ const VISIBLE_STATUSES: ReadonlySet<WaveRunStatus> = new Set([
   'planning',
   'running',
   'halted',
-  'crashed',
+  'failed',
   'completed',
 ])
 
