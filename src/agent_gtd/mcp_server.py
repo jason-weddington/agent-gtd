@@ -1213,6 +1213,110 @@ async def advance_rollout(
         raise ToolError(e.detail) from None
 
 
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False))
+async def get_rollout(
+    rollout_id: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """Fetch the full lifecycle state of a rollout by ID.
+
+    Use ``get_rollout`` for rollout lifecycle state (phase, halt_reason,
+    manager_current_item_id, etc.).  Use ``get_run_status`` for a specific
+    dispatched run's stdout and exit code.
+
+    Args:
+        rollout_id: ID of the rollout to fetch.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        The autonomous_rollouts row dict with fields: id, project_id, status,
+        halt_reason, started_at, ended_at, created_at, updated_at,
+        manager_phase, manager_current_item_id, manager_current_step,
+        manager_state_updated_at, manage_retry_count.
+
+    Raises:
+        ToolError: If the rollout is not found or not owned by the caller.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.get_rollout(session["user_id"], rollout_id)
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False))
+async def list_rollouts(
+    ctx: Context,
+    project_id: str | None = None,
+    status: str | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """List rollouts owned by the caller, with optional filters.
+
+    Call ``list_rollouts(status='running')`` at the start of a new session to
+    find any rollout that was left mid-execution and needs to be resumed or
+    inspected.
+
+    Args:
+        ctx: MCP context (injected automatically).
+        project_id: If provided, return only rollouts for this project.
+        status: If provided, return only rollouts with this status
+            (e.g. ``"running"``, ``"halted"``, ``"pending"``,
+            ``"completed"``).
+        limit: Maximum number of results to return (default 20, max 100).
+
+    Returns:
+        List of rollout dicts ordered by created_at DESC (newest first).
+        Each dict has the same shape as ``get_rollout``.
+    """
+    session = await _get_session(ctx)
+    clamped = min(max(1, limit), 100)
+    return await _backend.list_rollouts(
+        session["user_id"],
+        project_id=project_id,
+        status=status,
+        limit=clamped,
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False))
+async def get_rollout_plan(
+    rollout_id: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """Show the rollout DAG with per-item progress at a glance.
+
+    Use this instead of calling ``get_item`` for each item in a rollout —
+    it returns the full plan graph with titles and current rollout_status for
+    every item in one call.
+
+    Args:
+        rollout_id: ID of the rollout to inspect.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        Dict with keys:
+          - rollout_id (str)
+          - plan_version (int): Latest plan version number.
+          - planner_model (str): Model that generated the plan.
+          - nodes (list[str]): Item IDs in the plan.
+          - edges (list[dict]): Each has ``from_item_id`` and ``to_item_id``.
+          - items (list[dict]): Each has ``item_id``, ``title``,
+            ``rollout_status`` (pending/ready/dispatched/completed/halted/
+            skipped), and ``predecessors`` (list of item IDs that must
+            complete before this item can start).
+
+    Raises:
+        ToolError: If the rollout is not found, not owned by the caller,
+            or has no plan yet.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.get_rollout_plan(session["user_id"], rollout_id)
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+
+
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )

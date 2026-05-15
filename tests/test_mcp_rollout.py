@@ -480,3 +480,259 @@ async def test_cancel_rollout_not_found(mcp_client_authed):
             "cancel_rollout",
             {"rollout_id": str(uuid.uuid4()), "reason": "ghost"},
         )
+
+
+# ---------------------------------------------------------------------------
+# Helper: insert a rollout plan row
+# ---------------------------------------------------------------------------
+
+
+async def _insert_rollout_plan(
+    rollout_id: str,
+    item_ids: list[str],
+    edges: list[dict[str, str]] | None = None,
+    version: int = 1,
+    planner_model: str = "test-model",
+) -> None:
+    """Insert a rollout_plans row for testing get_rollout_plan."""
+    db = await get_db()
+    plan_id = str(uuid.uuid4())
+    nodes_json = json.dumps(item_ids)
+    edges_json = json.dumps(edges or [])
+    await db.execute(
+        "INSERT INTO rollout_plans"
+        " (id, rollout_id, version, nodes, edges, planner_model, created_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        plan_id,
+        rollout_id,
+        version,
+        nodes_json,
+        edges_json,
+        planner_model,
+        NOW,
+    )
+
+
+async def _insert_rollout_item(
+    rollout_id: str,
+    item_id: str,
+    status: str = "pending",
+) -> None:
+    """Insert a rollout_items row for testing."""
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO rollout_items (rollout_id, item_id, status) VALUES ($1, $2, $3)",
+        rollout_id,
+        item_id,
+        status,
+    )
+
+
+# ---------------------------------------------------------------------------
+# get_rollout tests
+# ---------------------------------------------------------------------------
+
+
+async def test_get_rollout_happy_path(mcp_client_authed, user_id):
+    """get_rollout returns correct fields for a known rollout."""
+    project_id = await _create_project(user_id)
+    wave_id = await _create_wave_run(user_id, project_id, status="pending")
+
+    result = _parse_result(
+        await mcp_client_authed.call_tool("get_rollout", {"rollout_id": wave_id})
+    )
+
+    assert result["id"] == wave_id
+    assert result["project_id"] == project_id
+    assert result["status"] == "pending"
+    assert result["lead_user_id"] == user_id
+
+
+async def test_get_rollout_not_found(mcp_client_authed):
+    """get_rollout with unknown ID raises ToolError."""
+    with pytest.raises(ToolError):
+        await mcp_client_authed.call_tool(
+            "get_rollout", {"rollout_id": str(uuid.uuid4())}
+        )
+
+
+async def test_get_rollout_wrong_owner(mcp_client_authed):
+    """get_rollout raises ToolError if rollout belongs to a different user."""
+    db = await get_db()
+    # Create a rollout owned by a different user
+    other_user = await register_user("other-rollout@example.com", "testpass123")
+    other_project_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO projects (id, user_id, name, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5)",
+        other_project_id,
+        other_user.id,
+        "Other Project",
+        NOW,
+        NOW,
+    )
+    other_wave_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO autonomous_rollouts"
+        " (id, project_id, lead_user_id, status, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6)",
+        other_wave_id,
+        other_project_id,
+        other_user.id,
+        "pending",
+        NOW,
+        NOW,
+    )
+
+    with pytest.raises(ToolError):
+        await mcp_client_authed.call_tool("get_rollout", {"rollout_id": other_wave_id})
+
+
+# ---------------------------------------------------------------------------
+# list_rollouts tests
+# ---------------------------------------------------------------------------
+
+
+async def test_list_rollouts_empty(mcp_client_authed, user_id):
+    """list_rollouts returns an empty list when the user has no rollouts."""
+    result = _parse_result(await mcp_client_authed.call_tool("list_rollouts", {}))
+    assert result == []
+
+
+async def test_list_rollouts_returns_own_rollouts(mcp_client_authed, user_id):
+    """list_rollouts returns rollouts owned by the caller."""
+    project_id = await _create_project(user_id)
+    wave_id_1 = await _create_wave_run(user_id, project_id, status="pending")
+    wave_id_2 = await _create_wave_run(user_id, project_id, status="running")
+
+    result = _parse_result(await mcp_client_authed.call_tool("list_rollouts", {}))
+    ids = [r["id"] for r in result]
+    assert wave_id_1 in ids
+    assert wave_id_2 in ids
+
+
+async def test_list_rollouts_filters_by_status(mcp_client_authed, user_id):
+    """list_rollouts(status=...) returns only rollouts with that status."""
+    project_id = await _create_project(user_id)
+    running_id = await _create_wave_run(user_id, project_id, status="running")
+    await _create_wave_run(user_id, project_id, status="pending")
+
+    result = _parse_result(
+        await mcp_client_authed.call_tool("list_rollouts", {"status": "running"})
+    )
+    ids = [r["id"] for r in result]
+    assert running_id in ids
+    assert all(r["status"] == "running" for r in result)
+
+
+async def test_list_rollouts_filters_by_project_id(mcp_client_authed, user_id):
+    """list_rollouts(project_id=...) returns only rollouts for that project."""
+    project_a = await _create_project(user_id)
+    project_b = await _create_project(user_id)
+    wave_a = await _create_wave_run(user_id, project_a, status="pending")
+    await _create_wave_run(user_id, project_b, status="pending")
+
+    result = _parse_result(
+        await mcp_client_authed.call_tool("list_rollouts", {"project_id": project_a})
+    )
+    ids = [r["id"] for r in result]
+    assert wave_a in ids
+    assert all(r["project_id"] == project_a for r in result)
+
+
+async def test_list_rollouts_respects_limit(mcp_client_authed, user_id):
+    """list_rollouts respects the limit parameter."""
+    project_id = await _create_project(user_id)
+    for _ in range(5):
+        await _create_wave_run(user_id, project_id, status="pending")
+
+    result = _parse_result(
+        await mcp_client_authed.call_tool("list_rollouts", {"limit": 2})
+    )
+    assert len(result) == 2
+
+
+async def test_list_rollouts_does_not_return_other_users_rollouts(
+    mcp_client_authed, user_id
+):
+    """list_rollouts does not include rollouts owned by other users."""
+    db = await get_db()
+    other_user = await register_user("other-list@example.com", "testpass123")
+    other_project_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO projects (id, user_id, name, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5)",
+        other_project_id,
+        other_user.id,
+        "Other Project",
+        NOW,
+        NOW,
+    )
+    other_wave_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO autonomous_rollouts"
+        " (id, project_id, lead_user_id, status, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6)",
+        other_wave_id,
+        other_project_id,
+        other_user.id,
+        "pending",
+        NOW,
+        NOW,
+    )
+
+    result = _parse_result(await mcp_client_authed.call_tool("list_rollouts", {}))
+    ids = [r["id"] for r in result]
+    assert other_wave_id not in ids
+
+
+# ---------------------------------------------------------------------------
+# get_rollout_plan tests
+# ---------------------------------------------------------------------------
+
+
+async def test_get_rollout_plan_happy_path(mcp_client_authed, user_id):
+    """get_rollout_plan returns nodes, edges, and items with titles."""
+    project_id = await _create_project(user_id)
+    item_a = await _create_ready_item(user_id, project_id, title="Item A")
+    item_b = await _create_ready_item(user_id, project_id, title="Item B")
+    wave_id = await _create_wave_run(user_id, project_id)
+    edges = [{"from_item_id": item_a, "to_item_id": item_b}]
+    await _insert_rollout_plan(wave_id, [item_a, item_b], edges=edges)
+    await _insert_rollout_item(wave_id, item_a, status="completed")
+    await _insert_rollout_item(wave_id, item_b, status="dispatched")
+
+    result = _parse_result(
+        await mcp_client_authed.call_tool("get_rollout_plan", {"rollout_id": wave_id})
+    )
+
+    assert result["rollout_id"] == wave_id
+    assert result["plan_version"] == 1
+    assert result["planner_model"] == "test-model"
+    assert set(result["nodes"]) == {item_a, item_b}
+    assert result["edges"] == edges
+
+    item_map = {i["item_id"]: i for i in result["items"]}
+    assert item_map[item_a]["title"] == "Item A"
+    assert item_map[item_a]["rollout_status"] == "completed"
+    assert item_map[item_a]["predecessors"] == []
+    assert item_map[item_b]["title"] == "Item B"
+    assert item_map[item_b]["rollout_status"] == "dispatched"
+    assert item_map[item_b]["predecessors"] == [item_a]
+
+
+async def test_get_rollout_plan_not_found(mcp_client_authed):
+    """get_rollout_plan with unknown rollout ID raises ToolError."""
+    with pytest.raises(ToolError):
+        await mcp_client_authed.call_tool(
+            "get_rollout_plan", {"rollout_id": str(uuid.uuid4())}
+        )
+
+
+async def test_get_rollout_plan_no_plan_yet(mcp_client_authed, user_id):
+    """get_rollout_plan raises ToolError when rollout has no plan yet."""
+    project_id = await _create_project(user_id)
+    wave_id = await _create_wave_run(user_id, project_id)
+
+    with pytest.raises(ToolError):
+        await mcp_client_authed.call_tool("get_rollout_plan", {"rollout_id": wave_id})

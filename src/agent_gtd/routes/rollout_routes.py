@@ -480,6 +480,59 @@ async def resume_rollout(
         raise HTTPException(status_code=409, detail=exc.detail) from exc
 
 
+@router.get("")
+async def list_rollouts(
+    user: Annotated[User, Depends(get_current_user)],
+    project_id: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> list[dict[str, Any]]:
+    """List rollouts for the authenticated user, with optional filters.
+
+    Args:
+        user: Injected authenticated user.
+        project_id: Optional filter by project.
+        status: Optional filter by rollout status (e.g. ``"running"``).
+        limit: Maximum number of results (default 20, max 100).
+
+    Returns:
+        List of rollout dicts ordered by created_at DESC.
+    """
+    db = await get_db()
+    return await rollout_service.list_rollouts(
+        db,
+        user.id,
+        project_id=project_id,
+        status=status,
+        limit=limit,
+    )
+
+
+@router.get("/{rollout_id}/plan")
+async def get_rollout_plan(
+    rollout_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Return the latest plan for a rollout with per-item progress.
+
+    Args:
+        rollout_id: The rollout to fetch the plan for.
+        user: Injected authenticated user.
+
+    Returns:
+        Dict with rollout_id, plan_version, planner_model, nodes, edges,
+        and items (each with item_id, title, rollout_status, predecessors).
+
+    Raises:
+        404 if rollout not found, caller doesn't own it, or no plan exists.
+    """
+    db = await get_db()
+    try:
+        return await rollout_service.get_rollout_plan(db, user.id, rollout_id)
+    except (NotFoundError, ValidationError) as exc:
+        raise _map_exc(exc) from exc
+
+
 @router.get("/{rollout_id}")
 async def get_rollout(
     rollout_id: str,

@@ -999,6 +999,133 @@ async def get_rollout(
     return await _get_rollout(db, user_id, rollout_id)
 
 
+async def list_rollouts(
+    db: DbPool,
+    user_id: str,
+    *,
+    project_id: str | None = None,
+    status: str | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """List rollouts owned by the caller, with optional filters.
+
+    Args:
+        db: Database pool.
+        user_id: Calling user's ID — only rollouts with this lead_user_id
+            are returned.
+        project_id: If provided, return only rollouts for this project.
+        status: If provided, return only rollouts with this status
+            (e.g. ``"running"``, ``"halted"``, ``"completed"``).
+        limit: Maximum number of rollouts to return (default 20, max 100).
+
+    Returns:
+        List of autonomous_rollouts row dicts ordered by created_at DESC.
+    """
+    clamped_limit = min(max(1, limit), 100)
+
+    query = "SELECT * FROM autonomous_rollouts WHERE lead_user_id = $1"
+    params: list[Any] = [user_id]
+    idx = 2
+
+    if project_id is not None:
+        query += f" AND project_id = ${idx}"
+        params.append(project_id)
+        idx += 1
+
+    if status is not None:
+        query += f" AND status = ${idx}"
+        params.append(status)
+        idx += 1
+
+    query += f" ORDER BY created_at DESC LIMIT ${idx}"
+    params.append(clamped_limit)
+
+    rows = await db.fetch(query, *params)
+    return [row_to_dict(r) for r in rows]
+
+
+async def get_rollout_plan(
+    db: DbPool,
+    user_id: str,
+    rollout_id: str,
+) -> dict[str, Any]:
+    """Fetch the latest rollout plan with per-item progress and titles.
+
+    Returns the DAG (nodes, edges) from the latest rollout_plans row along
+    with a joined list of rollout_items enriched with item titles and
+    derived predecessor lists.
+
+    Args:
+        db: Database pool.
+        user_id: Calling user's ID — must match lead_user_id.
+        rollout_id: The rollout to fetch the plan for.
+
+    Returns:
+        Dict with keys:
+          - rollout_id (str)
+          - plan_version (int)
+          - planner_model (str)
+          - nodes (list[str]): Ordered item IDs from the plan.
+          - edges (list[dict]): Each dict has from_item_id and to_item_id.
+          - items (list[dict]): Each has item_id, title, rollout_status,
+            and predecessors (list[str] of item_ids that must complete first).
+
+    Raises:
+        NotFoundError: If rollout not found, not owned by caller, or has no
+            plan yet.
+    """
+    # Verify ownership
+    await _get_rollout(db, user_id, rollout_id)
+
+    plan = await _get_latest_plan(db, rollout_id)
+    if plan is None:
+        raise NotFoundError("RolloutPlan", rollout_id)
+
+    # Decode JSON columns
+    nodes: list[str] = (
+        json.loads(plan["nodes"]) if isinstance(plan["nodes"], str) else plan["nodes"]
+    )
+    edges: list[dict[str, str]] = (
+        json.loads(plan["edges"]) if isinstance(plan["edges"], str) else plan["edges"]
+    )
+
+    # Build predecessor map: to_item_id → list of from_item_ids
+    predecessor_map: dict[str, list[str]] = {node: [] for node in nodes}
+    for edge in edges:
+        to_id = edge["to_item_id"]
+        from_id = edge["from_item_id"]
+        if to_id in predecessor_map:
+            predecessor_map[to_id].append(from_id)
+
+    # Fetch rollout_items joined with item titles
+    item_rows = await db.fetch(
+        "SELECT ri.item_id, ri.status, i.title"
+        " FROM rollout_items ri"
+        " JOIN items i ON i.id = ri.item_id"
+        " WHERE ri.rollout_id = $1",
+        rollout_id,
+    )
+
+    items = [
+        {
+            "item_id": str(row["item_id"]),
+            "title": row["title"],
+            "rollout_status": row["status"],
+            "predecessors": predecessor_map.get(str(row["item_id"]), []),
+        }
+        for row in item_rows
+    ]
+
+    return {
+        "rollout_id": rollout_id,
+        "plan_version": plan["version"],
+        "planner_model": plan.get("planner_model", ""),
+        "nodes": nodes,
+        "edges": edges,
+        "items": items,
+    }
+
+
 async def relaunch_manage_rollout(
     db: DbPool,
     user_id: str,
