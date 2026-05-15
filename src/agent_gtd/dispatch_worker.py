@@ -150,7 +150,7 @@ def _publish_run_event(
     db: Any,
     user_id: str,
     run_id: str,
-    item_id: str,
+    item_id: str | None,
     run: dict[str, Any],
     event_type: str,
 ) -> None:
@@ -181,7 +181,7 @@ def _publish_run_event(
 
 async def _dispatch_to_remote(
     client: httpx.AsyncClient,
-    item_id: str,
+    item_id: str | None,
     max_turns: int,
     mode: str = "build",
     *,
@@ -195,12 +195,13 @@ async def _dispatch_to_remote(
 ) -> dict[str, Any]:
     """POST /dispatch to the remote service. Returns the remote run dict."""
     body: dict[str, Any] = {
-        "item_id": item_id,
         "max_turns": max_turns,
         "mode": mode,
         "engine": engine,
         "timeout_minutes": timeout_minutes,
     }
+    if item_id is not None:
+        body["item_id"] = item_id
     if agent_name:
         body["agent_name"] = agent_name
     if attribution:
@@ -456,7 +457,7 @@ async def _resume_polling(
 async def execute_run(
     db: Any,
     run: dict[str, Any],
-    item: dict[str, Any],
+    item: dict[str, Any] | None,
     project: dict[str, Any],
 ) -> None:
     """Execute a dispatch run by forwarding to the remote dispatch service.
@@ -473,7 +474,7 @@ async def execute_run(
     )
 
     run_id = str(run["id"])
-    item_id = str(run["item_id"])
+    item_id = str(run["item_id"]) if run.get("item_id") is not None else None
     user_id = str(run["user_id"])
     max_turns = int(str(run["max_turns"]))
     mode = str(run.get("mode", "build"))
@@ -702,7 +703,12 @@ async def _process_run(run_id: str) -> None:
                 return
 
             user_id = str(run["user_id"])
-            item = await svc_get_item(db, user_id, str(run["item_id"]))
+            run_mode = str(run.get("mode", "build"))
+            if run_mode == "manage":
+                # manage-mode runs are not scoped to a single item
+                item = None
+            else:
+                item = await svc_get_item(db, user_id, str(run["item_id"]))
             project = await svc_get_project(db, user_id, str(run["project_id"]))
 
             await execute_run(db, run, item, project)

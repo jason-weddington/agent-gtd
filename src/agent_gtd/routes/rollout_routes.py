@@ -558,4 +558,13 @@ async def dispatch_rollout(
         raise HTTPException(status_code=404, detail=exc.detail) from exc
     except ValidationError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
+
+    # Enqueue for background processing
+    try:
+        from agent_gtd.dispatch_worker import enqueue_run
+
+        enqueue_run(str(row["id"]))
+    except AssertionError:
+        pass  # Worker not started (e.g. in tests)
+
     return RunResponse(**row)

@@ -648,7 +648,7 @@ class RunResponse(BaseModel):
     """Claude dispatch run data returned from API."""
 
     id: str
-    item_id: str
+    item_id: str | None = None
     project_id: str
     status: RunStatus
     feature_branch: str

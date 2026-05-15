@@ -156,7 +156,7 @@ export type RunStatus = 'pending' | 'cloning' | 'running' | 'success' | 'failed'
 
 export interface Run {
   id: string
-  itemId: string
+  itemId: string | null
   projectId: string
   status: RunStatus
   featureBranch: string

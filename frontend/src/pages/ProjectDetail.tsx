@@ -1245,8 +1245,8 @@ export default function ProjectDetail() {
                 </TableHead>
                 <TableBody>
                   {runs.map((run) => {
-                    const item = items.find((i) => i.id === run.itemId)
-                    const itemTitle = item?.title ?? `Item ${run.itemId.slice(0, 8)}`
+                    const item = run.itemId ? items.find((i) => i.id === run.itemId) : undefined
+                    const itemTitle = item?.title ?? (run.itemId ? `Item ${run.itemId.slice(0, 8)}` : 'Manage run')
                     const isFailed = run.status === 'failed' || run.status === 'timeout'
                     return (
                       <TableRow

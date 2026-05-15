@@ -63,12 +63,12 @@ export default function ActiveRunsIndicator() {
         // Lazily enrich each run with item title and project name.
         // Fire-and-forget; refs prevent duplicate requests across polls.
         for (const run of activeRuns) {
-          if (!fetchedItemIds.current.has(run.itemId)) {
+          if (run.itemId && !fetchedItemIds.current.has(run.itemId)) {
             fetchedItemIds.current.add(run.itemId)
             void api.items
               .get(run.itemId)
               .then((item) =>
-                setItemMap((prev) => ({ ...prev, [run.itemId]: item })),
+                setItemMap((prev) => ({ ...prev, [run.itemId!]: item })),
               )
           }
           if (!fetchedProjectIds.current.has(run.projectId)) {
@@ -174,7 +174,7 @@ export default function ActiveRunsIndicator() {
           </MenuItem>
         ) : (
           runs.map((run) => {
-            const item = itemMap[run.itemId]
+            const item = run.itemId ? itemMap[run.itemId] : undefined
             const project = projectMap[run.projectId]
             const isQueued = run.status === 'pending'
             return (
