@@ -496,3 +496,97 @@ class TestResumeWave:
         assert "done_count" in data
         assert data["total_count"] == 1
         assert data["done_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# GET /api/rollouts  (list_rollouts route, AC-2)
+# ---------------------------------------------------------------------------
+
+
+class TestListRollouts:
+    async def test_returns_list_of_rollouts(
+        self, client: AsyncClient, wave_setup: dict[str, Any]
+    ) -> None:
+        """Authenticated user gets their rollouts as a JSON list."""
+        resp = await client.get(
+            "/api/rollouts",
+            headers=wave_setup["headers"],
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        ids = [r["id"] for r in data]
+        assert wave_setup["rollout_id"] in ids
+
+    async def test_status_filter_excludes_non_matching(
+        self, client: AsyncClient, wave_setup: dict[str, Any]
+    ) -> None:
+        """status filter returns only matching rollouts."""
+        resp = await client.get(
+            "/api/rollouts?status=completed",
+            headers=wave_setup["headers"],
+        )
+        assert resp.status_code == 200
+        assert wave_setup["rollout_id"] not in [r["id"] for r in resp.json()]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/rollouts/{id}/plan  (get_rollout_plan route, AC-3)
+# ---------------------------------------------------------------------------
+
+
+class TestGetRolloutPlan:
+    async def test_returns_plan_with_items(
+        self, client: AsyncClient, wave_setup: dict[str, Any]
+    ) -> None:
+        """Authenticated owner gets the DAG plan for their rollout."""
+        resp = await client.get(
+            f"/api/rollouts/{wave_setup['rollout_id']}/plan",
+            headers=wave_setup["headers"],
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["rollout_id"] == wave_setup["rollout_id"]
+        assert "nodes" in data
+        assert "edges" in data
+        assert "items" in data
+
+    async def test_404_for_unknown_rollout(
+        self, client: AsyncClient, wave_setup: dict[str, Any]
+    ) -> None:
+        """Unknown rollout ID returns 404."""
+        resp = await client.get(
+            "/api/rollouts/00000000-0000-0000-0000-000000000000/plan",
+            headers=wave_setup["headers"],
+        )
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /api/rollouts/{id}  (get_rollout route, AC-1)
+# ---------------------------------------------------------------------------
+
+
+class TestGetRollout:
+    async def test_returns_rollout_row(
+        self, client: AsyncClient, wave_setup: dict[str, Any]
+    ) -> None:
+        """Authenticated owner gets the rollout row as JSON."""
+        resp = await client.get(
+            f"/api/rollouts/{wave_setup['rollout_id']}",
+            headers=wave_setup["headers"],
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] == wave_setup["rollout_id"]
+        assert data["status"] == "running"
+
+    async def test_404_for_unknown_rollout(
+        self, client: AsyncClient, wave_setup: dict[str, Any]
+    ) -> None:
+        """Unknown rollout ID returns 404."""
+        resp = await client.get(
+            "/api/rollouts/00000000-0000-0000-0000-000000000000",
+            headers=wave_setup["headers"],
+        )
+        assert resp.status_code == 404
