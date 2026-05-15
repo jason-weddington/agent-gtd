@@ -270,3 +270,48 @@ uv run python scripts/seed.py    # Creates seed user + project, writes data/seed
 ```
 
 **Seed IDs** are stored in `data/seed.json` (`user_id` and `project_id`). The `data/` directory is gitignored.
+
+## Monitoring dispatched runs — event-driven, not polled
+
+The CLI provides `run-status` and `rollout-status` subcommands that print the
+relevant row as JSON to stdout. Pair them with a Monitor on a sentinel line for
+event-driven completion detection — no curl, no fragile glue.
+
+### Watching a dispatched run
+
+Non-terminal states to keep looping: `pending`, `running`.
+
+```bash
+until s=$(agent-gtd run-status <run_id> | jq -r .status) && \
+      [ "$s" != "pending" ] && [ "$s" != "running" ]; do
+  sleep 30
+done
+echo "DONE run <run_id> status=$s"
+```
+
+Arm a Monitor on `"DONE run <run_id>"` in the script's output. When the run
+reaches a terminal state (`success`, `failed`, `cancelled`), the Monitor fires.
+
+### Watching a dispatched rollout
+
+Non-terminal states to keep looping: `pending`, `planning`, `running`.
+
+```bash
+until s=$(agent-gtd rollout-status <rollout_id> | jq -r .status) && \
+      [ "$s" != "pending" ] && [ "$s" != "planning" ] && [ "$s" != "running" ]; do
+  sleep 30
+done
+echo "DONE rollout <rollout_id> status=$s"
+```
+
+Arm a Monitor on `"DONE rollout <rollout_id>"` in the script's output. When
+the rollout reaches a terminal state (`completed`, `failed`, `halted`,
+`cancelled`), the Monitor fires.
+
+### Auth / mode
+
+Both commands follow the same auth logic as the MCP server:
+- **Local mode** (no `AGENT_GTD_URL`): reads directly from the local DB,
+  uses `LOCAL_USER_ID`, no credentials needed.
+- **HTTP mode** (`AGENT_GTD_URL` + `AGENT_GTD_API_KEY`): authenticates via
+  the API key and calls the REST API.

@@ -8,7 +8,13 @@ from typing import Any
 
 import pytest
 
-from agent_gtd.cli import _cmd_run_status, _fetch_run_status, main
+from agent_gtd.cli import (
+    _cmd_rollout_status,
+    _cmd_run_status,
+    _fetch_rollout_status,
+    _fetch_run_status,
+    main,
+)
 from agent_gtd.exceptions import NotFoundError
 
 # ---------------------------------------------------------------------------
@@ -260,6 +266,203 @@ async def test_fetch_run_status_http_success(monkeypatch):
 
     assert result["id"] == expected["id"]
     assert result["status"] == "running"
+
+
+# ---------------------------------------------------------------------------
+# Helpers for rollout tests
+# ---------------------------------------------------------------------------
+
+
+def _make_rollout(**overrides: Any) -> dict[str, Any]:
+    """Return a minimal rollout dict suitable for testing."""
+    rollout: dict[str, Any] = {
+        "id": str(uuid.uuid4()),
+        "project_id": str(uuid.uuid4()),
+        "lead_user_id": "00000000-0000-0000-0000-000000000001",
+        "status": "running",
+        "created_at": datetime.now(UTC).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    rollout.update(overrides)
+    return rollout
+
+
+# ---------------------------------------------------------------------------
+# Sync tests for _cmd_rollout_status
+# These call asyncio.run() internally — must NOT be async.
+# ---------------------------------------------------------------------------
+
+
+def test_cmd_rollout_status_prints_json(monkeypatch, capsys):
+    """_cmd_rollout_status prints valid JSON with expected fields on stdout."""
+    expected = _make_rollout()
+
+    async def _fake_fetch(rollout_id: str) -> dict[str, Any]:
+        return expected
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_rollout_status", _fake_fetch)
+
+    _cmd_rollout_status(expected["id"])
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+
+    data = json.loads(captured.out)
+    assert data["id"] == expected["id"]
+    assert data["status"] == "running"
+    assert data["project_id"] == expected["project_id"]
+    assert "lead_user_id" in data
+    assert "created_at" in data
+    assert "updated_at" in data
+
+
+def test_cmd_rollout_status_not_found_exits_nonzero(monkeypatch, capsys):
+    """_cmd_rollout_status exits 1 and writes error to stderr when rollout not found."""
+
+    async def _fake_fetch(rollout_id: str) -> dict[str, Any]:
+        raise NotFoundError("Rollout", rollout_id)
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_rollout_status", _fake_fetch)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_rollout_status("nonexistent-id")
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Error:" in captured.err
+    assert captured.out == ""
+
+
+def test_cmd_rollout_status_generic_error_exits_nonzero(monkeypatch, capsys):
+    """_cmd_rollout_status exits 1 and writes error to stderr for any exception."""
+
+    async def _fake_fetch(rollout_id: str) -> dict[str, Any]:
+        raise RuntimeError("network failure")
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_rollout_status", _fake_fetch)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_rollout_status("some-rollout-id")
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Error:" in captured.err
+    assert "network failure" in captured.err
+    assert captured.out == ""
+
+
+# ---------------------------------------------------------------------------
+# Sync tests for main() rollout-status dispatch
+# These call _cmd_rollout_status -> asyncio.run() — must NOT be async.
+# ---------------------------------------------------------------------------
+
+
+def test_main_rollout_status_dispatches(monkeypatch, capsys):
+    """main() with 'rollout-status <id>' subcommand outputs JSON to stdout."""
+    expected = _make_rollout(status="completed")
+    rollout_id = expected["id"]
+
+    async def _fake_fetch(rid: str) -> dict[str, Any]:
+        assert rid == rollout_id
+        return expected
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_rollout_status", _fake_fetch)
+    monkeypatch.setattr(sys, "argv", ["agent-gtd", "rollout-status", rollout_id])
+
+    main()
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["status"] == "completed"
+    assert data["id"] == rollout_id
+
+
+# ---------------------------------------------------------------------------
+# Async tests for _fetch_rollout_status
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_rollout_status_local_success(monkeypatch):
+    """_fetch_rollout_status returns a rollout dict from local DB in no-URL mode."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    rollout_id = str(uuid.uuid4())
+    project_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+
+    # Insert a minimal project for FK reference.
+    await db.execute(
+        "INSERT INTO projects (id, user_id, name, description, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6)",
+        project_id,
+        LOCAL_USER_ID,
+        "Test Project",
+        "",
+        now,
+        now,
+    )
+    # Insert a minimal rollout row.
+    await db.execute(
+        "INSERT INTO autonomous_rollouts"
+        " (id, project_id, lead_user_id, status, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6)",
+        rollout_id,
+        project_id,
+        LOCAL_USER_ID,
+        "running",
+        now,
+        now,
+    )
+
+    result = await _fetch_rollout_status(rollout_id)
+
+    assert result["status"] == "running"
+    assert result["id"] == rollout_id
+    assert result["project_id"] == project_id
+    assert result["lead_user_id"] == LOCAL_USER_ID
+
+
+async def test_fetch_rollout_status_http_missing_api_key(monkeypatch):
+    """Raises RuntimeError when AGENT_GTD_URL set but AGENT_GTD_API_KEY unset."""
+    from agent_gtd.mcp_backend import LocalBackend
+
+    monkeypatch.setenv("AGENT_GTD_URL", "http://example.com")
+    monkeypatch.delenv("AGENT_GTD_API_KEY", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    with pytest.raises(RuntimeError, match="AGENT_GTD_API_KEY"):
+        await _fetch_rollout_status("some-rollout-id")
+
+
+async def test_fetch_rollout_status_http_success(monkeypatch):
+    """_fetch_rollout_status returns rollout dict when HTTP backend authenticates."""
+    expected = _make_rollout(status="completed")
+
+    class _FakeBackend:
+        async def login(self, api_key: str, agent_name: str) -> dict[str, Any]:
+            assert api_key == "test-key"
+            return {"user_id": "fake-user", "agent_name": agent_name}
+
+        async def get_rollout(self, user_id: str, rollout_id: str) -> dict[str, Any]:
+            assert user_id == "fake-user"
+            return expected
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("AGENT_GTD_URL", "http://example.com")
+    monkeypatch.setenv("AGENT_GTD_API_KEY", "test-key")
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: _FakeBackend())
+
+    result = await _fetch_rollout_status(expected["id"])
+
+    assert result["id"] == expected["id"]
+    assert result["status"] == "completed"
 
 
 # ---------------------------------------------------------------------------

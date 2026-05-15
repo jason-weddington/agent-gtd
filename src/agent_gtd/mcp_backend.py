@@ -244,6 +244,8 @@ class McpBackend(Protocol):
 
     async def get_run(self, user_id: str, run_id: str) -> dict[str, Any]: ...
 
+    async def get_rollout(self, user_id: str, rollout_id: str) -> dict[str, Any]: ...
+
     async def list_runs(
         self,
         user_id: str,
@@ -930,6 +932,13 @@ class LocalBackend:
 
         db = await get_db()
         return await get_run(db, user_id, run_id)
+
+    async def get_rollout(self, user_id: str, rollout_id: str) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services.rollout_service import get_rollout
+
+        db = await get_db()
+        return await get_rollout(db, user_id, rollout_id)
 
     async def list_runs(
         self,
@@ -1757,6 +1766,14 @@ class HttpBackend:
 
     async def get_run(self, user_id: str, run_id: str) -> dict[str, Any]:
         resp = await self._client.get(f"/api/runs/{run_id}", headers=self._headers())
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def get_rollout(self, user_id: str, rollout_id: str) -> dict[str, Any]:
+        resp = await self._client.get(
+            f"/api/rollouts/{rollout_id}", headers=self._headers()
+        )
         self._check(resp)
         result: dict[str, Any] = resp.json()
         return result

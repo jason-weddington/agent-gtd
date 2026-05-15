@@ -63,6 +63,59 @@ def _cmd_run_status(run_id: str) -> None:
     print()  # trailing newline for shell friendliness
 
 
+async def _fetch_rollout_status(rollout_id: str) -> dict[str, Any]:
+    """Fetch a single rollout's status from the configured backend.
+
+    Auth follows the same mechanism as the MCP server:
+      - No AGENT_GTD_URL → LocalBackend (no auth needed, uses LOCAL_USER_ID)
+      - AGENT_GTD_URL set → HttpBackend (authenticates via AGENT_GTD_API_KEY)
+
+    Args:
+        rollout_id: ID of the autonomous rollout to look up.
+
+    Returns:
+        Dict with rollout fields: id, project_id, lead_user_id, status,
+        created_at, updated_at, and others.
+
+    Raises:
+        RuntimeError: If AGENT_GTD_API_KEY is required but not set.
+        NotFoundError: (LocalBackend) If rollout not found.
+        ToolError: (HttpBackend) If API returns non-2xx.
+    """
+    backend = create_backend()
+    try:
+        if not os.environ.get("AGENT_GTD_URL", ""):
+            # Local mode — no auth needed
+            from agent_gtd.database import LOCAL_USER_ID, init_db
+
+            await init_db()
+            user_id = LOCAL_USER_ID
+        else:
+            api_key = os.environ.get("AGENT_GTD_API_KEY", "")
+            if not api_key:
+                raise RuntimeError("AGENT_GTD_API_KEY environment variable is required")
+            session = await backend.login(api_key, "cli")
+            user_id = session["user_id"]
+        return await backend.get_rollout(user_id, rollout_id)
+    finally:
+        await backend.close()
+
+
+def _cmd_rollout_status(rollout_id: str) -> None:
+    """Execute the rollout-status subcommand.
+
+    Args:
+        rollout_id: ID of the autonomous rollout to print status for.
+    """
+    try:
+        rollout = asyncio.run(_fetch_rollout_status(rollout_id))
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    json.dump(rollout, sys.stdout, default=str)
+    print()  # trailing newline for shell friendliness
+
+
 async def _promote_admin(email: str) -> str:
     """Set ``is_admin = 1`` on the user with the given email.
 
@@ -119,6 +172,12 @@ def main() -> None:
     )
     rs.add_argument("run_id", help="Dispatch run ID.")
 
+    rls = subparsers.add_parser(
+        "rollout-status",
+        help="Print autonomous rollout status as JSON to stdout.",
+    )
+    rls.add_argument("rollout_id", help="Autonomous rollout ID.")
+
     pa = subparsers.add_parser(
         "promote-admin",
         help="Set is_admin=1 on the user with the given email (direct DB update).",
@@ -129,6 +188,8 @@ def main() -> None:
 
     if args.command == "run-status":
         _cmd_run_status(args.run_id)
+    elif args.command == "rollout-status":
+        _cmd_rollout_status(args.rollout_id)
     elif args.command == "promote-admin":
         _cmd_promote_admin(args.email)
     else:
