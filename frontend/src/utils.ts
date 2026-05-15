@@ -77,3 +77,24 @@ export function formatRelativeTime(dateStr: string): string {
 export function formatFileSize(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)} KB`
 }
+
+/**
+ * Returns a human-readable elapsed duration from a given ISO start timestamp
+ * to now.  Returns "—" when startedAt is null.
+ *
+ * Format:
+ *   - null → "—"
+ *   - < 60 min → "Xm"   (e.g. "14m")
+ *   - ≥ 60 min → "Xh Ym" (e.g. "1h 6m")
+ *
+ * AC-5, AC-6, AC-15, AC-16.
+ */
+export function formatElapsed(startedAt: string | null): string {
+  if (startedAt === null) return '—'
+  const diffMs = Date.now() - new Date(startedAt).getTime()
+  const totalMinutes = Math.floor(diffMs / (1000 * 60))
+  if (totalMinutes < 60) return `${totalMinutes}m`
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  return `${hours}h ${minutes}m`
+}

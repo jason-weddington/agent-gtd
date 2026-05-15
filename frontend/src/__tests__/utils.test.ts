@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { toSnakeCase, toCamelCase, convertKeys, isDispatchServiceConfigured, apiKeyFieldPlaceholder, formatRelativeTime, formatFileSize } from '../utils'
+import { toSnakeCase, toCamelCase, convertKeys, isDispatchServiceConfigured, apiKeyFieldPlaceholder, formatRelativeTime, formatFileSize, formatElapsed } from '../utils'
 
 describe('toSnakeCase', () => {
   it('converts camelCase to snake_case', () => {
@@ -157,5 +157,42 @@ describe('formatFileSize', () => {
 
   it('formats large files in KB', () => {
     expect(formatFileSize(10 * 1024)).toBe('10.0 KB')
+  })
+})
+
+describe('formatElapsed', () => {
+  const FIXED_NOW = new Date('2026-01-01T12:00:00.000Z').getTime()
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(FIXED_NOW)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('returns "—" for null startedAt (AC-16)', () => {
+    expect(formatElapsed(null)).toBe('—')
+  })
+
+  it('returns minutes format for durations under 1 hour (AC-6)', () => {
+    const start = new Date(FIXED_NOW - 14 * 60 * 1000).toISOString()
+    expect(formatElapsed(start)).toBe('14m')
+  })
+
+  it('returns hours+minutes format for durations of 1 hour or more (AC-6)', () => {
+    const start = new Date(FIXED_NOW - 66 * 60 * 1000).toISOString()
+    expect(formatElapsed(start)).toBe('1h 6m')
+  })
+
+  it('returns "1h 0m" at the exact 60-minute boundary (AC-6)', () => {
+    const start = new Date(FIXED_NOW - 60 * 60 * 1000).toISOString()
+    expect(formatElapsed(start)).toBe('1h 0m')
+  })
+
+  it('returns "59m" just below the 1-hour boundary', () => {
+    const start = new Date(FIXED_NOW - 59 * 60 * 1000).toISOString()
+    expect(formatElapsed(start)).toBe('59m')
   })
 })
