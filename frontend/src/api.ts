@@ -249,6 +249,8 @@ export const api = {
   },
 
   rollouts: {
+    /** GET /api/rollouts/{id} — fetch a single rollout by ID. */
+    get: (rolloutId: string) => request<Rollout>('GET', `/rollouts/${rolloutId}`),
     /** GET /api/projects/{projectId}/active-rollout — 404 if none active. */
     getActiveForProject: (projectId: string) =>
       request<Rollout>('GET', `/projects/${projectId}/active-rollout`),

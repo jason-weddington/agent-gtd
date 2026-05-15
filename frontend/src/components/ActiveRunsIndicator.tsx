@@ -15,9 +15,18 @@ import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
 import { api } from '../api'
 import { useEvents } from '../contexts/EventStreamContext'
 import { useItemDrawer } from '../contexts/ItemDrawerContext'
-import type { Run, Item, Project } from '../types'
+import type { Run, Item, Project, Rollout } from '../types'
 
 const POLL_INTERVAL_MS = 15000
+
+function getRunTitle(run: Run, item: Item | undefined, rollout: Rollout | undefined): string {
+  if (run.mode === 'manage') {
+    if (rollout?.managerCurrentStep) return rollout.managerCurrentStep
+    const shortId = run.rolloutId?.slice(0, 8) ?? '?'
+    return `Rollout manager (${shortId})`
+  }
+  return item?.title ?? run.featureBranch
+}
 
 function formatElapsed(startedAt: string | null, now: number): string {
   if (!startedAt) return '–'
@@ -46,9 +55,11 @@ export default function ActiveRunsIndicator() {
   const [now, setNow] = useState(() => Date.now())
   const [itemMap, setItemMap] = useState<Record<string, Item>>({})
   const [projectMap, setProjectMap] = useState<Record<string, Project>>({})
+  const [rolloutMap, setRolloutMap] = useState<Record<string, Rollout>>({})
   // Refs track which IDs we've already fetched so enrichment calls are idempotent
   const fetchedItemIds = useRef<Set<string>>(new Set())
   const fetchedProjectIds = useRef<Set<string>>(new Set())
+  const fetchedRolloutIds = useRef<Set<string>>(new Set())
   const { onEvent } = useEvents()
   const { openItemDrawer } = useItemDrawer()
 
@@ -80,6 +91,14 @@ export default function ActiveRunsIndicator() {
                   ...prev,
                   [run.projectId]: project,
                 })),
+              )
+          }
+          if (run.mode === 'manage' && run.rolloutId && !fetchedRolloutIds.current.has(run.rolloutId)) {
+            fetchedRolloutIds.current.add(run.rolloutId)
+            void api.rollouts
+              .get(run.rolloutId)
+              .then((rollout) =>
+                setRolloutMap((prev) => ({ ...prev, [run.rolloutId!]: rollout })),
               )
           }
         }
@@ -172,10 +191,33 @@ export default function ActiveRunsIndicator() {
               No active runs
             </Typography>
           </MenuItem>
-        ) : (
-          runs.map((run) => {
+        ) : (() => {
+          // Build display groups: each manage run followed by its children,
+          // then standalone (non-rollout) runs at the end.
+          const manageRuns = runs.filter((r) => r.mode === 'manage')
+          const standaloneRuns = runs.filter((r) => r.mode !== 'manage' && !r.rolloutId)
+          const childRunsByRollout: Record<string, Run[]> = {}
+          for (const run of runs) {
+            if (run.mode !== 'manage' && run.rolloutId) {
+              childRunsByRollout[run.rolloutId] ??= []
+              childRunsByRollout[run.rolloutId].push(run)
+            }
+          }
+          const displayGroups: Array<{ run: Run; isChild: boolean }> = []
+          for (const mgr of manageRuns) {
+            displayGroups.push({ run: mgr, isChild: false })
+            for (const child of (mgr.rolloutId ? (childRunsByRollout[mgr.rolloutId] ?? []) : [])) {
+              displayGroups.push({ run: child, isChild: true })
+            }
+          }
+          for (const run of standaloneRuns) {
+            displayGroups.push({ run, isChild: false })
+          }
+
+          return displayGroups.map(({ run, isChild }) => {
             const item = run.itemId ? itemMap[run.itemId] : undefined
             const project = projectMap[run.projectId]
+            const rollout = run.rolloutId ? rolloutMap[run.rolloutId] : undefined
             const isQueued = run.status === 'pending'
             return (
               <MenuItem
@@ -194,6 +236,7 @@ export default function ActiveRunsIndicator() {
                     py: 0.5,
                     width: '100%',
                     overflow: 'hidden',
+                    ...(isChild ? { pl: 2 } : {}),
                   }}
                 >
                   <Tooltip
@@ -228,13 +271,14 @@ export default function ActiveRunsIndicator() {
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                       <Chip
-                        label={run.mode === 'plan' ? 'Plan' : 'Build'}
+                        label={run.mode === 'manage' ? 'Manage' : run.mode === 'plan' ? 'Plan' : 'Build'}
                         size="small"
                         variant="outlined"
+                        color={run.mode === 'manage' ? 'warning' : 'default'}
                         sx={{ flexShrink: 0 }}
                       />
                       <Typography variant="body2" fontWeight={500} noWrap sx={{ flex: 1 }}>
-                        {item?.title ?? run.featureBranch}
+                        {getRunTitle(run, item, rollout)}
                       </Typography>
                       {isQueued && (
                         <Chip
@@ -258,7 +302,7 @@ export default function ActiveRunsIndicator() {
               </MenuItem>
             )
           })
-        )}
+        })()}
       </Menu>
     </>
   )

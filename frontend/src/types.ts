@@ -169,6 +169,7 @@ export interface Run {
   createdAt: string
   updatedAt: string
   dispatchedByEmail?: string
+  rolloutId: string | null
 }
 
 // --- Wave Manager ---
