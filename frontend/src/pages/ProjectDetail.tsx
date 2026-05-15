@@ -807,7 +807,10 @@ export default function ProjectDetail() {
           Edit
         </Button>
       </Box>
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 2, ml: 5 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, ml: 5 }}>
+        <Typography variant="caption" color="text.disabled" sx={{ mr: 0.5 }}>
+          #{project.id.slice(0, 8)}
+        </Typography>
         <Tooltip title={copied ? 'Copied!' : 'Copy project ID'} placement="right">
           <IconButton
             size="small"
