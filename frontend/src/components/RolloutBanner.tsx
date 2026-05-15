@@ -78,6 +78,21 @@ export function getProgressFraction(doneCount: number, totalCount: number): numb
 }
 
 /**
+ * Return true if the incoming SSE wave_event should be prepended to the
+ * events feed for the current rollout.
+ *
+ * Guards against cross-rollout contamination: when a new rollout starts, SSE
+ * fires for the new rollout_id before loadRollout() has updated state.  Only
+ * events whose rollout_id matches the currently active rollout are shown (AC-2).
+ */
+export function shouldPrepondRolloutEvent(
+  eventRolloutId: string,
+  currentRolloutId: string | null | undefined,
+): boolean {
+  return Boolean(currentRolloutId) && eventRolloutId === currentRolloutId
+}
+
+/**
  * Return true if the manager state is stale (updatedAt is more than
  * thresholdMs milliseconds ago, or null).
  *
@@ -127,6 +142,9 @@ export default function RolloutBanner({ projectId, onActiveChange }: RolloutBann
   const [activeTab, setActiveTab] = useState(0)
   /** Whether the Events/Activity section is visible (AC-13: default collapsed). */
   const [showDetails, setShowDetails] = useState(false)
+  // Incremented on each SSE event for the current rollout; passed to
+  // RolloutActivityTab so it re-fetches without needing its own SSE sub (AC-4).
+  const [activityRefreshKey, setActivityRefreshKey] = useState(0)
 
   const { onEvent } = useEvents()
   const rolloutRef = useRef<Rollout | null>(null)
@@ -170,18 +188,25 @@ export default function RolloutBanner({ projectId, onActiveChange }: RolloutBann
   }, [])
 
   // ---------------------------------------------------------------------------
-  // Initial load
+  // Initial load — fetch the active rollout (events are handled by the
+  // rollout-id effect below, not here, to avoid double-fetching on id change).
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    let cancelled = false
-    loadRollout().then((w) => {
-      if (!cancelled && w) {
-        loadEvents(w.id).catch(() => {/* non-critical */})
-      }
-    }).catch(() => {/* handled in loadRollout */})
-    return () => { cancelled = true }
-  }, [loadRollout, loadEvents])
+    loadRollout().catch(() => {/* handled in loadRollout */})
+  }, [loadRollout])
+
+  // ---------------------------------------------------------------------------
+  // Reload events whenever the active rollout changes (AC-3).
+  // Clears stale events from the previous rollout and fetches the new ones.
+  // ---------------------------------------------------------------------------
+
+  const currentRolloutId = rollout?.id ?? null
+  useEffect(() => {
+    setEvents([])
+    if (!currentRolloutId) return
+    loadEvents(currentRolloutId).catch(() => {/* non-critical */})
+  }, [currentRolloutId, loadEvents])
 
   // ---------------------------------------------------------------------------
   // Notify parent of active status changes (AC-19, AC-20)
@@ -213,9 +238,18 @@ export default function RolloutBanner({ projectId, onActiveChange }: RolloutBann
         decisionRule: String(rawPayload.decision_rule ?? ''),
         payload: (rawPayload.payload as Record<string, unknown>) ?? {},
       }
-      setEvents((prev) => [waveEventData, ...prev])
 
-      // AC-2: re-fetch rollout state so banner + progress update
+      // AC-2: only prepend events that belong to the currently active rollout.
+      // Events for a different rollout_id (e.g. a newly started rollout whose
+      // ID hasn't landed in state yet) must not pollute the current feed.
+      if (shouldPrepondRolloutEvent(waveEventData.rolloutId, rolloutRef.current?.id)) {
+        setEvents((prev) => [waveEventData, ...prev])
+        // Signal RolloutActivityTab to re-fetch (AC-4)
+        setActivityRefreshKey((k) => k + 1)
+      }
+
+      // Always re-fetch rollout state so banner + progress update, and so
+      // cross-rollout transitions (new rollout started) are picked up.
       loadRollout().catch(() => {/* handled */})
     })
     return unsub
@@ -305,7 +339,7 @@ export default function RolloutBanner({ projectId, onActiveChange }: RolloutBann
 
           {/* Activity tab */}
           {activeTab === 1 && (
-            <RolloutActivityTab rolloutId={rollout.id} />
+            <RolloutActivityTab rolloutId={rollout.id} refreshKey={activityRefreshKey} />
           )}
         </>
       )}

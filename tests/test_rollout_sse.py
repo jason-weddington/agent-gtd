@@ -149,8 +149,11 @@ async def _make_wave_item(
 
 
 async def test_complete_item_in_rollout_publishes_sse(_setup_db):
-    """After complete_item_in_rollout(), publish is called
-    with event_type='rollout_event'."""
+    """After complete_item_in_rollout(), item_outcome SSE is published.
+
+    With a single-item rollout, graph_complete=True, so wave_completed is also
+    emitted (2 SSE publishes total).  The first call is item_outcome.
+    """
     from agent_gtd.services.rollout_service import complete_item_in_rollout
 
     db = await get_db()
@@ -166,14 +169,21 @@ async def test_complete_item_in_rollout_publishes_sse(_setup_db):
 
     with patch("agent_gtd.event_bus.get_event_bus", return_value=mock_bus):
         await complete_item_in_rollout(db, user_id, rollout_id, item_id, "completed")
-        await asyncio.sleep(0)  # let the create_task coroutine execute
+        await asyncio.sleep(0)  # let the create_task coroutines execute
 
-    mock_bus.publish.assert_called_once()
-    call_kwargs = mock_bus.publish.call_args.kwargs
-    assert call_kwargs["event_type"] == "rollout_event"
-    assert call_kwargs["entity_type"] == "rollout"
-    assert call_kwargs["project_id"] == project_id
-    assert call_kwargs["entity_id"] == rollout_id
+    # Single item → graph_complete=True → item_outcome + wave_completed
+    assert mock_bus.publish.call_count == 2
+    all_calls = mock_bus.publish.call_args_list
+    kinds = [c.kwargs["payload"]["kind"] for c in all_calls]
+    assert "item_outcome" in kinds
+    assert "wave_completed" in kinds
+
+    # Both calls must be correctly typed rollout_event publishes
+    for call in all_calls:
+        assert call.kwargs["event_type"] == "rollout_event"
+        assert call.kwargs["entity_type"] == "rollout"
+        assert call.kwargs["project_id"] == project_id
+        assert call.kwargs["entity_id"] == rollout_id
 
 
 async def test_halt_rollout_publishes_sse(_setup_db):
@@ -201,6 +211,115 @@ async def test_halt_rollout_publishes_sse(_setup_db):
     assert call_kwargs["project_id"] == project_id
     payload = call_kwargs["payload"]
     assert payload["kind"] == "wave_halted"
+
+
+async def test_wave_completed_event_emitted_on_graph_complete(_setup_db):
+    """When the last item is completed, wave_completed is emitted (AC-5)."""
+    from agent_gtd.services.rollout_service import complete_item_in_rollout
+
+    db = await get_db()
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id)
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_plan(db, rollout_id, [item_id], [])
+    await _make_wave_item(db, rollout_id, item_id, status="dispatched")
+
+    mock_bus = AsyncMock()
+    mock_bus.publish = AsyncMock(return_value="event-id")
+
+    with patch("agent_gtd.event_bus.get_event_bus", return_value=mock_bus):
+        result = await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, "completed"
+        )
+        await asyncio.sleep(0)
+
+    assert result["graph_complete"] is True
+
+    # Two SSE publishes: item_outcome + wave_completed
+    assert mock_bus.publish.call_count == 2
+    all_calls = mock_bus.publish.call_args_list
+    wave_completed_calls = [
+        c for c in all_calls if c.kwargs["payload"]["kind"] == "wave_completed"
+    ]
+    assert len(wave_completed_calls) == 1
+
+    wc_payload = wave_completed_calls[0].kwargs["payload"]["payload"]
+    assert wc_payload["total_items"] == 1  # one item in this rollout
+
+    # Verify the event was persisted in rollout_events
+    rows = await db.fetch(
+        "SELECT kind FROM rollout_events WHERE rollout_id = $1 ORDER BY seq",
+        rollout_id,
+    )
+    kinds = [r["kind"] for r in rows]
+    assert "wave_completed" in kinds
+
+
+async def test_wave_completed_not_emitted_for_partial_completion(_setup_db):
+    """wave_completed is NOT emitted when there are still pending items (AC-5)."""
+    from agent_gtd.services.rollout_service import complete_item_in_rollout
+
+    db = await get_db()
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_a = await _make_item(db, user_id, project_id)
+    item_b = await _make_item(db, user_id, project_id)
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="running")
+    await _make_wave_plan(db, rollout_id, [item_a, item_b], [])
+    await _make_wave_item(db, rollout_id, item_a, status="dispatched")
+    await _make_wave_item(db, rollout_id, item_b, status="pending")
+
+    mock_bus = AsyncMock()
+    mock_bus.publish = AsyncMock(return_value="event-id")
+
+    with patch("agent_gtd.event_bus.get_event_bus", return_value=mock_bus):
+        result = await complete_item_in_rollout(
+            db, user_id, rollout_id, item_a, "completed"
+        )
+        await asyncio.sleep(0)
+
+    assert result["graph_complete"] is False
+
+    # Only item_outcome SSE — no wave_completed
+    assert mock_bus.publish.call_count == 1
+    call_kwargs = mock_bus.publish.call_args.kwargs
+    assert call_kwargs["payload"]["kind"] == "item_outcome"
+
+    rows = await db.fetch(
+        "SELECT kind FROM rollout_events WHERE rollout_id = $1 ORDER BY seq",
+        rollout_id,
+    )
+    kinds = [r["kind"] for r in rows]
+    assert "wave_completed" not in kinds
+
+
+async def test_update_rollout_state_publishes_sse(_setup_db):
+    """update_rollout_state() publishes manager_state_update via SSE (AC-6)."""
+    from agent_gtd.services.rollout_service import update_rollout_state
+
+    db = await get_db()
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_wave_run(db, user_id, project_id, status="running")
+
+    mock_bus = AsyncMock()
+    mock_bus.publish = AsyncMock(return_value="event-id")
+
+    with patch("agent_gtd.event_bus.get_event_bus", return_value=mock_bus):
+        await update_rollout_state(
+            db, user_id, rollout_id, phase="dispatching", current_item_id=None
+        )
+        await asyncio.sleep(0)
+
+    mock_bus.publish.assert_called_once()
+    call_kwargs = mock_bus.publish.call_args.kwargs
+    assert call_kwargs["event_type"] == "rollout_event"
+    assert call_kwargs["entity_type"] == "rollout"
+    assert call_kwargs["project_id"] == project_id
+    assert call_kwargs["entity_id"] == rollout_id
+    assert call_kwargs["payload"]["kind"] == "manager_state_update"
+    assert call_kwargs["payload"]["payload"]["phase"] == "dispatching"
 
 
 async def test_replan_rollout_publishes_sse(_setup_db):
@@ -303,8 +422,8 @@ async def test_rollout_event_fan_out_to_members(_setup_db):
 
 
 async def test_rollout_event_persisted_in_events_table(_setup_db):
-    """After complete_item_in_rollout(), one rollout_event row
-    exists in the events table."""
+    """After complete_item_in_rollout() on the last item, two rollout_event rows
+    exist in the events table: item_outcome and wave_completed (AC-5)."""
     from agent_gtd.services.rollout_service import complete_item_in_rollout
 
     db = await get_db()
@@ -320,12 +439,16 @@ async def test_rollout_event_persisted_in_events_table(_setup_db):
     await asyncio.sleep(0)  # let the task execute and persist
 
     rows = await db.fetch("SELECT * FROM events WHERE event_type = 'rollout_event'")
-    assert len(rows) == 1
-    assert rows[0]["entity_type"] == "rollout"
-    assert rows[0]["entity_id"] == rollout_id
-    assert rows[0]["project_id"] == project_id
-    payload = json.loads(rows[0]["payload"])
-    assert payload["kind"] == "item_outcome"
+    # Single-item rollout → graph_complete=True → item_outcome + wave_completed
+    assert len(rows) == 2
+    kinds = {json.loads(r["payload"])["kind"] for r in rows}
+    assert "item_outcome" in kinds
+    assert "wave_completed" in kinds
+    # All rows belong to the correct rollout/project
+    for row in rows:
+        assert row["entity_type"] == "rollout"
+        assert row["entity_id"] == rollout_id
+        assert row["project_id"] == project_id
 
 
 # ---------------------------------------------------------------------------

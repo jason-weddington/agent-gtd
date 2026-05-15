@@ -27,8 +27,12 @@ import type { ActivityEvent } from '../types'
 type PillColor = 'primary' | 'secondary' | 'warning' | 'success' | 'default'
 
 function actorColor(actor: string): PillColor {
-  if (actor === 'manager' || actor.startsWith('claude-manage-')) return 'primary'
-  if (actor === 'child-agent' || actor.startsWith('claude-build-')) return 'secondary'
+  // actor values on rollout_events are the RolloutEventActor enum:
+  // manager | child-agent | human.  The 'claude-manage-' / 'claude-build-'
+  // prefix checks were dead code (those are created_by strings, not actors)
+  // and have been removed (AC-7).
+  if (actor === 'manager') return 'primary'
+  if (actor === 'child-agent') return 'secondary'
   if (actor.startsWith('system-')) return 'warning'
   if (actor === 'human') return 'success'
   return 'default'
@@ -65,6 +69,8 @@ function describeEvent(event: ActivityEvent): string {
       const newV = payload.new_version
       return `Replanned: v${String(oldV ?? '')} → v${String(newV ?? '')}`
     }
+    case 'wave_completed':
+      return `Wave completed (${String(payload.total_items ?? '')} items)`
     case 'comment_posted':
       return `Comment posted (${String(payload.comment_type ?? '')})`
     default:
@@ -154,9 +160,11 @@ function EventRow({ event }: EventRowProps) {
 
 interface RolloutActivityTabProps {
   rolloutId: string
+  /** Increment to trigger a re-fetch without changing rolloutId (AC-4). */
+  refreshKey?: number
 }
 
-export default function RolloutActivityTab({ rolloutId }: RolloutActivityTabProps) {
+export default function RolloutActivityTab({ rolloutId, refreshKey }: RolloutActivityTabProps) {
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [hasMore, setHasMore] = useState(false)
@@ -180,7 +188,7 @@ export default function RolloutActivityTab({ rolloutId }: RolloutActivityTabProp
 
   useEffect(() => {
     loadActivity().catch(() => {/* handled */})
-  }, [loadActivity])
+  }, [loadActivity, refreshKey])
 
   const loadMore = useCallback(async () => {
     if (events.length === 0) return

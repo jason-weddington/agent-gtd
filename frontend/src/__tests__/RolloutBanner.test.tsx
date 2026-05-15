@@ -5,7 +5,7 @@
  * AC-9, AC-10 (isStateStale helper).
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { getStatusColor, getTitleText, getProgressFraction, isStateStale } from '../components/RolloutBanner'
+import { getStatusColor, getTitleText, getProgressFraction, isStateStale, shouldPrepondRolloutEvent } from '../components/RolloutBanner'
 import type { RolloutStatus } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -139,5 +139,42 @@ describe('isStateStale', () => {
     // 30 seconds ago with a 1-minute custom threshold → fresh
     const thirtySecondsAgo = new Date(now.getTime() - 30_000).toISOString()
     expect(isStateStale(thirtySecondsAgo, 60_000)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// shouldPrepondRolloutEvent (AC-2)
+// ---------------------------------------------------------------------------
+
+describe('shouldPrepondRolloutEvent', () => {
+  it('returns true when event rolloutId matches current rolloutId', () => {
+    expect(shouldPrepondRolloutEvent('rollout-123', 'rollout-123')).toBe(true)
+  })
+
+  it('returns false when event rolloutId differs from current rolloutId', () => {
+    expect(shouldPrepondRolloutEvent('rollout-new', 'rollout-old')).toBe(false)
+  })
+
+  it('returns false when currentRolloutId is null (no active rollout)', () => {
+    expect(shouldPrepondRolloutEvent('rollout-123', null)).toBe(false)
+  })
+
+  it('returns false when currentRolloutId is undefined', () => {
+    expect(shouldPrepondRolloutEvent('rollout-123', undefined)).toBe(false)
+  })
+
+  it('returns false when currentRolloutId is empty string', () => {
+    expect(shouldPrepondRolloutEvent('rollout-123', '')).toBe(false)
+  })
+
+  it('returns false when both IDs are empty string', () => {
+    // Empty eventRolloutId should not match even against itself when current is empty
+    expect(shouldPrepondRolloutEvent('', '')).toBe(false)
+  })
+
+  it('handles UUID-format IDs', () => {
+    const id = 'c3d0d4cc-abec-4a84-915d-49c4273adf4d'
+    expect(shouldPrepondRolloutEvent(id, id)).toBe(true)
+    expect(shouldPrepondRolloutEvent(id, 'other-uuid')).toBe(false)
   })
 })

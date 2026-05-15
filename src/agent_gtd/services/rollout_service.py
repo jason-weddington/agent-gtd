@@ -859,6 +859,17 @@ async def complete_item_in_rollout(
     )
     _publish_rollout_event(db, user_id, wave_event, project_id)
 
+    # If all items are done, emit wave_completed lifecycle event (AC-5)
+    if graph_complete:
+        wave_completed_event = await _append_rollout_event(
+            db,
+            rollout_id,
+            kind="wave_completed",
+            actor="manager",
+            payload={"total_items": len(item_statuses)},
+        )
+        _publish_rollout_event(db, user_id, wave_completed_event, project_id)
+
     return {
         "rollout_item": row_to_dict(updated_row),
         "newly_ready": newly_ready,
@@ -1611,7 +1622,7 @@ async def update_rollout_state(
         rollout_id,
     )
 
-    await _append_rollout_event(
+    rollout_event = await _append_rollout_event(
         db,
         rollout_id,
         kind="manager_state_update",
@@ -1622,6 +1633,9 @@ async def update_rollout_state(
             "current_step": current_step,
         },
     )
+    # AC-6: publish manager_state_update to SSE subscribers so the banner
+    # refreshes in real-time without waiting for the next unrelated event.
+    _publish_rollout_event(db, user_id, rollout_event, str(wave["project_id"]))
 
     return {
         "rollout_id": rollout_id,
