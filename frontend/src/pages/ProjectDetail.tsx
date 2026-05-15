@@ -26,12 +26,6 @@ import {
   MenuItem,
   Select,
   Tab,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Tabs,
   TextField,
   ToggleButton,
@@ -51,8 +45,9 @@ import SearchIcon from '@mui/icons-material/Search'
 import ClearIcon from '@mui/icons-material/Clear'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
+import HistoryToggleOffIcon from '@mui/icons-material/HistoryToggleOff'
 import { api, ApiError } from '../api'
-import type { Project, Item, Note, Comment, Run, RunStatus, ItemStatus, Priority, ProjectStatus, DispatchAgentInfo } from '../types'
+import type { Project, Item, Note, Comment, ItemStatus, Priority, ProjectStatus, DispatchAgentInfo } from '../types'
 import { useDraftState } from '../hooks/useDraftState'
 import { PRIORITY_BORDER } from '../priorityColors'
 import { useEvents } from '../contexts/EventStreamContext'
@@ -64,6 +59,7 @@ import ShareTab from '../components/ShareTab'
 import MarkdownContent from '../components/MarkdownContent'
 import ProjectEditDialog from '../components/ProjectEditDialog'
 import RolloutBanner from '../components/RolloutBanner'
+import ActivityDrawer from '../components/ActivityDrawer'
 
 // Local extension of Item for optimistic UI — never exported or added to types.ts
 type DisplayItem = Item & { _optimistic?: true }
@@ -103,14 +99,17 @@ export default function ProjectDetail() {
   const [items, setItems] = useState<DisplayItem[]>([])
   const [notes, setNotes] = useState<Note[]>([])
   const [comments, setComments] = useState<Comment[]>([])
-  const [runs, setRuns] = useState<Run[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState(() => {
     // Support ?tab=share deep link
     const params = new URLSearchParams(window.location.search)
-    return params.get('tab') === 'share' ? 5 : 0
+    return params.get('tab') === 'share' ? 4 : 0
   })
+
+  // Activity drawer state
+  const [activityDrawerOpen, setActivityDrawerOpen] = useState(false)
+  const [activeRolloutId, setActiveRolloutId] = useState<string | null>(null)
 
   // Copy project ID
   const [copied, setCopied] = useState(false)
@@ -256,20 +255,18 @@ export default function ProjectDetail() {
   const loadData = useCallback(async () => {
     if (!projectId) return
     try {
-      const [proj, projItems, projNotes, projComments, activeProjects, projRuns] = await Promise.all([
+      const [proj, projItems, projNotes, projComments, activeProjects] = await Promise.all([
         api.projects.get(projectId),
         api.projects.items(projectId),
         api.projects.notes(projectId),
         api.projects.comments(projectId),
         api.projects.list({ status: 'active' }),
-        api.runs.list({ projectId }),
       ])
       setProject(proj)
       setItems(projItems)
       setNotes(projNotes)
       setComments(projComments)
       setAllProjects(activeProjects)
-      setRuns(projRuns)
       setError(null)
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
@@ -743,29 +740,6 @@ export default function ProjectDetail() {
     }
   }
 
-  // --- Activity tab helpers ---
-  const RUN_STATUS_COLORS: Record<RunStatus, 'default' | 'info' | 'primary' | 'success' | 'error' | 'warning'> = {
-    pending: 'default',
-    cloning: 'info',
-    running: 'primary',
-    success: 'success',
-    failed: 'error',
-    timeout: 'warning',
-    cancelled: 'default',
-  }
-
-  const formatDuration = (startedAt: string | null, finishedAt: string | null): string => {
-    if (!startedAt) return '—'
-    const start = new Date(startedAt).getTime()
-    const end = finishedAt ? new Date(finishedAt).getTime() : Date.now()
-    const seconds = Math.floor((end - start) / 1000)
-    if (seconds < 60) return `${seconds}s`
-    const minutes = Math.floor(seconds / 60)
-    if (minutes < 60) return `${minutes}m ${seconds % 60}s`
-    const hours = Math.floor(minutes / 60)
-    return `${hours}h ${minutes % 60}m`
-  }
-
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
@@ -806,6 +780,15 @@ export default function ProjectDetail() {
         <Button size="small" startIcon={<EditIcon />} onClick={() => setEditDialogOpen(true)}>
           Edit
         </Button>
+        <Tooltip title="Activity">
+          <IconButton
+            size="small"
+            onClick={() => setActivityDrawerOpen(true)}
+            aria-label="Open activity drawer"
+          >
+            <HistoryToggleOffIcon />
+          </IconButton>
+        </Tooltip>
       </Box>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, ml: 5 }}>
         <Typography variant="caption" color="text.disabled" sx={{ mr: 0.5 }}>
@@ -837,6 +820,7 @@ export default function ProjectDetail() {
         <RolloutBanner
           projectId={projectId}
           onActiveChange={setHasActiveWave}
+          onRolloutIdChange={setActiveRolloutId}
         />
       )}
 
@@ -852,7 +836,6 @@ export default function ProjectDetail() {
         <Tab label={`Items (${visibleItems.length})`} />
         <Tab label={`Notes (${notes.length})`} />
         <Tab label={`Comments (${comments.length})`} />
-        <Tab label={`Activity (${runs.length})`} />
         <Tab label="Dispatch" />
         <Tab label="Share" />
       </Tabs>
@@ -1215,7 +1198,7 @@ export default function ProjectDetail() {
       )}
 
       {/* Share Tab */}
-      {tab === 5 && (
+      {tab === 4 && (
         <ShareTab
           projectId={project.id}
           isOwner={project.isOwner !== false}
@@ -1223,131 +1206,8 @@ export default function ProjectDetail() {
         />
       )}
 
-      {/* Activity Tab */}
-      {tab === 3 && (
-        <Box>
-          {runs.length === 0 ? (
-            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-              No agent runs in this project yet.
-            </Typography>
-          ) : (
-            <TableContainer sx={{ overflowX: 'auto' }}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Item</TableCell>
-                    <TableCell>Status</TableCell>
-                    {((project.memberCount ?? 0) > 0 || project.isOwner === false) && (
-                      <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>By</TableCell>
-                    )}
-                    <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Branch</TableCell>
-                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Started</TableCell>
-                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Finished</TableCell>
-                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Duration</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {runs.map((run) => {
-                    const item = run.itemId ? items.find((i) => i.id === run.itemId) : undefined
-                    const itemTitle = item?.title ?? (run.itemId ? `Item ${run.itemId.slice(0, 8)}` : 'Manage run')
-                    const isFailed = run.status === 'failed' || run.status === 'timeout'
-                    return (
-                      <TableRow
-                        key={run.id}
-                        onClick={() => {
-                          if (item) setDrawerItem(item)
-                        }}
-                        sx={{
-                          cursor: item ? 'pointer' : 'default',
-                          '&:hover': item ? { bgcolor: 'action.hover' } : {},
-                          bgcolor: isFailed
-                            ? (theme) =>
-                                theme.palette.mode === 'dark'
-                                  ? 'rgba(211,47,47,0.15)'
-                                  : 'rgba(211,47,47,0.07)'
-                            : undefined,
-                        }}
-                      >
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Chip
-                              label={run.mode === 'plan' ? 'Plan' : 'Build'}
-                              size="small"
-                              variant="outlined"
-                            />
-                            <Typography variant="body2">{itemTitle}</Typography>
-                          </Box>
-                          {run.errorMsg && (
-                            <Tooltip title={run.errorMsg} placement="bottom-start">
-                              <Typography
-                                variant="caption"
-                                color="error"
-                                sx={{
-                                  display: 'block',
-                                  maxWidth: 260,
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                {run.errorMsg}
-                              </Typography>
-                            </Tooltip>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Chip
-                            label={run.status}
-                            size="small"
-                            color={RUN_STATUS_COLORS[run.status]}
-                          />
-                        </TableCell>
-                        {((project.memberCount ?? 0) > 0 || project.isOwner === false) && (
-                          <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
-                            <Typography variant="caption" color="text.secondary">
-                              {run.dispatchedByEmail ?? '—'}
-                            </Typography>
-                          </TableCell>
-                        )}
-                        <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
-                          <Typography
-                            variant="caption"
-                            sx={{ fontFamily: 'monospace', fontSize: '0.72rem' }}
-                          >
-                            {run.featureBranch || '—'}
-                          </Typography>
-                        </TableCell>
-                        <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-                          <Typography variant="caption">
-                            {run.startedAt
-                              ? new Date(run.startedAt).toLocaleString()
-                              : '—'}
-                          </Typography>
-                        </TableCell>
-                        <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-                          <Typography variant="caption">
-                            {run.finishedAt
-                              ? new Date(run.finishedAt).toLocaleString()
-                              : '—'}
-                          </Typography>
-                        </TableCell>
-                        <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-                          <Typography variant="caption">
-                            {formatDuration(run.startedAt, run.finishedAt)}
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
-        </Box>
-      )}
-
       {/* Dispatch Tab */}
-      {tab === 4 && (
+      {tab === 3 && (
         <Box sx={{ maxWidth: 560 }}>
           {/* AC-19: guard when wave is active */}
           {hasActiveWave && (
@@ -1850,6 +1710,14 @@ export default function ProjectDetail() {
         projectGitOrigin={project.gitOrigin}
         projectIsOwner={project.isOwner !== false}
         showAttribution={(project.memberCount ?? 0) > 0 || project.isOwner === false}
+      />
+
+      {/* Activity Drawer */}
+      <ActivityDrawer
+        open={activityDrawerOpen}
+        onClose={() => setActivityDrawerOpen(false)}
+        projectId={project.id}
+        activeRolloutId={activeRolloutId}
       />
     </Box>
   )

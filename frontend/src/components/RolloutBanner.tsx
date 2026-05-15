@@ -1,8 +1,8 @@
 /**
  * RolloutBanner — persistent banner above the project board when a rollout is active.
  *
- * Owns rollout state fetch and SSE subscription. Renders RolloutEventFeed and
- * RolloutHaltCard as children when appropriate.
+ * Owns rollout state fetch and SSE subscription. Renders RolloutHaltCard
+ * when the rollout is halted and the details section is expanded.
  *
  * AC-1 through AC-18.
  */
@@ -10,15 +10,11 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Alert,
   Box,
-  Tab,
-  Tabs,
 } from '@mui/material'
 import { api, ApiError } from '../api'
 import type { Rollout, RolloutEvent, RolloutStatus } from '../types'
 import { useEvents } from '../contexts/EventStreamContext'
 import type { ServerEvent } from '../hooks/useEventStream'
-import RolloutEventFeed from './RolloutEventFeed'
-import RolloutActivityTab from './RolloutActivityTab'
 import RolloutHaltCard from './RolloutHaltCard'
 import RolloutStrip from './RolloutStrip'
 
@@ -115,6 +111,8 @@ interface RolloutBannerProps {
   /** Callback fired whenever the rollout active status changes, so the parent can
    *  disable Dispatch tab controls (AC-19, AC-20). */
   onActiveChange?: (hasActiveWave: boolean) => void
+  /** Callback fired whenever the active rollout ID changes (null = no active rollout). */
+  onRolloutIdChange?: (rolloutId: string | null) => void
 }
 
 /** Statuses that block Dispatch tab editing. */
@@ -134,31 +132,29 @@ const STRIP_STATUSES: ReadonlySet<RolloutStatus> = new Set([
   'failed',
 ])
 
-export default function RolloutBanner({ projectId, onActiveChange }: RolloutBannerProps) {
+export default function RolloutBanner({ projectId, onActiveChange, onRolloutIdChange }: RolloutBannerProps) {
   const [rollout, setRollout] = useState<Rollout | null>(null)
   const [events, setEvents] = useState<RolloutEvent[]>([])
-  const [eventsLoading, setEventsLoading] = useState(false)
   const [bannerError, setBannerError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState(0)
-  /** Whether the Events/Activity section is visible (AC-13: default collapsed). */
+  const [loading, setLoading] = useState(false)
+  /** Whether the halt card section is visible (default collapsed). */
   const [showDetails, setShowDetails] = useState(false)
-  // Incremented on each SSE event for the current rollout; passed to
-  // RolloutActivityTab so it re-fetches without needing its own SSE sub (AC-4).
-  const [activityRefreshKey, setActivityRefreshKey] = useState(0)
 
   const { onEvent } = useEvents()
   const rolloutRef = useRef<Rollout | null>(null)
-  rolloutRef.current = rollout
+  // Keep ref in sync after every render so SSE closures always see the latest rollout.
+  useEffect(() => { rolloutRef.current = rollout })
 
   // ---------------------------------------------------------------------------
   // Load active rollout for this project
   // ---------------------------------------------------------------------------
 
   const loadRollout = useCallback(async () => {
+    setLoading(true)
+    setBannerError(null)
     try {
       const w = await api.rollouts.getActiveForProject(projectId)
       setRollout(w)
-      setBannerError(null)
       return w
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
@@ -168,6 +164,8 @@ export default function RolloutBanner({ projectId, onActiveChange }: RolloutBann
       }
       setBannerError(err instanceof ApiError ? err.detail : 'Failed to load rollout status')
       return null
+    } finally {
+      setLoading(false)
     }
   }, [projectId])
 
@@ -176,14 +174,15 @@ export default function RolloutBanner({ projectId, onActiveChange }: RolloutBann
   // ---------------------------------------------------------------------------
 
   const loadEvents = useCallback(async (rolloutId: string) => {
-    setEventsLoading(true)
+    setLoading(true)
+    setEvents([])
     try {
       const res = await api.rollouts.events(rolloutId, 50)
       setEvents(res.events)
     } catch {
       setEvents([])
     } finally {
-      setEventsLoading(false)
+      setLoading(false)
     }
   }, [])
 
@@ -203,8 +202,8 @@ export default function RolloutBanner({ projectId, onActiveChange }: RolloutBann
 
   const currentRolloutId = rollout?.id ?? null
   useEffect(() => {
-    setEvents([])
     if (!currentRolloutId) return
+    // loadEvents internally clears events before fetching (AC-3)
     loadEvents(currentRolloutId).catch(() => {/* non-critical */})
   }, [currentRolloutId, loadEvents])
 
@@ -216,6 +215,14 @@ export default function RolloutBanner({ projectId, onActiveChange }: RolloutBann
     const isActive = rollout !== null && BLOCKING_STATUSES.has(rollout.status)
     onActiveChange?.(isActive)
   }, [rollout, onActiveChange])
+
+  // ---------------------------------------------------------------------------
+  // Notify parent of active rollout ID changes (for ActivityDrawer)
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    onRolloutIdChange?.(rollout?.id ?? null)
+  }, [rollout, onRolloutIdChange])
 
   // ---------------------------------------------------------------------------
   // SSE subscription (AC-2, AC-11)
@@ -244,8 +251,6 @@ export default function RolloutBanner({ projectId, onActiveChange }: RolloutBann
       // ID hasn't landed in state yet) must not pollute the current feed.
       if (shouldPrepondRolloutEvent(waveEventData.rolloutId, rolloutRef.current?.id)) {
         setEvents((prev) => [waveEventData, ...prev])
-        // Signal RolloutActivityTab to re-fetch (AC-4)
-        setActivityRefreshKey((k) => k + 1)
       }
 
       // Always re-fetch rollout state so banner + progress update, and so
@@ -290,6 +295,11 @@ export default function RolloutBanner({ projectId, onActiveChange }: RolloutBann
     )
   }
 
+  if (loading && !rollout) {
+    // Still performing the initial load; render nothing yet.
+    return null
+  }
+
   if (!rollout || !STRIP_STATUSES.has(rollout.status)) {
     return null
   }
@@ -304,44 +314,15 @@ export default function RolloutBanner({ projectId, onActiveChange }: RolloutBann
         showDetails={showDetails}
       />
 
-      {/* Details section — collapsed by default (AC-13) */}
-      {showDetails && (
-        <>
-          {/* Halt card (shown when halted) */}
-          {rollout.status === 'halted' && (
-            <RolloutHaltCard
-              waveRun={rollout}
-              latestHaltEvent={latestHaltEvent}
-              onResume={handleResume}
-              onSkip={handleSkip}
-              onAbort={handleAbort}
-            />
-          )}
-
-          {/* Events / Activity tabs */}
-          <Box sx={{ borderBottom: 1, borderColor: 'divider', mt: 1 }}>
-            <Tabs
-              value={activeTab}
-              onChange={(_e, v: number) => setActiveTab(v)}
-              textColor="inherit"
-              indicatorColor="primary"
-              sx={{ minHeight: 32 }}
-            >
-              <Tab label="Events" sx={{ minHeight: 32, py: 0.5, fontSize: '0.75rem' }} />
-              <Tab label="Activity" sx={{ minHeight: 32, py: 0.5, fontSize: '0.75rem' }} />
-            </Tabs>
-          </Box>
-
-          {/* Events tab */}
-          {activeTab === 0 && (
-            <RolloutEventFeed events={events} loading={eventsLoading} projectId={projectId} />
-          )}
-
-          {/* Activity tab */}
-          {activeTab === 1 && (
-            <RolloutActivityTab rolloutId={rollout.id} refreshKey={activityRefreshKey} />
-          )}
-        </>
+      {/* Details section — collapsed by default; only shown when halted */}
+      {showDetails && rollout.status === 'halted' && (
+        <RolloutHaltCard
+          waveRun={rollout}
+          latestHaltEvent={latestHaltEvent}
+          onResume={handleResume}
+          onSkip={handleSkip}
+          onAbort={handleAbort}
+        />
       )}
     </Box>
   )
