@@ -95,6 +95,31 @@ def resolve_max_turns(
     return global_default_max_turns
 
 
+def resolve_engine(
+    mode: str,
+    item_build_engine: str | None,
+    global_engine: str,
+) -> str:
+    """Resolve effective dispatch engine.
+
+    Resolution order for build mode:
+        item.build_engine → global dispatch.engine setting
+    Plan and manage modes always use the global engine.
+
+    Args:
+        mode: Dispatch mode ("build", "plan", or "manage").
+        item_build_engine: The item's ``build_engine`` field value, or ``None``
+            if the item inherits the global engine.
+        global_engine: The deployment-wide engine from app_settings.
+
+    Returns:
+        The resolved engine string.
+    """
+    if mode == "build" and item_build_engine:
+        return item_build_engine
+    return global_engine
+
+
 def resolve_timeout_minutes(
     project_dispatch_timeout_minutes: int | None,
     global_default_timeout_minutes: int,
@@ -508,7 +533,11 @@ async def execute_run(
     dispatch_api_key = settings["api_key"]
 
     # Resolve deployment-wide engine + agent names (app_settings, not user_settings)
-    engine = await get_setting(db, "dispatch.engine") or "claude"
+    global_engine = await get_setting(db, "dispatch.engine") or "claude"
+    item_build_engine = (
+        str(item.get("build_engine")) if item and item.get("build_engine") else None
+    )
+    engine = resolve_engine(mode, item_build_engine, global_engine)
     global_plan_agent = await get_setting(db, "dispatch.plan_agent_name") or ""
     global_build_agent = await get_setting(db, "dispatch.build_agent_name") or ""
     # Project override wins if set; fall back to the global deployment setting.

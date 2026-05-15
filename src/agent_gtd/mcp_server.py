@@ -549,6 +549,7 @@ async def update_item(
     assigned_to: str | None = None,
     labels: list[str] | None = None,
     due_date: str | None = None,
+    build_engine: str | None = None,
 ) -> dict[str, Any]:
     """Update an existing item. Requires optimistic locking via version.
 
@@ -570,6 +571,11 @@ async def update_item(
             - None (default) → unchanged
             - Empty string "" → clear the due date
             - Non-empty string → set to that date
+        build_engine: New build engine preference (build-mode dispatch only).
+            - None (default) → unchanged
+            - Empty string "" → clear the preference (use global default)
+            - "claude-code" → Anthropic Claude Code
+            - "claude-code-ollama" → Claude Code via Ollama
 
     Returns:
         The updated item dict.
@@ -588,6 +594,17 @@ async def update_item(
         backend_due_date = due_date
         due_date_set = True
 
+    # Translate MCP build_engine sentinel into (build_engine, build_engine_set) pair.
+    if build_engine is None:
+        backend_build_engine: str | None = None
+        build_engine_set = False
+    elif build_engine == "":
+        backend_build_engine = None
+        build_engine_set = True
+    else:
+        backend_build_engine = build_engine
+        build_engine_set = True
+
     try:
         return await _backend.update_item(
             session["user_id"],
@@ -601,12 +618,16 @@ async def update_item(
             labels=labels,
             due_date=backend_due_date,
             due_date_set=due_date_set,
+            build_engine=backend_build_engine,
+            build_engine_set=build_engine_set,
         )
     except BlockersUnresolvedError as e:
         raise ToolError(e.detail) from None
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except VersionConflictError as e:
+        raise ToolError(e.detail) from None
+    except ValidationError as e:
         raise ToolError(e.detail) from None
 
 

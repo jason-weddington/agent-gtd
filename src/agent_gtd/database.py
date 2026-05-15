@@ -64,6 +64,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         labels TEXT NOT NULL DEFAULT '[]',
         version INTEGER NOT NULL DEFAULT 1,
         locked_by_rollout_id TEXT,
+        build_engine TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )
@@ -460,6 +461,8 @@ _MIGRATIONS: list[str] = [
     "ALTER TABLE claude_runs ALTER COLUMN item_id DROP NOT NULL",
     # Manage subprocess auto-recovery retry counter.
     "ALTER TABLE autonomous_rollouts ADD COLUMN manage_retry_count INTEGER NOT NULL DEFAULT 0",  # noqa: E501
+    # Per-item engine selection for build-mode dispatch.
+    "ALTER TABLE items ADD COLUMN build_engine TEXT",
 ]
 
 

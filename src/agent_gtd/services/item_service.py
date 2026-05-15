@@ -29,6 +29,8 @@ _ID_PREFIX_LEN = 8
 _TITLE_LEN = 60
 _PER_COLUMN_CAP = 10
 
+ALLOWED_BUILD_ENGINES: frozenset[str] = frozenset({"claude-code", "claude-code-ollama"})
+
 
 async def list_items(
     db: DbPool,
@@ -90,12 +92,19 @@ async def create_item(
     waiting_on: str = "",
     sort_order: float = 0,
     labels: list[str] | None = None,
+    build_engine: str | None = None,
 ) -> dict[str, Any]:
     """Create a new item and return its row data.
 
     Raises:
         NotFoundError: If project_id is given but doesn't exist or isn't owned by user.
+        ValidationError: If build_engine is not a recognised value.
     """
+    if build_engine is not None and build_engine not in ALLOWED_BUILD_ENGINES:
+        raise ValidationError(
+            f"build_engine must be one of {sorted(ALLOWED_BUILD_ENGINES)}"
+        )
+
     if project_id is not None:
         await verify_project_access(db, project_id, user_id)
 
@@ -106,8 +115,9 @@ async def create_item(
         "INSERT INTO items "
         "(id, project_id, user_id, title, description, status, priority, "
         "due_date, created_by, assigned_to, waiting_on, sort_order, labels, "
-        "created_at, updated_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+        "build_engine, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,"
+        " $14, $15, $16)",
         item_id,
         project_id,
         user_id,
@@ -121,6 +131,7 @@ async def create_item(
         waiting_on,
         sort_order,
         encode_json_list(labels or []),
+        build_engine,
         now,
         now,
     )
@@ -186,6 +197,8 @@ async def update_item(
     waiting_on: str | None = None,
     sort_order: float | None = None,
     labels: list[str] | None = None,
+    build_engine: object = None,
+    build_engine_set: bool = False,
     version: int | None = None,
 ) -> dict[str, Any]:
     """Update an item. Only non-None fields are changed.
@@ -206,13 +219,27 @@ async def update_item(
         waiting_on: New waiting_on value (None = unchanged).
         sort_order: New sort order (None = unchanged).
         labels: New labels list (None = unchanged).
+        build_engine: New build engine preference (used only if
+            build_engine_set is True).
+        build_engine_set: If True, build_engine is written even if None.
         version: If provided, enforces optimistic locking — update fails
             if the current DB version doesn't match.
 
     Raises:
         NotFoundError: If the item doesn't exist or isn't owned by user.
+        ValidationError: If build_engine is not a recognised value.
         VersionConflictError: If version is provided and doesn't match.
+        ValidationError: If build_engine is not a recognised engine identifier.
     """
+    if (
+        build_engine_set
+        and build_engine is not None
+        and (build_engine not in ALLOWED_BUILD_ENGINES)
+    ):
+        raise ValidationError(
+            f"build_engine must be one of {sorted(ALLOWED_BUILD_ENGINES)}"
+        )
+
     existing = await get_item(db, user_id, item_id)
 
     # Optimistic locking
@@ -278,6 +305,10 @@ async def update_item(
     if labels is not None:
         params.append(encode_json_list(labels))
         updates.append(f"labels = ${len(params)}")
+
+    if build_engine_set:
+        params.append(build_engine)
+        updates.append(f"build_engine = ${len(params)}")
 
     if updates:
         updates.append("version = version + 1")

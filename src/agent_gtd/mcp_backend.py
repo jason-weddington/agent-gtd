@@ -162,6 +162,10 @@ class McpBackend(Protocol):
         priority: str | None = None,
         assigned_to: str | None = None,
         labels: list[str] | None = None,
+        due_date: str | None = None,
+        due_date_set: bool = False,
+        build_engine: str | None = None,
+        build_engine_set: bool = False,
     ) -> dict[str, Any]: ...
 
     async def complete_item(self, user_id: str, item_id: str) -> dict[str, Any]: ...
@@ -666,6 +670,8 @@ class LocalBackend:
         labels: list[str] | None = None,
         due_date: str | None = None,
         due_date_set: bool = False,
+        build_engine: str | None = None,
+        build_engine_set: bool = False,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import item_service
@@ -683,6 +689,8 @@ class LocalBackend:
             labels=labels,
             due_date=due_date,
             due_date_set=due_date_set,
+            build_engine=build_engine,
+            build_engine_set=build_engine_set,
             version=version,
         )
         pm = await self._build_project_map(user_id)
@@ -1525,6 +1533,8 @@ class HttpBackend:
         labels: list[str] | None = None,
         due_date: str | None = None,
         due_date_set: bool = False,
+        build_engine: str | None = None,
+        build_engine_set: bool = False,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"version": version}
         if title is not None:
@@ -1541,6 +1551,8 @@ class HttpBackend:
             body["labels"] = labels
         if due_date_set:
             body["due_date"] = due_date
+        if build_engine_set:
+            body["build_engine"] = build_engine
         resp = await self._client.patch(
             f"/api/items/{item_id}",
             json=body,

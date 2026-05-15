@@ -58,6 +58,7 @@ def _item_response(
             if row.get("locked_by_rollout_id")
             else None
         ),
+        build_engine=str(row["build_engine"]) if row.get("build_engine") else None,
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
         blockers=blockers if blockers is not None else [],
@@ -107,7 +108,10 @@ async def create_item(
             waiting_on=body.waiting_on,
             sort_order=body.sort_order,
             labels=body.labels,
+            build_engine=body.build_engine,
         )
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.detail) from None
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None
     return _item_response(row)
@@ -194,8 +198,12 @@ async def update_item(
             waiting_on=body.waiting_on,
             sort_order=body.sort_order,
             labels=body.labels,
+            build_engine=body.build_engine,
+            build_engine_set="build_engine" in body.model_fields_set,
             version=body.version,
         )
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.detail) from None
     except BlockersUnresolvedError as e:
         return JSONResponse(
             status_code=422,

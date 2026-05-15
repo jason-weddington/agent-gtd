@@ -855,6 +855,40 @@ export default function ItemDetailDrawer({
                     </Select>
                   </FormControl>
 
+                  {/* Build engine select — only for project items */}
+                  {localItem.projectId && (
+                    <FormControl size="small" disabled={isSaving}>
+                      <InputLabel
+                        id="drawer-engine-label"
+                        sx={{ fontSize: '0.7rem', top: '-4px', '&.MuiInputLabel-shrink': { top: 0 } }}
+                      >
+                        Build engine
+                      </InputLabel>
+                      <Select
+                        labelId="drawer-engine-label"
+                        value={localItem.buildEngine ?? ''}
+                        label="Build engine"
+                        onChange={(e) => void saveField('buildEngine', e.target.value || null)}
+                        sx={{
+                          fontSize: '0.75rem',
+                          height: 28,
+                          minWidth: 120,
+                          '& .MuiSelect-select': { py: '2px', px: 1 },
+                        }}
+                      >
+                        <MenuItem value="" sx={{ fontSize: '0.8rem' }}>
+                          <em>Default</em>
+                        </MenuItem>
+                        <MenuItem value="claude-code" sx={{ fontSize: '0.8rem' }}>
+                          Claude Code (Anthropic)
+                        </MenuItem>
+                        <MenuItem value="claude-code-ollama" sx={{ fontSize: '0.8rem' }}>
+                          Claude Code (Ollama)
+                        </MenuItem>
+                      </Select>
+                    </FormControl>
+                  )}
+
                   {/* Editable due date */}
                   <TextField
                     type="date"

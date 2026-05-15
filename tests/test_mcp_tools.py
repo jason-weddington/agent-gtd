@@ -1653,3 +1653,105 @@ async def test_update_project_dispatch_non_owner_rejected(
                 "update_project",
                 {"project_id": project_id, "dispatch_max_turns": 100},
             )
+
+
+# ---------------------------------------------------------------------------
+# build_engine MCP tool tests
+# ---------------------------------------------------------------------------
+
+
+async def test_update_item_set_build_engine(registered_client):
+    """update_item with a build_engine value sets the field."""
+    created = await registered_client.call_tool("add_item", {"title": "Engine Test"})
+    item = _parse_result(created)
+    assert item.get("build_engine") is None
+
+    result = await registered_client.call_tool(
+        "update_item",
+        {
+            "item_id": item["id"],
+            "version": item["version"],
+            "build_engine": "claude-code",
+        },
+    )
+    data = _parse_result(result)
+    assert data["build_engine"] == "claude-code"
+
+
+async def test_update_item_clear_build_engine(registered_client):
+    """update_item with build_engine="" clears the field."""
+    created = await registered_client.call_tool(
+        "add_item",
+        {"title": "Has Engine"},
+    )
+    item = _parse_result(created)
+
+    # First set it
+    updated = await registered_client.call_tool(
+        "update_item",
+        {
+            "item_id": item["id"],
+            "version": item["version"],
+            "build_engine": "claude-code-ollama",
+        },
+    )
+    updated_item = _parse_result(updated)
+    assert updated_item["build_engine"] == "claude-code-ollama"
+
+    # Then clear it
+    cleared = await registered_client.call_tool(
+        "update_item",
+        {
+            "item_id": updated_item["id"],
+            "version": updated_item["version"],
+            "build_engine": "",
+        },
+    )
+    cleared_item = _parse_result(cleared)
+    assert cleared_item["build_engine"] is None
+
+
+async def test_update_item_build_engine_unchanged_when_omitted(registered_client):
+    """update_item without build_engine leaves existing value unchanged."""
+    created = await registered_client.call_tool("add_item", {"title": "Sticky Engine"})
+    item = _parse_result(created)
+
+    # Set a build_engine
+    updated = await registered_client.call_tool(
+        "update_item",
+        {
+            "item_id": item["id"],
+            "version": item["version"],
+            "build_engine": "claude-code",
+        },
+    )
+    item_v2 = _parse_result(updated)
+
+    # Update something else — build_engine should be preserved
+    result = await registered_client.call_tool(
+        "update_item",
+        {
+            "item_id": item_v2["id"],
+            "version": item_v2["version"],
+            "title": "Renamed",
+        },
+    )
+    data = _parse_result(result)
+    assert data["title"] == "Renamed"
+    assert data["build_engine"] == "claude-code"
+
+
+async def test_update_item_invalid_build_engine(registered_client):
+    """update_item with an invalid build_engine raises ToolError."""
+    created = await registered_client.call_tool("add_item", {"title": "Bad Engine"})
+    item = _parse_result(created)
+
+    with pytest.raises(ToolError):
+        await registered_client.call_tool(
+            "update_item",
+            {
+                "item_id": item["id"],
+                "version": item["version"],
+                "build_engine": "not-a-real-engine",
+            },
+        )

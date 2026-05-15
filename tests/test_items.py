@@ -561,3 +561,109 @@ async def test_create_item_nonexistent_project(
         headers=auth_headers,
     )
     assert res.status_code == 404
+
+
+# --- build_engine field ---
+
+
+async def test_create_item_with_build_engine(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    res = await client.post(
+        "/api/items",
+        json={"title": "T", "project_id": project_id, "build_engine": "claude-code"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["build_engine"] == "claude-code"
+
+
+async def test_create_item_build_engine_null_by_default(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/items",
+        json={"title": "T"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["build_engine"] is None
+
+
+async def test_create_item_invalid_build_engine(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/items",
+        json={"title": "T", "build_engine": "bad-value"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+async def test_update_item_build_engine(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    create = await client.post("/api/items", json={"title": "T"}, headers=auth_headers)
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"build_engine": "claude-code-ollama", "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["build_engine"] == "claude-code-ollama"
+
+
+async def test_clear_item_build_engine(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    create = await client.post(
+        "/api/items",
+        json={"title": "T", "build_engine": "claude-code"},
+        headers=auth_headers,
+    )
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"build_engine": None, "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["build_engine"] is None
+
+
+async def test_update_item_invalid_build_engine(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    create = await client.post("/api/items", json={"title": "T"}, headers=auth_headers)
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"build_engine": "bad-engine", "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+async def test_update_item_build_engine_unchanged_when_omitted(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """PATCH without build_engine field leaves existing value unchanged."""
+    create = await client.post(
+        "/api/items",
+        json={"title": "T", "build_engine": "claude-code"},
+        headers=auth_headers,
+    )
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"title": "Updated", "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["build_engine"] == "claude-code"

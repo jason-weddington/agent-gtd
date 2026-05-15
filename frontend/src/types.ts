@@ -120,6 +120,7 @@ export interface Item {
   blockers?: BlockerSummary[]
   version: number
   lockedByRolloutId: string | null
+  buildEngine: string | null
   createdAt: string
   updatedAt: string
 }

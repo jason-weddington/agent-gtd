@@ -145,6 +145,7 @@ class Item(BaseModel):
     labels: list[str] = []
     version: int = 1
     locked_by_rollout_id: str | None = None
+    build_engine: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -486,6 +487,7 @@ class CreateItemRequest(BaseModel):
     waiting_on: str = ""
     sort_order: float = 0
     labels: list[str] = []
+    build_engine: str | None = None
 
 
 class UpdateItemRequest(BaseModel):
@@ -501,6 +503,7 @@ class UpdateItemRequest(BaseModel):
     waiting_on: str | None = None
     sort_order: float | None = None
     labels: list[str] | None = None
+    build_engine: str | None = None
     version: int | None = None
 
 
@@ -535,6 +538,7 @@ class ItemResponse(BaseModel):
     labels: list[str]
     version: int
     locked_by_rollout_id: str | None = None
+    build_engine: str | None = None
     created_at: datetime
     updated_at: datetime
     blockers: list[BlockerSummary] = []

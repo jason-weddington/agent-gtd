@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_gtd.dispatch_worker import resolve_agent
+from agent_gtd.dispatch_worker import resolve_agent, resolve_engine
 
 # ---------------------------------------------------------------------------
 # resolve_agent — parametrized matrix (5-arg form: no legacy fallback fields)
@@ -236,3 +236,32 @@ async def test_execute_run_inbox_item_uses_caller_config() -> None:
 
     # For inbox items, config should be looked up with the caller's ID
     assert caller_id in captured_user_ids
+
+
+# ---------------------------------------------------------------------------
+# resolve_engine — parametrized matrix
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "mode,item_engine,global_engine,expected",
+    [
+        # build mode: item engine wins
+        ("build", "claude-code-ollama", "claude", "claude-code-ollama"),
+        # build mode: item engine None → fallback to global
+        ("build", None, "claude", "claude"),
+        # build mode: item engine "" (falsy) → fallback to global
+        ("build", "", "claude", "claude"),
+        # plan mode: item engine is ignored → always use global
+        ("plan", "claude-code-ollama", "claude", "claude"),
+        # manage mode: item engine is ignored → always use global
+        ("manage", "claude-code-ollama", "claude", "claude"),
+    ],
+)
+def test_resolve_engine(
+    mode: str,
+    item_engine: str | None,
+    global_engine: str,
+    expected: str,
+) -> None:
+    assert resolve_engine(mode, item_engine, global_engine) == expected
