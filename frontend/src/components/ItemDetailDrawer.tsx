@@ -42,7 +42,7 @@ import { useEvents } from '../contexts/EventStreamContext'
 import { BlockerPicker } from './BlockerPicker'
 import MarkdownContent from './MarkdownContent'
 
-const DRAWER_WIDTH = 440
+const DRAWER_WIDTH = 792
 
 const STATUS_LABELS: Partial<Record<ItemStatus, string>> = {
   inbox: 'Inbox',
