@@ -1,6 +1,7 @@
 """Tests for comments CRUD API."""
 
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
 
@@ -378,3 +379,71 @@ async def test_list_comments_nonexistent_project_filter(
         "/api/comments", params={"project_id": fake_id}, headers=auth_headers
     )
     assert res.status_code == 404
+
+
+# --- Event-publish failure suppression ---
+
+
+async def test_create_comment_publish_failure_suppressed(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """A failing event-bus publish must not break comment creation (HTTP 201)."""
+    mock_bus = AsyncMock()
+    mock_bus.publish = AsyncMock(side_effect=Exception("bus down"))
+    with patch(
+        "agent_gtd.services.comment_service.get_event_bus", return_value=mock_bus
+    ):
+        res = await client.post(
+            f"/api/projects/{project_id}/comments",
+            json={"content_markdown": "Resilient comment"},
+            headers=auth_headers,
+        )
+    assert res.status_code == 201
+    assert res.json()["content_markdown"] == "Resilient comment"
+
+
+async def test_update_comment_publish_failure_suppressed(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """A failing event-bus publish must not break comment updates (HTTP 200)."""
+    # Create the comment without the mock so the create event succeeds
+    res = await client.post(
+        f"/api/projects/{project_id}/comments",
+        json={"content_markdown": "Original"},
+        headers=auth_headers,
+    )
+    comment_id = res.json()["id"]
+
+    mock_bus = AsyncMock()
+    mock_bus.publish = AsyncMock(side_effect=Exception("bus down"))
+    with patch(
+        "agent_gtd.services.comment_service.get_event_bus", return_value=mock_bus
+    ):
+        res = await client.patch(
+            f"/api/comments/{comment_id}",
+            json={"content_markdown": "Updated resilient"},
+            headers=auth_headers,
+        )
+    assert res.status_code == 200
+    assert res.json()["content_markdown"] == "Updated resilient"
+
+
+async def test_delete_comment_publish_failure_suppressed(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """A failing event-bus publish must not break comment deletion (HTTP 204)."""
+    # Create the comment without the mock so the create event succeeds
+    res = await client.post(
+        f"/api/projects/{project_id}/comments",
+        json={"content_markdown": "To delete"},
+        headers=auth_headers,
+    )
+    comment_id = res.json()["id"]
+
+    mock_bus = AsyncMock()
+    mock_bus.publish = AsyncMock(side_effect=Exception("bus down"))
+    with patch(
+        "agent_gtd.services.comment_service.get_event_bus", return_value=mock_bus
+    ):
+        res = await client.delete(f"/api/comments/{comment_id}", headers=auth_headers)
+    assert res.status_code == 204

@@ -1,5 +1,7 @@
 """Tests for project notes CRUD API."""
 
+from unittest.mock import AsyncMock, patch
+
 from httpx import AsyncClient
 
 
@@ -227,3 +229,65 @@ async def test_list_notes_filtered_by_project(
     assert res.status_code == 200
     assert len(res.json()) == 1
     assert res.json()[0]["title"] == "In project"
+
+
+# --- Event-publish failure suppression ---
+
+
+async def test_create_note_publish_failure_suppressed(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """A failing event-bus publish must not break note creation (HTTP 201)."""
+    mock_bus = AsyncMock()
+    mock_bus.publish = AsyncMock(side_effect=Exception("bus down"))
+    with patch("agent_gtd.services.note_service.get_event_bus", return_value=mock_bus):
+        res = await client.post(
+            f"/api/projects/{project_id}/notes",
+            json={"title": "Resilience Test"},
+            headers=auth_headers,
+        )
+    assert res.status_code == 201
+    assert res.json()["title"] == "Resilience Test"
+
+
+async def test_update_note_publish_failure_suppressed(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """A failing event-bus publish must not break note updates (HTTP 200)."""
+    # Create the note without the mock so the create event succeeds
+    res = await client.post(
+        f"/api/projects/{project_id}/notes",
+        json={"title": "Original"},
+        headers=auth_headers,
+    )
+    note_id = res.json()["id"]
+
+    mock_bus = AsyncMock()
+    mock_bus.publish = AsyncMock(side_effect=Exception("bus down"))
+    with patch("agent_gtd.services.note_service.get_event_bus", return_value=mock_bus):
+        res = await client.patch(
+            f"/api/notes/{note_id}",
+            json={"title": "Updated Resilience"},
+            headers=auth_headers,
+        )
+    assert res.status_code == 200
+    assert res.json()["title"] == "Updated Resilience"
+
+
+async def test_delete_note_publish_failure_suppressed(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """A failing event-bus publish must not break note deletion (HTTP 204)."""
+    # Create the note without the mock so the create event succeeds
+    res = await client.post(
+        f"/api/projects/{project_id}/notes",
+        json={"title": "To delete"},
+        headers=auth_headers,
+    )
+    note_id = res.json()["id"]
+
+    mock_bus = AsyncMock()
+    mock_bus.publish = AsyncMock(side_effect=Exception("bus down"))
+    with patch("agent_gtd.services.note_service.get_event_bus", return_value=mock_bus):
+        res = await client.delete(f"/api/notes/{note_id}", headers=auth_headers)
+    assert res.status_code == 204
