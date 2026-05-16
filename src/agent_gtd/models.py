@@ -146,6 +146,9 @@ class Item(BaseModel):
     version: int = 1
     locked_by_rollout_id: str | None = None
     build_engine: str | None = None
+    acceptance_criteria: list[str] = []
+    files_to_modify: list[dict[str, Any]] = []
+    scope_out: list[str] = []
     created_at: datetime
     updated_at: datetime
 
@@ -488,6 +491,9 @@ class CreateItemRequest(BaseModel):
     sort_order: float = 0
     labels: list[str] = []
     build_engine: str | None = None
+    acceptance_criteria: list[str] = []
+    files_to_modify: list[dict[str, Any]] = []
+    scope_out: list[str] = []
 
 
 class UpdateItemRequest(BaseModel):
@@ -504,6 +510,9 @@ class UpdateItemRequest(BaseModel):
     sort_order: float | None = None
     labels: list[str] | None = None
     build_engine: str | None = None
+    acceptance_criteria: list[str] | None = None
+    files_to_modify: list[dict[str, Any]] | None = None
+    scope_out: list[str] | None = None
     version: int | None = None
 
 
@@ -539,6 +548,9 @@ class ItemResponse(BaseModel):
     version: int
     locked_by_rollout_id: str | None = None
     build_engine: str | None = None
+    acceptance_criteria: list[str] = []
+    files_to_modify: list[dict[str, Any]] = []
+    scope_out: list[str] = []
     created_at: datetime
     updated_at: datetime
     blockers: list[BlockerSummary] = []

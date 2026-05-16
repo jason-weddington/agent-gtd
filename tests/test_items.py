@@ -667,3 +667,253 @@ async def test_update_item_build_engine_unchanged_when_omitted(
     )
     assert res.status_code == 200
     assert res.json()["build_engine"] == "claude-code"
+
+
+# --- acceptance_criteria field ---
+
+
+async def test_create_item_with_acceptance_criteria(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/items",
+        json={"title": "T", "acceptance_criteria": ["AC-1: Does X", "AC-2: Does Y"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["acceptance_criteria"] == ["AC-1: Does X", "AC-2: Does Y"]
+
+
+async def test_create_item_acceptance_criteria_empty_by_default(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/items",
+        json={"title": "T"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["acceptance_criteria"] == []
+
+
+async def test_update_item_acceptance_criteria(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    create = await client.post("/api/items", json={"title": "T"}, headers=auth_headers)
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={
+            "acceptance_criteria": ["AC-1: New criterion"],
+            "version": item["version"],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["acceptance_criteria"] == ["AC-1: New criterion"]
+
+
+async def test_update_item_acceptance_criteria_clear(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    create = await client.post(
+        "/api/items",
+        json={"title": "T", "acceptance_criteria": ["AC-1"]},
+        headers=auth_headers,
+    )
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"acceptance_criteria": [], "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["acceptance_criteria"] == []
+
+
+async def test_update_item_acceptance_criteria_unchanged_when_omitted(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """PATCH without acceptance_criteria leaves existing value unchanged."""
+    create = await client.post(
+        "/api/items",
+        json={"title": "T", "acceptance_criteria": ["AC-1"]},
+        headers=auth_headers,
+    )
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"title": "Updated", "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["acceptance_criteria"] == ["AC-1"]
+
+
+# --- files_to_modify field ---
+
+
+async def test_create_item_with_files_to_modify(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    specs = [
+        {"path": "src/foo.py", "change": "Add function"},
+        {"path": "tests/test_foo.py", "change": "Add test"},
+    ]
+    res = await client.post(
+        "/api/items",
+        json={"title": "T", "files_to_modify": specs},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["files_to_modify"] == specs
+
+
+async def test_create_item_files_to_modify_empty_by_default(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/items",
+        json={"title": "T"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["files_to_modify"] == []
+
+
+async def test_update_item_files_to_modify(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    create = await client.post("/api/items", json={"title": "T"}, headers=auth_headers)
+    assert create.status_code == 201
+    item = create.json()
+    specs = [{"path": "src/bar.py", "change": "Update logic"}]
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"files_to_modify": specs, "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["files_to_modify"] == specs
+
+
+async def test_update_item_files_to_modify_clear(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    create = await client.post(
+        "/api/items",
+        json={"title": "T", "files_to_modify": [{"path": "src/foo.py", "change": "X"}]},
+        headers=auth_headers,
+    )
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"files_to_modify": [], "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["files_to_modify"] == []
+
+
+async def test_update_item_files_to_modify_unchanged_when_omitted(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """PATCH without files_to_modify leaves existing value unchanged."""
+    specs = [{"path": "src/main.py", "change": "Update"}]
+    create = await client.post(
+        "/api/items",
+        json={"title": "T", "files_to_modify": specs},
+        headers=auth_headers,
+    )
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"title": "Updated", "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["files_to_modify"] == specs
+
+
+# --- scope_out field ---
+
+
+async def test_create_item_with_scope_out(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/items",
+        json={"title": "T", "scope_out": ["Mobile app", "i18n"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["scope_out"] == ["Mobile app", "i18n"]
+
+
+async def test_create_item_scope_out_empty_by_default(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/items",
+        json={"title": "T"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["scope_out"] == []
+
+
+async def test_update_item_scope_out(client: AsyncClient, auth_headers: dict[str, str]):
+    create = await client.post("/api/items", json={"title": "T"}, headers=auth_headers)
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"scope_out": ["Not this sprint"], "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["scope_out"] == ["Not this sprint"]
+
+
+async def test_update_item_scope_out_clear(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    create = await client.post(
+        "/api/items",
+        json={"title": "T", "scope_out": ["Out of scope item"]},
+        headers=auth_headers,
+    )
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"scope_out": [], "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["scope_out"] == []
+
+
+async def test_update_item_scope_out_unchanged_when_omitted(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """PATCH without scope_out leaves existing value unchanged."""
+    create = await client.post(
+        "/api/items",
+        json={"title": "T", "scope_out": ["Not now"]},
+        headers=auth_headers,
+    )
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"title": "Updated", "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["scope_out"] == ["Not now"]

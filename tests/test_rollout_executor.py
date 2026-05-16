@@ -18,6 +18,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 
+from agent_gtd.database import encode_file_specs, encode_json_list
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -922,25 +924,27 @@ async def test_replan_rollout_readiness_regression(
 
 async def _make_ready_item(db: Any, user_id: str, project_id: str, title: str) -> str:
     """Insert a GTD item that satisfies the wave legality contract."""
-    from agent_gtd.auth import register_user as _ignored  # noqa: F401
-
     item_id = str(uuid.uuid4())
     now = _now()
-    description = (
-        "## Acceptance Criteria\n\n- [ ] Do the thing.\n\n"
-        "## Files to Modify\n\n- src/foo.py\n"
-    )
     await db.execute(
         "INSERT INTO items"
         " (id, project_id, user_id, title, description, status,"
-        "  created_at, updated_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        "  labels, acceptance_criteria, files_to_modify, scope_out,"
+        "  build_engine, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         item_id,
         project_id,
         user_id,
         title,
-        description,
+        "Background context.",
         "ready",
+        encode_json_list([]),
+        encode_json_list(["AC-1: The feature works correctly."]),
+        encode_file_specs(
+            [{"path": "src/agent_gtd/main.py", "change": "Update logic"}]
+        ),
+        encode_json_list([]),
+        "claude-code",
         now,
         now,
     )

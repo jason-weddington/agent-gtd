@@ -121,6 +121,9 @@ export interface Item {
   version: number
   lockedByRolloutId: string | null
   buildEngine: string | null
+  acceptanceCriteria: string[]
+  filesToModify: Record<string, string>[]
+  scopeOut: string[]
   createdAt: string
   updatedAt: string
 }

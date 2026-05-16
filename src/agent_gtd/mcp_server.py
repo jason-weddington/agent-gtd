@@ -550,6 +550,9 @@ async def update_item(
     labels: list[str] | None = None,
     due_date: str | None = None,
     build_engine: str | None = None,
+    acceptance_criteria: list[str] | None = None,
+    files_to_modify: list[dict[str, Any]] | None = None,
+    scope_out: list[str] | None = None,
 ) -> dict[str, Any]:
     """Update an existing item. Requires optimistic locking via version.
 
@@ -576,6 +579,12 @@ async def update_item(
             - Empty string "" → clear the preference (use global default)
             - "claude-code" → Anthropic Claude Code
             - "claude-code-ollama" → Claude Code via Ollama
+        acceptance_criteria: Structured acceptance criteria list (None = unchanged,
+            empty list [] = clear, non-empty list = set).
+        files_to_modify: Structured files-to-modify list of dicts with "path" and
+            "change" keys (None = unchanged, empty list [] = clear, non-empty = set).
+        scope_out: Structured scope-out list (None = unchanged, empty list [] = clear,
+            non-empty list = set).
 
     Returns:
         The updated item dict.
@@ -620,6 +629,9 @@ async def update_item(
             due_date_set=due_date_set,
             build_engine=backend_build_engine,
             build_engine_set=build_engine_set,
+            acceptance_criteria=acceptance_criteria,
+            files_to_modify=files_to_modify,
+            scope_out=scope_out,
         )
     except BlockersUnresolvedError as e:
         raise ToolError(e.detail) from None

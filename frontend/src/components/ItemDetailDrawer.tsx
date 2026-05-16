@@ -1134,6 +1134,118 @@ export default function ItemDetailDrawer({
               )}
             </Box>
 
+            {/* Acceptance Criteria — rendered as a checklist when non-empty */}
+            {localItem.acceptanceCriteria.length > 0 && (
+              <Box sx={{ px: 2, pb: 1 }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                  Acceptance Criteria
+                </Typography>
+                <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                  {localItem.acceptanceCriteria.map((ac, i) => (
+                    <Typography
+                      key={i}
+                      component="li"
+                      variant="body2"
+                      sx={{ mb: 0.25 }}
+                    >
+                      {ac}
+                    </Typography>
+                  ))}
+                </Box>
+              </Box>
+            )}
+
+            {/* Files to Modify — rendered as a table when non-empty */}
+            {localItem.filesToModify.length > 0 && (
+              <Box sx={{ px: 2, pb: 1 }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                  Files to Modify
+                </Typography>
+                <Box
+                  component="table"
+                  sx={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    fontSize: '0.75rem',
+                  }}
+                >
+                  <thead>
+                    <tr>
+                      <Box
+                        component="th"
+                        sx={{
+                          textAlign: 'left',
+                          borderBottom: 1,
+                          borderColor: 'divider',
+                          pb: 0.5,
+                          pr: 1,
+                          fontWeight: 600,
+                          color: 'text.secondary',
+                        }}
+                      >
+                        File
+                      </Box>
+                      <Box
+                        component="th"
+                        sx={{
+                          textAlign: 'left',
+                          borderBottom: 1,
+                          borderColor: 'divider',
+                          pb: 0.5,
+                          fontWeight: 600,
+                          color: 'text.secondary',
+                        }}
+                      >
+                        Change
+                      </Box>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {localItem.filesToModify.map((spec, i) => (
+                      <tr key={i}>
+                        <Box
+                          component="td"
+                          sx={{
+                            py: 0.5,
+                            pr: 1,
+                            fontFamily: 'monospace',
+                            verticalAlign: 'top',
+                            color: 'text.primary',
+                          }}
+                        >
+                          {spec.path ?? ''}
+                        </Box>
+                        <Box
+                          component="td"
+                          sx={{ py: 0.5, verticalAlign: 'top', color: 'text.secondary' }}
+                        >
+                          {spec.change ?? ''}
+                        </Box>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Box>
+              </Box>
+            )}
+
+            {/* Scope Out — rendered as an alert callout when non-empty */}
+            {localItem.scopeOut.length > 0 && (
+              <Box sx={{ px: 2, pb: 1 }}>
+                <Alert severity="info" sx={{ py: 0.5 }}>
+                  <Typography variant="caption" fontWeight={600}>
+                    Out of Scope
+                  </Typography>
+                  <Box component="ul" sx={{ m: 0, pl: 2 }}>
+                    {localItem.scopeOut.map((item, i) => (
+                      <Typography key={i} component="li" variant="caption">
+                        {item}
+                      </Typography>
+                    ))}
+                  </Box>
+                </Alert>
+              </Box>
+            )}
+
             {/* Metadata */}
             <Box sx={{ px: 2, pb: 1 }}>
               <Typography variant="caption" color="text.secondary">

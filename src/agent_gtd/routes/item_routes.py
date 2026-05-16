@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
 from agent_gtd.auth import get_current_user
-from agent_gtd.database import decode_json_list, get_db
+from agent_gtd.database import decode_file_specs, decode_json_list, get_db
 from agent_gtd.exceptions import (
     AlreadyClaimedError,
     BlockersUnresolvedError,
@@ -59,6 +59,11 @@ def _item_response(
             else None
         ),
         build_engine=str(row["build_engine"]) if row.get("build_engine") else None,
+        acceptance_criteria=decode_json_list(
+            str(row.get("acceptance_criteria") or "[]")
+        ),
+        files_to_modify=decode_file_specs(str(row.get("files_to_modify") or "[]")),
+        scope_out=decode_json_list(str(row.get("scope_out") or "[]")),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
         blockers=blockers if blockers is not None else [],
@@ -109,6 +114,9 @@ async def create_item(
             sort_order=body.sort_order,
             labels=body.labels,
             build_engine=body.build_engine,
+            acceptance_criteria=body.acceptance_criteria,
+            files_to_modify=body.files_to_modify,
+            scope_out=body.scope_out,
         )
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.detail) from None
@@ -200,6 +208,9 @@ async def update_item(
             labels=body.labels,
             build_engine=body.build_engine,
             build_engine_set="build_engine" in body.model_fields_set,
+            acceptance_criteria=body.acceptance_criteria,
+            files_to_modify=body.files_to_modify,
+            scope_out=body.scope_out,
             version=body.version,
         )
     except ValidationError as e:

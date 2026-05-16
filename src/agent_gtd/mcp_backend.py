@@ -166,6 +166,9 @@ class McpBackend(Protocol):
         due_date_set: bool = False,
         build_engine: str | None = None,
         build_engine_set: bool = False,
+        acceptance_criteria: list[str] | None = None,
+        files_to_modify: list[dict[str, Any]] | None = None,
+        scope_out: list[str] | None = None,
     ) -> dict[str, Any]: ...
 
     async def complete_item(self, user_id: str, item_id: str) -> dict[str, Any]: ...
@@ -672,6 +675,9 @@ class LocalBackend:
         due_date_set: bool = False,
         build_engine: str | None = None,
         build_engine_set: bool = False,
+        acceptance_criteria: list[str] | None = None,
+        files_to_modify: list[dict[str, Any]] | None = None,
+        scope_out: list[str] | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import item_service
@@ -691,6 +697,9 @@ class LocalBackend:
             due_date_set=due_date_set,
             build_engine=build_engine,
             build_engine_set=build_engine_set,
+            acceptance_criteria=acceptance_criteria,
+            files_to_modify=files_to_modify,
+            scope_out=scope_out,
             version=version,
         )
         pm = await self._build_project_map(user_id)
@@ -1535,6 +1544,9 @@ class HttpBackend:
         due_date_set: bool = False,
         build_engine: str | None = None,
         build_engine_set: bool = False,
+        acceptance_criteria: list[str] | None = None,
+        files_to_modify: list[dict[str, Any]] | None = None,
+        scope_out: list[str] | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"version": version}
         if title is not None:
@@ -1553,6 +1565,12 @@ class HttpBackend:
             body["due_date"] = due_date
         if build_engine_set:
             body["build_engine"] = build_engine
+        if acceptance_criteria is not None:
+            body["acceptance_criteria"] = acceptance_criteria
+        if files_to_modify is not None:
+            body["files_to_modify"] = files_to_modify
+        if scope_out is not None:
+            body["scope_out"] = scope_out
         resp = await self._client.patch(
             f"/api/items/{item_id}",
             json=body,

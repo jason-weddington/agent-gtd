@@ -65,6 +65,9 @@ _SCHEMA_STATEMENTS: list[str] = [
         version INTEGER NOT NULL DEFAULT 1,
         locked_by_rollout_id TEXT,
         build_engine TEXT,
+        acceptance_criteria TEXT NOT NULL DEFAULT '[]',
+        files_to_modify TEXT NOT NULL DEFAULT '[]',
+        scope_out TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )
@@ -463,6 +466,10 @@ _MIGRATIONS: list[str] = [
     "ALTER TABLE autonomous_rollouts ADD COLUMN manage_retry_count INTEGER NOT NULL DEFAULT 0",  # noqa: E501
     # Per-item engine selection for build-mode dispatch.
     "ALTER TABLE items ADD COLUMN build_engine TEXT",
+    # Structured legality contract fields (replaces prose-section matching).
+    "ALTER TABLE items ADD COLUMN acceptance_criteria TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE items ADD COLUMN files_to_modify TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE items ADD COLUMN scope_out TEXT NOT NULL DEFAULT '[]'",
 ]
 
 
@@ -600,4 +607,15 @@ def encode_json_list(items: list[str]) -> str:
 def decode_json_list(text: str) -> list[str]:
     """Decode JSON text back to a list."""
     result: list[str] = json.loads(text)
+    return result
+
+
+def encode_file_specs(specs: list[dict[str, Any]]) -> str:
+    """Encode a list of file spec dicts as JSON text for storage."""
+    return json.dumps(specs)
+
+
+def decode_file_specs(text: str) -> list[dict[str, Any]]:
+    """Decode JSON text back to a list of file spec dicts."""
+    result: list[dict[str, Any]] = json.loads(text)
     return result

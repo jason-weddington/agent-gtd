@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from agent_gtd.database import row_to_dict
+from agent_gtd.database import decode_file_specs, decode_json_list, row_to_dict
 from agent_gtd.db_types import DbPool
 from agent_gtd.exceptions import LegalityContractError, NotFoundError, ValidationError
 from agent_gtd.services.item_service import get_item, get_unresolved_blockers
@@ -103,8 +103,9 @@ async def validate_legality_contract(
     Per-item rules:
         1. Item exists and is accessible to *user_id* (owned or shared project).
         2. ``item.status == "ready"``.
-        3. Description has a non-empty ``## Acceptance Criteria`` section.
-        4. Description has a non-empty ``## Files to Modify`` section.
+        3. ``acceptance_criteria`` structured field is non-empty.
+        4. ``files_to_modify`` structured field is non-empty.
+        4b. ``build_engine`` is set (required for groomed items).
         5. No unresolved blockers outside *item_ids*.
 
     Cross-set rules:
@@ -138,19 +139,24 @@ async def validate_legality_contract(
 
         found_items.append(item)
         title = str(item.get("title", ""))
-        description = str(item.get("description", ""))
 
         # Rule 2: status must be "ready"
         if str(item.get("status", "")) != "ready":
             item_failures.append(f"status is '{item.get('status')}'; must be 'ready'")
 
-        # Rule 3: Acceptance Criteria section must exist and be non-empty
-        if not has_acceptance_criteria(description):
-            item_failures.append("missing non-empty ## Acceptance Criteria section")
+        # Rule 3: acceptance_criteria structured field must be non-empty
+        ac = decode_json_list(str(item.get("acceptance_criteria") or "[]"))
+        if not ac:
+            item_failures.append("acceptance_criteria is empty; item not yet groomed")
 
-        # Rule 4: Files to Modify section must exist and be non-empty
-        if not parse_declared_files(description):
-            item_failures.append("missing non-empty ## Files to Modify section")
+        # Rule 4: files_to_modify structured field must be non-empty
+        ftm = decode_file_specs(str(item.get("files_to_modify") or "[]"))
+        if not ftm:
+            item_failures.append("files_to_modify is empty; item not yet groomed")
+
+        # Rule 4b: build_engine must be set for groomed items (AC-4)
+        if not item.get("build_engine"):
+            item_failures.append("build_engine must be set for groomed items")
 
         # Rule 5: No unresolved external blockers (blockers in item_ids are OK)
         unresolved = await get_unresolved_blockers(db, item_id)

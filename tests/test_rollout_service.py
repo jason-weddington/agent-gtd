@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from agent_gtd.database import encode_json_list, get_db
+from agent_gtd.database import encode_file_specs, encode_json_list, get_db
 from agent_gtd.exceptions import LegalityContractError, NotFoundError, ValidationError
 from agent_gtd.services.rollout_service import (
     call_planner,
@@ -99,6 +99,11 @@ async def _make_project(db, user_id: str) -> str:
     return project_id
 
 
+_DEFAULT_ACCEPTANCE_CRITERIA = ["AC-1: Does the thing correctly"]
+_DEFAULT_FILES_TO_MODIFY = [{"path": "src/main.py", "change": "Update logic"}]
+_DEFAULT_BUILD_ENGINE = "claude-code"
+
+
 async def _make_item(
     db,
     user_id: str,
@@ -106,15 +111,28 @@ async def _make_item(
     *,
     title: str = "Test Item",
     status: str = "ready",
-    description: str = VALID_DESC,
+    description: str = "",
+    acceptance_criteria: list[str] | None = None,
+    files_to_modify: list[dict] | None = None,
+    build_engine: str | None = _DEFAULT_BUILD_ENGINE,
 ) -> str:
-    """Insert a test item and return its ID."""
+    """Insert a test item and return its ID.
+
+    Defaults produce a fully-groomed item that passes legality validation.
+    Pass acceptance_criteria=[], files_to_modify=[], or build_engine=None
+    to simulate a partially-groomed item.
+    """
+    if acceptance_criteria is None:
+        acceptance_criteria = _DEFAULT_ACCEPTANCE_CRITERIA
+    if files_to_modify is None:
+        files_to_modify = _DEFAULT_FILES_TO_MODIFY
     item_id = str(uuid.uuid4())
     await db.execute(
         "INSERT INTO items "
         "(id, project_id, user_id, title, description, status, "
-        " labels, created_at, updated_at) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        " labels, acceptance_criteria, files_to_modify, scope_out, "
+        " build_engine, created_at, updated_at) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         item_id,
         project_id,
         user_id,
@@ -122,6 +140,10 @@ async def _make_item(
         description,
         status,
         encode_json_list([]),
+        encode_json_list(acceptance_criteria),
+        encode_file_specs(files_to_modify),
+        encode_json_list([]),
+        build_engine,
         NOW,
         NOW,
     )
@@ -299,50 +321,68 @@ async def test_validate_wrong_status_done(db):
         await validate_legality_contract(db, user_id, [item_id])
 
 
-# --- Rule 3: missing Acceptance Criteria ---
+# --- Rule 3: empty acceptance_criteria structured field ---
 
 
 async def test_validate_missing_acceptance_criteria(db):
+    """Empty acceptance_criteria field → legality failure."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    item_id = await _make_item(db, user_id, project_id, description=NO_AC_DESC)
+    item_id = await _make_item(db, user_id, project_id, acceptance_criteria=[])
     with pytest.raises(LegalityContractError) as exc_info:
         await validate_legality_contract(db, user_id, [item_id])
     failure = exc_info.value.failures[0]
-    assert any("Acceptance Criteria" in str(f) for f in failure["failures"])
+    assert any("acceptance_criteria" in str(f) for f in failure["failures"])
 
 
 async def test_validate_empty_acceptance_criteria(db):
+    """Explicit empty list for acceptance_criteria → legality failure."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    item_id = await _make_item(db, user_id, project_id, description=EMPTY_AC_DESC)
+    item_id = await _make_item(db, user_id, project_id, acceptance_criteria=[])
     with pytest.raises(LegalityContractError) as exc_info:
         await validate_legality_contract(db, user_id, [item_id])
     failure = exc_info.value.failures[0]
-    assert any("Acceptance Criteria" in str(f) for f in failure["failures"])
+    assert any("acceptance_criteria" in str(f) for f in failure["failures"])
 
 
-# --- Rule 4: missing Files to Modify ---
+# --- Rule 4: empty files_to_modify structured field ---
 
 
 async def test_validate_missing_files_to_modify(db):
+    """Empty files_to_modify field → legality failure."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    item_id = await _make_item(db, user_id, project_id, description=NO_FILES_DESC)
+    item_id = await _make_item(db, user_id, project_id, files_to_modify=[])
     with pytest.raises(LegalityContractError) as exc_info:
         await validate_legality_contract(db, user_id, [item_id])
     failure = exc_info.value.failures[0]
-    assert any("Files to Modify" in str(f) for f in failure["failures"])
+    assert any("files_to_modify" in str(f) for f in failure["failures"])
 
 
 async def test_validate_empty_files_to_modify(db):
+    """Explicit empty list for files_to_modify → legality failure."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    item_id = await _make_item(db, user_id, project_id, description=EMPTY_FILES_DESC)
+    item_id = await _make_item(db, user_id, project_id, files_to_modify=[])
     with pytest.raises(LegalityContractError) as exc_info:
         await validate_legality_contract(db, user_id, [item_id])
     failure = exc_info.value.failures[0]
-    assert any("Files to Modify" in str(f) for f in failure["failures"])
+    assert any("files_to_modify" in str(f) for f in failure["failures"])
+
+
+# --- Rule 4b: build_engine must be set for groomed items ---
+
+
+async def test_validate_missing_build_engine(db):
+    """Groomed item (AC + files set) but build_engine=None → legality failure."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, build_engine=None)
+    with pytest.raises(LegalityContractError) as exc_info:
+        await validate_legality_contract(db, user_id, [item_id])
+    failure = exc_info.value.failures[0]
+    assert any("build_engine" in str(f) for f in failure["failures"])
 
 
 # --- Rule 5: unresolved external blockers ---
@@ -420,8 +460,8 @@ async def test_validate_collects_all_failures(db):
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
     item_wrong_status = await _make_item(db, user_id, project_id, status="new")
-    item_no_ac = await _make_item(db, user_id, project_id, description=NO_AC_DESC)
-    item_no_files = await _make_item(db, user_id, project_id, description=NO_FILES_DESC)
+    item_no_ac = await _make_item(db, user_id, project_id, acceptance_criteria=[])
+    item_no_files = await _make_item(db, user_id, project_id, files_to_modify=[])
 
     with pytest.raises(LegalityContractError) as exc_info:
         await validate_legality_contract(
@@ -439,15 +479,21 @@ async def test_validate_multiple_failures_same_item(db):
     """An item can fail multiple rules simultaneously."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
-    # Wrong status + no AC + no files
+    # Wrong status + no AC + no files + no build_engine
     item_id = await _make_item(
-        db, user_id, project_id, status="inbox", description="Plain description"
+        db,
+        user_id,
+        project_id,
+        status="inbox",
+        acceptance_criteria=[],
+        files_to_modify=[],
+        build_engine=None,
     )
     with pytest.raises(LegalityContractError) as exc_info:
         await validate_legality_contract(db, user_id, [item_id])
     failure = exc_info.value.failures[0]
-    # Should list at least 3 failures
-    assert len(failure["failures"]) >= 3
+    # Should list at least 4 failures (status + AC + files + build_engine)
+    assert len(failure["failures"]) >= 4
 
 
 # ---------------------------------------------------------------------------
@@ -873,20 +919,27 @@ async def test_plan_rollout_project_not_found(db):
     from agent_gtd.services.rollout_service import plan_rollout
 
     user_id = await _make_user(db)
-    # Insert an inbox item (no project) — it has no project_id
+    # Insert an inbox item (no project) — it has no project_id.
+    # Must have structured legality fields set so legality passes before the
+    # "no project" check is reached.
     item_id = str(uuid.uuid4())
     await db.execute(
         "INSERT INTO items "
         "(id, project_id, user_id, title, description, status, "
-        " labels, created_at, updated_at) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        " labels, acceptance_criteria, files_to_modify, scope_out, "
+        " build_engine, created_at, updated_at) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         item_id,
         None,  # no project
         user_id,
         "Inbox item",
-        VALID_DESC,
+        "",
         "ready",
         encode_json_list([]),
+        encode_json_list(["AC-1: Does X"]),
+        encode_file_specs([{"path": "src/main.py", "change": "Update"}]),
+        encode_json_list([]),
+        "claude-code",
         NOW,
         NOW,
     )

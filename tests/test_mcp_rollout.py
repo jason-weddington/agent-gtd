@@ -11,7 +11,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from agent_gtd.auth import generate_api_key, hash_api_key, register_user
-from agent_gtd.database import encode_json_list, get_db
+from agent_gtd.database import encode_file_specs, encode_json_list, get_db
 from agent_gtd.mcp_backend import LocalBackend
 from agent_gtd.mcp_server import mcp
 
@@ -135,23 +135,29 @@ async def _create_ready_item(
     user_id: str,
     project_id: str,
     title: str = "Wave item",
-    description: str = VALID_DESC,
 ) -> str:
-    """Insert a ready item with a valid description and return its ID."""
+    """Insert a ready item with valid structured fields and return its ID."""
     db = await get_db()
     item_id = str(uuid.uuid4())
     await db.execute(
         "INSERT INTO items "
         "(id, project_id, user_id, title, description, status, "
-        " labels, created_at, updated_at) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        " labels, acceptance_criteria, files_to_modify, scope_out, "
+        " build_engine, created_at, updated_at) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         item_id,
         project_id,
         user_id,
         title,
-        description,
+        "Background context for this wave item.",
         "ready",
         encode_json_list([]),
+        encode_json_list(["AC-1: The feature works correctly."]),
+        encode_file_specs(
+            [{"path": "src/agent_gtd/main.py", "change": "Update logic"}]
+        ),
+        encode_json_list([]),
+        "claude-code",
         NOW,
         NOW,
     )
@@ -417,16 +423,28 @@ async def test_plan_rollout_mcp_no_db_rows_on_legality_failure(
 ):
     """No autonomous_rollouts rows are written when legality contract fails."""
     project_id = await _create_project(user_id)
-    item_id = await _create_ready_item(
-        user_id,
+    # Insert an item without structured fields — legality will reject it
+    db = await get_db()
+    item_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO items "
+        "(id, project_id, user_id, title, description, status, "
+        " labels, created_at, updated_at) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        item_id,
         project_id,
-        description="No acceptance criteria here",
+        user_id,
+        "Invalid item",
+        "No structured fields set",
+        "ready",
+        encode_json_list([]),
+        NOW,
+        NOW,
     )
 
     with pytest.raises(ToolError):
         await mcp_client_authed.call_tool("plan_rollout", {"item_ids": [item_id]})
 
-    db = await get_db()
     rows = await db.fetch("SELECT id FROM autonomous_rollouts")
     assert len(rows) == 0
 
