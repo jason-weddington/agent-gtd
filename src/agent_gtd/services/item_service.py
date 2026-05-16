@@ -35,7 +35,9 @@ _ID_PREFIX_LEN = 8
 _TITLE_LEN = 60
 _PER_COLUMN_CAP = 10
 
-ALLOWED_BUILD_ENGINES: frozenset[str] = frozenset({"claude-code", "claude-code-ollama"})
+ALLOWED_BUILD_ENGINES: frozenset[str] = frozenset(
+    {"claude-code", "claude-code-ollama", "claude-code-sonnet", "claude-code-haiku"}
+)
 
 
 async def list_items(

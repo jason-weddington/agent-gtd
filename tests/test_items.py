@@ -1,5 +1,6 @@
 """Tests for items CRUD API."""
 
+import pytest
 from httpx import AsyncClient
 
 
@@ -614,6 +615,22 @@ async def test_update_item_build_engine(
     )
     assert res.status_code == 200
     assert res.json()["build_engine"] == "claude-code-ollama"
+
+
+@pytest.mark.parametrize("engine", ["claude-code-sonnet", "claude-code-haiku"])
+async def test_update_item_build_engine_new_tiers(
+    client: AsyncClient, auth_headers: dict[str, str], engine: str
+):
+    create = await client.post("/api/items", json={"title": "T"}, headers=auth_headers)
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"build_engine": engine, "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["build_engine"] == engine
 
 
 async def test_clear_item_build_engine(
