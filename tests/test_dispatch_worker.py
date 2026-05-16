@@ -265,3 +265,190 @@ def test_resolve_engine(
     expected: str,
 ) -> None:
     assert resolve_engine(mode, item_engine, global_engine) == expected
+
+
+# ---------------------------------------------------------------------------
+# reconcile_active_runs — SSE publish (AC-1)
+# ---------------------------------------------------------------------------
+
+
+def _make_reconcile_db_mock(
+    run_rows: list[dict],
+    project_owner_id: str | None = None,
+) -> MagicMock:
+    """Create a minimal DB mock for reconcile_active_runs tests."""
+    db = MagicMock()
+    db.fetch = AsyncMock(return_value=run_rows)
+
+    async def fetchrow(sql: str, *args: object) -> dict | None:
+        if "FROM projects" in sql and project_owner_id is not None:
+            return {"user_id": project_owner_id}
+        return None
+
+    db.fetchrow = AsyncMock(side_effect=fetchrow)
+    db.execute = AsyncMock()
+    return db
+
+
+@pytest.mark.asyncio
+async def test_reconcile_active_runs_publishes_run_completed_event() -> None:
+    """reconcile_active_runs emits run_completed with reconciled=True."""
+    from agent_gtd.dispatch_worker import reconcile_active_runs
+
+    run_id = "run-recon-1"
+    user_id = "user-r1"
+    project_id = "proj-r1"
+    item_id = "item-r1"
+
+    run_row = {
+        "id": run_id,
+        "user_id": user_id,
+        "project_id": project_id,
+        "item_id": item_id,
+        "remote_run_id": "remote-r1",
+        "status": "running",
+    }
+    db = _make_reconcile_db_mock([run_row], project_owner_id=user_id)
+
+    publish_calls: list[dict] = []
+
+    def fake_publish(
+        db_arg: object,
+        uid: str,
+        rid: str,
+        iid: object,
+        run: object,
+        etype: str,
+        *,
+        reconciled: bool = False,
+    ) -> None:
+        publish_calls.append(
+            {
+                "user_id": uid,
+                "run_id": rid,
+                "item_id": iid,
+                "event_type": etype,
+                "reconciled": reconciled,
+            }
+        )
+
+    with (
+        patch("agent_gtd.database.get_db", new=AsyncMock(return_value=db)),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_config",
+            new=AsyncMock(return_value={"url": "http://dispatch", "api_key": "k"}),
+        ),
+        patch(
+            "agent_gtd.dispatch_worker._poll_remote_run",
+            new=AsyncMock(return_value={"status": "succeeded", "error": None}),
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=AsyncMock()),
+        patch("agent_gtd.dispatch_worker._publish_run_event", new=fake_publish),
+    ):
+        count = await reconcile_active_runs()
+
+    assert count == 1
+    assert len(publish_calls) == 1
+    call = publish_calls[0]
+    assert call["event_type"] == "run_completed"
+    assert call["reconciled"] is True
+    assert call["run_id"] == run_id
+    assert call["item_id"] == item_id
+
+
+@pytest.mark.asyncio
+async def test_reconcile_active_runs_publishes_run_failed_event() -> None:
+    """reconcile_active_runs emits run_failed with reconciled=True for failed run."""
+    from agent_gtd.dispatch_worker import reconcile_active_runs
+
+    run_row = {
+        "id": "run-recon-2",
+        "user_id": "user-r2",
+        "project_id": "proj-r2",
+        "item_id": "item-r2",
+        "remote_run_id": "remote-r2",
+        "status": "running",
+    }
+    db = _make_reconcile_db_mock([run_row], project_owner_id="user-r2")
+
+    publish_calls: list[dict] = []
+
+    def fake_publish(
+        db_arg: object,
+        uid: str,
+        rid: str,
+        iid: object,
+        run: object,
+        etype: str,
+        *,
+        reconciled: bool = False,
+    ) -> None:
+        publish_calls.append({"event_type": etype, "reconciled": reconciled})
+
+    with (
+        patch("agent_gtd.database.get_db", new=AsyncMock(return_value=db)),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_config",
+            new=AsyncMock(return_value={"url": "http://dispatch", "api_key": "k"}),
+        ),
+        patch(
+            "agent_gtd.dispatch_worker._poll_remote_run",
+            new=AsyncMock(return_value={"status": "failed", "error": "boom"}),
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=AsyncMock()),
+        patch("agent_gtd.dispatch_worker._publish_run_event", new=fake_publish),
+    ):
+        count = await reconcile_active_runs()
+
+    assert count == 1
+    assert len(publish_calls) == 1
+    assert publish_calls[0]["event_type"] == "run_failed"
+    assert publish_calls[0]["reconciled"] is True
+
+
+# ---------------------------------------------------------------------------
+# Unknown remote status — poll loop guard (AC-4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unknown_remote_status_breaks_resume_polling_loop() -> None:
+    """Unknown remote status breaks _resume_polling loop with a WARNING log."""
+    from agent_gtd.dispatch_worker import _resume_polling
+
+    run = {
+        "id": "run-zombie",
+        "item_id": "item-z",
+        "user_id": "user-z",
+        "project_id": "proj-z",
+    }
+    db = MagicMock()
+    db.execute = AsyncMock()
+
+    mock_client = MagicMock()
+
+    with (
+        patch("agent_gtd.dispatch_worker.asyncio.sleep", new=AsyncMock()),
+        patch(
+            "agent_gtd.dispatch_worker._poll_remote_run",
+            new=AsyncMock(return_value={"status": "zombie"}),
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=AsyncMock()),
+        patch("agent_gtd.dispatch_worker._publish_run_event"),
+        patch("agent_gtd.dispatch_worker.httpx.AsyncClient") as mock_cls,
+        patch("agent_gtd.dispatch_worker.logger") as mock_logger,
+    ):
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        # Should complete (not loop forever)
+        await _resume_polling(db, run, "remote-z", url="http://test", api_key="key")
+
+    # Warning must carry the run_id and the unknown status string
+    warning_messages = [str(call) for call in mock_logger.warning.call_args_list]
+    assert any("zombie" in msg for msg in warning_messages), (
+        f"Expected warning about 'zombie' status, got: {warning_messages}"
+    )
+    assert any("run-zombie" in msg for msg in warning_messages), (
+        f"Expected warning with run_id 'run-zombie', got: {warning_messages}"
+    )

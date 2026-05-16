@@ -27,6 +27,7 @@ POLL_INTERVAL = 15  # seconds between status polls
 
 # Status mapping: remote dispatch API -> local run statuses
 _TERMINAL_STATUSES = {"succeeded", "failed", "timed_out", "cancelled"}
+_ACTIVE_REMOTE_STATUSES = {"pending", "cloning", "running"}
 _STATUS_MAP = {
     "succeeded": "success",
     "failed": "failed",
@@ -178,12 +179,28 @@ def _publish_run_event(
     item_id: str | None,
     run: dict[str, Any],
     event_type: str,
+    *,
+    reconciled: bool = False,
 ) -> None:
-    """Fire-and-forget SSE event publish (best effort)."""
+    """Fire-and-forget SSE event publish (best effort).
+
+    Args:
+        db: Database connection pool.
+        user_id: Owner of the run.
+        run_id: Local run ID.
+        item_id: Associated item ID (may be ``None`` for manage-mode runs).
+        run: The full run dict (used to extract ``project_id``).
+        event_type: SSE event type string (e.g. ``"run_completed"``).
+        reconciled: When ``True``, adds ``reconciled: True`` to the payload so
+            the UI can distinguish reconciled events from live-path events.
+    """
     try:
         from agent_gtd.event_bus import get_event_bus
 
         bus = get_event_bus()
+        payload: dict[str, Any] = {"run_id": run_id, "item_id": item_id}
+        if reconciled:
+            payload["reconciled"] = True
         asyncio.create_task(
             bus.publish(
                 db,
@@ -192,7 +209,7 @@ def _publish_run_event(
                 entity_type="run",
                 entity_id=run_id,
                 project_id=str(run["project_id"]),
-                payload={"run_id": run_id, "item_id": item_id},
+                payload=payload,
             )
         )
     except Exception:
@@ -318,6 +335,7 @@ async def reconcile_active_runs() -> int:
         run_id = str(run["id"])
         remote_id = str(run.get("remote_run_id", ""))
         user_id = str(run["user_id"])
+        item_id = str(run["item_id"]) if run.get("item_id") else None
 
         if not remote_id:
             # Never made it to remote dispatch — mark as failed
@@ -391,11 +409,32 @@ async def reconcile_active_runs() -> int:
                 finished_at=now,
                 error_msg=error_msg[:500] if error_msg else "",
             )
+            event_type = "run_completed" if local_status == "success" else "run_failed"
+            _publish_run_event(
+                db, user_id, run_id, item_id, run, event_type, reconciled=True
+            )
             logger.info(
                 "Reconciled run %s: remote=%s → local=%s",
                 run_id,
                 remote_status,
                 local_status,
+            )
+        elif remote_status not in _ACTIVE_REMOTE_STATUSES:
+            # Unknown status — treat as terminal failure rather than resuming poll
+            logger.warning(
+                "Unknown remote status %r for run %s; treating as terminal",
+                remote_status,
+                run_id,
+            )
+            await _update_run(
+                db,
+                run_id,
+                status="failed",
+                finished_at=now,
+                error_msg=f"Unknown remote status: {remote_status!r}"[:500],
+            )
+            _publish_run_event(
+                db, user_id, run_id, item_id, run, "run_failed", reconciled=True
             )
         else:
             # Still running — resume polling
@@ -443,6 +482,13 @@ async def _resume_polling(
 
                 remote_status = remote.get("status", "")
                 if remote_status in _TERMINAL_STATUSES:
+                    break
+                elif remote_status not in _ACTIVE_REMOTE_STATUSES:
+                    logger.warning(
+                        "Unknown remote status %r for run %s; treating as terminal",
+                        remote_status,
+                        run_id,
+                    )
                     break
 
         except asyncio.CancelledError:
@@ -628,6 +674,13 @@ async def execute_run(
 
                 remote_status = remote.get("status", "")
                 if remote_status in _TERMINAL_STATUSES:
+                    break
+                elif remote_status not in _ACTIVE_REMOTE_STATUSES:
+                    logger.warning(
+                        "Unknown remote status %r for run %s; treating as terminal",
+                        remote_status,
+                        run_id,
+                    )
                     break
 
         except asyncio.CancelledError:

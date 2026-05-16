@@ -5,6 +5,7 @@ The actual subprocess lifecycle (Phase 2B) is not yet implemented here —
 this module handles the data layer only.
 """
 
+import asyncio
 import logging
 import re
 import uuid
@@ -420,25 +421,66 @@ async def cancel_run(
 async def reconcile_orphans(db: DbPool) -> int:
     """Mark any active runs as failed (called on startup).
 
+    Fetches affected rows first so we can publish a ``run_failed`` SSE event
+    per row and log each run ID individually.  The bulk UPDATE is preserved for
+    efficiency; per-row events are published after the UPDATE completes.
+
     Returns the number of runs marked as failed.
     """
-    # Count first, then update — works with both asyncpg and aiosqlite
-    row = await db.fetchrow(
-        "SELECT COUNT(*) AS cnt FROM claude_runs WHERE status IN ($1, $2, $3)",
+    rows = await db.fetch(
+        "SELECT id, user_id, project_id, item_id FROM claude_runs"
+        " WHERE status IN ($1, $2, $3)",
         *_ACTIVE_STATUSES,
     )
-    count = int(row["cnt"]) if row else 0
+    if not rows:
+        return 0
 
-    if count:
-        now = datetime.now(UTC).isoformat()
-        await db.execute(
-            "UPDATE claude_runs SET status = 'failed',"
-            " error_msg = 'Server restarted while run was active',"
-            " finished_at = $1, updated_at = $2"
-            " WHERE status IN ($3, $4, $5)",
-            now,
-            now,
-            *_ACTIVE_STATUSES,
-        )
-        logger.info("Reconciled %d orphaned dispatch runs", count)
+    count = len(rows)
+    now = datetime.now(UTC).isoformat()
+
+    # Bulk update — efficient single query, aiosqlite-safe (no RETURNING clause)
+    await db.execute(
+        "UPDATE claude_runs SET status = 'failed',"
+        " error_msg = 'Server restarted while run was active',"
+        " finished_at = $1, updated_at = $2"
+        " WHERE status IN ($3, $4, $5)",
+        now,
+        now,
+        *_ACTIVE_STATUSES,
+    )
+
+    # Publish one SSE event per orphaned run and log each run ID
+    from agent_gtd.event_bus import get_event_bus
+
+    bus = get_event_bus()
+    for row in rows:
+        run_id = str(row["id"])
+        user_id = str(row["user_id"])
+        project_id = str(row["project_id"]) if row.get("project_id") else ""
+        item_id = str(row["item_id"]) if row.get("item_id") else None
+
+        logger.info("Reconciling orphaned run %s (marking as failed)", run_id)
+        try:
+            asyncio.create_task(  # noqa: RUF006
+                bus.publish(
+                    db,
+                    user_id=user_id,
+                    event_type="run_failed",
+                    entity_type="run",
+                    entity_id=run_id,
+                    project_id=project_id,
+                    payload={
+                        "run_id": run_id,
+                        "item_id": item_id,
+                        "reconciled": True,
+                        "error_msg": "Server restarted while run was active",
+                    },
+                )
+            )
+        except Exception:
+            logger.exception(
+                "Failed to publish run_failed event for orphaned run %s", run_id
+            )
+
+    logger.info("Reconciled %d orphaned dispatch runs", count)
     return count
