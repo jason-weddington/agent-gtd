@@ -48,6 +48,11 @@ const ITEM_STATUS_LABELS: Partial<Record<ItemStatus, string>> = {
   done: 'Done',
 }
 
+const ENGINE_LABEL: Record<string, { label: string; color: 'warning' | 'default' }> = {
+  'claude-code-ollama': { label: 'Ollama', color: 'warning' },
+  'claude-code': { label: 'Anthropic', color: 'default' },
+}
+
 interface GtdItemListProps {
   title: string
   statusFilter: ItemStatus
@@ -382,6 +387,14 @@ export default function GtdItemList({
                       )}
                       {item.dueDate && (
                         <Chip label={item.dueDate} size="small" variant="outlined" />
+                      )}
+                      {item.buildEngine && (
+                        <Chip
+                          label={ENGINE_LABEL[item.buildEngine]?.label ?? item.buildEngine}
+                          size="small"
+                          color={ENGINE_LABEL[item.buildEngine]?.color ?? 'default'}
+                          sx={{ height: 20, fontSize: '0.7rem' }}
+                        />
                       )}
                     </Box>
                     {item.labels.length > 0 && (

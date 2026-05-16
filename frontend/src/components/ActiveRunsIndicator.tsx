@@ -292,6 +292,11 @@ export default function ActiveRunsIndicator() {
                           }}
                         />
                       )}
+                      {/* TODO(AC4): show engine chip per run once RunResponse includes an `engine` field.
+                          As of 2026-05-16 the backend RunResponse model (models.py RunResponse) does not
+                          expose the engine used for a run. When that field is added, update the Run
+                          interface in types.ts and render a chip here using the same ENGINE_LABEL
+                          mapping as KanbanCard.tsx / GtdItemList.tsx. */}
                     </Box>
                     <Typography variant="caption" color="text.secondary" noWrap>
                       {project?.name ?? run.projectId}

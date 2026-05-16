@@ -13,8 +13,14 @@ interface KanbanCardProps {
   onDelete: (item: Item) => void
 }
 
+const ENGINE_LABEL: Record<string, { label: string; color: 'warning' | 'default' }> = {
+  'claude-code-ollama': { label: 'Ollama', color: 'warning' },
+  'claude-code': { label: 'Anthropic', color: 'default' },
+}
+
 export default memo(function KanbanCard({ item, index, onEdit, onDelete }: KanbanCardProps) {
   const isOverdue = item.dueDate && new Date(item.dueDate) < new Date()
+  const engineChip = item.buildEngine ? (ENGINE_LABEL[item.buildEngine] ?? { label: item.buildEngine, color: 'default' as const }) : null
 
   return (
     <Draggable draggableId={item.id} index={index}>
@@ -68,6 +74,14 @@ export default memo(function KanbanCard({ item, index, onEdit, onDelete }: Kanba
                 sx={{ height: 20, fontSize: '0.7rem' }}
               />
             ))}
+            {engineChip && (
+              <Chip
+                label={engineChip.label}
+                size="small"
+                color={engineChip.color}
+                sx={{ height: 20, fontSize: '0.7rem' }}
+              />
+            )}
 
             <Box sx={{ flex: 1 }} />
 
