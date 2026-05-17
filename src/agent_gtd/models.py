@@ -3,8 +3,9 @@
 import re
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, assert_never
 
+from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 from pydantic import BaseModel, field_validator
 
 # --- Enums ---
@@ -44,8 +45,12 @@ class Priority(StrEnum):
     URGENT = "urgent"
 
 
-class RunStatus(StrEnum):
-    """Claude dispatch run status."""
+class LocalRunStatus(StrEnum):
+    """Claude dispatch run status (local/internal representation).
+
+    Use ``from_remote()`` to convert a shared protocol ``RunStatus`` value
+    to the corresponding local status.
+    """
 
     PENDING = "pending"
     CLONING = "cloning"
@@ -54,6 +59,37 @@ class RunStatus(StrEnum):
     FAILED = "failed"
     TIMEOUT = "timeout"
     CANCELLED = "cancelled"
+
+    @classmethod
+    def from_remote(cls, remote: RemoteRunStatus) -> "LocalRunStatus":
+        """Map a remote dispatch-service status to the local run status.
+
+        This mapping is total — every value in the shared
+        ``agent_gtd_dispatch_protocol.RunStatus`` enum has an explicit
+        branch.  Adding a new remote status without updating this method
+        will cause a ``mypy --strict`` failure at the ``case _:`` guard.
+
+        Args:
+            remote: A status value from ``agent_gtd_dispatch_protocol.RunStatus``.
+
+        Returns:
+            The corresponding ``LocalRunStatus``.
+        """
+        match remote:
+            case RemoteRunStatus.succeeded:
+                return cls.SUCCESS
+            case RemoteRunStatus.failed:
+                return cls.FAILED
+            case RemoteRunStatus.timed_out:
+                return cls.TIMEOUT
+            case RemoteRunStatus.cancelled:
+                return cls.CANCELLED
+            case RemoteRunStatus.pending:
+                return cls.PENDING
+            case RemoteRunStatus.running:
+                return cls.RUNNING
+            case _:
+                assert_never(remote)
 
 
 class RolloutStatus(StrEnum):
@@ -666,7 +702,7 @@ class RunResponse(BaseModel):
     id: str
     item_id: str | None = None
     project_id: str
-    status: RunStatus
+    status: LocalRunStatus
     feature_branch: str
     workspace_dir: str
     max_turns: int

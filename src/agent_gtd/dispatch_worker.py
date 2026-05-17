@@ -12,8 +12,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
+from agent_gtd_dispatch_protocol import DispatchRequest
+from agent_gtd_dispatch_protocol import RunResponse as RemoteRunResponse
+from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 
 from agent_gtd.identity import compute_run_attribution
+from agent_gtd.models import LocalRunStatus
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +29,17 @@ DEFAULT_MAX_TURNS = int(os.environ.get("DISPATCH_DEFAULT_MAX_TURNS", "100"))
 _MAX_CONCURRENT_DEFAULT = int(os.environ.get("DISPATCH_MAX_CONCURRENT", "6"))
 POLL_INTERVAL = 15  # seconds between status polls
 
-# Status mapping: remote dispatch API -> local run statuses
-_TERMINAL_STATUSES = {"succeeded", "failed", "timed_out", "cancelled"}
-_ACTIVE_REMOTE_STATUSES = {"pending", "cloning", "running"}
-_STATUS_MAP = {
-    "succeeded": "success",
-    "failed": "failed",
-    "timed_out": "timeout",
-    "cancelled": "cancelled",
-}
+# Terminal statuses from the shared dispatch-protocol package.
+# When the remote run reaches one of these, we stop polling and map to a
+# local status via LocalRunStatus.from_remote().
+_TERMINAL_STATUSES: frozenset[RemoteRunStatus] = frozenset(
+    {
+        RemoteRunStatus.succeeded,
+        RemoteRunStatus.failed,
+        RemoteRunStatus.timed_out,
+        RemoteRunStatus.cancelled,
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -234,31 +240,26 @@ async def _dispatch_to_remote(
     agent_name: str = "",
     attribution: str = "",
     timeout_minutes: int = 30,
-) -> dict[str, Any]:
-    """POST /dispatch to the remote service. Returns the remote run dict."""
-    body: dict[str, Any] = {
-        "max_turns": max_turns,
-        "mode": mode,
-        "engine": engine,
-        "timeout_minutes": timeout_minutes,
-    }
-    if item_id is not None:
-        body["item_id"] = item_id
-    if agent_name:
-        body["agent_name"] = agent_name
-    if attribution:
-        body["attribution"] = attribution
-    if rollout_id:
-        body["rollout_id"] = rollout_id
+) -> RemoteRunResponse:
+    """POST /dispatch to the remote service. Returns the validated remote run."""
+    req = DispatchRequest(
+        item_id=item_id,
+        max_turns=max_turns,
+        mode=mode,
+        engine=engine,
+        timeout_minutes=timeout_minutes,
+        agent_name=agent_name or None,
+        attribution=attribution or None,
+        rollout_id=rollout_id,
+    )
     resp = await client.post(
         f"{url}/dispatch",
-        json=body,
+        json=req.model_dump(exclude_none=True),
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=30.0,
     )
     resp.raise_for_status()
-    result: dict[str, Any] = resp.json()
-    return result
+    return RemoteRunResponse.model_validate(resp.json())
 
 
 async def _poll_remote_run(
@@ -267,16 +268,15 @@ async def _poll_remote_run(
     *,
     url: str,
     api_key: str,
-) -> dict[str, Any]:
-    """GET /runs/{id} from the remote service. Returns the remote run dict."""
+) -> RemoteRunResponse:
+    """GET /runs/{id} from the remote service. Returns the validated remote run."""
     resp = await client.get(
         f"{url}/runs/{remote_run_id}",
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=15.0,
     )
     resp.raise_for_status()
-    result: dict[str, Any] = resp.json()
-    return result
+    return RemoteRunResponse.model_validate(resp.json())
 
 
 async def _cancel_remote_run(
@@ -397,11 +397,10 @@ async def reconcile_active_runs() -> int:
             reconciled += 1
             continue
 
-        remote_status = remote.get("status", "")
-        if remote_status in _TERMINAL_STATUSES:
+        if remote.status in _TERMINAL_STATUSES:
             # Already finished — sync local status
-            local_status = _STATUS_MAP.get(remote_status, "failed")
-            error_msg = remote.get("error") or ""
+            local_status = LocalRunStatus.from_remote(remote.status)
+            error_msg = remote.error or ""
             await _update_run(
                 db,
                 run_id,
@@ -409,35 +408,24 @@ async def reconcile_active_runs() -> int:
                 finished_at=now,
                 error_msg=error_msg[:500] if error_msg else "",
             )
-            event_type = "run_completed" if local_status == "success" else "run_failed"
+            event_type = (
+                "run_completed"
+                if local_status == LocalRunStatus.SUCCESS
+                else "run_failed"
+            )
             _publish_run_event(
                 db, user_id, run_id, item_id, run, event_type, reconciled=True
             )
             logger.info(
                 "Reconciled run %s: remote=%s → local=%s",
                 run_id,
-                remote_status,
+                remote.status,
                 local_status,
             )
-        elif remote_status not in _ACTIVE_REMOTE_STATUSES:
-            # Unknown status — treat as terminal failure rather than resuming poll
-            logger.warning(
-                "Unknown remote status %r for run %s; treating as terminal",
-                remote_status,
-                run_id,
-            )
-            await _update_run(
-                db,
-                run_id,
-                status="failed",
-                finished_at=now,
-                error_msg=f"Unknown remote status: {remote_status!r}"[:500],
-            )
-            _publish_run_event(
-                db, user_id, run_id, item_id, run, "run_failed", reconciled=True
-            )
         else:
-            # Still running — resume polling
+            # Still running (pending/running) — resume polling.
+            # Unknown statuses surface as ValidationError from _poll_remote_run
+            # and are caught by the except block above.
             logger.info("Resuming polling for run %s (remote %s)", run_id, remote_id)
             asyncio.create_task(
                 _resume_polling(
@@ -480,16 +468,9 @@ async def _resume_polling(
                     )
                     continue
 
-                remote_status = remote.get("status", "")
-                if remote_status in _TERMINAL_STATUSES:
+                if remote.status in _TERMINAL_STATUSES:
                     break
-                elif remote_status not in _ACTIVE_REMOTE_STATUSES:
-                    logger.warning(
-                        "Unknown remote status %r for run %s; treating as terminal",
-                        remote_status,
-                        run_id,
-                    )
-                    break
+                # else: still running (pending/running) — continue polling
 
         except asyncio.CancelledError:
             await _cancel_remote_run(client, remote_run_id, url=url, api_key=api_key)
@@ -504,8 +485,8 @@ async def _resume_polling(
 
         # Map terminal status
         finished = datetime.now(UTC).isoformat()
-        local_status = _STATUS_MAP.get(remote_status, "failed")
-        error_msg = remote.get("error") or ""
+        local_status = LocalRunStatus.from_remote(remote.status)
+        error_msg = remote.error or ""
 
         await _update_run(
             db,
@@ -515,7 +496,9 @@ async def _resume_polling(
             error_msg=error_msg[:500] if error_msg else "",
         )
 
-        event_type = "run_completed" if local_status == "success" else "run_failed"
+        event_type = (
+            "run_completed" if local_status == LocalRunStatus.SUCCESS else "run_failed"
+        )
         _publish_run_event(db, user_id, run_id, item_id, run, event_type)
         logger.info("Resumed run %s completed: %s", run_id, local_status)
 
@@ -628,7 +611,7 @@ async def execute_run(
                 attribution=attribution,
                 timeout_minutes=effective_timeout_minutes,
             )
-            remote_run_id = remote_run["id"]
+            remote_run_id = remote_run.id
         except Exception as e:
             logger.exception("Failed to dispatch run %s to remote service", run_id)
             await _update_run(
@@ -672,16 +655,9 @@ async def execute_run(
                     )
                     continue
 
-                remote_status = remote.get("status", "")
-                if remote_status in _TERMINAL_STATUSES:
+                if remote.status in _TERMINAL_STATUSES:
                     break
-                elif remote_status not in _ACTIVE_REMOTE_STATUSES:
-                    logger.warning(
-                        "Unknown remote status %r for run %s; treating as terminal",
-                        remote_status,
-                        run_id,
-                    )
-                    break
+                # else: still running (pending/running) — continue polling
 
         except asyncio.CancelledError:
             # Local cancellation — forward to remote
@@ -699,8 +675,8 @@ async def execute_run(
 
         # --- Map remote result to local run ---
         finished = datetime.now(UTC).isoformat()
-        local_status = _STATUS_MAP.get(remote_status, "failed")
-        error_msg = remote.get("error") or ""
+        local_status = LocalRunStatus.from_remote(remote.status)
+        error_msg = remote.error or ""
 
         await _update_run(
             db,
@@ -710,7 +686,9 @@ async def execute_run(
             error_msg=error_msg[:500] if error_msg else "",
         )
 
-        event_type = "run_completed" if local_status == "success" else "run_failed"
+        event_type = (
+            "run_completed" if local_status == LocalRunStatus.SUCCESS else "run_failed"
+        )
         _publish_run_event(db, user_id, run_id, item_id, run, event_type)
 
 

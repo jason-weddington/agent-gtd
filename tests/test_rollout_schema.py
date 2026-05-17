@@ -475,13 +475,13 @@ def test_wave_event_model():
 
 
 def test_run_response_has_rollout_id():
-    from agent_gtd.models import RunResponse, RunStatus
+    from agent_gtd.models import LocalRunStatus, RunResponse
 
     resp = RunResponse(
         id="r-1",
         item_id="i-1",
         project_id="p-1",
-        status=RunStatus.PENDING,
+        status=LocalRunStatus.PENDING,
         feature_branch="feat/test",
         workspace_dir="/workspace/test",
         max_turns=100,

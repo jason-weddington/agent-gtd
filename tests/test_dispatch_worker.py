@@ -1,10 +1,40 @@
 """Unit tests for dispatch_worker pure helper functions."""
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from agent_gtd_dispatch_protocol import DispatchRequest
+from agent_gtd_dispatch_protocol import RunResponse as RemoteRunResponse
+from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 
 from agent_gtd.dispatch_worker import resolve_agent, resolve_engine
+
+
+def _make_remote_run_response(
+    status: RemoteRunStatus,
+    *,
+    error: str | None = None,
+    run_id: str = "remote-run-1",
+) -> RemoteRunResponse:
+    """Construct a minimal ``RemoteRunResponse`` for test mocks."""
+    return RemoteRunResponse(
+        id=run_id,
+        item_id=None,
+        project_name="test-project",
+        branch_name=None,
+        engine="claude",
+        agent_name=None,
+        mode="build",
+        rollout_id=None,
+        status=status,
+        started_at=None,
+        completed_at=None,
+        exit_code=None,
+        error=error,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
 
 # ---------------------------------------------------------------------------
 # resolve_agent — parametrized matrix (5-arg form: no legacy fallback fields)
@@ -340,7 +370,9 @@ async def test_reconcile_active_runs_publishes_run_completed_event() -> None:
         ),
         patch(
             "agent_gtd.dispatch_worker._poll_remote_run",
-            new=AsyncMock(return_value={"status": "succeeded", "error": None}),
+            new=AsyncMock(
+                return_value=_make_remote_run_response(RemoteRunStatus.succeeded)
+            ),
         ),
         patch("agent_gtd.dispatch_worker._update_run", new=AsyncMock()),
         patch("agent_gtd.dispatch_worker._publish_run_event", new=fake_publish),
@@ -393,7 +425,11 @@ async def test_reconcile_active_runs_publishes_run_failed_event() -> None:
         ),
         patch(
             "agent_gtd.dispatch_worker._poll_remote_run",
-            new=AsyncMock(return_value={"status": "failed", "error": "boom"}),
+            new=AsyncMock(
+                return_value=_make_remote_run_response(
+                    RemoteRunStatus.failed, error="boom"
+                )
+            ),
         ),
         patch("agent_gtd.dispatch_worker._update_run", new=AsyncMock()),
         patch("agent_gtd.dispatch_worker._publish_run_event", new=fake_publish),
@@ -412,8 +448,15 @@ async def test_reconcile_active_runs_publishes_run_failed_event() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unknown_remote_status_breaks_resume_polling_loop() -> None:
-    """Unknown remote status breaks _resume_polling loop with a WARNING log."""
+async def test_poll_exception_retries_in_resume_polling_loop() -> None:
+    """A poll exception (e.g. ValidationError for unknown status) retries the loop.
+
+    With typed ``RemoteRunResponse``, unknown remote statuses raise a
+    ``ValidationError`` inside ``_poll_remote_run``.  The caller catches it as
+    a generic ``Exception``, logs a warning, and retries — it does NOT break
+    out of the loop.  The loop terminates only when a terminal status is
+    returned on a subsequent poll.
+    """
     from agent_gtd.dispatch_worker import _resume_polling
 
     run = {
@@ -427,12 +470,19 @@ async def test_unknown_remote_status_breaks_resume_polling_loop() -> None:
 
     mock_client = MagicMock()
 
+    call_count = 0
+
+    async def mock_poll(*args: object, **kwargs: object) -> RemoteRunResponse:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # Simulate ValidationError for an unknown status value
+            raise ValueError("unknown status 'zombie'")
+        return _make_remote_run_response(RemoteRunStatus.succeeded)
+
     with (
         patch("agent_gtd.dispatch_worker.asyncio.sleep", new=AsyncMock()),
-        patch(
-            "agent_gtd.dispatch_worker._poll_remote_run",
-            new=AsyncMock(return_value={"status": "zombie"}),
-        ),
+        patch("agent_gtd.dispatch_worker._poll_remote_run", new=mock_poll),
         patch("agent_gtd.dispatch_worker._update_run", new=AsyncMock()),
         patch("agent_gtd.dispatch_worker._publish_run_event"),
         patch("agent_gtd.dispatch_worker.httpx.AsyncClient") as mock_cls,
@@ -441,14 +491,94 @@ async def test_unknown_remote_status_breaks_resume_polling_loop() -> None:
         mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
         mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        # Should complete (not loop forever)
+        # Should complete after the second poll returns a terminal status
         await _resume_polling(db, run, "remote-z", url="http://test", api_key="key")
 
-    # Warning must carry the run_id and the unknown status string
+    # Loop should have polled twice: once failing, once succeeding
+    assert call_count == 2
+
+    # Warning should have been logged for the failed poll with the run_id
     warning_messages = [str(call) for call in mock_logger.warning.call_args_list]
-    assert any("zombie" in msg for msg in warning_messages), (
-        f"Expected warning about 'zombie' status, got: {warning_messages}"
-    )
     assert any("run-zombie" in msg for msg in warning_messages), (
         f"Expected warning with run_id 'run-zombie', got: {warning_messages}"
     )
+
+
+# ---------------------------------------------------------------------------
+# DispatchRequest serialisation parity (AC-4)
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_request_serialisation_parity() -> None:
+    """DispatchRequest.model_dump matches the previous hand-built body dict.
+
+    This test guards against silent field renames or drops in the shared
+    protocol package: if ``DispatchRequest`` changes, either this test fails
+    (rename/drop) or a new mypy error appears (missing required field).
+    """
+    # Required-only fields — no optional fields present
+    req = DispatchRequest(
+        max_turns=100,
+        mode="build",
+        engine="claude",
+        timeout_minutes=30,
+    )
+    assert req.model_dump(exclude_none=True) == {
+        "max_turns": 100,
+        "mode": "build",
+        "engine": "claude",
+        "timeout_minutes": 30,
+    }
+
+
+@pytest.mark.parametrize(
+    "extra_kwargs,expected_extra",
+    [
+        # item_id present
+        ({"item_id": "item-abc"}, {"item_id": "item-abc"}),
+        # agent_name present
+        ({"agent_name": "my-agent"}, {"agent_name": "my-agent"}),
+        # attribution present
+        (
+            {"attribution": "claude-build-abc123"},
+            {"attribution": "claude-build-abc123"},
+        ),
+        # rollout_id present
+        ({"rollout_id": "rollout-xyz"}, {"rollout_id": "rollout-xyz"}),
+        # all optional fields present
+        (
+            {
+                "item_id": "item-1",
+                "agent_name": "agent-1",
+                "attribution": "claude-build-x",
+                "rollout_id": "rollout-1",
+            },
+            {
+                "item_id": "item-1",
+                "agent_name": "agent-1",
+                "attribution": "claude-build-x",
+                "rollout_id": "rollout-1",
+            },
+        ),
+    ],
+)
+def test_dispatch_request_serialisation_parity_optional_fields(
+    extra_kwargs: dict,
+    expected_extra: dict,
+) -> None:
+    """Optional fields appear in model_dump(exclude_none=True) when provided."""
+    req = DispatchRequest(
+        max_turns=100,
+        mode="build",
+        engine="claude",
+        timeout_minutes=30,
+        **extra_kwargs,
+    )
+    result = req.model_dump(exclude_none=True)
+    base = {
+        "max_turns": 100,
+        "mode": "build",
+        "engine": "claude",
+        "timeout_minutes": 30,
+    }
+    assert result == {**base, **expected_extra}

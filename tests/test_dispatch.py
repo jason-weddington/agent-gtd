@@ -1,10 +1,38 @@
 """Tests for dispatch run CRUD API and remote dispatch worker."""
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from agent_gtd_dispatch_protocol import RunResponse as RemoteRunResponse
+from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 from fastapi import HTTPException
 from httpx import AsyncClient
+
+
+def _remote_run(
+    status: RemoteRunStatus,
+    run_id: str = "remote-123",
+    *,
+    error: str | None = None,
+) -> RemoteRunResponse:
+    """Build a minimal ``RemoteRunResponse`` for test mocks."""
+    return RemoteRunResponse(
+        id=run_id,
+        item_id=None,
+        project_name="test",
+        branch_name=None,
+        engine="claude",
+        agent_name=None,
+        mode="build",
+        rollout_id=None,
+        status=status,
+        started_at=None,
+        completed_at=None,
+        exit_code=None,
+        error=error,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -942,7 +970,7 @@ async def test_reconcile_remote_terminal(
 
     # Mock the remote poll to return "succeeded"
     async def mock_poll(client, remote_id, *, url, api_key):
-        return {"status": "succeeded", "error": None}
+        return _remote_run(RemoteRunStatus.succeeded)
 
     monkeypatch.setattr(dw, "_poll_remote_run", mock_poll)
 
@@ -989,7 +1017,7 @@ async def test_reconcile_remote_still_running(
 
     # Mock the remote poll to return "running"
     async def mock_poll(client, remote_id, *, url, api_key):
-        return {"status": "running"}
+        return _remote_run(RemoteRunStatus.running)
 
     monkeypatch.setattr(dw, "_poll_remote_run", mock_poll)
 
@@ -1138,14 +1166,14 @@ async def test_execute_run_success(
         rollout_id=None,
         timeout_minutes=30,
     ):
-        return {"id": "remote-123", "status": "pending"}
+        return _remote_run(RemoteRunStatus.pending)
 
     async def mock_poll(client, remote_run_id, *, url, api_key):
         nonlocal poll_count
         poll_count += 1
         if poll_count >= 2:
-            return {"id": "remote-123", "status": "succeeded", "error": None}
-        return {"id": "remote-123", "status": "running", "error": None}
+            return _remote_run(RemoteRunStatus.succeeded)
+        return _remote_run(RemoteRunStatus.running)
 
     monkeypatch.setattr(dw, "_dispatch_to_remote", mock_dispatch_to_remote)
     monkeypatch.setattr(dw, "_poll_remote_run", mock_poll)
@@ -1206,14 +1234,14 @@ async def test_execute_run_remote_failure(
         rollout_id=None,
         timeout_minutes=30,
     ):
-        return {"id": "remote-456", "status": "pending"}
+        return _remote_run(RemoteRunStatus.pending, run_id="remote-456")
 
     async def mock_poll(client, remote_run_id, *, url, api_key):
-        return {
-            "id": "remote-456",
-            "status": "failed",
-            "error": "Reached max turns (50)",
-        }
+        return _remote_run(
+            RemoteRunStatus.failed,
+            run_id="remote-456",
+            error="Reached max turns (50)",
+        )
 
     monkeypatch.setattr(dw, "_dispatch_to_remote", mock_dispatch_to_remote)
     monkeypatch.setattr(dw, "_poll_remote_run", mock_poll)
@@ -1357,10 +1385,10 @@ async def test_configure_and_dispatch(
         rollout_id=None,
         timeout_minutes=30,
     ):
-        return {"id": "remote-ok", "status": "pending"}
+        return _remote_run(RemoteRunStatus.pending, run_id="remote-ok")
 
     async def mock_poll(client, remote_run_id, *, url, api_key):
-        return {"id": "remote-ok", "status": "succeeded", "error": None}
+        return _remote_run(RemoteRunStatus.succeeded, run_id="remote-ok")
 
     monkeypatch.setattr(dw, "_dispatch_to_remote", mock_dispatch)
     monkeypatch.setattr(dw, "_poll_remote_run", mock_poll)

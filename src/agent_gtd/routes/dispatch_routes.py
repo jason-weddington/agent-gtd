@@ -23,8 +23,8 @@ from agent_gtd.models import (
     CreateRunRequest,
     DispatchAgentInfo,
     DispatchCapabilitiesResponse,
+    LocalRunStatus,
     RunResponse,
-    RunStatus,
     User,
 )
 from agent_gtd.services import dispatch_service, project_service
@@ -52,7 +52,7 @@ def _run_response(row: dict[str, object]) -> RunResponse:
         id=str(row["id"]),
         item_id=str(row["item_id"]),
         project_id=str(row["project_id"]),
-        status=RunStatus(str(row["status"])),
+        status=LocalRunStatus(str(row["status"])),
         feature_branch=str(row.get("feature_branch", "")),
         workspace_dir=str(row.get("workspace_dir", "")),
         max_turns=int(str(row.get("max_turns", 50))),
