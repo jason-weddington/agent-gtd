@@ -411,6 +411,23 @@ async def test_update_item_with_version(registered_client):
     assert data["version"] == 2
 
 
+async def test_update_item_empty_item_id_raises_tool_error(registered_client):
+    """update_item with an empty item_id raises a ToolError with a clear message.
+
+    Defensive guard against malformed tool calls where the harness sends an
+    empty string instead of a UUID (e.g. due to context-window pressure).
+    """
+    with pytest.raises(ToolError, match="empty item_id"):
+        await registered_client.call_tool(
+            "update_item",
+            {
+                "item_id": "",
+                "version": 1,
+                "title": "Should not reach backend",
+            },
+        )
+
+
 async def test_add_item_with_due_date(registered_client):
     """add_item stores a due_date when provided."""
     result = await registered_client.call_tool(

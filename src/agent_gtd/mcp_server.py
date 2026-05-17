@@ -541,7 +541,6 @@ async def add_item(
 async def update_item(
     item_id: str,
     version: int,
-    ctx: Context,
     title: str | None = None,
     description: str | None = None,
     status: str | None = None,
@@ -553,6 +552,8 @@ async def update_item(
     acceptance_criteria: list[str] | None = None,
     files_to_modify: list[dict[str, Any]] | None = None,
     scope_out: list[str] | None = None,
+    *,
+    ctx: Context,
 ) -> dict[str, Any]:
     """Update an existing item. Requires optimistic locking via version.
 
@@ -563,7 +564,6 @@ async def update_item(
     Args:
         item_id: ID of the item to update.
         version: Current version of the item (required for optimistic locking).
-        ctx: MCP context (injected automatically).
         title: New title (None = unchanged).
         description: New description (None = unchanged).
         status: New status (None = unchanged).
@@ -585,10 +585,19 @@ async def update_item(
             "change" keys (None = unchanged, empty list [] = clear, non-empty = set).
         scope_out: Structured scope-out list (None = unchanged, empty list [] = clear,
             non-empty list = set).
+        ctx: MCP context (injected automatically).
 
     Returns:
         The updated item dict.
     """
+    # Defensive guard: if item_id is empty the call was malformed (e.g. harness
+    # sent an empty-string value instead of a UUID).  Raise a clear ToolError
+    # rather than letting the backend emit an opaque not-found or DB error.
+    if not item_id:
+        raise ToolError(
+            "update_item called with empty item_id — tool-call body may be malformed"
+        )
+
     session = await _get_session(ctx)
 
     # Translate MCP due_date sentinel into (due_date, due_date_set) pair for backend.
