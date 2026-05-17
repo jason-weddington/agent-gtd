@@ -166,7 +166,7 @@ async def test_get_dispatch_settings_defaults(
     res = await client.get("/api/settings/dispatch", headers=auth_headers)
     assert res.status_code == 200
     data = res.json()
-    assert data["engine"] == "claude"
+    assert data["engine"] == "claude-code"
     assert "agent_name" not in data
     assert data["plan_agent_name"] == ""
     assert data["build_agent_name"] == ""
@@ -888,3 +888,73 @@ async def test_global_agent_migration_noop_when_legacy_absent() -> None:
     build = await get_setting(db, "dispatch.build_agent_name")
     assert plan is None
     assert build is None
+
+
+# ---------------------------------------------------------------------------
+# Migration: dispatch.engine 'claude' → 'claude-code'
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_engine_migration_renames_claude_to_claude_code() -> None:
+    """Migration updates dispatch.engine 'claude' → 'claude-code'."""
+    from agent_gtd.database import get_db
+    from agent_gtd.main import _migrate_engine_name
+    from agent_gtd.services.settings_service import get_setting, set_setting
+
+    db = await get_db()
+    await set_setting(db, "dispatch.engine", "claude")
+
+    await _migrate_engine_name()
+
+    engine = await get_setting(db, "dispatch.engine")
+    assert engine == "claude-code"
+
+
+@pytest.mark.asyncio
+async def test_engine_migration_leaves_other_engines_untouched() -> None:
+    """Migration does not modify rows whose engine value is not 'claude'."""
+    from agent_gtd.database import get_db
+    from agent_gtd.main import _migrate_engine_name
+    from agent_gtd.services.settings_service import get_setting, set_setting
+
+    db = await get_db()
+    await set_setting(db, "dispatch.engine", "kiro")
+
+    await _migrate_engine_name()
+
+    engine = await get_setting(db, "dispatch.engine")
+    assert engine == "kiro"
+
+
+@pytest.mark.asyncio
+async def test_engine_migration_new_user_gets_claude_code_default(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """New users (no dispatch.engine row) get 'claude-code' as the engine default."""
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    # Ensure no global engine setting exists
+    await db.execute("DELETE FROM app_settings WHERE key = 'dispatch.engine'")
+
+    res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["engine"] == "claude-code"
+
+
+@pytest.mark.asyncio
+async def test_engine_migration_idempotent() -> None:
+    """Running _migrate_engine_name twice is a no-op on the second run."""
+    from agent_gtd.database import get_db
+    from agent_gtd.main import _migrate_engine_name
+    from agent_gtd.services.settings_service import get_setting, set_setting
+
+    db = await get_db()
+    await set_setting(db, "dispatch.engine", "claude")
+
+    await _migrate_engine_name()
+    await _migrate_engine_name()  # second run — no-op
+
+    engine = await get_setting(db, "dispatch.engine")
+    assert engine == "claude-code"

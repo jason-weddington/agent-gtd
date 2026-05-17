@@ -1,5 +1,6 @@
 """Agent GTD FastAPI application."""
 
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -23,6 +24,8 @@ from agent_gtd.routes.project_routes import router as project_router
 from agent_gtd.routes.rollout_routes import project_rollout_router
 from agent_gtd.routes.rollout_routes import router as rollout_router
 from agent_gtd.routes.settings_routes import router as settings_router
+
+logger = logging.getLogger(__name__)
 
 
 async def _migrate_global_agent_name() -> None:
@@ -50,6 +53,41 @@ async def _migrate_global_agent_name() -> None:
         await set_setting(db, "dispatch.build_agent_name", agent_name)
 
 
+async def _migrate_engine_name() -> None:
+    """One-time idempotent migration: rename dispatch.engine 'claude' → 'claude-code'.
+
+    When item 865b0e4e renamed the dispatch engine value from ``"claude"`` to
+    ``"claude-code"`` in the dispatch service, the companion update to the
+    agent-gtd global setting default was never shipped.  Any existing row with
+    ``dispatch.engine = "claude"`` will cause 400 errors once the new dispatch
+    service (which no longer accepts ``"claude"``) is deployed.
+
+    This migration is idempotent — running it twice is a no-op.  Rows with
+    any other engine value (e.g. ``"kiro"``, ``"claude-code-ollama"``) are
+    left untouched.  Logs the number of updated rows at INFO level.
+    """
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    # Count first (backend-agnostic — db.execute's tag-string format varies).
+    rows = await db.fetch(
+        "SELECT key FROM app_settings "
+        "WHERE key = 'dispatch.engine' AND value = 'claude'",
+    )
+    updated = len(rows)
+    if updated:
+        await db.execute(
+            "UPDATE app_settings SET value = 'claude-code' "
+            "WHERE key = 'dispatch.engine' AND value = 'claude'",
+        )
+        logger.info(
+            "migration: renamed dispatch.engine 'claude' → 'claude-code' in %d row(s)",
+            updated,
+        )
+    else:
+        logger.info("migration: dispatch.engine rename — nothing to update")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifecycle: init/close database."""
@@ -63,6 +101,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     await init_db()
     await _migrate_global_agent_name()
+    await _migrate_engine_name()
     if is_local_mode():
         _app.dependency_overrides[get_current_user] = get_local_user
 

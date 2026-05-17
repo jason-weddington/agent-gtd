@@ -42,7 +42,7 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
         else int(os.environ.get("DISPATCH_MAX_CONCURRENT", "6"))
     )
 
-    engine = await settings_service.get_setting(db, _ENGINE_KEY) or "claude"
+    engine = await settings_service.get_setting(db, _ENGINE_KEY) or "claude-code"
     plan_agent_name = await settings_service.get_setting(db, _PLAN_AGENT_NAME_KEY) or ""
     build_agent_name = (
         await settings_service.get_setting(db, _BUILD_AGENT_NAME_KEY) or ""
