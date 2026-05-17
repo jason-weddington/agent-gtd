@@ -1,7 +1,8 @@
-"""Unit tests for dispatch_service.reconcile_orphans (AC-2, AC-3, AC-5b)."""
+"""Unit tests for dispatch_service (reconcile_orphans and cancel_run forwarding)."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 
@@ -184,3 +185,243 @@ async def test_create_run_manage_mode_rejected() -> None:
 
     # Error message must direct caller to dispatch_rollout
     assert "dispatch_rollout" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# cancel_run — cross-service forwarding (AC-4a/4b/4c/4d)
+# ---------------------------------------------------------------------------
+
+_FAKE_DISPATCH_CFG = {"url": "http://fake-dispatch", "api_key": "test-key"}
+
+
+async def _setup_cancel_run_fixture(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+    *,
+    remote_run_id: str = "",
+) -> tuple[str, str]:
+    """Create user/project/item/run; return (user_id, run_id).
+
+    Args:
+        client: Async HTTP test client.
+        auth_headers: Auth headers for the test user.
+        remote_run_id: Value to store in ``claude_runs.remote_run_id``.
+
+    Returns:
+        Tuple of (user_id, run_id).
+    """
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import create_run
+
+    me = await client.get("/api/auth/me", headers=auth_headers)
+    user_id: str = me.json()["id"]
+
+    proj = await client.post(
+        "/api/projects",
+        json={"name": "CancelTest", "git_origin": "git@github.com:test/repo.git"},
+        headers=auth_headers,
+    )
+    project_id: str = proj.json()["id"]
+
+    item = await client.post(
+        f"/api/projects/{project_id}/items",
+        json={"title": "Cancel task"},
+        headers=auth_headers,
+    )
+    item_id: str = item.json()["id"]
+
+    db = await get_db()
+    run = await create_run(db, user_id, item_id)
+    run_id: str = run["id"]
+
+    if remote_run_id:
+        await db.execute(
+            "UPDATE claude_runs SET remote_run_id = $1 WHERE id = $2",
+            remote_run_id,
+            run_id,
+        )
+
+    return user_id, run_id
+
+
+def _make_async_client_mock(
+    status_code: int = 200,
+    text: str = "OK",
+    side_effect: Exception | None = None,
+) -> MagicMock:
+    """Return a mock for ``httpx.AsyncClient`` used as async context manager."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = status_code
+    mock_resp.text = text
+
+    mock_post = AsyncMock(
+        return_value=mock_resp,
+        side_effect=side_effect,
+    )
+
+    # Use MagicMock (not AsyncMock) as the base so the async context-manager
+    # protocol is set up manually without leaving unawaited internal coroutines.
+    mock_instance = MagicMock()
+    mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
+    mock_instance.__aexit__ = AsyncMock(return_value=None)
+    mock_instance.post = mock_post
+
+    return mock_instance
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_forwards_200(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AC-4a: HTTP 200 → local run cancelled + INFO log emitted."""
+    import logging
+
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    user_id, run_id = await _setup_cancel_run_fixture(
+        client, auth_headers, remote_run_id="remote-abc"
+    )
+
+    mock_client_instance = _make_async_client_mock(status_code=200)
+
+    with (
+        patch("httpx.AsyncClient", return_value=mock_client_instance),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_config",
+            new=AsyncMock(return_value=_FAKE_DISPATCH_CFG),
+        ),
+        caplog.at_level(logging.INFO, logger="agent_gtd.services.dispatch_service"),
+    ):
+        db = await get_db()
+        updated = await cancel_run(db, user_id, run_id)
+
+    assert updated["status"] == "cancelled"
+
+    log_text = caplog.text
+    assert any(
+        "INFO" in r.levelname and run_id in r.message
+        for r in caplog.records
+        if r.name == "agent_gtd.services.dispatch_service"
+    ), f"Expected INFO log containing run_id={run_id!r}, got:\n{log_text}"
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_no_remote_id(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AC-4b: Empty remote_run_id → local run cancelled + WARN log, no HTTP call."""
+    import logging
+
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    # remote_run_id left empty (default "")
+    user_id, run_id = await _setup_cancel_run_fixture(client, auth_headers)
+
+    mock_client_cls = MagicMock()
+
+    with (
+        patch("httpx.AsyncClient", mock_client_cls),
+        caplog.at_level(logging.WARNING, logger="agent_gtd.services.dispatch_service"),
+    ):
+        db = await get_db()
+        updated = await cancel_run(db, user_id, run_id)
+
+    assert updated["status"] == "cancelled"
+
+    # No HTTP call should have been made
+    mock_client_cls.assert_not_called()
+
+    assert any(
+        r.levelno >= logging.WARNING and run_id in r.message
+        for r in caplog.records
+        if r.name == "agent_gtd.services.dispatch_service"
+    ), f"Expected WARNING log containing run_id={run_id!r}, got:\n{caplog.text}"
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_remote_404(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AC-4c: HTTP 404 → local run cancelled + WARN log."""
+    import logging
+
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    user_id, run_id = await _setup_cancel_run_fixture(
+        client, auth_headers, remote_run_id="remote-gone"
+    )
+
+    mock_client_instance = _make_async_client_mock(status_code=404, text="Not Found")
+
+    with (
+        patch("httpx.AsyncClient", return_value=mock_client_instance),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_config",
+            new=AsyncMock(return_value=_FAKE_DISPATCH_CFG),
+        ),
+        caplog.at_level(logging.WARNING, logger="agent_gtd.services.dispatch_service"),
+    ):
+        db = await get_db()
+        updated = await cancel_run(db, user_id, run_id)
+
+    assert updated["status"] == "cancelled"
+
+    assert any(
+        r.levelno >= logging.WARNING
+        and (
+            "not found" in r.message.lower()
+            or "404" in r.message
+            or run_id in r.message
+        )
+        for r in caplog.records
+        if r.name == "agent_gtd.services.dispatch_service"
+    ), f"Expected WARNING log for 404, got:\n{caplog.text}"
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_remote_timeout(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AC-4d: Dispatch call raises TimeoutException → local run cancelled + WARN log."""
+    import logging
+
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    user_id, run_id = await _setup_cancel_run_fixture(
+        client, auth_headers, remote_run_id="remote-slow"
+    )
+
+    mock_client_instance = _make_async_client_mock(
+        side_effect=httpx.TimeoutException("timeout")
+    )
+
+    with (
+        patch("httpx.AsyncClient", return_value=mock_client_instance),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_config",
+            new=AsyncMock(return_value=_FAKE_DISPATCH_CFG),
+        ),
+        caplog.at_level(logging.WARNING, logger="agent_gtd.services.dispatch_service"),
+    ):
+        db = await get_db()
+        updated = await cancel_run(db, user_id, run_id)
+
+    assert updated["status"] == "cancelled"
+
+    assert any(
+        r.levelno >= logging.WARNING and run_id in r.message
+        for r in caplog.records
+        if r.name == "agent_gtd.services.dispatch_service"
+    ), f"Expected WARNING log containing run_id={run_id!r}, got:\n{caplog.text}"

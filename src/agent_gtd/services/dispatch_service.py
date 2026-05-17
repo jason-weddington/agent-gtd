@@ -404,6 +404,10 @@ async def cancel_run(
 ) -> dict[str, Any]:
     """Cancel a run. Only active runs can be cancelled.
 
+    After updating the local row to ``cancelled``, best-effort forwards the
+    cancel to the remote dispatch service.  Remote call failures do not roll
+    back the local state — local intent always wins.
+
     Raises:
         NotFoundError: If run not found or not owned by user.
     """
@@ -423,7 +427,75 @@ async def cancel_run(
 
     row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
     assert row is not None  # noqa: S101
-    return row_to_dict(row)
+    updated = row_to_dict(row)
+
+    # Forward cancel to the dispatch service (best-effort; local cancel wins).
+    remote_run_id = str(run.get("remote_run_id", "") or "")
+    if not remote_run_id:
+        logger.warning(
+            "cancel_run: run %s has no remote_run_id; skip dispatch forward",
+            run_id,
+        )
+    else:
+        import httpx
+
+        from agent_gtd.services.settings_service import get_dispatch_config
+
+        # Dispatch config belongs to the project owner (mirrors execute_run).
+        project_id_val = run.get("project_id")
+        if project_id_val:
+            proj_row = await db.fetchrow(
+                "SELECT user_id FROM projects WHERE id = $1", str(project_id_val)
+            )
+            owner_id = str(proj_row["user_id"]) if proj_row else user_id
+        else:
+            owner_id = user_id
+
+        settings = await get_dispatch_config(db, owner_id)
+        if not settings:
+            logger.warning(
+                "cancel_run: no dispatch config for owner of run %s;"
+                " cannot forward cancel",
+                run_id,
+            )
+        else:
+            try:
+                async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
+                    resp = await client.post(
+                        f"{settings['url']}/runs/{remote_run_id}/cancel",
+                        headers={"Authorization": f"Bearer {settings['api_key']}"},
+                        timeout=15.0,
+                    )
+                    if resp.status_code == 200:
+                        logger.info(
+                            "cancel_run: forwarded cancel to dispatch for run %s"
+                            " (remote_run_id=%s)",
+                            run_id,
+                            remote_run_id,
+                        )
+                    elif resp.status_code == 404:
+                        logger.warning(
+                            "cancel_run: remote run not found; possibly already"
+                            " terminal (run_id=%s remote_run_id=%s)",
+                            run_id,
+                            remote_run_id,
+                        )
+                    else:
+                        logger.warning(
+                            "cancel_run: unexpected status %s forwarding cancel"
+                            " (run_id=%s body=%s)",
+                            resp.status_code,
+                            run_id,
+                            resp.text[:200],
+                        )
+            except Exception:
+                logger.warning(
+                    "cancel_run: exception forwarding cancel for run %s",
+                    run_id,
+                    exc_info=True,
+                )
+
+    return updated
 
 
 async def reconcile_orphans(db: DbPool) -> int:
