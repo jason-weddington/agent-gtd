@@ -135,11 +135,13 @@ class BuildEngine(StrEnum):
     """Dispatch build engine identifier.
 
     Union of all currently registered engines across item.build_engine and
-    settings.engine use-cases (pre-865b0e4e rename).
+    settings.engine use-cases.
     """
 
     CLAUDE_CODE = "claude-code"
     CLAUDE_CODE_OLLAMA = "claude-code-ollama"
+    CLAUDE_CODE_SONNET = "claude-code-sonnet"
+    CLAUDE_CODE_HAIKU = "claude-code-haiku"
     CLAUDE = "claude"
     KIRO = "kiro"
 

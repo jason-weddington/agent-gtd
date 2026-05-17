@@ -618,14 +618,15 @@ async def test_update_item_build_engine(
 
 
 @pytest.mark.parametrize("engine", ["claude-code-sonnet", "claude-code-haiku"])
-async def test_update_item_build_engine_removed_tiers_now_invalid(
+async def test_update_item_build_engine_new_tiers_accepted(
     client: AsyncClient, auth_headers: dict[str, str], engine: str
 ):
-    """claude-code-sonnet and claude-code-haiku are no longer valid BuildEngine values.
+    """claude-code-sonnet and claude-code-haiku are valid BuildEngine values.
 
-    These were removed from the enum per scope: 'Do NOT add claude-code-sonnet to
-    BuildEngine — that is covered by item 38c19ee1'.  Pydantic now rejects them at
-    parse time with 422.
+    Both were added to the dispatch service via item e261e681 and ALLOWED_BUILD_ENGINES
+    via 38c19ee1.  The BuildEngine StrEnum (46ad731a) must include them — leaving them
+    out causes 500s on any item read with these values (live regression caught
+    2026-05-17 19:35 UTC).
     """
     create = await client.post("/api/items", json={"title": "T"}, headers=auth_headers)
     assert create.status_code == 201
@@ -635,7 +636,8 @@ async def test_update_item_build_engine_removed_tiers_now_invalid(
         json={"build_engine": engine, "version": item["version"]},
         headers=auth_headers,
     )
-    assert res.status_code == 422
+    assert res.status_code == 200
+    assert res.json()["build_engine"] == engine
 
 
 @pytest.mark.parametrize("engine", ["claude", "kiro"])
