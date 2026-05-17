@@ -31,6 +31,8 @@ from agent_gtd.services.project_service import get_project
 logger = logging.getLogger(__name__)
 
 _ACTIVE_STATUSES = ("pending", "cloning", "running")
+# Note: manage-mode runs are created via dispatch_rollout_run (item_id=NULL) and
+# therefore never appear in the _ACTIVE_STATUSES check below, which filters by item_id.
 
 
 def make_branch_name(item_id: str, title: str) -> str:
@@ -63,6 +65,16 @@ async def create_run(
         RunActiveError: If an active run already exists for this item.
         ValidationError: If manage-mode wave pre-conditions are not met.
     """
+    # Block manage-mode dispatch through this path. Manage runs must be created
+    # via dispatch_rollout_run (which sets item_id=NULL). Allowing manage-mode
+    # here would key the run to a rollout item's ID, causing RunActiveError when
+    # the manage agent later tries to dispatch a child build for that same item.
+    if mode == "manage":
+        raise ValidationError(
+            "Use dispatch_rollout to launch manage-mode runs; "
+            "dispatch_item(mode='manage') is not supported"
+        )
+
     item = await get_item(db, user_id, item_id)
 
     # Wave lock guard: items in an active wave cannot be re-dispatched
@@ -93,10 +105,6 @@ async def create_run(
     unresolved = await get_unresolved_blockers(db, item_id)
     if unresolved:
         raise BlockersUnresolvedError("dispatch this item", unresolved)
-
-    # Manage-mode requires rollout_id (service-level guard; MCP layer also checks)
-    if mode == "manage" and rollout_id is None:
-        raise ValidationError("rollout_id is required for mode='manage'")
 
     # Build-mode wave pre-flight: validate wave exists, is owned, and is running
     if mode == "build" and rollout_id is not None:

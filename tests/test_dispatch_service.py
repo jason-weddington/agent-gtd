@@ -150,3 +150,37 @@ async def test_reconcile_orphans_logs_each_run_id() -> None:
     assert "run-log-2" in combined, (
         f"Expected run-log-2 in log messages, got:\n{combined}"
     )
+
+
+# ---------------------------------------------------------------------------
+# AC-5: create_run rejects mode='manage' (Bug 1 regression test)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_run_manage_mode_rejected() -> None:
+    """AC-5: create_run raises ValidationError when mode='manage'.
+
+    This blocks the old path that allowed a manage run to be keyed to a rollout
+    item's ID, which caused RunActiveError deadlock when the manage agent later
+    tried to dispatch a child build for that same item.
+
+    Callers must use dispatch_rollout (which calls dispatch_rollout_run) instead.
+    """
+    from agent_gtd.exceptions import ValidationError as GTDValidationError
+    from agent_gtd.services.dispatch_service import create_run
+
+    # DB is never reached because the guard fires first — use a mock.
+    db = MagicMock()
+
+    with pytest.raises(GTDValidationError) as exc_info:
+        await create_run(
+            db,
+            user_id="any-user-id",
+            item_id="any-item-id",
+            mode="manage",
+            rollout_id="any-rollout-id",
+        )
+
+    # Error message must direct caller to dispatch_rollout
+    assert "dispatch_rollout" in str(exc_info.value)

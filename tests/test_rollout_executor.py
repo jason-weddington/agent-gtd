@@ -1069,7 +1069,7 @@ async def _mock_dispatch_preflight():
 async def test_manage_dispatch_flips_wave_to_running(
     client: AsyncClient, _mock_dispatch_preflight
 ):
-    """dispatch_item(mode='manage', rollout_id=...) flips wave status to running."""
+    """dispatch_rollout flips wave status to running."""
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
     from agent_gtd.services.settings_service import set_user_setting
@@ -1092,13 +1092,12 @@ async def test_manage_dispatch_flips_wave_to_running(
     await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
     await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
 
-    item_id = await _make_item(db, user_id, project_id, "Manager task")
     rollout_id = await _make_wave_run(db, user_id, project_id, status="pending")
 
     token = create_token(user_id)
+    # Use dispatch_rollout (correct path: item_id=NULL manage run)
     res = await client.post(
-        f"/api/items/{item_id}/dispatch",
-        json={"mode": "manage", "rollout_id": rollout_id},
+        f"/api/rollouts/{rollout_id}/dispatch",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert res.status_code == 201, res.text
@@ -1111,7 +1110,7 @@ async def test_manage_dispatch_flips_wave_to_running(
 async def test_manage_dispatch_emits_wave_started_event(
     client: AsyncClient, _mock_dispatch_preflight
 ):
-    """dispatch_item(mode='manage') emits a wave_started event in rollout_events."""
+    """dispatch_rollout emits a wave_started event in rollout_events."""
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
     from agent_gtd.services.settings_service import set_user_setting
@@ -1132,13 +1131,12 @@ async def test_manage_dispatch_emits_wave_started_event(
     await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
     await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
 
-    item_id = await _make_item(db, user_id, project_id, "Manager task 2")
     rollout_id = await _make_wave_run(db, user_id, project_id, status="pending")
 
     token = create_token(user_id)
+    # Use dispatch_rollout (correct path: item_id=NULL manage run)
     res = await client.post(
-        f"/api/items/{item_id}/dispatch",
-        json={"mode": "manage", "rollout_id": rollout_id},
+        f"/api/rollouts/{rollout_id}/dispatch",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert res.status_code == 201, res.text
@@ -1321,11 +1319,13 @@ async def test_build_dispatch_with_non_running_wave_raises_validation_error(
 async def test_manage_dispatch_does_not_flip_item_status(
     client: AsyncClient, _mock_dispatch_preflight
 ):
-    """manage dispatch does NOT change the launch item's status (regression: kb-01515).
+    """dispatch_rollout does not change any item's status (regression: kb-01515, Bug 1).
 
-    Before the fix, create_run() unconditionally called update_item(status='active'),
-    which left the placeholder item stuck in 'active' and prevented it from being
-    included in future wave plans (plan_rollout rejects items whose status != 'ready').
+    After the fix, dispatch_item(mode='manage') is blocked entirely. The correct
+    path is dispatch_rollout which creates a manage run with item_id=NULL and
+    therefore never touches any item's status. This test verifies that the old
+    path (dispatch_item mode=manage) returns 409, and that dispatch_rollout
+    leaves a 'ready' item untouched.
     """
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
@@ -1346,7 +1346,7 @@ async def test_manage_dispatch_does_not_flip_item_status(
     await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
     await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
 
-    # Create the placeholder item in 'ready' status
+    # Create a rollout-bound item in 'ready' status
     item_id = str(uuid.uuid4())
     await db.execute(
         "INSERT INTO items"
@@ -1355,7 +1355,7 @@ async def test_manage_dispatch_does_not_flip_item_status(
         item_id,
         project_id,
         user_id,
-        "Wave manager placeholder",
+        "Wave item A",
         "ready",
         now,
         now,
@@ -1364,18 +1364,37 @@ async def test_manage_dispatch_does_not_flip_item_status(
     rollout_id = await _make_wave_run(db, user_id, project_id, status="pending")
 
     token = create_token(user_id)
-    res = await client.post(
+
+    # Old path (dispatch_item mode=manage) must be rejected — confirms Bug 1 fix
+    res_old = await client.post(
         f"/api/items/{item_id}/dispatch",
         json={"mode": "manage", "rollout_id": rollout_id},
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert res.status_code == 201, res.text
+    assert res_old.status_code == 409, (
+        f"Expected 409 for dispatch_item(mode=manage), got {res_old.status_code}"
+    )
 
-    # Item status must be unchanged — manage mode must NOT flip to 'active'
+    # Item status must still be unchanged after the rejected call
     row = await db.fetchrow("SELECT status FROM items WHERE id = $1", item_id)
     assert row is not None
-    assert row["status"] == "ready", (
-        f"Expected item status 'ready' after manage dispatch, got '{row['status']}'"
+    got = row["status"]
+    assert got == "ready", (
+        f"Expected item status 'ready' after rejected manage dispatch, got '{got}'"
+    )
+
+    # Correct path: dispatch_rollout creates item_id=NULL run, item status unchanged
+    res_new = await client.post(
+        f"/api/rollouts/{rollout_id}/dispatch",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res_new.status_code == 201, res_new.text
+
+    # Item status still unchanged after correct dispatch path
+    row2 = await db.fetchrow("SELECT status FROM items WHERE id = $1", item_id)
+    assert row2 is not None
+    assert row2["status"] == "ready", (
+        f"Expected item status 'ready' after dispatch_rollout, got '{row2['status']}'"
     )
 
 
@@ -1416,10 +1435,14 @@ async def test_manage_dispatch_without_rollout_id_rejected(
 async def test_happy_path_plan_rollout_to_complete_item_in_rollout(
     client: AsyncClient, _mock_dispatch_preflight
 ):
-    """Full happy path: manage dispatch → build dispatch → complete_item_in_rollout.
+    """Full happy path: dispatch_rollout → build dispatch → complete_item_in_rollout.
 
-    Wave transitions: pending→running (manage), ready→dispatched (build),
+    Wave transitions: pending→running (dispatch_rollout), ready→dispatched (build),
     dispatched→completed (complete_item_in_rollout).  Downstream item B becomes 'ready'.
+
+    This is the correct flow after Bug 1 fix: dispatch_rollout creates a manage run
+    with item_id=NULL, avoiding the deadlock where the manage run was keyed to a
+    rollout item's ID and blocked child build dispatch via RunActiveError.
     """
     from agent_gtd.auth import create_token, register_user
     from agent_gtd.database import get_db
@@ -1443,7 +1466,6 @@ async def test_happy_path_plan_rollout_to_complete_item_in_rollout(
     # Create items: A (wave-1), B (wave-2, blocked by A)
     item_a_id = await _make_item(db, user_id, project_id, "Happy Item A")
     item_b_id = await _make_item(db, user_id, project_id, "Happy Item B")
-    manager_item_id = await _make_item(db, user_id, project_id, "Manager")
 
     # Create a pending wave
     rollout_id = await _make_wave_run(db, user_id, project_id, status="pending")
@@ -1462,13 +1484,12 @@ async def test_happy_path_plan_rollout_to_complete_item_in_rollout(
     token = create_token(user_id)
     headers = {"Authorization": f"Bearer {token}"}
 
-    # Step 1: manage dispatch → wave becomes 'running'
+    # Step 1: dispatch_rollout → wave becomes 'running' (item_id=NULL manage run)
     res = await client.post(
-        f"/api/items/{manager_item_id}/dispatch",
-        json={"mode": "manage", "rollout_id": rollout_id},
+        f"/api/rollouts/{rollout_id}/dispatch",
         headers=headers,
     )
-    assert res.status_code == 201, f"manage dispatch failed: {res.text}"
+    assert res.status_code == 201, f"dispatch_rollout failed: {res.text}"
 
     wave = await _get_rollout(db, rollout_id)
     assert wave["status"] == "running"

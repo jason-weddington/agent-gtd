@@ -1273,3 +1273,244 @@ async def test_halt_rollout_rejects_halted_status(db):
 
     with pytest.raises(ValidationError):
         await halt_rollout(db, user_id, rollout_id, "should_fail")
+
+
+# ---------------------------------------------------------------------------
+# AC-3: complete_item_in_rollout from 'ready' status (inline-management path)
+# ---------------------------------------------------------------------------
+
+
+async def test_complete_item_in_rollout_from_ready(db):
+    """AC-3: complete_item_in_rollout succeeds when item status is 'ready'.
+
+    This tests the inline-management path: manage agent completes an item
+    directly without dispatching a child build run (ready → terminal, skipping
+    the dispatched intermediate state).
+    """
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, status="active")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    # Item is in 'ready' state — no child build was dispatched (inline path)
+    await _make_wave_plan_item(db, rollout_id, item_id, status="ready")
+
+    with (
+        patch(
+            "agent_gtd.services.rollout_lock_service.release_rollout_item",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
+    ):
+        result = await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="completed"
+        )
+
+    # Outcome should succeed
+    assert result["rollout_item"]["status"] == "completed"
+    assert result["graph_complete"] is True  # only item in the rollout
+
+    # GTD item should be marked done
+    row = await db.fetchrow(
+        "SELECT status, completed_at FROM items WHERE id = $1", item_id
+    )
+    assert row is not None
+    assert row["status"] == "done"
+    assert row["completed_at"] is not None
+
+
+async def test_complete_item_in_rollout_from_ready_unblocks_downstream(db):
+    """AC-3: completing a 'ready' item unblocks its downstream successor."""
+    import json
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_a = await _make_item(db, user_id, project_id, title="Item A", status="active")
+    item_b = await _make_item(db, user_id, project_id, title="Item B", status="ready")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+
+    # A is ready (inline), B is pending (blocked on A)
+    await _make_wave_plan_item(db, rollout_id, item_a, status="ready")
+    await _make_wave_plan_item(db, rollout_id, item_b, status="pending")
+
+    # Insert rollout_plans so downstream unblocking logic can traverse the DAG
+    plan_id = str(uuid.uuid4())
+    edges = [{"from_item_id": item_a, "to_item_id": item_b}]
+    await db.execute(
+        "INSERT INTO rollout_plans"
+        " (id, rollout_id, version, nodes, edges, planner_model, created_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        plan_id,
+        rollout_id,
+        1,
+        json.dumps([item_a, item_b]),
+        json.dumps(edges),
+        "test-model",
+        NOW,
+    )
+
+    with (
+        patch(
+            "agent_gtd.services.rollout_lock_service.release_rollout_item",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
+    ):
+        result = await complete_item_in_rollout(
+            db, user_id, rollout_id, item_a, outcome="completed"
+        )
+
+    # B should now be ready
+    assert item_b in result["newly_ready"]
+    assert result["graph_complete"] is False
+
+    b_status = await _get_wave_item_status(db, rollout_id, item_b)
+    assert b_status == "ready"
+
+
+async def test_complete_item_in_rollout_rejects_pending_status(db):
+    """complete_item_in_rollout still rejects items in 'pending' status."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, status="active")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, rollout_id, item_id, status="pending")
+
+    with (
+        patch(
+            "agent_gtd.services.rollout_lock_service.release_rollout_item",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
+        pytest.raises(ValidationError, match="pending"),
+    ):
+        await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="completed"
+        )
+
+
+# ---------------------------------------------------------------------------
+# AC-4: Full managed-rollout happy path (state machine end-to-end)
+# ---------------------------------------------------------------------------
+
+
+async def _make_rollout_plan(
+    db,
+    rollout_id: str,
+    nodes: list[str],
+    edges: list[dict],
+) -> str:
+    """Insert a rollout_plans row and return its ID."""
+    import json
+
+    plan_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO rollout_plans"
+        " (id, rollout_id, version, nodes, edges, planner_model, created_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        plan_id,
+        rollout_id,
+        1,
+        json.dumps(nodes),
+        json.dumps(edges),
+        "test-model",
+        NOW,
+    )
+    return plan_id
+
+
+async def test_managed_rollout_happy_path(db):
+    """AC-4: Full end-to-end state machine for a 2-item rollout with A→B dependency.
+
+    Simulates the complete managed-rollout flow:
+    1. Create rollout with 2 items (A depends on B completing first: A→B edge means
+       B blocks A, so A is a successor of B).
+    2. Start rollout (pending → running).
+    3. Dispatch child build for item A (rollout_items.A → dispatched).
+    4. Complete item A (B becomes ready).
+    5. Dispatch child build for item B (rollout_items.B → dispatched).
+    6. Complete item B → rollout reaches 'completed'.
+
+    This test would have caught both Bug 1 and Bug 2 in the real incident.
+    """
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_a = await _make_item(db, user_id, project_id, title="Item A", status="ready")
+    item_b = await _make_item(db, user_id, project_id, title="Item B", status="ready")
+
+    # Create rollout in pending state
+    rollout_id = await _make_rollout(db, user_id, project_id, status="pending")
+
+    # Set up DAG: A → B (A must complete before B can run)
+    # from_item_id=A, to_item_id=B means B depends on A
+    edges = [{"from_item_id": item_a, "to_item_id": item_b}]
+    await _make_rollout_plan(db, rollout_id, [item_a, item_b], edges)
+
+    # Insert rollout_items: A is ready (no deps), B is pending (blocked on A)
+    await _make_wave_plan_item(db, rollout_id, item_a, status="ready")
+    await _make_wave_plan_item(db, rollout_id, item_b, status="pending")
+
+    # Step 1: Start rollout (pending → running)
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        result = await start_rollout(db, user_id, rollout_id)
+    assert result["status"] == "running"
+
+    # Step 2: Simulate dispatch of child build for A (ready → dispatched)
+    await db.execute(
+        "UPDATE rollout_items SET status = 'dispatched'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
+        item_a,
+    )
+
+    # Step 3: Complete item A → B becomes ready
+    with (
+        patch(
+            "agent_gtd.services.rollout_lock_service.release_rollout_item",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
+    ):
+        result_a = await complete_item_in_rollout(
+            db, user_id, rollout_id, item_a, outcome="completed"
+        )
+
+    assert item_b in result_a["newly_ready"]
+    assert result_a["graph_complete"] is False
+
+    b_status = await _get_wave_item_status(db, rollout_id, item_b)
+    assert b_status == "ready"
+
+    # Step 4: Simulate dispatch of child build for B (ready → dispatched)
+    await db.execute(
+        "UPDATE rollout_items SET status = 'dispatched'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
+        item_b,
+    )
+
+    # Step 5: Complete item B → rollout completes
+    with (
+        patch(
+            "agent_gtd.services.rollout_lock_service.release_rollout_item",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
+    ):
+        result_b = await complete_item_in_rollout(
+            db, user_id, rollout_id, item_b, outcome="completed"
+        )
+
+    assert result_b["graph_complete"] is True
+
+    # Verify rollout reached 'completed' status
+    rollout_row = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert rollout_row is not None
+    assert rollout_row["status"] == "completed"
+
+    # Verify both GTD items are 'done'
+    a_row = await db.fetchrow("SELECT status FROM items WHERE id = $1", item_a)
+    b_row = await db.fetchrow("SELECT status FROM items WHERE id = $1", item_b)
+    assert a_row["status"] == "done"
+    assert b_row["status"] == "done"

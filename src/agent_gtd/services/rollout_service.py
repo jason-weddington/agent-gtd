@@ -736,8 +736,14 @@ async def complete_item_in_rollout(
 
     Raises:
         NotFoundError: If wave or item not found or caller doesn't own it.
-        ValidationError: If the item is not in 'dispatched' status, or if
-            outcome is invalid.
+        ValidationError: If the item is not in 'ready' or 'dispatched' status,
+            or if outcome is invalid.
+
+    State paths supported:
+        - Child-build path: ``ready → dispatched → terminal`` (normal flow where
+          a build agent is dispatched and completes the item).
+        - Inline-management path: ``ready → terminal`` (manage agent handles the
+          item directly without dispatching a child build, e.g. trivial changes).
     """
     valid_outcomes = ("completed", "halted", "skipped")
     if outcome not in valid_outcomes:
@@ -756,10 +762,10 @@ async def complete_item_in_rollout(
     )
     if item_row is None:
         raise NotFoundError("RolloutItem", f"{rollout_id}/{item_id}")
-    if item_row["status"] != "dispatched":
+    if item_row["status"] not in ("ready", "dispatched"):
         raise ValidationError(
             f"Item {item_id} has status '{item_row['status']}' — "
-            "only 'dispatched' items can be completed"
+            "only 'ready' or 'dispatched' items can be completed in a rollout"
         )
 
     now = datetime.now(UTC).isoformat()
