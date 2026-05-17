@@ -156,7 +156,12 @@ export default function ActiveRunsIndicator() {
           onClick={(e) => setAnchorEl(e.currentTarget)}
           aria-label="Active agent runs"
         >
-          <Badge badgeContent={totalCount} color="primary" invisible={totalCount === 0}>
+          <Badge
+            badgeContent={totalCount}
+            color="primary"
+            invisible={totalCount === 0}
+            sx={{ '& .MuiBadge-badge': { backgroundColor: '#4a9eff', color: '#fff' } }}
+          >
             <SmartToyOutlinedIcon
               sx={runningCount > 0 ? {
                 animation: 'pulse-green 2s ease-in-out infinite',
