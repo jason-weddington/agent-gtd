@@ -115,6 +115,8 @@ export default function ItemDetailDrawer({
   const [blockerExpanded, setBlockerExpanded] = useState(false)
   const [metadataExpanded, setMetadataExpanded] = useState(false)
   const [attachmentsExpanded, setAttachmentsExpanded] = useState(false)
+  const [acExpanded, setAcExpanded] = useState(false)
+  const [filesToModifyExpanded, setFilesToModifyExpanded] = useState(false)
   const [loadingBlockers, setLoadingBlockers] = useState(false)
 
   // Attachment state
@@ -166,6 +168,8 @@ export default function ItemDetailDrawer({
     setNewLabel('')
     setMetadataExpanded(false)
     setAttachmentsExpanded(false)
+    setAcExpanded(false)
+    setFilesToModifyExpanded(false)
   }, [item])
 
   // Load active projects for the project dropdown — only when the drawer
@@ -1134,98 +1138,138 @@ export default function ItemDetailDrawer({
               )}
             </Box>
 
-            {/* Acceptance Criteria — rendered as a checklist when non-empty */}
+            {/* Acceptance Criteria — rendered as an accordion when non-empty */}
             {localItem.acceptanceCriteria.length > 0 && (
-              <Box sx={{ px: 2, pb: 1 }}>
-                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-                  Acceptance Criteria
-                </Typography>
-                <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
-                  {localItem.acceptanceCriteria.map((ac, i) => (
-                    <Typography
-                      key={i}
-                      component="li"
-                      variant="body2"
-                      sx={{ mb: 0.25 }}
-                    >
-                      {ac}
-                    </Typography>
-                  ))}
-                </Box>
-              </Box>
-            )}
-
-            {/* Files to Modify — rendered as a table when non-empty */}
-            {localItem.filesToModify.length > 0 && (
-              <Box sx={{ px: 2, pb: 1 }}>
-                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-                  Files to Modify
-                </Typography>
-                <Box
-                  component="table"
+              <Accordion
+                expanded={acExpanded}
+                onChange={(_, isExpanded) => setAcExpanded(isExpanded)}
+                disableGutters
+                elevation={0}
+                sx={{
+                  '&:before': { display: 'none' },
+                  bgcolor: 'transparent',
+                }}
+              >
+                <AccordionSummary
+                  expandIcon={<ExpandMoreIcon sx={{ fontSize: 16 }} />}
                   sx={{
-                    width: '100%',
-                    borderCollapse: 'collapse',
-                    fontSize: '0.75rem',
+                    px: 2,
+                    minHeight: 0,
+                    '& .MuiAccordionSummary-content': { my: 0.5 },
                   }}
                 >
-                  <thead>
-                    <tr>
-                      <Box
-                        component="th"
-                        sx={{
-                          textAlign: 'left',
-                          borderBottom: 1,
-                          borderColor: 'divider',
-                          pb: 0.5,
-                          pr: 1,
-                          fontWeight: 600,
-                          color: 'text.secondary',
-                        }}
+                  <Typography variant="subtitle2">
+                    Acceptance Criteria ({localItem.acceptanceCriteria.length})
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails sx={{ px: 2, pt: 0.5, pb: 1.5, maxHeight: 240, overflowY: 'auto' }}>
+                  <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                    {localItem.acceptanceCriteria.map((ac, i) => (
+                      <Typography
+                        key={i}
+                        component="li"
+                        variant="body2"
+                        sx={{ mb: 0.25 }}
                       >
-                        File
-                      </Box>
-                      <Box
-                        component="th"
-                        sx={{
-                          textAlign: 'left',
-                          borderBottom: 1,
-                          borderColor: 'divider',
-                          pb: 0.5,
-                          fontWeight: 600,
-                          color: 'text.secondary',
-                        }}
-                      >
-                        Change
-                      </Box>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {localItem.filesToModify.map((spec, i) => (
-                      <tr key={i}>
+                        {ac}
+                      </Typography>
+                    ))}
+                  </Box>
+                </AccordionDetails>
+              </Accordion>
+            )}
+
+            {/* Files to Modify — rendered as an accordion when non-empty */}
+            {localItem.filesToModify.length > 0 && (
+              <Accordion
+                expanded={filesToModifyExpanded}
+                onChange={(_, isExpanded) => setFilesToModifyExpanded(isExpanded)}
+                disableGutters
+                elevation={0}
+                sx={{
+                  '&:before': { display: 'none' },
+                  bgcolor: 'transparent',
+                }}
+              >
+                <AccordionSummary
+                  expandIcon={<ExpandMoreIcon sx={{ fontSize: 16 }} />}
+                  sx={{
+                    px: 2,
+                    minHeight: 0,
+                    '& .MuiAccordionSummary-content': { my: 0.5 },
+                  }}
+                >
+                  <Typography variant="subtitle2">
+                    Files to Modify ({localItem.filesToModify.length})
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails sx={{ px: 2, pt: 0.5, pb: 1.5, maxHeight: 240, overflowY: 'auto' }}>
+                  <Box
+                    component="table"
+                    sx={{
+                      width: '100%',
+                      borderCollapse: 'collapse',
+                      fontSize: '0.75rem',
+                    }}
+                  >
+                    <thead>
+                      <tr>
                         <Box
-                          component="td"
+                          component="th"
                           sx={{
-                            py: 0.5,
+                            textAlign: 'left',
+                            borderBottom: 1,
+                            borderColor: 'divider',
+                            pb: 0.5,
                             pr: 1,
-                            fontFamily: 'monospace',
-                            verticalAlign: 'top',
-                            color: 'text.primary',
+                            fontWeight: 600,
+                            color: 'text.secondary',
                           }}
                         >
-                          {spec.path ?? ''}
+                          File
                         </Box>
                         <Box
-                          component="td"
-                          sx={{ py: 0.5, verticalAlign: 'top', color: 'text.secondary' }}
+                          component="th"
+                          sx={{
+                            textAlign: 'left',
+                            borderBottom: 1,
+                            borderColor: 'divider',
+                            pb: 0.5,
+                            fontWeight: 600,
+                            color: 'text.secondary',
+                          }}
                         >
-                          {spec.change ?? ''}
+                          Change
                         </Box>
                       </tr>
-                    ))}
-                  </tbody>
-                </Box>
-              </Box>
+                    </thead>
+                    <tbody>
+                      {localItem.filesToModify.map((spec, i) => (
+                        <tr key={i}>
+                          <Box
+                            component="td"
+                            sx={{
+                              py: 0.5,
+                              pr: 1,
+                              fontFamily: 'monospace',
+                              verticalAlign: 'top',
+                              color: 'text.primary',
+                            }}
+                          >
+                            {spec.path ?? ''}
+                          </Box>
+                          <Box
+                            component="td"
+                            sx={{ py: 0.5, verticalAlign: 'top', color: 'text.secondary' }}
+                          >
+                            {spec.change ?? ''}
+                          </Box>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Box>
+                </AccordionDetails>
+              </Accordion>
             )}
 
             {/* Scope Out — rendered as an alert callout when non-empty */}
