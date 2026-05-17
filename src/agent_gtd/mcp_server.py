@@ -1372,10 +1372,9 @@ async def plan_rollout(
     Validates the legality contract for every item before touching the
     database:
     - Each item must have ``status='ready'``.
-    - Each item description must contain a non-empty ``## Acceptance Criteria``
-      section.
-    - Each item description must contain a non-empty ``## Files to Modify``
-      section.
+    - Each item must have a non-empty ``acceptance_criteria`` structured field.
+    - Each item must have a non-empty ``files_to_modify`` structured field.
+    - Each item must have ``build_engine`` set.
     - Each item must have no unresolved blockers outside the rollout's own item
       set (internal blockers are fine — the planner handles ordering).
     - All items must belong to the same project.

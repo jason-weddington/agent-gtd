@@ -13,8 +13,6 @@ from agent_gtd.services.rollout_service import (
     call_planner,
     cancel_rollout,
     complete_item_in_rollout,
-    has_acceptance_criteria,
-    parse_declared_files,
     start_rollout,
     validate_legality_contract,
 )
@@ -24,44 +22,6 @@ from agent_gtd.services.rollout_service import (
 # ---------------------------------------------------------------------------
 
 NOW = datetime.now(UTC).isoformat()
-
-VALID_DESC = """\
-Some intro text.
-
-## Acceptance Criteria
-- [ ] First criterion
-- [ ] Second criterion
-
-## Files to Modify
-- src/agent_gtd/services/rollout_service.py
-- tests/test_rollout_service.py
-"""
-
-NO_AC_DESC = """\
-## Files to Modify
-- src/agent_gtd/services/rollout_service.py
-"""
-
-NO_FILES_DESC = """\
-## Acceptance Criteria
-- [ ] First criterion
-"""
-
-EMPTY_AC_DESC = """\
-## Acceptance Criteria
-
-## Files to Modify
-- src/foo.py
-"""
-
-EMPTY_FILES_DESC = """\
-## Acceptance Criteria
-- [ ] First criterion
-
-## Files to Modify
-
-## Other Section
-"""
 
 
 @pytest.fixture
@@ -161,75 +121,6 @@ async def _add_blocker(db, item_id: str, blocker_item_id: str) -> None:
         blocker_item_id,
         NOW,
     )
-
-
-# ---------------------------------------------------------------------------
-# parse_declared_files — pure function tests
-# ---------------------------------------------------------------------------
-
-
-def test_parse_declared_files_extracts_lines():
-    desc = (
-        "Intro\n\n## Files to Modify\n"
-        "- src/foo.py\n- src/bar.py\n\n## Other\n- not this"
-    )
-    result = parse_declared_files(desc)
-    assert result == ["- src/foo.py", "- src/bar.py"]
-
-
-def test_parse_declared_files_stops_at_next_heading():
-    desc = "## Files to Modify\n- a.py\n## Something Else\n- b.py"
-    result = parse_declared_files(desc)
-    assert result == ["- a.py"]
-
-
-def test_parse_declared_files_empty_section():
-    desc = "## Files to Modify\n\n## Next Section\n"
-    assert parse_declared_files(desc) == []
-
-
-def test_parse_declared_files_no_section():
-    assert parse_declared_files("No files section at all") == []
-
-
-def test_parse_declared_files_blank_lines_ignored():
-    desc = "## Files to Modify\n\n- src/a.py\n\n- src/b.py\n"
-    result = parse_declared_files(desc)
-    assert result == ["- src/a.py", "- src/b.py"]
-
-
-def test_parse_declared_files_plain_paths():
-    desc = "## Files to Modify\nsrc/a.py\nsrc/b.py"
-    assert parse_declared_files(desc) == ["src/a.py", "src/b.py"]
-
-
-# ---------------------------------------------------------------------------
-# has_acceptance_criteria — pure function tests
-# ---------------------------------------------------------------------------
-
-
-def test_has_ac_true():
-    desc = "## Acceptance Criteria\n- [ ] Thing to do\n"
-    assert has_acceptance_criteria(desc) is True
-
-
-def test_has_ac_true_multiple_lines():
-    desc = "## Acceptance Criteria\n- [ ] A\n- [ ] B\n"
-    assert has_acceptance_criteria(desc) is True
-
-
-def test_has_ac_false_empty_section():
-    desc = "## Acceptance Criteria\n\n## Files to Modify\n- src/foo.py"
-    assert has_acceptance_criteria(desc) is False
-
-
-def test_has_ac_false_no_section():
-    assert has_acceptance_criteria("Nothing useful here") is False
-
-
-def test_has_ac_false_only_blanks():
-    desc = "## Acceptance Criteria\n   \n\t\n## Next"
-    assert has_acceptance_criteria(desc) is False
 
 
 # ---------------------------------------------------------------------------

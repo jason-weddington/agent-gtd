@@ -24,68 +24,6 @@ _HALTED_FROM_STATUSES = ("pending", "ready", "dispatched")
 
 
 # ---------------------------------------------------------------------------
-# Description section parsers
-# ---------------------------------------------------------------------------
-
-
-def _section_lines(description: str, heading: str) -> list[str]:
-    """Return non-blank body lines under *heading* up to the next ## heading.
-
-    Args:
-        description: Item description in Markdown.
-        heading: The exact heading string to search for (e.g. ``"## Files to Modify"``).
-
-    Returns:
-        List of non-blank stripped lines after the heading, up to the next
-        ``##`` heading or end of string.
-    """
-    lines = description.splitlines()
-    in_section = False
-    result: list[str] = []
-    target = heading.strip()
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("## "):
-            if stripped == target:
-                in_section = True
-                continue
-            elif in_section:
-                break
-        elif in_section and stripped:
-            result.append(stripped)
-    return result
-
-
-def parse_declared_files(description: str) -> list[str]:
-    """Extract non-blank lines from the ``## Files to Modify`` section.
-
-    Used for legality validation only — the content is checked for presence,
-    not passed to the planner.
-
-    Args:
-        description: Item description in Markdown.
-
-    Returns:
-        List of non-blank lines from the section.  Empty if the section is
-        absent or contains only blank lines.
-    """
-    return _section_lines(description, "## Files to Modify")
-
-
-def has_acceptance_criteria(description: str) -> bool:
-    """Return True if ``## Acceptance Criteria`` section is non-empty.
-
-    Args:
-        description: Item description in Markdown.
-
-    Returns:
-        ``True`` if the section exists and has at least one non-blank
-        line after the heading.
-    """
-    return bool(_section_lines(description, "## Acceptance Criteria"))
-
-
-# ---------------------------------------------------------------------------
 # Legality contract validation
 # ---------------------------------------------------------------------------
 
