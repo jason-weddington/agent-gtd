@@ -62,7 +62,7 @@ dev = [
 [[package]]
 name = "agent-gtd-dispatch-protocol"
 version = "0.1.0"
-source = { git = "ssh://git@ubuntu-vm01/~/repos/agent-gtd-dispatch?subdirectory=packages%2Fprotocol&rev=main#d83da64afbaafa7bee7022f90060bf754ce1f8ef" }
+source = { git = "ssh://git@ubuntu-vm01/~/repos/agent-gtd-dispatch?subdirectory=packages%2Fprotocol&rev=main#c78825e5cee2ae1dba312551af74295d8b5930b9" }
 dependencies = [
     { name = "pydantic" },
 ]

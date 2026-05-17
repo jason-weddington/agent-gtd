@@ -62,7 +62,7 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S106", "D"]
-"src/agent_gtd/dispatch_worker.py" = ["S603", "S607", "E501", "RUF006"]
+"src/agent_gtd/dispatch_worker.py" = ["S603", "S607", "E501"]
 
 [tool.mypy]
 python_version = "3.13"
@@ -103,7 +103,7 @@ omit = [
 
 [tool.coverage.report]
 precision = 1
-fail_under = 95.97
+fail_under = 95.99
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]

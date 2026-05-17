@@ -15,6 +15,7 @@ from agent_gtd.exceptions import LegalityContractError, NotFoundError, Validatio
 from agent_gtd.models import ManagerPhase, RolloutItemOutcome
 from agent_gtd.services.item_service import get_item, get_unresolved_blockers
 from agent_gtd.services.settings_service import get_dispatch_config
+from agent_gtd.util.tasks import supervise_task
 
 logger = logging.getLogger(__name__)
 
@@ -505,16 +506,22 @@ def _publish_rollout_event(
         from agent_gtd.event_bus import get_event_bus
 
         bus = get_event_bus()
-        asyncio.create_task(  # noqa: RUF006
-            bus.publish(
-                db,
-                user_id=lead_user_id,
-                event_type="rollout_event",
-                entity_type="rollout",
-                entity_id=rollout_event["rollout_id"],
-                project_id=project_id,
-                payload=rollout_event,
-            )
+        supervise_task(
+            asyncio.create_task(
+                bus.publish(
+                    db,
+                    user_id=lead_user_id,
+                    event_type="rollout_event",
+                    entity_type="rollout",
+                    entity_id=rollout_event["rollout_id"],
+                    project_id=project_id,
+                    payload=rollout_event,
+                )
+            ),
+            context={
+                "rollout_id": rollout_event["rollout_id"],
+                "event_type": "rollout_event",
+            },
         )
     except Exception:
         logger.exception("Failed to publish rollout_event SSE event")

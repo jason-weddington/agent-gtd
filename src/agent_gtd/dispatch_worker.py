@@ -18,6 +18,7 @@ from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 
 from agent_gtd.identity import compute_run_attribution
 from agent_gtd.models import LocalRunStatus
+from agent_gtd.util.tasks import supervise_task
 
 logger = logging.getLogger(__name__)
 
@@ -207,16 +208,19 @@ def _publish_run_event(
         payload: dict[str, Any] = {"run_id": run_id, "item_id": item_id}
         if reconciled:
             payload["reconciled"] = True
-        asyncio.create_task(
-            bus.publish(
-                db,
-                user_id=user_id,
-                event_type=event_type,
-                entity_type="run",
-                entity_id=run_id,
-                project_id=str(run["project_id"]),
-                payload=payload,
-            )
+        supervise_task(
+            asyncio.create_task(
+                bus.publish(
+                    db,
+                    user_id=user_id,
+                    event_type=event_type,
+                    entity_type="run",
+                    entity_id=run_id,
+                    project_id=str(run["project_id"]),
+                    payload=payload,
+                )
+            ),
+            context={"run_id": run_id, "event_type": event_type},
         )
     except Exception:
         logger.exception("Failed to publish %s event", event_type)
@@ -427,10 +431,13 @@ async def reconcile_active_runs() -> int:
             # Unknown statuses surface as ValidationError from _poll_remote_run
             # and are caught by the except block above.
             logger.info("Resuming polling for run %s (remote %s)", run_id, remote_id)
-            asyncio.create_task(
-                _resume_polling(
-                    db, run, remote_id, url=dispatch_url, api_key=dispatch_api_key
-                )
+            supervise_task(
+                asyncio.create_task(
+                    _resume_polling(
+                        db, run, remote_id, url=dispatch_url, api_key=dispatch_api_key
+                    )
+                ),
+                context={"run_id": run_id, "event_type": "resume_polling"},
             )
 
         reconciled += 1
@@ -730,7 +737,10 @@ async def dispatch_worker() -> None:
 
     while True:
         run_id = await _dispatch_queue.get()
-        asyncio.create_task(_process_run(run_id))
+        supervise_task(
+            asyncio.create_task(_process_run(run_id)),
+            context={"run_id": run_id, "event_type": "process_run"},
+        )
 
 
 async def _process_run(run_id: str) -> None:
