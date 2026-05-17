@@ -458,19 +458,20 @@ def test_wave_plan_item_model():
 
 
 def test_wave_event_model():
-    from agent_gtd.models import RolloutEvent, RolloutEventActor
+    from agent_gtd.models import RolloutEvent, RolloutEventActor, RolloutEventKind
 
     event = RolloutEvent(
         id="we-1",
         rollout_id="wr-1",
         seq=1,
         ts=datetime(2026, 1, 1, tzinfo=UTC),
-        kind="run.started",
+        kind=RolloutEventKind.WAVE_STARTED,
         actor=RolloutEventActor.MANAGER,
         decision_rule="",
         payload={"key": "val"},
     )
     assert event.actor == "manager"
+    assert event.kind == "wave_started"
     assert event.payload == {"key": "val"}
 
 
@@ -538,4 +539,5 @@ def test_merge_actor_values():
 
     assert MergeActor.HUMAN == "human"
     assert MergeActor.MANAGER_ALLOWLIST == "manager-allowlist"
+    assert MergeActor.MANAGER_AUTONOMOUS == "manager-autonomous"
     assert MergeActor.MANAGER_HUMAN_FIXUP == "manager+human-fixup"

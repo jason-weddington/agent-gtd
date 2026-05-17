@@ -618,9 +618,15 @@ async def test_update_item_build_engine(
 
 
 @pytest.mark.parametrize("engine", ["claude-code-sonnet", "claude-code-haiku"])
-async def test_update_item_build_engine_new_tiers(
+async def test_update_item_build_engine_removed_tiers_now_invalid(
     client: AsyncClient, auth_headers: dict[str, str], engine: str
 ):
+    """claude-code-sonnet and claude-code-haiku are no longer valid BuildEngine values.
+
+    These were removed from the enum per scope: 'Do NOT add claude-code-sonnet to
+    BuildEngine — that is covered by item 38c19ee1'.  Pydantic now rejects them at
+    parse time with 422.
+    """
     create = await client.post("/api/items", json={"title": "T"}, headers=auth_headers)
     assert create.status_code == 201
     item = create.json()
@@ -629,7 +635,20 @@ async def test_update_item_build_engine_new_tiers(
         json={"build_engine": engine, "version": item["version"]},
         headers=auth_headers,
     )
-    assert res.status_code == 200
+    assert res.status_code == 422
+
+
+@pytest.mark.parametrize("engine", ["claude", "kiro"])
+async def test_create_item_settings_engines_now_valid(
+    client: AsyncClient, auth_headers: dict[str, str], engine: str
+):
+    """'claude' and 'kiro' are valid BuildEngine values (from settings engine set)."""
+    res = await client.post(
+        "/api/items",
+        json={"title": "T", "build_engine": engine},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
     assert res.json()["build_engine"] == engine
 
 

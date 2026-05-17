@@ -12,6 +12,7 @@ import httpx
 from agent_gtd.database import decode_file_specs, decode_json_list, row_to_dict
 from agent_gtd.db_types import DbPool
 from agent_gtd.exceptions import LegalityContractError, NotFoundError, ValidationError
+from agent_gtd.models import ManagerPhase, RolloutItemOutcome
 from agent_gtd.services.item_service import get_item, get_unresolved_blockers
 from agent_gtd.services.settings_service import get_dispatch_config
 
@@ -704,7 +705,7 @@ async def complete_item_in_rollout(
     user_id: str,
     rollout_id: str,
     item_id: str,
-    outcome: str,
+    outcome: RolloutItemOutcome | str,
     merge_actor: str = "",
     decision_rule: str = "",
 ) -> dict[str, Any]:
@@ -745,13 +746,6 @@ async def complete_item_in_rollout(
         - Inline-management path: ``ready → terminal`` (manage agent handles the
           item directly without dispatching a child build, e.g. trivial changes).
     """
-    valid_outcomes = ("completed", "halted", "skipped")
-    if outcome not in valid_outcomes:
-        raise ValidationError(
-            f"Invalid outcome '{outcome}' — must be one of: "
-            + ", ".join(valid_outcomes)
-        )
-
     wave = await _get_rollout(db, user_id, rollout_id)
     project_id = str(wave["project_id"])
 
@@ -1554,24 +1548,12 @@ async def replan_rollout(
 # Manager state heartbeat (semantic observability)
 # ---------------------------------------------------------------------------
 
-_VALID_MANAGER_PHASES = frozenset(
-    (
-        "warm_up",
-        "dispatching",
-        "polling",
-        "reviewing",
-        "merging",
-        "reconciling_ac",
-        "halted",
-    )
-)
-
 
 async def update_rollout_state(
     db: DbPool,
     user_id: str,
     rollout_id: str,
-    phase: str,
+    phase: ManagerPhase | str,
     current_item_id: str | None = None,
     current_step: str | None = None,
 ) -> dict[str, Any]:
@@ -1599,15 +1581,8 @@ async def update_rollout_state(
 
     Raises:
         NotFoundError: If wave not found or caller doesn't own it.
-        ValidationError: If wave status is not ``'running'`` or phase is
-            invalid.
+        ValidationError: If wave status is not ``'running'``.
     """
-    if phase not in _VALID_MANAGER_PHASES:
-        raise ValidationError(
-            f"Invalid phase '{phase}' — must be one of: "
-            + ", ".join(sorted(_VALID_MANAGER_PHASES))
-        )
-
     wave = await _get_rollout(db, user_id, rollout_id)
     if wave["status"] != "running":
         raise ValidationError(

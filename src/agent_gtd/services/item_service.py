@@ -21,7 +21,7 @@ from agent_gtd.exceptions import (
     ValidationError,
     VersionConflictError,
 )
-from agent_gtd.models import ItemStatus, Priority
+from agent_gtd.models import BuildEngine, ItemStatus, Priority
 from agent_gtd.services.project_service import verify_project_access
 
 logger = logging.getLogger(__name__)
@@ -35,9 +35,7 @@ _ID_PREFIX_LEN = 8
 _TITLE_LEN = 60
 _PER_COLUMN_CAP = 10
 
-ALLOWED_BUILD_ENGINES: frozenset[str] = frozenset(
-    {"claude-code", "claude-code-ollama", "claude-code-sonnet", "claude-code-haiku"}
-)
+ALLOWED_BUILD_ENGINES: frozenset[str] = frozenset(BuildEngine)
 
 
 async def list_items(

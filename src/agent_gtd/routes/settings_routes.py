@@ -9,6 +9,7 @@ from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
 from agent_gtd.dispatch_constants import MAX_TIMEOUT_MINUTES, MIN_TIMEOUT_MINUTES
 from agent_gtd.models import (
+    BuildEngine,
     DispatchSettingsResponse,
     MaxConcurrentRequest,
     UpdateDispatchSettingsRequest,
@@ -27,7 +28,6 @@ _DEFAULT_MAX_TURNS_KEY = "dispatch.default_max_turns"
 _DEFAULT_TIMEOUT_MINUTES_KEY = "dispatch.default_timeout_minutes"
 _MIN_VALUE = 1
 _MAX_VALUE = 20
-_VALID_ENGINES = {"claude", "kiro"}
 _MAX_AGENT_NAME_LEN = 64
 _MIN_TURNS = 10
 _MAX_TURNS = 500
@@ -69,7 +69,7 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
     preview = f"****{last4}" if last4 else ""
 
     return DispatchSettingsResponse(
-        engine=engine,
+        engine=BuildEngine(engine),
         plan_agent_name=plan_agent_name,
         build_agent_name=build_agent_name,
         max_concurrent=max_concurrent,
@@ -141,11 +141,6 @@ async def update_dispatch_settings(
     db = await get_db()
 
     if body.engine is not None:
-        if body.engine not in _VALID_ENGINES:
-            raise HTTPException(
-                status_code=422,
-                detail=f"engine must be one of {sorted(_VALID_ENGINES)}",
-            )
         await settings_service.set_setting(db, _ENGINE_KEY, body.engine)
     if body.plan_agent_name is not None:
         if len(body.plan_agent_name) > _MAX_AGENT_NAME_LEN:

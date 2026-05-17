@@ -3,7 +3,7 @@
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -548,7 +548,8 @@ async def update_item(
     assigned_to: str | None = None,
     labels: list[str] | None = None,
     due_date: str | None = None,
-    build_engine: str | None = None,
+    build_engine: Literal["claude-code", "claude-code-ollama", "claude", "kiro", ""]
+    | None = None,
     acceptance_criteria: list[str] | None = None,
     files_to_modify: list[dict[str, Any]] | None = None,
     scope_out: list[str] | None = None,
@@ -1110,7 +1111,7 @@ async def dispatch_item(
     item_id: str,
     ctx: Context,
     max_turns: int | None = None,
-    mode: str = "build",
+    mode: Literal["build", "plan", "manage"] = "build",
     rollout_id: str | None = None,
 ) -> dict[str, Any]:
     """Dispatch a headless Claude Code agent to work on an item.
@@ -1444,10 +1445,12 @@ async def start_rollout(
 async def complete_item_in_rollout(
     rollout_id: str,
     item_id: str,
-    outcome: str,
+    outcome: Literal["completed", "halted", "skipped"],
     ctx: Context,
-    merge_actor: str = "",
-    decision_rule: str = "",
+    merge_actor: Literal[
+        "human", "manager-allowlist", "manager-autonomous", "manager+human-fixup", ""
+    ] = "",
+    decision_rule: Literal["", "agent-judgment"] = "",
 ) -> dict[str, Any]:
     """Mark a dispatched rollout item as done and unblock downstream items.
 
@@ -1601,7 +1604,15 @@ async def replan_rollout(
 )
 async def update_rollout_state(
     rollout_id: str,
-    phase: str,
+    phase: Literal[
+        "warm_up",
+        "dispatching",
+        "polling",
+        "reviewing",
+        "merging",
+        "reconciling_ac",
+        "halted",
+    ],
     ctx: Context,
     current_item_id: str | None = None,
     current_step: str | None = None,

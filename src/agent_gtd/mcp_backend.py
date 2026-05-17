@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 import ssl
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import httpx
 import truststore
@@ -331,10 +331,16 @@ class McpBackend(Protocol):
         user_id: str,
         rollout_id: str,
         item_id: str,
-        outcome: str,
+        outcome: Literal["completed", "halted", "skipped"],
         *,
-        merge_actor: str = "",
-        decision_rule: str = "",
+        merge_actor: Literal[
+            "human",
+            "manager-allowlist",
+            "manager-autonomous",
+            "manager+human-fixup",
+            "",
+        ] = "",
+        decision_rule: Literal["", "agent-judgment"] = "",
     ) -> dict[str, Any]: ...
 
     async def halt_rollout(
@@ -372,7 +378,15 @@ class McpBackend(Protocol):
         self,
         user_id: str,
         rollout_id: str,
-        phase: str,
+        phase: Literal[
+            "warm_up",
+            "dispatching",
+            "polling",
+            "reviewing",
+            "merging",
+            "reconciling_ac",
+            "halted",
+        ],
         current_item_id: str | None = None,
         current_step: str | None = None,
     ) -> dict[str, Any]: ...
@@ -1112,10 +1126,16 @@ class LocalBackend:
         user_id: str,
         rollout_id: str,
         item_id: str,
-        outcome: str,
+        outcome: Literal["completed", "halted", "skipped"],
         *,
-        merge_actor: str = "",
-        decision_rule: str = "",
+        merge_actor: Literal[
+            "human",
+            "manager-allowlist",
+            "manager-autonomous",
+            "manager+human-fixup",
+            "",
+        ] = "",
+        decision_rule: Literal["", "agent-judgment"] = "",
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import rollout_service
@@ -1195,7 +1215,15 @@ class LocalBackend:
         self,
         user_id: str,
         rollout_id: str,
-        phase: str,
+        phase: Literal[
+            "warm_up",
+            "dispatching",
+            "polling",
+            "reviewing",
+            "merging",
+            "reconciling_ac",
+            "halted",
+        ],
         current_item_id: str | None = None,
         current_step: str | None = None,
     ) -> dict[str, Any]:
@@ -2032,10 +2060,16 @@ class HttpBackend:
         user_id: str,
         rollout_id: str,
         item_id: str,
-        outcome: str,
+        outcome: Literal["completed", "halted", "skipped"],
         *,
-        merge_actor: str = "",
-        decision_rule: str = "",
+        merge_actor: Literal[
+            "human",
+            "manager-allowlist",
+            "manager-autonomous",
+            "manager+human-fixup",
+            "",
+        ] = "",
+        decision_rule: Literal["", "agent-judgment"] = "",
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "item_id": item_id,
@@ -2129,7 +2163,15 @@ class HttpBackend:
         self,
         user_id: str,
         rollout_id: str,
-        phase: str,
+        phase: Literal[
+            "warm_up",
+            "dispatching",
+            "polling",
+            "reviewing",
+            "merging",
+            "reconciling_ac",
+            "halted",
+        ],
         current_item_id: str | None = None,
         current_step: str | None = None,
     ) -> dict[str, Any]:

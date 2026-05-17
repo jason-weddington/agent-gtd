@@ -23,6 +23,7 @@ from agent_gtd.models import (
     CreateRunRequest,
     DispatchAgentInfo,
     DispatchCapabilitiesResponse,
+    DispatchMode,
     LocalRunStatus,
     RunResponse,
     User,
@@ -56,7 +57,7 @@ def _run_response(row: dict[str, object]) -> RunResponse:
         feature_branch=str(row.get("feature_branch", "")),
         workspace_dir=str(row.get("workspace_dir", "")),
         max_turns=int(str(row.get("max_turns", 50))),
-        mode=str(row.get("mode", "build")),
+        mode=DispatchMode(str(row.get("mode", "build"))),
         rollout_id=str(row["rollout_id"]) if row.get("rollout_id") else None,
         started_at=(
             datetime.fromisoformat(str(row["started_at"]))

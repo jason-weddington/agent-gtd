@@ -3,7 +3,7 @@
 import re
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, assert_never
+from typing import Any, Literal, assert_never
 
 from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 from pydantic import BaseModel, field_validator
@@ -127,7 +127,65 @@ class MergeActor(StrEnum):
 
     HUMAN = "human"
     MANAGER_ALLOWLIST = "manager-allowlist"
+    MANAGER_AUTONOMOUS = "manager-autonomous"
     MANAGER_HUMAN_FIXUP = "manager+human-fixup"
+
+
+class BuildEngine(StrEnum):
+    """Dispatch build engine identifier.
+
+    Union of all currently registered engines across item.build_engine and
+    settings.engine use-cases (pre-865b0e4e rename).
+    """
+
+    CLAUDE_CODE = "claude-code"
+    CLAUDE_CODE_OLLAMA = "claude-code-ollama"
+    CLAUDE = "claude"
+    KIRO = "kiro"
+
+
+class DispatchMode(StrEnum):
+    """Agent dispatch mode."""
+
+    BUILD = "build"
+    PLAN = "plan"
+    MANAGE = "manage"
+
+
+class RolloutEventKind(StrEnum):
+    """Kind of event emitted during a rollout."""
+
+    WAVE_PLANNED = "wave_planned"
+    ITEM_OUTCOME = "item_outcome"
+    WAVE_COMPLETED = "wave_completed"
+    COMMENT_POSTED = "comment_posted"
+    WAVE_HALTED = "wave_halted"
+    MANAGE_RELAUNCHED = "manage_relaunched"
+    WAVE_CANCELLED = "wave_cancelled"
+    WAVE_STARTED = "wave_started"
+    WAVE_REPLANNED = "wave_replanned"
+    MANAGER_STATE_UPDATE = "manager_state_update"
+    WAVE_RESUMED = "wave_resumed"
+
+
+class RolloutItemOutcome(StrEnum):
+    """Outcome of a single item within a rollout."""
+
+    COMPLETED = "completed"
+    HALTED = "halted"
+    SKIPPED = "skipped"
+
+
+class ManagerPhase(StrEnum):
+    """Current execution phase of the rollout manager."""
+
+    WARM_UP = "warm_up"
+    DISPATCHING = "dispatching"
+    POLLING = "polling"
+    REVIEWING = "reviewing"
+    MERGING = "merging"
+    RECONCILING_AC = "reconciling_ac"
+    HALTED = "halted"
 
 
 # --- Domain Models ---
@@ -181,7 +239,7 @@ class Item(BaseModel):
     labels: list[str] = []
     version: int = 1
     locked_by_rollout_id: str | None = None
-    build_engine: str | None = None
+    build_engine: BuildEngine | None = None
     acceptance_criteria: list[str] = []
     files_to_modify: list[dict[str, Any]] = []
     scope_out: list[str] = []
@@ -284,9 +342,9 @@ class RolloutEvent(BaseModel):
     rollout_id: str
     seq: int
     ts: datetime
-    kind: str
+    kind: RolloutEventKind
     actor: RolloutEventActor
-    decision_rule: str
+    decision_rule: Literal["", "agent-judgment"]
     payload: dict[str, Any]
 
 
@@ -526,7 +584,7 @@ class CreateItemRequest(BaseModel):
     waiting_on: str = ""
     sort_order: float = 0
     labels: list[str] = []
-    build_engine: str | None = None
+    build_engine: BuildEngine | None = None
     acceptance_criteria: list[str] = []
     files_to_modify: list[dict[str, Any]] = []
     scope_out: list[str] = []
@@ -545,7 +603,7 @@ class UpdateItemRequest(BaseModel):
     waiting_on: str | None = None
     sort_order: float | None = None
     labels: list[str] | None = None
-    build_engine: str | None = None
+    build_engine: BuildEngine | None = None
     acceptance_criteria: list[str] | None = None
     files_to_modify: list[dict[str, Any]] | None = None
     scope_out: list[str] | None = None
@@ -583,7 +641,7 @@ class ItemResponse(BaseModel):
     labels: list[str]
     version: int
     locked_by_rollout_id: str | None = None
-    build_engine: str | None = None
+    build_engine: BuildEngine | None = None
     acceptance_criteria: list[str] = []
     files_to_modify: list[dict[str, Any]] = []
     scope_out: list[str] = []
@@ -658,7 +716,7 @@ class CreateRunRequest(BaseModel):
     """Dispatch a Claude Code agent for an item."""
 
     max_turns: int | None = None
-    mode: str = "build"
+    mode: DispatchMode = DispatchMode.BUILD
     rollout_id: str | None = None
 
 
@@ -671,7 +729,7 @@ class MaxConcurrentRequest(BaseModel):
 class DispatchSettingsResponse(BaseModel):
     """Full dispatch settings returned from GET /api/settings/dispatch."""
 
-    engine: str
+    engine: BuildEngine
     plan_agent_name: str = ""
     build_agent_name: str = ""
     max_concurrent: int
@@ -687,7 +745,7 @@ class UpdateDispatchSettingsRequest(BaseModel):
     Only provided fields are updated; omit a field to leave it unchanged.
     """
 
-    engine: str | None = None
+    engine: BuildEngine | None = None
     plan_agent_name: str | None = None
     build_agent_name: str | None = None
     service_url: str | None = None
@@ -706,7 +764,7 @@ class RunResponse(BaseModel):
     feature_branch: str
     workspace_dir: str
     max_turns: int
-    mode: str
+    mode: DispatchMode
     started_at: datetime | None
     finished_at: datetime | None
     error_msg: str
@@ -800,9 +858,9 @@ class RolloutEventResponse(BaseModel):
     rollout_id: str
     seq: int
     ts: str
-    kind: str
+    kind: RolloutEventKind
     actor: RolloutEventActor
-    decision_rule: str
+    decision_rule: Literal["", "agent-judgment"]
     payload: dict[str, Any]
 
 
@@ -824,5 +882,5 @@ class ActivityEvent(BaseModel):
     item_id: str | None
     item_title: str | None
     run_id: str | None
-    decision_rule: str | None
+    decision_rule: Literal["", "agent-judgment"] | None
     payload: dict[str, Any]

@@ -174,6 +174,19 @@ async def test_dispatch_custom_turns(client: AsyncClient, auth_headers: dict[str
     assert res.json()["max_turns"] == 50
 
 
+async def test_dispatch_invalid_mode(client: AsyncClient, auth_headers: dict[str, str]):
+    """POST /api/items/{id}/dispatch with an unknown mode returns 422."""
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={"mode": "cooperative"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
 async def test_dispatch_duplicate_blocked(
     client: AsyncClient, auth_headers: dict[str, str]
 ):

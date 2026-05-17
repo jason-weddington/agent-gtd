@@ -721,6 +721,35 @@ async def test_patch_dispatch_settings_invalid_engine(
 
 
 @pytest.mark.asyncio
+async def test_patch_dispatch_settings_claude_code_ollama_now_valid(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH accepts 'claude-code-ollama' — was missing from old _VALID_ENGINES set."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"engine": "claude-code-ollama"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["engine"] == "claude-code-ollama"
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_all_valid_engines(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """All four BuildEngine values are accepted by PATCH /api/settings/dispatch."""
+    for engine in ("claude-code", "claude-code-ollama", "claude", "kiro"):
+        res = await client.patch(
+            "/api/settings/dispatch",
+            json={"engine": engine},
+            headers=auth_headers,
+        )
+        assert res.status_code == 200, f"engine '{engine}' was rejected"
+        assert res.json()["engine"] == engine
+
+
+@pytest.mark.asyncio
 async def test_patch_dispatch_settings_plan_agent_name(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:

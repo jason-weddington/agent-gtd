@@ -23,7 +23,7 @@ Endpoints (frontend UI — AC-22, AC-23, AC-24):
 """
 
 import logging
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -31,7 +31,14 @@ from pydantic import BaseModel
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
 from agent_gtd.exceptions import LegalityContractError, NotFoundError, ValidationError
-from agent_gtd.models import ResumeRolloutRequest, RunResponse, User
+from agent_gtd.models import (
+    ManagerPhase,
+    MergeActor,
+    ResumeRolloutRequest,
+    RolloutItemOutcome,
+    RunResponse,
+    User,
+)
 from agent_gtd.services import rollout_service
 from agent_gtd.services.dispatch_service import dispatch_rollout_run
 
@@ -56,9 +63,9 @@ class CompleteItemRequest(BaseModel):
     """Request body for POST /complete-item."""
 
     item_id: str
-    outcome: str
-    merge_actor: str = ""
-    decision_rule: str = ""
+    outcome: RolloutItemOutcome
+    merge_actor: MergeActor | Literal[""] = ""
+    decision_rule: Literal["", "agent-judgment"] = ""
 
 
 class HaltRolloutRequest(BaseModel):
@@ -84,7 +91,7 @@ class ReplanRolloutRequest(BaseModel):
 class UpdateRolloutStateRequest(BaseModel):
     """Request body for POST /state."""
 
-    phase: str
+    phase: ManagerPhase
     current_item_id: str | None = None
     current_step: str | None = None
 

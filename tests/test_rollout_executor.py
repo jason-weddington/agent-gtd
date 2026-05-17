@@ -454,7 +454,7 @@ async def test_complete_item_in_rollout_decision_rule_in_event_payload(
         json={
             "item_id": w["item_a_id"],
             "outcome": "completed",
-            "decision_rule": "patch-only",
+            "decision_rule": "agent-judgment",
         },
         headers=w["headers"],
     )
@@ -462,7 +462,7 @@ async def test_complete_item_in_rollout_decision_rule_in_event_payload(
 
     event = await _get_wave_event(db, w["rollout_id"], "item_outcome")
     assert event is not None
-    assert event["payload"]["decision_rule"] == "patch-only"
+    assert event["payload"]["decision_rule"] == "agent-judgment"
 
 
 # ---------------------------------------------------------------------------
@@ -1663,3 +1663,81 @@ async def test_update_rollout_state_null_item(
     wave = await _get_rollout(db, w["rollout_id"])
     assert wave["manager_current_item_id"] is None
     assert wave["manager_current_step"] == "Waiting for build"
+
+
+# ---------------------------------------------------------------------------
+# Enum validation tests (AC-13)
+# ---------------------------------------------------------------------------
+
+
+async def test_complete_item_in_rollout_invalid_merge_actor(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """Invalid merge_actor value returns 422 — Pydantic-enforced via MergeActor enum."""
+    w = linear_wave
+    db = w["db"]
+    await db.execute(
+        "UPDATE rollout_items SET status = 'dispatched'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        w["rollout_id"],
+        w["item_a_id"],
+    )
+    resp = await client.post(
+        f"/api/rollouts/{w['rollout_id']}/complete-item",
+        json={
+            "item_id": w["item_a_id"],
+            "outcome": "completed",
+            "merge_actor": "bogus-actor",
+        },
+        headers=w["headers"],
+    )
+    assert resp.status_code == 422
+
+
+async def test_complete_item_in_rollout_manager_autonomous_valid(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """'manager-autonomous' is now a valid MergeActor value (AC-1)."""
+    w = linear_wave
+    db = w["db"]
+    await db.execute(
+        "UPDATE rollout_items SET status = 'dispatched'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        w["rollout_id"],
+        w["item_a_id"],
+    )
+    resp = await client.post(
+        f"/api/rollouts/{w['rollout_id']}/complete-item",
+        json={
+            "item_id": w["item_a_id"],
+            "outcome": "completed",
+            "merge_actor": "manager-autonomous",
+        },
+        headers=w["headers"],
+    )
+    assert resp.status_code == 200
+    assert resp.json()["rollout_item"]["merge_actor"] == "manager-autonomous"
+
+
+async def test_complete_item_in_rollout_invalid_decision_rule(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """Invalid decision_rule value returns 422 — Pydantic-enforced via Literal type."""
+    w = linear_wave
+    db = w["db"]
+    await db.execute(
+        "UPDATE rollout_items SET status = 'dispatched'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        w["rollout_id"],
+        w["item_a_id"],
+    )
+    resp = await client.post(
+        f"/api/rollouts/{w['rollout_id']}/complete-item",
+        json={
+            "item_id": w["item_a_id"],
+            "outcome": "completed",
+            "decision_rule": "patch-only",
+        },
+        headers=w["headers"],
+    )
+    assert resp.status_code == 422

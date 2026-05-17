@@ -18,6 +18,7 @@ from agent_gtd.exceptions import (
 from agent_gtd.models import (
     AddBlockerRequest,
     BlockerSummary,
+    BuildEngine,
     ClaimItemRequest,
     CreateItemRequest,
     InboxCaptureRequest,
@@ -58,7 +59,9 @@ def _item_response(
             if row.get("locked_by_rollout_id")
             else None
         ),
-        build_engine=str(row["build_engine"]) if row.get("build_engine") else None,
+        build_engine=BuildEngine(str(row["build_engine"]))
+        if row.get("build_engine")
+        else None,
         acceptance_criteria=decode_json_list(
             str(row.get("acceptance_criteria") or "[]")
         ),
