@@ -503,6 +503,103 @@ async def cancel_run(
     return updated
 
 
+async def list_failed_runs(
+    db: DbPool,
+    user_id: str,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """List failed / timeout runs across the user's accessible projects.
+
+    Returns runs with status in {failed, timeout} enriched with item_title
+    (nullable) and project_name, ordered by finished_at DESC.
+
+    Args:
+        db: Database pool.
+        user_id: The calling user's ID — only runs in their accessible projects.
+        limit: Maximum number of rows to return (capped at 100).
+
+    Returns:
+        List of enriched run dicts.
+    """
+    clamped = min(max(1, limit), 100)
+    rows = await db.fetch(
+        "SELECT r.*, i.title AS item_title, p.name AS project_name"
+        " FROM claude_runs r"
+        " LEFT JOIN items i ON i.id = r.item_id"
+        " JOIN projects p ON p.id = r.project_id"
+        " WHERE r.status IN ('failed', 'timeout')"
+        " AND r.project_id IN ("
+        "   SELECT id FROM projects WHERE user_id = $1"
+        "   UNION"
+        "   SELECT project_id FROM project_members WHERE user_id = $2"
+        " )"
+        " ORDER BY r.finished_at DESC"
+        " LIMIT $3",
+        user_id,
+        user_id,
+        clamped,
+    )
+    return [row_to_dict(r) for r in rows]
+
+
+async def list_stale_completed_runs(
+    db: DbPool,
+    user_id: str,
+    hours: int = 72,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """List successful build-mode runs whose item status was not advanced.
+
+    A "stale" run is a build-mode run with status='success' whose linked item
+    is still in a non-terminal status (not review / done / cancelled), meaning
+    the agent completed but skipped the status-flip step.
+
+    Only build-mode runs with a non-null item_id within the past ``hours``
+    hours are considered.
+
+    Args:
+        db: Database pool.
+        user_id: The calling user's ID — only runs in their accessible projects.
+        hours: Look-back window in hours (default 72).
+        limit: Maximum number of rows to return (capped at 100).
+
+    Returns:
+        List of enriched run dicts including item_title, project_name, and
+        item_status.
+    """
+    from datetime import timedelta
+
+    clamped = min(max(1, limit), 100)
+    cutoff = (datetime.now(UTC) - timedelta(hours=max(1, hours))).isoformat()
+
+    # Note: $1/$2 must appear before $3/$4 in the SQL string so that the
+    # $N → ? positional substitution used by SqlitePool binds values correctly.
+    rows = await db.fetch(
+        "SELECT r.*, i.title AS item_title, p.name AS project_name,"
+        "       i.status AS item_status"
+        " FROM claude_runs r"
+        " JOIN items i ON i.id = r.item_id"
+        " JOIN projects p ON p.id = r.project_id"
+        " WHERE r.project_id IN ("
+        "   SELECT id FROM projects WHERE user_id = $1"
+        "   UNION"
+        "   SELECT project_id FROM project_members WHERE user_id = $2"
+        " )"
+        " AND r.status = 'success'"
+        " AND r.mode = 'build'"
+        " AND r.item_id IS NOT NULL"
+        " AND r.finished_at > $3"
+        " AND i.status NOT IN ('review', 'done', 'cancelled')"
+        " ORDER BY r.finished_at DESC"
+        " LIMIT $4",
+        user_id,
+        user_id,
+        cutoff,
+        clamped,
+    )
+    return [row_to_dict(r) for r in rows]
+
+
 async def reconcile_orphans(db: DbPool) -> int:
     """Mark any active runs as failed (called on startup).
 

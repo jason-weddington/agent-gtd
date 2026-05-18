@@ -906,6 +906,30 @@ async def halt_rollout(
     )
     comment_id = str(comment_result["id"])
 
+    # AC-4: additionally post a brief comment on the *offending item* so the
+    # lead sees the halt when reviewing the item's comment thread.
+    if item_id:
+        item_comment_md = (
+            f"Rollout halted ({reason}). "
+            f"See project-level halt comment `{comment_id}` for full context."
+        )
+        try:
+            await create_comment(
+                db,
+                user_id,
+                item_id=item_id,
+                content_markdown=item_comment_md,
+                created_by="wave-manager",
+            )
+        except Exception:
+            logger.warning(
+                "halt_rollout: failed to post item-level halt comment "
+                "(item_id=%s rollout_id=%s)",
+                item_id,
+                rollout_id,
+                exc_info=True,
+            )
+
     # Emit comment_posted event for the halt reason comment
     comment_posted_event = await _append_rollout_event(
         db,
@@ -1966,3 +1990,63 @@ async def get_rollout_activity(
         )
 
     return {"events": result, "has_more": has_more}
+
+
+async def get_rollout_failure_feed(
+    db: DbPool,
+    user_id: str,
+    rollout_id: str,
+) -> dict[str, Any]:
+    """Return the failure feed for a rollout.
+
+    Aggregates:
+    - ``wave_halts``: all ``wave_halted`` events for this rollout, with the
+      ``payload`` JSON decoded.
+    - ``failed_runs``: all ``claude_runs`` with ``status IN ('failed',
+      'timeout')`` and ``rollout_id`` matching, enriched with item_title
+      and project_name.
+
+    Args:
+        db: Database pool.
+        user_id: Calling user's ID — must own the rollout's project.
+        rollout_id: The rollout to fetch failures for.
+
+    Returns:
+        Dict with ``wave_halts`` and ``failed_runs`` lists.
+
+    Raises:
+        NotFoundError: If rollout not found or caller doesn't own it.
+    """
+    await _get_rollout(db, user_id, rollout_id)
+
+    # Wave halt events
+    event_rows = await db.fetch(
+        "SELECT * FROM rollout_events"
+        " WHERE rollout_id = $1 AND kind = 'wave_halted'"
+        " ORDER BY seq DESC",
+        rollout_id,
+    )
+    wave_halts: list[dict[str, Any]] = []
+    for r in event_rows:
+        d = row_to_dict(r)
+        if isinstance(d.get("payload"), str):
+            try:
+                d["payload"] = json.loads(d["payload"])
+            except (json.JSONDecodeError, TypeError):
+                d["payload"] = {}
+        wave_halts.append(d)
+
+    # Failed / timeout runs for this rollout
+    run_rows = await db.fetch(
+        "SELECT r.*, i.title AS item_title, p.name AS project_name"
+        " FROM claude_runs r"
+        " LEFT JOIN items i ON i.id = r.item_id"
+        " JOIN projects p ON p.id = r.project_id"
+        " WHERE r.rollout_id = $1"
+        " AND r.status IN ('failed', 'timeout')"
+        " ORDER BY r.finished_at DESC",
+        rollout_id,
+    )
+    failed_runs = [row_to_dict(r) for r in run_rows]
+
+    return {"wave_halts": wave_halts, "failed_runs": failed_runs}

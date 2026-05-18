@@ -1,4 +1,4 @@
-import type { ActivityEvent, AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Rollout, RolloutEvent, Run, UserResponse } from './types'
+import type { ActivityEvent, AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, FailedRun, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Rollout, RolloutEvent, RolloutFailureFeed, Run, StaleRun, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -232,6 +232,21 @@ export const api = {
     },
     get: (id: string) => request<Run>('GET', `/runs/${id}`),
     cancel: (id: string) => request<void>('DELETE', `/runs/${id}`),
+    /** GET /api/runs/failures — failed and timeout runs across accessible projects. */
+    failures: (params?: { limit?: number }) => {
+      const query = new URLSearchParams()
+      if (params?.limit !== undefined) query.set('limit', String(params.limit))
+      const qs = query.toString()
+      return request<FailedRun[]>('GET', `/runs/failures${qs ? `?${qs}` : ''}`)
+    },
+    /** GET /api/runs/stale — successful build-mode runs whose item wasn't advanced. */
+    stale: (params?: { hours?: number; limit?: number }) => {
+      const query = new URLSearchParams()
+      if (params?.hours !== undefined) query.set('hours', String(params.hours))
+      if (params?.limit !== undefined) query.set('limit', String(params.limit))
+      const qs = query.toString()
+      return request<StaleRun[]>('GET', `/runs/stale${qs ? `?${qs}` : ''}`)
+    },
   },
 
   notes: {
@@ -281,6 +296,20 @@ export const api = {
     /** POST /api/rollouts/{id}/dispatch — launch the manage agent */
     dispatchRollout: (rolloutId: string) =>
       request<Run>('POST', `/rollouts/${rolloutId}/dispatch`),
+    /** GET /api/rollouts/{id}/rollout_failures — wave halts and failed runs. */
+    failures: (rolloutId: string) =>
+      request<RolloutFailureFeed>('GET', `/rollouts/${rolloutId}/rollout_failures`),
+    /** GET /api/rollouts — list rollouts with optional filters. */
+    list: (params?: { projectId?: string; status?: string; limit?: number }) => {
+      const query = new URLSearchParams()
+      if (params?.projectId) query.set('project_id', params.projectId)
+      if (params?.status) query.set('status', params.status)
+      if (params?.limit !== undefined) query.set('limit', String(params.limit))
+      const qs = query.toString()
+      return request<Rollout[]>('GET', `/rollouts${qs ? `?${qs}` : ''}`)
+    },
+    /** GET /api/rollouts/{id}/plan — latest plan with per-item progress. */
+    plan: (rolloutId: string) => request<unknown>('GET', `/rollouts/${rolloutId}/plan`),
   },
 
   dispatch: {

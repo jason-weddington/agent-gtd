@@ -35,6 +35,7 @@ from agent_gtd.models import (
     ManagerPhase,
     MergeActor,
     ResumeRolloutRequest,
+    RolloutFailureFeed,
     RolloutItemOutcome,
     RunResponse,
     User,
@@ -628,3 +629,39 @@ async def dispatch_rollout(
         pass  # Worker not started (e.g. in tests)
 
     return RunResponse(**row)
+
+
+@router.get("/{rollout_id}/rollout_failures", response_model=RolloutFailureFeed)
+async def get_rollout_failures(
+    rollout_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+) -> RolloutFailureFeed:
+    """Return the failure feed for a rollout.
+
+    Aggregates wave halt events and failed/timeout runs for this rollout.
+    Wave halt events include the decoded payload (reason, item_id, comment_id).
+    Failed runs are enriched with item_title and project_name.
+
+    Args:
+        rollout_id: The rollout to fetch failures for.
+        user: Injected authenticated user.
+
+    Returns:
+        RolloutFailureFeed with wave_halts and failed_runs.
+
+    Raises:
+        404 if rollout not found or caller doesn't own it.
+    """
+    db = await get_db()
+    from agent_gtd.routes.dispatch_routes import _failed_run_response
+
+    try:
+        feed = await rollout_service.get_rollout_failure_feed(db, user.id, rollout_id)
+    except (NotFoundError, ValidationError) as exc:
+        raise _map_exc(exc) from exc
+
+    failed_runs = [_failed_run_response(r) for r in feed["failed_runs"]]
+    return RolloutFailureFeed(
+        wave_halts=feed["wave_halts"],
+        failed_runs=failed_runs,
+    )

@@ -17,6 +17,8 @@ import WeeklyReview from './pages/WeeklyReview'
 import AdminInvites from './pages/AdminInvites'
 import AdminUsers from './pages/AdminUsers'
 import ResetPassword from './pages/ResetPassword'
+import Runs from './pages/Runs'
+import RolloutDetail from './pages/RolloutDetail'
 
 export default function App() {
   // Prevent Escape from exiting browser fullscreen (Safari).
@@ -54,6 +56,8 @@ export default function App() {
         <Route path="/projects/:projectId" element={<ProjectDetail />} />
         <Route path="/review" element={<WeeklyReview />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/runs" element={<Runs />} />
+        <Route path="/rollouts/:rolloutId" element={<RolloutDetail />} />
       </Route>
       <Route
         element={

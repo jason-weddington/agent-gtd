@@ -21,6 +21,7 @@ import EventRepeatIcon from '@mui/icons-material/EventRepeat'
 import SettingsIcon from '@mui/icons-material/Settings'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import PeopleIcon from '@mui/icons-material/People'
+import SmartToyIcon from '@mui/icons-material/SmartToy'
 import { useAuth } from '../contexts/AuthContext'
 
 const DRAWER_WIDTH = 240
@@ -58,6 +59,12 @@ const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
     heading: 'Organize',
     items: [
       { label: 'Projects', path: '/projects', icon: <FolderIcon fontSize="small" />, shortcut: 7 },
+    ],
+  },
+  {
+    heading: 'Dispatch',
+    items: [
+      { label: 'Runs', path: '/runs', icon: <SmartToyIcon fontSize="small" />, shortcut: 8 },
     ],
   },
 ]

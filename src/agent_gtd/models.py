@@ -776,6 +776,30 @@ class RunResponse(BaseModel):
     dispatched_by_email: str | None = None
 
 
+class FailedRunResponse(RunResponse):
+    """Enriched run data for the failures feed (failed / timeout runs)."""
+
+    item_title: str | None = None
+    project_name: str = ""
+
+
+class StaleRunResponse(FailedRunResponse):
+    """Enriched run data for the stale-completed feed.
+
+    A stale run is a successful build-mode run whose linked item has not been
+    advanced to review/done/cancelled — the agent skipped the status flip.
+    """
+
+    item_status: str = ""
+
+
+class RolloutFailureFeed(BaseModel):
+    """Per-rollout failure feed aggregating halt events and failed runs."""
+
+    wave_halts: list[dict[str, object]] = []
+    failed_runs: list[FailedRunResponse] = []
+
+
 # --- Attachment Schemas ---
 
 

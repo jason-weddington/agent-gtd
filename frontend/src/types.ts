@@ -176,6 +176,22 @@ export interface Run {
   rolloutId: string | null
 }
 
+// --- Failure Feed ---
+
+export interface FailedRun extends Run {
+  itemTitle: string | null
+  projectName: string
+}
+
+export interface StaleRun extends FailedRun {
+  itemStatus: string
+}
+
+export interface RolloutFailureFeed {
+  waveHalts: RolloutEvent[]
+  failedRuns: FailedRun[]
+}
+
 // --- Wave Manager ---
 
 export type RolloutStatus =

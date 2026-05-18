@@ -24,8 +24,10 @@ from agent_gtd.models import (
     DispatchAgentInfo,
     DispatchCapabilitiesResponse,
     DispatchMode,
+    FailedRunResponse,
     LocalRunStatus,
     RunResponse,
+    StaleRunResponse,
     User,
 )
 from agent_gtd.services import dispatch_service, project_service
@@ -51,7 +53,7 @@ def _now() -> float:
 def _run_response(row: dict[str, object]) -> RunResponse:
     return RunResponse(
         id=str(row["id"]),
-        item_id=str(row["item_id"]),
+        item_id=str(row["item_id"]) if row.get("item_id") else None,
         project_id=str(row["project_id"]),
         status=LocalRunStatus(str(row["status"])),
         feature_branch=str(row.get("feature_branch", "")),
@@ -75,6 +77,79 @@ def _run_response(row: dict[str, object]) -> RunResponse:
         dispatched_by_email=(
             str(row["dispatched_by_email"]) if row.get("dispatched_by_email") else None
         ),
+    )
+
+
+def _failed_run_response(row: dict[str, object]) -> FailedRunResponse:
+    """Build a FailedRunResponse from an enriched row.
+
+    Includes item_title and project_name from JOIN.
+    """
+    return FailedRunResponse(
+        id=str(row["id"]),
+        item_id=str(row["item_id"]) if row.get("item_id") else None,
+        project_id=str(row["project_id"]),
+        status=LocalRunStatus(str(row["status"])),
+        feature_branch=str(row.get("feature_branch", "")),
+        workspace_dir=str(row.get("workspace_dir", "")),
+        max_turns=int(str(row.get("max_turns", 50))),
+        mode=DispatchMode(str(row.get("mode", "build"))),
+        rollout_id=str(row["rollout_id"]) if row.get("rollout_id") else None,
+        started_at=(
+            datetime.fromisoformat(str(row["started_at"]))
+            if row.get("started_at")
+            else None
+        ),
+        finished_at=(
+            datetime.fromisoformat(str(row["finished_at"]))
+            if row.get("finished_at")
+            else None
+        ),
+        error_msg=str(row.get("error_msg", "")),
+        created_at=datetime.fromisoformat(str(row["created_at"])),
+        updated_at=datetime.fromisoformat(str(row["updated_at"])),
+        dispatched_by_email=(
+            str(row["dispatched_by_email"]) if row.get("dispatched_by_email") else None
+        ),
+        item_title=str(row["item_title"]) if row.get("item_title") else None,
+        project_name=str(row.get("project_name", "")),
+    )
+
+
+def _stale_run_response(row: dict[str, object]) -> StaleRunResponse:
+    """Build a StaleRunResponse from an enriched row.
+
+    Includes item_title, project_name, and item_status from JOIN.
+    """
+    return StaleRunResponse(
+        id=str(row["id"]),
+        item_id=str(row["item_id"]) if row.get("item_id") else None,
+        project_id=str(row["project_id"]),
+        status=LocalRunStatus(str(row["status"])),
+        feature_branch=str(row.get("feature_branch", "")),
+        workspace_dir=str(row.get("workspace_dir", "")),
+        max_turns=int(str(row.get("max_turns", 50))),
+        mode=DispatchMode(str(row.get("mode", "build"))),
+        rollout_id=str(row["rollout_id"]) if row.get("rollout_id") else None,
+        started_at=(
+            datetime.fromisoformat(str(row["started_at"]))
+            if row.get("started_at")
+            else None
+        ),
+        finished_at=(
+            datetime.fromisoformat(str(row["finished_at"]))
+            if row.get("finished_at")
+            else None
+        ),
+        error_msg=str(row.get("error_msg", "")),
+        created_at=datetime.fromisoformat(str(row["created_at"])),
+        updated_at=datetime.fromisoformat(str(row["updated_at"])),
+        dispatched_by_email=(
+            str(row["dispatched_by_email"]) if row.get("dispatched_by_email") else None
+        ),
+        item_title=str(row["item_title"]) if row.get("item_title") else None,
+        project_name=str(row.get("project_name", "")),
+        item_status=str(row.get("item_status", "")),
     )
 
 
@@ -363,6 +438,47 @@ async def list_runs(
         scope=effective_scope,
     )
     return [_run_response(r) for r in rows]
+
+
+@router.get("/api/runs/failures", response_model=list[FailedRunResponse])
+async def list_failed_runs(
+    user: Annotated[User, Depends(get_current_user)],
+    limit: int = 100,
+) -> list[FailedRunResponse]:
+    """List failed and timeout runs across the user's accessible projects.
+
+    Returns up to ``limit`` (max 100) failed/timeout runs enriched with
+    ``item_title`` and ``project_name``, ordered by ``finished_at`` DESC.
+
+    This endpoint is declared before ``/{run_id}`` to avoid FastAPI
+    path-collision — FastAPI matches routes in declaration order.
+    """
+    db = await get_db()
+    rows = await dispatch_service.list_failed_runs(db, user.id, limit=limit)
+    return [_failed_run_response(r) for r in rows]
+
+
+@router.get("/api/runs/stale", response_model=list[StaleRunResponse])
+async def list_stale_runs(
+    user: Annotated[User, Depends(get_current_user)],
+    hours: int = 72,
+    limit: int = 100,
+) -> list[StaleRunResponse]:
+    """List successful build-mode runs whose item status was not advanced.
+
+    Surfaces the "agent completed but skipped the status-flip" scenario:
+    runs with ``status='success'`` and ``finished_at`` within the past
+    ``hours`` hours whose linked item is still in a non-terminal status
+    (not review / done / cancelled).
+
+    This endpoint is declared before ``/{run_id}`` to avoid FastAPI
+    path-collision — FastAPI matches routes in declaration order.
+    """
+    db = await get_db()
+    rows = await dispatch_service.list_stale_completed_runs(
+        db, user.id, hours=hours, limit=limit
+    )
+    return [_stale_run_response(r) for r in rows]
 
 
 @router.get("/api/runs/{run_id}", response_model=RunResponse)
