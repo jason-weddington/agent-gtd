@@ -502,29 +502,29 @@ def _publish_rollout_event(
         project_id: The rollout's project ID — triggers project-member
             fan-out in the event bus.
     """
-    try:
-        from agent_gtd.event_bus import get_event_bus
+    from agent_gtd.event_bus import get_event_bus
+    from agent_gtd.event_helpers import best_effort_publish
 
-        bus = get_event_bus()
-        supervise_task(
-            asyncio.create_task(
-                bus.publish(
-                    db,
-                    user_id=lead_user_id,
-                    event_type="rollout_event",
-                    entity_type="rollout",
-                    entity_id=rollout_event["rollout_id"],
-                    project_id=project_id,
-                    payload=rollout_event,
-                )
-            ),
-            context={
-                "rollout_id": rollout_event["rollout_id"],
-                "event_type": "rollout_event",
-            },
-        )
-    except Exception:
-        logger.exception("Failed to publish rollout_event SSE event")
+    bus = get_event_bus()
+    supervise_task(
+        asyncio.create_task(
+            best_effort_publish(
+                bus,
+                db,
+                user_id=lead_user_id,
+                event_type="rollout_event",
+                entity_type="rollout",
+                entity_id=rollout_event["rollout_id"],
+                project_id=project_id,
+                payload=rollout_event,
+                context={"rollout_id": rollout_event["rollout_id"]},
+            )
+        ),
+        context={
+            "rollout_id": rollout_event["rollout_id"],
+            "event_type": "rollout_event",
+        },
+    )
 
 
 def _build_predecessor_map(

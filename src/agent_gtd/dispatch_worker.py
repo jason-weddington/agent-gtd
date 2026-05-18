@@ -201,29 +201,32 @@ def _publish_run_event(
         reconciled: When ``True``, adds ``reconciled: True`` to the payload so
             the UI can distinguish reconciled events from live-path events.
     """
-    try:
-        from agent_gtd.event_bus import get_event_bus
+    from agent_gtd.event_bus import get_event_bus
+    from agent_gtd.event_helpers import best_effort_publish
 
-        bus = get_event_bus()
-        payload: dict[str, Any] = {"run_id": run_id, "item_id": item_id}
-        if reconciled:
-            payload["reconciled"] = True
-        supervise_task(
-            asyncio.create_task(
-                bus.publish(
-                    db,
-                    user_id=user_id,
-                    event_type=event_type,
-                    entity_type="run",
-                    entity_id=run_id,
-                    project_id=str(run["project_id"]),
-                    payload=payload,
-                )
-            ),
-            context={"run_id": run_id, "event_type": event_type},
-        )
-    except Exception:
-        logger.exception("Failed to publish %s event", event_type)
+    bus = get_event_bus()
+    payload: dict[str, Any] = {"run_id": run_id, "item_id": item_id}
+    if reconciled:
+        payload["reconciled"] = True
+    supervise_task(
+        asyncio.create_task(
+            best_effort_publish(
+                bus,
+                db,
+                user_id=user_id,
+                event_type=event_type,
+                entity_type="run",
+                entity_id=run_id,
+                project_id=str(run["project_id"]),
+                payload=payload,
+                context={
+                    "run_id": run_id,
+                    "item_id": str(item_id) if item_id else "",
+                },
+            )
+        ),
+        context={"run_id": run_id, "event_type": event_type},
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -220,9 +220,14 @@ async def create_run(
     if mode != "manage":
         try:
             await update_item(db, user_id, item_id, status="active")
-        except Exception:
-            logger.exception(
-                "Failed to set item %s status to active after dispatch", item_id
+        except Exception as exc:
+            logger.warning(
+                "Failed to set item status to active after dispatch",
+                extra={
+                    "item_id": item_id,
+                    "exc_class": type(exc).__name__,
+                    "exc_msg": str(exc),
+                },
             )
 
     return row_to_dict(row)

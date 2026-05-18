@@ -158,6 +158,20 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/health/events")
+async def health_events() -> dict[str, dict[str, int]]:
+    """Event publish stats endpoint (unauthenticated).
+
+    Returns per-event-type attempt and failure counts so operators can
+    alert on rising failure rates.  Shape::
+
+        {"event_type": {"attempts": int, "failures": int}, ...}
+    """
+    from agent_gtd.event_helpers import get_publish_stats
+
+    return get_publish_stats()
+
+
 @app.get("/api/config")
 async def config() -> dict[str, object]:
     """Return app configuration (unauthenticated)."""

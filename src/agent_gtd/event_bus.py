@@ -54,32 +54,29 @@ class EventBus:
     ) -> str:
         """Persist an event to the DB and fan out to subscriber queues.
 
-        Returns the event ID. Never raises — publish errors are logged and
-        swallowed so mutations are not affected.
+        Returns the event ID.  Raises on failure so callers that want
+        best-effort semantics should use ``best_effort_publish()`` from
+        ``agent_gtd.event_helpers`` instead.
         """
         event_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
         payload_json = json.dumps(payload, default=str)
 
         # Persist
-        try:
-            await db.execute(
-                "INSERT INTO events "
-                "(id, user_id, event_type, entity_type, entity_id, "
-                "project_id, payload, created_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-                event_id,
-                user_id,
-                event_type,
-                entity_type,
-                entity_id,
-                project_id,
-                payload_json,
-                now,
-            )
-        except Exception:
-            logger.exception("Failed to persist event %s", event_id)
-            return event_id
+        await db.execute(
+            "INSERT INTO events "
+            "(id, user_id, event_type, entity_type, entity_id, "
+            "project_id, payload, created_at) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            event_id,
+            user_id,
+            event_type,
+            entity_type,
+            entity_id,
+            project_id,
+            payload_json,
+            now,
+        )
 
         event_data: dict[str, Any] = {
             "id": event_id,
@@ -105,31 +102,26 @@ class EventBus:
 
         # Fan out to other project members so their indicators update in real time
         if project_id is not None:
-            try:
-                member_rows = await db.fetch(
-                    "SELECT user_id FROM project_members WHERE project_id = $1 "
-                    "UNION "
-                    "SELECT user_id FROM projects WHERE id = $2",
-                    project_id,
-                    project_id,
-                )
-                for row in member_rows:
-                    member_uid = str(row["user_id"])
-                    if member_uid == user_id:
-                        continue  # already fanned out above
-                    for queue in self._subscribers.get(member_uid, []):
-                        try:
+            member_rows = await db.fetch(
+                "SELECT user_id FROM project_members WHERE project_id = $1 "
+                "UNION "
+                "SELECT user_id FROM projects WHERE id = $2",
+                project_id,
+                project_id,
+            )
+            for row in member_rows:
+                member_uid = str(row["user_id"])
+                if member_uid == user_id:
+                    continue  # already fanned out above
+                for queue in self._subscribers.get(member_uid, []):
+                    try:
+                        queue.put_nowait(event_data)
+                    except asyncio.QueueFull:
+                        # Drop oldest to make room
+                        with contextlib.suppress(asyncio.QueueEmpty):
+                            queue.get_nowait()
+                        with contextlib.suppress(asyncio.QueueFull):
                             queue.put_nowait(event_data)
-                        except asyncio.QueueFull:
-                            # Drop oldest to make room
-                            with contextlib.suppress(asyncio.QueueEmpty):
-                                queue.get_nowait()
-                            with contextlib.suppress(asyncio.QueueFull):
-                                queue.put_nowait(event_data)
-            except Exception:
-                logger.exception(
-                    "Failed to fan out event %s to project members", event_id
-                )
 
         return event_id
 

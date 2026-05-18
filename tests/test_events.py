@@ -4,11 +4,14 @@ import asyncio
 import json
 import uuid
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
+import pytest
 from httpx import AsyncClient
 
 from agent_gtd.database import get_db
 from agent_gtd.event_bus import EventBus, get_event_bus
+from agent_gtd.event_helpers import reset_publish_stats
 
 # --- helpers ---
 
@@ -664,3 +667,124 @@ async def test_sse_replay_integration(client: AsyncClient, auth_headers):
         assert since_id not in replayed_ids
     finally:
         bus.unsubscribe(user_id, queue)
+
+
+# ---------------------------------------------------------------------------
+# best_effort_publish wrapper tests (AC-5a, AC-5b, AC-5c, AC-5d)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _reset_publish_stats():
+    """Reset publish counters before each test to prevent bleed (AC-5d)."""
+    reset_publish_stats()
+    yield
+    reset_publish_stats()
+
+
+async def test_best_effort_publish_logs_warn_on_exception(_setup_db, caplog):
+    """AC-5a: on bus.publish() failure, logs exactly once at WARN with full context."""
+    import logging
+
+    from agent_gtd.event_helpers import best_effort_publish
+
+    # Fake bus that always raises
+    bus = AsyncMock(spec=EventBus)
+    bus.publish = AsyncMock(side_effect=RuntimeError("db gone"))
+    db = await get_db()
+
+    with caplog.at_level(logging.WARNING, logger="agent_gtd.event_helpers"):
+        await best_effort_publish(
+            bus,
+            db,
+            user_id="user-1",
+            event_type="item_created",
+            entity_type="item",
+            entity_id="item-1",
+            payload={"id": "item-1"},
+            context={"item_id": "item-1", "project_id": "proj-1"},
+        )
+
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warning_records) == 1, "Expected exactly one WARNING log record"
+    record = warning_records[0]
+    # All required fields must be present in the log record
+    assert record.__dict__.get("event_type") == "item_created"
+    assert record.__dict__.get("item_id") == "item-1"
+    assert record.__dict__.get("project_id") == "proj-1"
+    assert record.__dict__.get("exc_class") == "RuntimeError"
+    assert record.__dict__.get("exc_msg") == "db gone"
+
+
+async def test_best_effort_publish_counters(_setup_db):
+    """AC-5b: attempts increments on every call; failures only on exception."""
+    from agent_gtd.event_helpers import best_effort_publish, get_publish_stats
+
+    # First call: success
+    real_bus = EventBus()
+    db = await get_db()
+    user_id = await _create_test_user(db)
+
+    await best_effort_publish(
+        real_bus,
+        db,
+        user_id=user_id,
+        event_type="note_created",
+        entity_type="note",
+        entity_id="note-1",
+        payload={"id": "note-1"},
+        context={"note_id": "note-1"},
+    )
+
+    stats = get_publish_stats()
+    assert stats["note_created"]["attempts"] == 1
+    assert stats["note_created"]["failures"] == 0
+
+    # Second call: failure
+    failing_bus = AsyncMock(spec=EventBus)
+    failing_bus.publish = AsyncMock(side_effect=Exception("boom"))
+
+    await best_effort_publish(
+        failing_bus,
+        db,
+        user_id=user_id,
+        event_type="note_created",
+        entity_type="note",
+        entity_id="note-2",
+        payload={"id": "note-2"},
+        context={"note_id": "note-2"},
+    )
+
+    stats = get_publish_stats()
+    assert stats["note_created"]["attempts"] == 2
+    assert stats["note_created"]["failures"] == 1
+
+
+async def test_health_events_endpoint(client: AsyncClient, _setup_db):
+    """AC-5c: GET /api/health/events returns 200 with correct counts."""
+    from agent_gtd.event_helpers import best_effort_publish, get_publish_stats
+
+    db = await get_db()
+    user_id = await _create_test_user(db)
+    real_bus = EventBus()
+
+    # Trigger one successful publish to populate stats
+    await best_effort_publish(
+        real_bus,
+        db,
+        user_id=user_id,
+        event_type="run_started",
+        entity_type="run",
+        entity_id="run-1",
+        payload={"run_id": "run-1"},
+        context={"run_id": "run-1"},
+    )
+
+    expected_attempts = get_publish_stats().get("run_started", {}).get("attempts", 0)
+
+    res = await client.get("/api/health/events")
+    assert res.status_code == 200
+    body = res.json()
+    assert "run_started" in body
+    assert body["run_started"]["attempts"] == expected_attempts
+    assert body["run_started"]["failures"] == 0

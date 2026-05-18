@@ -14,6 +14,7 @@ from agent_gtd.database import (
 )
 from agent_gtd.db_types import DbPool
 from agent_gtd.event_bus import get_event_bus
+from agent_gtd.event_helpers import best_effort_publish
 from agent_gtd.exceptions import (
     AlreadyClaimedError,
     BlockersUnresolvedError,
@@ -153,18 +154,17 @@ async def create_item(
     assert row is not None  # noqa: S101
     result = row_to_dict(row)
 
-    try:
-        await get_event_bus().publish(
-            db,
-            user_id=user_id,
-            event_type="item_created",
-            entity_type="item",
-            entity_id=item_id,
-            project_id=project_id,
-            payload=item_row_to_response_dict(result),
-        )
-    except Exception:
-        logger.exception("Failed to publish item_created event")
+    await best_effort_publish(
+        get_event_bus(),
+        db,
+        user_id=user_id,
+        event_type="item_created",
+        entity_type="item",
+        entity_id=item_id,
+        project_id=project_id,
+        payload=item_row_to_response_dict(result),
+        context={"item_id": item_id, "project_id": project_id or ""},
+    )
 
     return result
 

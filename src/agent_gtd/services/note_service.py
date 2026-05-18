@@ -8,6 +8,7 @@ from typing import Any
 from agent_gtd.database import decode_json_list, encode_json_list, row_to_dict
 from agent_gtd.db_types import DbPool
 from agent_gtd.event_bus import get_event_bus
+from agent_gtd.event_helpers import best_effort_publish
 from agent_gtd.exceptions import NotFoundError
 from agent_gtd.services.project_service import verify_project_access
 
@@ -89,18 +90,17 @@ async def create_note(
     assert row is not None  # noqa: S101
     result = row_to_dict(row)
 
-    try:
-        await get_event_bus().publish(
-            db,
-            user_id=user_id,
-            event_type="note_created",
-            entity_type="note",
-            entity_id=note_id,
-            project_id=project_id,
-            payload=note_row_to_response_dict(result),
-        )
-    except Exception:
-        logger.exception("Failed to publish note_created event")
+    await best_effort_publish(
+        get_event_bus(),
+        db,
+        user_id=user_id,
+        event_type="note_created",
+        entity_type="note",
+        entity_id=note_id,
+        project_id=project_id,
+        payload=note_row_to_response_dict(result),
+        context={"note_id": note_id},
+    )
 
     return result
 
@@ -168,18 +168,17 @@ async def update_note(
     assert row is not None  # noqa: S101
     result = row_to_dict(row)
 
-    try:
-        await get_event_bus().publish(
-            db,
-            user_id=user_id,
-            event_type="note_updated",
-            entity_type="note",
-            entity_id=note_id,
-            project_id=str(result["project_id"]),
-            payload=note_row_to_response_dict(result),
-        )
-    except Exception:
-        logger.exception("Failed to publish note_updated event")
+    await best_effort_publish(
+        get_event_bus(),
+        db,
+        user_id=user_id,
+        event_type="note_updated",
+        entity_type="note",
+        entity_id=note_id,
+        project_id=str(result["project_id"]),
+        payload=note_row_to_response_dict(result),
+        context={"note_id": note_id},
+    )
 
     return result
 
@@ -194,18 +193,17 @@ async def delete_note(db: DbPool, user_id: str, note_id: str) -> None:
     project_id = str(existing["project_id"])
     await db.execute("DELETE FROM notes WHERE id = $1", note_id)
 
-    try:
-        await get_event_bus().publish(
-            db,
-            user_id=user_id,
-            event_type="note_deleted",
-            entity_type="note",
-            entity_id=note_id,
-            project_id=project_id,
-            payload={"id": note_id},
-        )
-    except Exception:
-        logger.exception("Failed to publish note_deleted event")
+    await best_effort_publish(
+        get_event_bus(),
+        db,
+        user_id=user_id,
+        event_type="note_deleted",
+        entity_type="note",
+        entity_id=note_id,
+        project_id=project_id,
+        payload={"id": note_id},
+        context={"note_id": note_id},
+    )
 
 
 def note_row_to_response_dict(row: dict[str, Any]) -> dict[str, Any]:
