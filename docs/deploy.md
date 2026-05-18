@@ -233,12 +233,40 @@ logout: `sudo loginctl enable-linger <HOME_USER>`.
 frontend, and restarts the service. The build step is the important
 one — without it, frontend changes from a `git pull` won't show up.
 
+### Protocol package lock refresh
+
+`agent-gtd-dispatch-protocol` is declared as a git dependency with
+`rev = "main"` in `pyproject.toml`, but `uv.lock` pins to a specific
+commit SHA at lock time. The git server (`ubuntu-vm01`) only advertises
+branch HEADs — it does not serve arbitrary SHA fetches — so if the
+pinned SHA has drifted behind dispatch main, `uv sync` will fail with
+a fetch error. The project policy is **always latest main**: every
+deploy must refresh the lock against the current dispatch main tip
+before syncing.
+
+Run `uv lock --upgrade-package agent-gtd-dispatch-protocol` after each
+`git pull` to advance the pin to the current HEAD of dispatch main, then
+commit the updated `uv.lock` if it changed.
+
 **Remote deploy (over SSH):**
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-ssh <HOST> 'cd <APP_DIR> && git pull && npm --prefix frontend install && npm --prefix frontend run build && systemctl --user restart <SYSTEMD_UNIT>'
+ssh <HOST> bash <<'REMOTE'
+set -euo pipefail
+cd <APP_DIR>
+git pull
+uv lock --upgrade-package agent-gtd-dispatch-protocol
+if ! git diff --quiet uv.lock; then
+    git add uv.lock
+    git commit -m 'chore: refresh protocol pkg lock'
+fi
+uv sync
+npm --prefix frontend install
+npm --prefix frontend run build
+systemctl --user restart <SYSTEMD_UNIT>
+REMOTE
 sleep 2
 ssh <HOST> 'systemctl --user is-active <SYSTEMD_UNIT>'
 ```
@@ -250,6 +278,14 @@ ssh <HOST> 'systemctl --user is-active <SYSTEMD_UNIT>'
 set -euo pipefail
 cd <APP_DIR>
 git pull
+uv lock --upgrade-package agent-gtd-dispatch-protocol
+if ! git diff --quiet uv.lock; then
+    git add uv.lock
+    git commit -F - <<'EOF'
+chore: refresh protocol pkg lock
+EOF
+fi
+uv sync
 npm --prefix frontend install
 npm --prefix frontend run build
 systemctl --user restart <SYSTEMD_UNIT>
@@ -285,6 +321,14 @@ curl -sk -o /dev/null -w "%{http_code}\n" https://<HOSTNAME>/projects    # → 2
 
 # 5. Process tree shows uvicorn only, no node/vite
 systemctl --user status <SYSTEMD_UNIT> --no-pager | grep -E 'CGroup:|node|vite|uvicorn'
+
+# 6. Protocol package reflects current dispatch main
+#    uv.lock should reference the same SHA as dispatch main HEAD
+ssh <HOST> "cd <APP_DIR> && grep -A2 'name = \"agent-gtd-dispatch-protocol\"' uv.lock | grep 'rev = '"
+ssh <HOST> "git -C ~/repos/agent-gtd-dispatch rev-parse main"
+# Both lines should print the same 40-character SHA.
+# Alternatively, inspect the installed package version:
+ssh <HOST> 'cd <APP_DIR> && uv run python -c "import agent_gtd_dispatch_protocol; print(agent_gtd_dispatch_protocol.__file__)"'
 ```
 
 ### Browser checks
