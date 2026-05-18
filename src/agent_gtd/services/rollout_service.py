@@ -1940,7 +1940,7 @@ async def get_rollout_activity(
     for e in events:
         payload = e.get("payload")
         if isinstance(payload, dict):
-            raw_id = payload.get("item_id")
+            raw_id = payload.get("item_id") or payload.get("current_item_id")
             if raw_id and isinstance(raw_id, str):
                 item_ids.add(raw_id)
 
@@ -1970,7 +1970,7 @@ async def get_rollout_activity(
     result: list[dict[str, Any]] = []
     for e in events:
         payload = e.get("payload") or {}
-        raw_item_id = payload.get("item_id")
+        raw_item_id = payload.get("item_id") or payload.get("current_item_id")
         item_id_str: str | None = str(raw_item_id) if raw_item_id else None
         decision_rule_val = e.get("decision_rule")
         result.append(

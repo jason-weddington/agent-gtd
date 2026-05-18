@@ -13,24 +13,26 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
 } from '@mui/material'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
 import CodeIcon from '@mui/icons-material/Code'
 import PersonIcon from '@mui/icons-material/Person'
-import type { RolloutEvent, RolloutEventActor } from '../types'
+import type { ActivityEvent } from '../types'
 
 interface RolloutEventFeedProps {
-  events: RolloutEvent[]
+  events: ActivityEvent[]
   loading: boolean
+  onItemClick?: (itemId: string) => void
   /** Optional: project-relative short IDs for linking. Not used for routing — just display. */
   projectId?: string
 }
 
 // --- Actor icon + label mapping (AC-8) ---
 
-function ActorCell({ actor }: { actor: RolloutEventActor }) {
-  const config: Record<RolloutEventActor, { icon: React.ReactNode; label: string }> = {
+function ActorCell({ actor }: { actor: string }) {
+  const config: Partial<Record<string, { icon: React.ReactNode; label: string }>> = {
     manager: { icon: <SmartToyIcon fontSize="small" />, label: 'Manager' },
     'child-agent': { icon: <CodeIcon fontSize="small" />, label: 'Agent' },
     human: { icon: <PersonIcon fontSize="small" />, label: 'Human' },
@@ -61,9 +63,9 @@ function formatTimestamp(ts: string): string {
 
 // --- Message summariser ---
 
-function formatMessage(event: RolloutEvent): string {
-  const { kind, payload } = event
-  switch (kind) {
+function formatMessage(event: ActivityEvent): string {
+  const { eventType, payload } = event
+  switch (eventType) {
     case 'wave_halted':
       return `Halted: ${String(payload.reason ?? '')}`
     case 'wave_resumed':
@@ -75,27 +77,27 @@ function formatMessage(event: RolloutEvent): string {
     case 'wave_replanned':
       return 'Wave replanned'
     case 'item_dispatched':
-      return `Dispatched item ${String(payload.item_id ?? '').slice(0, 8)}`
+      return `Dispatched item ${String(payload.itemId ?? '').slice(0, 8)}`
     case 'item_outcome': {
       const outcome = String(payload.outcome ?? '')
-      const itemId = String(payload.item_id ?? '').slice(0, 8)
+      const itemId = String(payload.itemId ?? '').slice(0, 8)
       return `Item ${itemId}: ${outcome}`
     }
     default:
-      return kind
+      return eventType
   }
 }
 
 // --- Short item ID helper ---
 
-function shortId(id: unknown): string {
+export function shortId(id: unknown): string {
   if (typeof id !== 'string' || !id) return '—'
   return id.slice(0, 8)
 }
 
-export default function RolloutEventFeed({ events, loading }: RolloutEventFeedProps) {
+export default function RolloutEventFeed({ events, loading, onItemClick }: RolloutEventFeedProps) {
   // AC-6: filter out manager_state_update events — state ≠ activity log.
-  const displayEvents = events.filter((e) => e.kind !== 'manager_state_update')
+  const displayEvents = events.filter((e) => e.eventType !== 'manager_state_update')
 
   if (loading) {
     return (
@@ -147,8 +149,11 @@ export default function RolloutEventFeed({ events, loading }: RolloutEventFeedPr
         </TableHead>
         <TableBody>
           {displayEvents.map((event) => {
-            const itemId =
-              (event.payload.item_id as string | undefined) ?? null
+            const itemId = event.itemId
+            const itemTitle = event.itemTitle
+            const tooltipTitle = itemId
+              ? `${itemTitle ?? itemId} • ${itemId}`
+              : ''
             return (
               <TableRow key={event.id} hover>
                 <TableCell>
@@ -159,10 +164,23 @@ export default function RolloutEventFeed({ events, loading }: RolloutEventFeedPr
                 <TableCell>
                   <ActorCell actor={event.actor} />
                 </TableCell>
-                <TableCell>
-                  <Typography variant="caption" fontFamily="monospace">
-                    {shortId(itemId)}
-                  </Typography>
+                <TableCell
+                  onClick={() => itemId && onItemClick?.(itemId)}
+                  sx={{ cursor: itemId ? 'pointer' : 'default' }}
+                >
+                  <Tooltip title={tooltipTitle} placement="top">
+                    <Typography
+                      variant="caption"
+                      fontFamily="monospace"
+                      sx={
+                        itemId
+                          ? { '&:hover': { textDecoration: 'underline', color: 'primary.main' } }
+                          : undefined
+                      }
+                    >
+                      {itemTitle ?? shortId(itemId)}
+                    </Typography>
+                  </Tooltip>
                 </TableCell>
                 <TableCell>
                   <Typography variant="caption">

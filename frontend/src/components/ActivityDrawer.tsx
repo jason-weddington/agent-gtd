@@ -24,9 +24,10 @@ import {
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import { api } from '../api'
-import type { Run, RunStatus, RolloutEvent } from '../types'
+import type { ActivityEvent, Item, Run, RunStatus } from '../types'
 import RolloutEventFeed from './RolloutEventFeed'
 import RolloutActivityTab from './RolloutActivityTab'
+import ItemDetailDrawer from './ItemDetailDrawer'
 
 // ---------------------------------------------------------------------------
 // Props
@@ -75,13 +76,14 @@ function formatDuration(startedAt: string | null, finishedAt: string | null): st
 // ---------------------------------------------------------------------------
 
 function RolloutEventSection({ rolloutId }: { rolloutId: string }) {
-  const [events, setEvents] = useState<RolloutEvent[]>([])
+  const [events, setEvents] = useState<ActivityEvent[]>([])
   const [loading, setLoading] = useState(true)
+  const [drawerItem, setDrawerItem] = useState<Item | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await api.rollouts.events(rolloutId, 100)
+      const res = await api.rollouts.activity(rolloutId, 100)
       setEvents(res.events)
     } catch {
       setEvents([])
@@ -94,7 +96,29 @@ function RolloutEventSection({ rolloutId }: { rolloutId: string }) {
     void load()
   }, [load])
 
-  return <RolloutEventFeed events={events} loading={loading} />
+  const handleItemClick = useCallback(async (itemId: string) => {
+    try {
+      const item = await api.items.get(itemId)
+      setDrawerItem(item)
+    } catch {
+      // ignore — item may have been deleted or user lacks access
+    }
+  }, [])
+
+  return (
+    <>
+      <RolloutEventFeed
+        events={events}
+        loading={loading}
+        onItemClick={(id) => { void handleItemClick(id) }}
+      />
+      <ItemDetailDrawer
+        item={drawerItem}
+        onClose={() => setDrawerItem(null)}
+        onEdit={() => {}}
+      />
+    </>
+  )
 }
 
 // ---------------------------------------------------------------------------
