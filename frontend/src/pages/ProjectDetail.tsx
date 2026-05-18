@@ -59,7 +59,7 @@ import ShareTab from '../components/ShareTab'
 import MarkdownContent from '../components/MarkdownContent'
 import ProjectEditDialog from '../components/ProjectEditDialog'
 import RolloutBanner from '../components/RolloutBanner'
-import ActivityDrawer from '../components/ActivityDrawer'
+import ActivityDrawer, { type Scope } from '../components/ActivityDrawer'
 
 // Local extension of Item for optimistic UI — never exported or added to types.ts
 type DisplayItem = Item & { _optimistic?: true }
@@ -110,6 +110,7 @@ export default function ProjectDetail() {
   // Activity drawer state
   const [activityDrawerOpen, setActivityDrawerOpen] = useState(false)
   const [activeRolloutId, setActiveRolloutId] = useState<string | null>(null)
+  const [activityDrawerScope, setActivityDrawerScope] = useState<Scope>('project')
 
   // Copy project ID
   const [copied, setCopied] = useState(false)
@@ -119,6 +120,15 @@ export default function ProjectDetail() {
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }, [project])
+
+  // Open activity drawer with rollout tab selected.
+  // The existing drawer-open pattern is implemented by the header IconButton
+  // which calls setActivityDrawerOpen(true) directly. This callback both opens
+  // the drawer and sets the active tab to 'rollout' when the CTA is clicked.
+  const handleOpenActivityDrawer = useCallback(() => {
+    setActivityDrawerOpen(true)
+    setActivityDrawerScope('rollout')
+  }, [])
 
   // Project comment input
   const [newComment, setNewComment] = useState('')
@@ -829,6 +839,7 @@ export default function ProjectDetail() {
           projectId={projectId}
           onActiveChange={setHasActiveWave}
           onRolloutIdChange={setActiveRolloutId}
+          onOpenActivityDrawer={handleOpenActivityDrawer}
         />
       )}
 
@@ -1726,6 +1737,8 @@ export default function ProjectDetail() {
         onClose={() => setActivityDrawerOpen(false)}
         projectId={project.id}
         activeRolloutId={activeRolloutId}
+        scope={activityDrawerScope}
+        onScopeChange={setActivityDrawerScope}
       />
     </Box>
   )

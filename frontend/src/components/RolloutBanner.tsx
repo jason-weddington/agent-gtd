@@ -113,6 +113,8 @@ interface RolloutBannerProps {
   onActiveChange?: (hasActiveWave: boolean) => void
   /** Callback fired whenever the active rollout ID changes (null = no active rollout). */
   onRolloutIdChange?: (rolloutId: string | null) => void
+  /** Called when the user clicks "Open details" — opens the activity drawer and sets tab to rollout. */
+  onOpenActivityDrawer?: () => void
 }
 
 /** Statuses that block Dispatch tab editing. */
@@ -132,7 +134,7 @@ const STRIP_STATUSES: ReadonlySet<RolloutStatus> = new Set([
   'failed',
 ])
 
-export default function RolloutBanner({ projectId, onActiveChange, onRolloutIdChange }: RolloutBannerProps) {
+export default function RolloutBanner({ projectId, onActiveChange, onRolloutIdChange, onOpenActivityDrawer }: RolloutBannerProps) {
   const [rollout, setRollout] = useState<Rollout | null>(null)
   const [events, setEvents] = useState<RolloutEvent[]>([])
   const [bannerError, setBannerError] = useState<string | null>(null)
@@ -312,6 +314,7 @@ export default function RolloutBanner({ projectId, onActiveChange, onRolloutIdCh
         onHalt={handleHalt}
         onToggleDetails={() => setShowDetails((v) => !v)}
         showDetails={showDetails}
+        onOpenActivityDrawer={onOpenActivityDrawer}
       />
 
       {/* Details section — collapsed by default; only shown when halted */}

@@ -67,13 +67,14 @@ export interface RolloutStripProps {
   onToggleDetails?: () => void
   /** Whether the details section is currently expanded (controls icon direction). */
   showDetails?: boolean
+  /** Called when the user clicks the "Open details ▸" CTA — opens activity drawer and sets tab to 'rollout'. */
+  onOpenActivityDrawer?: () => void
 }
 
 export default function RolloutStrip({
   rollout,
   onHalt,
-  onToggleDetails,
-  showDetails = false,
+  onOpenActivityDrawer,
 }: RolloutStripProps) {
   // --- Halt confirmation dialog state (AC-11) ---
   const [haltOpen, setHaltOpen] = useState(false)
@@ -194,16 +195,16 @@ export default function RolloutStrip({
             </Button>
           )}
 
-          {/* Open details toggle (AC-12, AC-13) */}
-          {onToggleDetails && (
+          {/* Open details CTA (AC-12, AC-13) */}
+          {onOpenActivityDrawer && (
             <Button
               size="small"
               variant="text"
               color="inherit"
               sx={{ minWidth: 0, py: 0, px: 1, fontSize: '0.7rem', lineHeight: 1.5 }}
-              onClick={onToggleDetails}
+              onClick={onOpenActivityDrawer}
             >
-              Open details {showDetails ? '▾' : '▸'}
+              Open details ▸
             </Button>
           )}
         </Box>

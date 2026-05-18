@@ -30,6 +30,12 @@ import RolloutActivityTab from './RolloutActivityTab'
 import ItemDetailDrawer from './ItemDetailDrawer'
 
 // ---------------------------------------------------------------------------
+// Type exports
+// ---------------------------------------------------------------------------
+
+export type Scope = 'rollout' | 'project' | 'all'
+
+// ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
@@ -38,13 +44,13 @@ export interface ActivityDrawerProps {
   onClose: () => void
   projectId: string
   activeRolloutId: string | null
+  scope: Scope
+  onScopeChange: (scope: Scope) => void
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-type Scope = 'rollout' | 'project' | 'all'
 
 const RUN_STATUS_COLORS: Record<
   RunStatus,
@@ -278,13 +284,14 @@ export default function ActivityDrawer({
   onClose,
   projectId,
   activeRolloutId,
+  scope,
+  onScopeChange,
 }: ActivityDrawerProps) {
-  const [scope, setScope] = useState<Scope>(activeRolloutId ? 'rollout' : 'project')
   // Derived: if activeRolloutId goes away, fall back from 'rollout' to 'project'
   const effectiveScope: Scope = scope === 'rollout' && !activeRolloutId ? 'project' : scope
 
   const handleScopeChange = (_: React.SyntheticEvent, value: Scope | null) => {
-    if (value) setScope(value)
+    if (value) onScopeChange(value)
   }
 
   return (
