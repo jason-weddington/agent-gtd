@@ -572,7 +572,7 @@ async def execute_run(
     dispatch_api_key = settings["api_key"]
 
     # Resolve deployment-wide engine + agent names (app_settings, not user_settings)
-    global_engine = await get_setting(db, "dispatch.engine") or "claude"
+    global_engine = await get_setting(db, "dispatch.engine") or "claude-code"
     item_build_engine = (
         str(item.get("build_engine")) if item and item.get("build_engine") else None
     )
