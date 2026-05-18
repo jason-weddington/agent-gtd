@@ -590,3 +590,118 @@ class TestGetRollout:
             headers=wave_setup["headers"],
         )
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# AC-1, AC-2: POST /api/rollouts — plan_rollout error branches (lines 144-156)
+# ---------------------------------------------------------------------------
+
+
+class TestPlanRolloutErrorBranches:
+    async def test_plan_rollout_422_on_validation_error(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """plan_rollout raises ValidationError → HTTP 422."""
+        from unittest.mock import AsyncMock, patch
+
+        from agent_gtd.exceptions import ValidationError as GTDValidationError
+
+        with patch(
+            "agent_gtd.routes.rollout_routes.rollout_service.plan_rollout",
+            new_callable=AsyncMock,
+            side_effect=GTDValidationError("invalid items"),
+        ):
+            resp = await client.post(
+                "/api/rollouts",
+                json={"item_ids": ["some-id"]},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 422
+
+    async def test_plan_rollout_502_on_runtime_error(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """plan_rollout raises RuntimeError → HTTP 502."""
+        from unittest.mock import AsyncMock, patch
+
+        with patch(
+            "agent_gtd.routes.rollout_routes.rollout_service.plan_rollout",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("planner down"),
+        ):
+            resp = await client.post(
+                "/api/rollouts",
+                json={"item_ids": ["some-id"]},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# AC-3: POST /api/rollouts/{id}/cancel — 404 branch (lines 252-261)
+# ---------------------------------------------------------------------------
+
+
+class TestCancelRollout:
+    async def test_cancel_rollout_404_unknown(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """POST to nonexistent rollout ID returns 404."""
+        resp = await client.post(
+            "/api/rollouts/00000000-0000-0000-0000-000000000000/cancel",
+            json={"reason": "test cancel"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# AC-4: POST /api/rollouts/{id}/start — 404 branch (lines 281-285)
+# ---------------------------------------------------------------------------
+
+
+class TestStartRollout:
+    async def test_start_rollout_404_unknown(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """POST to nonexistent rollout ID returns 404."""
+        resp = await client.post(
+            "/api/rollouts/00000000-0000-0000-0000-000000000000/start",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# AC-5: POST /api/rollouts/{id}/resume — 404 branch (line 478)
+# ---------------------------------------------------------------------------
+
+
+class TestResumeRollout404:
+    async def test_resume_rollout_404_unknown(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """POST to nonexistent rollout ID returns 404."""
+        resp = await client.post(
+            "/api/rollouts/00000000-0000-0000-0000-000000000000/resume",
+            json={"answer": "test"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# AC-6: POST /api/rollouts/{id}/relaunch-manage — 404 branch (lines 579-583)
+# ---------------------------------------------------------------------------
+
+
+class TestRelaunchManageRollout:
+    async def test_relaunch_manage_404_unknown(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """POST to nonexistent rollout ID returns 404."""
+        resp = await client.post(
+            "/api/rollouts/00000000-0000-0000-0000-000000000000/relaunch-manage",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
