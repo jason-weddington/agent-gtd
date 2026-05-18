@@ -272,6 +272,8 @@ export default function ActivityDrawer({
         '& .MuiDrawer-paper': {
           width: { xs: '100vw', md: 500 },
           boxSizing: 'border-box',
+          top: '64px',
+          height: 'calc(100% - 64px)',
         },
       }}
     >
