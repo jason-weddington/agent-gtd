@@ -640,11 +640,11 @@ async def test_update_item_build_engine_new_tiers_accepted(
     assert res.json()["build_engine"] == engine
 
 
-@pytest.mark.parametrize("engine", ["claude", "kiro"])
+@pytest.mark.parametrize("engine", ["claude-code-sonnet", "claude-code-haiku", "kiro"])
 async def test_create_item_settings_engines_now_valid(
     client: AsyncClient, auth_headers: dict[str, str], engine: str
 ):
-    """'claude' and 'kiro' are valid BuildEngine values (from settings engine set)."""
+    """Additional BuildEngine values (beyond the default) are accepted on items."""
     res = await client.post(
         "/api/items",
         json={"title": "T", "build_engine": engine},
@@ -652,6 +652,18 @@ async def test_create_item_settings_engines_now_valid(
     )
     assert res.status_code == 201
     assert res.json()["build_engine"] == engine
+
+
+async def test_create_item_rejects_legacy_claude_engine(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Legacy 'claude' build_engine value is rejected — renamed to 'claude-code'."""
+    res = await client.post(
+        "/api/items",
+        json={"title": "T", "build_engine": "claude"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
 
 
 async def test_clear_item_build_engine(

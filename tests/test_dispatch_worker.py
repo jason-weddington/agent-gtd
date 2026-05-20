@@ -23,7 +23,7 @@ def _make_remote_run_response(
         item_id=None,
         project_name="test-project",
         branch_name=None,
-        engine="claude",
+        engine="claude-code",
         agent_name=None,
         mode="build",
         rollout_id=None,
@@ -277,15 +277,15 @@ async def test_execute_run_inbox_item_uses_caller_config() -> None:
     "mode,item_engine,global_engine,expected",
     [
         # build mode: item engine wins
-        ("build", "claude-code-ollama", "claude", "claude-code-ollama"),
+        ("build", "claude-code-ollama", "claude-code", "claude-code-ollama"),
         # build mode: item engine None → fallback to global
-        ("build", None, "claude", "claude"),
+        ("build", None, "claude-code", "claude-code"),
         # build mode: item engine "" (falsy) → fallback to global
-        ("build", "", "claude", "claude"),
+        ("build", "", "claude-code", "claude-code"),
         # plan mode: item engine is ignored → always use global
-        ("plan", "claude-code-ollama", "claude", "claude"),
+        ("plan", "claude-code-ollama", "claude-code", "claude-code"),
         # manage mode: item engine is ignored → always use global
-        ("manage", "claude-code-ollama", "claude", "claude"),
+        ("manage", "claude-code-ollama", "claude-code", "claude-code"),
     ],
 )
 def test_resolve_engine(
@@ -520,13 +520,13 @@ def test_dispatch_request_serialisation_parity() -> None:
     req = DispatchRequest(
         max_turns=100,
         mode="build",
-        engine="claude",
+        engine="claude-code",
         timeout_minutes=30,
     )
     assert req.model_dump(exclude_none=True) == {
         "max_turns": 100,
         "mode": "build",
-        "engine": "claude",
+        "engine": "claude-code",
         "timeout_minutes": 30,
     }
 
@@ -570,7 +570,7 @@ def test_dispatch_request_serialisation_parity_optional_fields(
     req = DispatchRequest(
         max_turns=100,
         mode="build",
-        engine="claude",
+        engine="claude-code",
         timeout_minutes=30,
         **extra_kwargs,
     )
@@ -578,7 +578,7 @@ def test_dispatch_request_serialisation_parity_optional_fields(
     base = {
         "max_turns": 100,
         "mode": "build",
-        "engine": "claude",
+        "engine": "claude-code",
         "timeout_minutes": 30,
     }
     assert result == {**base, **expected_extra}

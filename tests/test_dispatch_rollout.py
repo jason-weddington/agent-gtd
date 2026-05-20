@@ -302,7 +302,7 @@ def _make_settings_mock() -> tuple[Any, Any, Any]:
         return {"url": "http://fake:8100", "api_key": "test-key"}
 
     async def fake_get_setting(db_arg: Any, key: str) -> str | None:
-        return {"dispatch.engine": "claude"}.get(key)
+        return {"dispatch.engine": "claude-code"}.get(key)
 
     return fake_get_dispatch_hosts, fake_pick_dispatch_host, fake_get_setting
 

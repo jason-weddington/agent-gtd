@@ -590,8 +590,14 @@ async def test_patch_dispatch_settings_claude_code_ollama_now_valid(
 async def test_patch_dispatch_settings_all_valid_engines(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    """All four BuildEngine values are accepted by PATCH /api/settings/dispatch."""
-    for engine in ("claude-code", "claude-code-ollama", "claude", "kiro"):
+    """All registered BuildEngine values are accepted by PATCH /api/settings/dispatch."""  # noqa: E501
+    for engine in (
+        "claude-code",
+        "claude-code-ollama",
+        "claude-code-sonnet",
+        "claude-code-haiku",
+        "kiro",
+    ):
         res = await client.patch(
             "/api/settings/dispatch",
             json={"engine": engine},
@@ -599,6 +605,21 @@ async def test_patch_dispatch_settings_all_valid_engines(
         )
         assert res.status_code == 200, f"engine '{engine}' was rejected"
         assert res.json()["engine"] == engine
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_rejects_legacy_claude_engine(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """Legacy 'claude' value is rejected — it was renamed to 'claude-code'."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"engine": "claude"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422, (
+        f"expected 422 for legacy 'claude' engine, got {res.status_code}"
+    )
 
 
 @pytest.mark.asyncio

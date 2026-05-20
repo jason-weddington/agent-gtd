@@ -242,7 +242,7 @@ async def _dispatch_to_remote(
     rollout_id: str | None = None,
     url: str,
     api_key: str,
-    engine: str = "claude",
+    engine: str = "claude-code",
     agent_name: str = "",
     attribution: str = "",
     timeout_minutes: int = 30,
