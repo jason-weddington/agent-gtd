@@ -548,7 +548,14 @@ async def update_item(
     assigned_to: str | None = None,
     labels: list[str] | None = None,
     due_date: str | None = None,
-    build_engine: Literal["claude-code", "claude-code-ollama", "claude", "kiro", ""]
+    build_engine: Literal[
+        "claude-code",
+        "claude-code-ollama",
+        "claude-code-sonnet",
+        "claude-code-haiku",
+        "kiro",
+        "",
+    ]
     | None = None,
     acceptance_criteria: list[str] | None = None,
     files_to_modify: list[dict[str, Any]] | None = None,
@@ -580,6 +587,9 @@ async def update_item(
             - Empty string "" → clear the preference (use global default)
             - "claude-code" → Anthropic Claude Code
             - "claude-code-ollama" → Claude Code via Ollama
+            - "claude-code-sonnet" → Claude Code Sonnet model
+            - "claude-code-haiku" → Claude Code Haiku model
+            - "kiro" → Kiro engine
         acceptance_criteria: Structured acceptance criteria list (None = unchanged,
             empty list [] = clear, non-empty list = set).
         files_to_modify: Structured files-to-modify list of dicts with "path" and
