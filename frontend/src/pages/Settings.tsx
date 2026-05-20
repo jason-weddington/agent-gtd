@@ -32,14 +32,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import { useThemeMode } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import { api, ApiError } from '../api'
-import { apiKeyFieldPlaceholder } from '../utils'
-import type { ApiKeyInfo, DispatchCapabilities } from '../types'
-
-function clampInt(raw: string, min: number, max: number): number {
-  const v = parseInt(raw, 10)
-  if (isNaN(v)) return min
-  return Math.max(min, Math.min(max, v))
-}
+import type { ApiKeyInfo, DispatchCapabilities, DispatchHost } from '../types'
 
 export default function Settings() {
   const { mode, toggleTheme } = useThemeMode()
@@ -49,16 +42,18 @@ export default function Settings() {
   // Agent Dispatch settings
   const [dispatchMaxTurns, setDispatchMaxTurns] = useState<number>(100)
   const [dispatchTimeoutMinutes, setDispatchTimeoutMinutes] = useState<number>(30)
-  const [maxConcurrent, setMaxConcurrent] = useState<number>(6)
   const [engine, setEngine] = useState<string>('claude')
   const [planAgentName, setPlanAgentName] = useState<string>('')
   const [buildAgentName, setBuildAgentName] = useState<string>('')
-  const [dispatchServiceUrl, setDispatchServiceUrl] = useState('')
-  const [dispatchApiKeyInput, setDispatchApiKeyInput] = useState('')
-  const [dispatchApiKeyPreview, setDispatchApiKeyPreview] = useState('')
   const [savingDispatch, setSavingDispatch] = useState(false)
   const [capabilities, setCapabilities] = useState<DispatchCapabilities | null>(null)
   const [capabilitiesFailed, setCapabilitiesFailed] = useState(false)
+  // Dispatch hosts
+  const [dispatchHosts, setDispatchHosts] = useState<DispatchHost[]>([])
+  const [addingHost, setAddingHost] = useState(false)
+  const [hostLabel, setHostLabel] = useState('')
+  const [hostUrl, setHostUrl] = useState('')
+  const [hostApiKey, setHostApiKey] = useState('')
 
   const handleMaxTurnsChange = (raw: string) => {
     const v = parseInt(raw, 10)
@@ -92,21 +87,10 @@ export default function Settings() {
     }
   }
 
-  const saveMaxConcurrent = async () => {
-    try {
-      const res = await api.settings.setMaxConcurrent(maxConcurrent)
-      setMaxConcurrent(res.value)
-    } catch {
-      // handled by api client
-    }
-  }
-
   const saveDispatchSettings = async (fields: {
     engine?: string
     planAgentName?: string
     buildAgentName?: string
-    serviceUrl?: string
-    serviceApiKey?: string
   }) => {
     setSavingDispatch(true)
     try {
@@ -116,11 +100,6 @@ export default function Settings() {
       setBuildAgentName(res.buildAgentName)
       setDispatchMaxTurns(res.defaultMaxTurns)
       setDispatchTimeoutMinutes(res.defaultTimeoutMinutes)
-      setDispatchServiceUrl(res.serviceUrl)
-      setDispatchApiKeyPreview(res.serviceApiKeyPreview)
-      if (fields.serviceApiKey !== undefined) {
-        setDispatchApiKeyInput('')
-      }
     } catch {
       // handled by api client
     } finally {
@@ -168,15 +147,12 @@ export default function Settings() {
 
   useEffect(() => {
     api.config.get().then((cfg) => setVersion(cfg.version)).catch(() => {})
-    api.settings.getMaxConcurrent().then((res) => setMaxConcurrent(res.value)).catch(() => {})
     api.settings.getDispatch().then((res) => {
       setEngine(res.engine)
       setPlanAgentName(res.planAgentName)
       setBuildAgentName(res.buildAgentName)
       setDispatchMaxTurns(res.defaultMaxTurns)
       setDispatchTimeoutMinutes(res.defaultTimeoutMinutes)
-      setDispatchServiceUrl(res.serviceUrl)
-      setDispatchApiKeyPreview(res.serviceApiKeyPreview)
     }).catch(() => {})
     api.dispatch.capabilities().then((caps) => {
       setCapabilities(caps)
@@ -192,6 +168,39 @@ export default function Settings() {
   useEffect(() => {
     loadApiKeys()
   }, [loadApiKeys])
+
+  const loadDispatchHosts = useCallback(() => {
+    api.dispatchHosts.list().then(setDispatchHosts).catch(() => {})
+  }, [])
+
+  useEffect(() => { loadDispatchHosts() }, [loadDispatchHosts])
+
+  const handleAddHost = async () => {
+    setAddingHost(true)
+    try {
+      await api.dispatchHosts.add(hostLabel, hostUrl.trim(), hostApiKey)
+      setHostLabel('')
+      setHostUrl('')
+      setHostApiKey('')
+      loadDispatchHosts()
+      // Refresh capabilities after adding a host
+      api.dispatch.capabilities().then(setCapabilities).catch(() => {})
+    } catch {
+      // handled by api client
+    } finally {
+      setAddingHost(false)
+    }
+  }
+
+  const handleRemoveHost = async (hostId: string) => {
+    try {
+      await api.dispatchHosts.remove(hostId)
+      loadDispatchHosts()
+      api.dispatch.capabilities().then(setCapabilities).catch(() => {})
+    } catch {
+      // handled by api client
+    }
+  }
 
   const handleCreateApiKey = async () => {
     const name = newKeyName.trim() || 'Untitled'
@@ -478,35 +487,55 @@ export default function Settings() {
                 </>
               )
             })()}
-            <TextField
-              label="Dispatch service URL"
-              type="url"
-              size="small"
-              value={dispatchServiceUrl}
-              onChange={(e) => setDispatchServiceUrl(e.target.value)}
-              onBlur={() => {
-                if (!savingDispatch) void saveDispatchSettings({ serviceUrl: dispatchServiceUrl })
-              }}
-              placeholder="https://dispatch.example.com"
-              fullWidth
-            />
-            <TextField
-              label="Dispatch service API key"
-              type="password"
-              size="small"
-              value={dispatchApiKeyInput}
-              onChange={(e) => setDispatchApiKeyInput(e.target.value)}
-              onBlur={() => {
-                if (!savingDispatch && dispatchApiKeyInput.trim()) {
-                  void saveDispatchSettings({ serviceApiKey: dispatchApiKeyInput })
-                }
-              }}
-              placeholder={apiKeyFieldPlaceholder(dispatchApiKeyPreview)}
-              slotProps={{ inputLabel: { shrink: true } }}
-              fullWidth
-              helperText="Leave blank to keep the existing key. Never shown after saving."
-            />
           </Box>
+          {/* Total Cluster Capacity chip */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <Typography variant="body2" color="text.secondary">
+              Total Cluster Capacity:
+            </Typography>
+            <Typography variant="body2" fontWeight={600}>
+              {capabilities?.totalCapacity != null ? capabilities.totalCapacity : '—'}
+            </Typography>
+          </Box>
+
+          {/* Host list table */}
+          {dispatchHosts.length > 0 && (
+            <List dense disablePadding sx={{ mb: 2 }}>
+              {dispatchHosts.map((h) => (
+                <ListItem
+                  key={h.id}
+                  secondaryAction={
+                    <IconButton edge="end" size="small" onClick={() => void handleRemoveHost(h.id)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  }
+                >
+                  <ListItemText
+                    primary={h.label || h.url}
+                    secondary={`${h.url} · ${h.apiKeyPreview}`}
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
+
+          {/* Add Host form */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 2, maxWidth: 400 }}>
+            <Typography variant="subtitle2">Add Dispatch Host</Typography>
+            <TextField label="Label (optional)" size="small" fullWidth
+              value={hostLabel} onChange={(e) => setHostLabel(e.target.value)} />
+            <TextField label="URL" size="small" fullWidth required
+              value={hostUrl} onChange={(e) => setHostUrl(e.target.value)}
+              placeholder="https://dispatch.example.com" />
+            <TextField label="API Key" type="password" size="small" fullWidth required
+              value={hostApiKey} onChange={(e) => setHostApiKey(e.target.value)} />
+            <Button variant="outlined" size="small" onClick={() => void handleAddHost()}
+              disabled={addingHost || !hostUrl.trim() || !hostApiKey.trim()}
+              sx={{ alignSelf: 'flex-start' }}>
+              Add Host
+            </Button>
+          </Box>
+
           <Box sx={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
             {engine === 'claude' && (
               <Box>
@@ -533,21 +562,6 @@ export default function Settings() {
                 slotProps={{ htmlInput: { min: 5, max: 480 } }}
                 sx={{ width: 180 }}
               />
-            </Box>
-            <Box>
-              <TextField
-                label="Max concurrent runs"
-                type="number"
-                size="small"
-                value={maxConcurrent}
-                onChange={(e) => setMaxConcurrent(clampInt(e.target.value, 1, 20))}
-                onBlur={() => saveMaxConcurrent()}
-                slotProps={{ htmlInput: { min: 1, max: 20 } }}
-                sx={{ width: 180 }}
-              />
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                Takes effect after service restart.
-              </Typography>
             </Box>
           </Box>
         </CardContent>

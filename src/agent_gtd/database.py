@@ -203,6 +203,19 @@ _SCHEMA_STATEMENTS: list[str] = [
     """,
     "CREATE INDEX IF NOT EXISTS ix_user_settings_user ON user_settings(user_id)",
     """
+    CREATE TABLE IF NOT EXISTS dispatch_hosts (
+        id       TEXT NOT NULL PRIMARY KEY,
+        user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        label    TEXT NOT NULL DEFAULT '',
+        url      TEXT NOT NULL,
+        api_key  TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (user_id, url)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_dispatch_hosts_user_id ON dispatch_hosts(user_id)",
+    """
     CREATE TABLE IF NOT EXISTS attachments (
         id TEXT PRIMARY KEY,
         item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
@@ -470,6 +483,20 @@ _MIGRATIONS: list[str] = [
     "ALTER TABLE items ADD COLUMN acceptance_criteria TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE items ADD COLUMN files_to_modify TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE items ADD COLUMN scope_out TEXT NOT NULL DEFAULT '[]'",
+    # Multi-host dispatch capacity router.
+    """
+    CREATE TABLE IF NOT EXISTS dispatch_hosts (
+        id       TEXT NOT NULL PRIMARY KEY,
+        user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        label    TEXT NOT NULL DEFAULT '',
+        url      TEXT NOT NULL,
+        api_key  TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (user_id, url)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_dispatch_hosts_user_id ON dispatch_hosts(user_id)",
 ]
 
 

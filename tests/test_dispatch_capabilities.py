@@ -44,19 +44,19 @@ async def _configure_dispatch(
 async def test_capabilities_happy_path(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """Both /info and /agents succeed — proxy returns combined response."""
+    """/info succeeds — proxy returns engine, version, and agents."""
     await _configure_dispatch(client, auth_headers)
 
-    with (
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_info",
-            new=AsyncMock(return_value={"engine": "claude-code", "version": "1.2.3"}),
-        ),
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_agents",
-            new=AsyncMock(
-                return_value=[{"name": "code-reviewer", "description": "Reviews code"}]
-            ),
+    with patch(
+        "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+        new=AsyncMock(
+            return_value={
+                "engine": "claude-code",
+                "version": "1.2.3",
+                "agents": ["code-reviewer"],
+                "max_concurrent_runs": 4,
+                "active_runs": 0,
+            }
         ),
     ):
         res = await client.get("/api/dispatch/capabilities", headers=auth_headers)
@@ -67,7 +67,6 @@ async def test_capabilities_happy_path(
     assert data["version"] == "1.2.3"
     assert len(data["agents"]) == 1
     assert data["agents"][0]["name"] == "code-reviewer"
-    assert data["agents"][0]["description"] == "Reviews code"
 
 
 async def test_capabilities_requires_auth(client: AsyncClient):
@@ -84,18 +83,12 @@ async def test_capabilities_requires_auth(client: AsyncClient):
 async def test_capabilities_info_fails(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """/info fails — returns null engine/version + agents from /agents."""
+    """Host /info fails — returns null engine/version and empty agents."""
     await _configure_dispatch(client, auth_headers)
 
-    with (
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_info",
-            new=AsyncMock(side_effect=httpx.ConnectError("unreachable")),
-        ),
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_agents",
-            new=AsyncMock(return_value=[{"name": "code-reviewer", "description": ""}]),
-        ),
+    with patch(
+        "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+        new=AsyncMock(side_effect=httpx.ConnectError("unreachable")),
     ):
         res = await client.get("/api/dispatch/capabilities", headers=auth_headers)
 
@@ -103,24 +96,25 @@ async def test_capabilities_info_fails(
     data = res.json()
     assert data["engine"] is None
     assert data["version"] is None
-    assert len(data["agents"]) == 1
-    assert data["agents"][0]["name"] == "code-reviewer"
+    assert data["agents"] == []
 
 
 async def test_capabilities_agents_fails(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """/agents fails — returns engine/version + empty agents list."""
+    """Host /info returns no agents — engine/version present, agents empty."""
     await _configure_dispatch(client, auth_headers)
 
-    with (
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_info",
-            new=AsyncMock(return_value={"engine": "claude-code", "version": "1.2.3"}),
-        ),
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_agents",
-            new=AsyncMock(side_effect=httpx.TimeoutException("timeout")),
+    with patch(
+        "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+        new=AsyncMock(
+            return_value={
+                "engine": "claude-code",
+                "version": "1.2.3",
+                "agents": [],
+                "max_concurrent_runs": 4,
+                "active_runs": 0,
+            }
         ),
     ):
         res = await client.get("/api/dispatch/capabilities", headers=auth_headers)
@@ -135,18 +129,12 @@ async def test_capabilities_agents_fails(
 async def test_capabilities_both_fail(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """Both /info and /agents fail — returns all null/empty fields."""
+    """Host /info fails — returns all null/empty fields."""
     await _configure_dispatch(client, auth_headers)
 
-    with (
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_info",
-            new=AsyncMock(side_effect=httpx.ConnectError("unreachable")),
-        ),
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_agents",
-            new=AsyncMock(side_effect=httpx.ConnectError("unreachable")),
-        ),
+    with patch(
+        "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+        new=AsyncMock(side_effect=httpx.ConnectError("unreachable")),
     ):
         res = await client.get("/api/dispatch/capabilities", headers=auth_headers)
 
@@ -163,26 +151,14 @@ async def test_capabilities_non_200_upstream(
     """Non-200 from upstream is treated as failure — still returns 200."""
     await _configure_dispatch(client, auth_headers)
 
-    with (
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_info",
-            new=AsyncMock(
-                side_effect=httpx.HTTPStatusError(
-                    "503",
-                    request=httpx.Request("GET", "http://fake-dispatch:8100/info"),
-                    response=httpx.Response(503),
-                )
-            ),
-        ),
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_agents",
-            new=AsyncMock(
-                side_effect=httpx.HTTPStatusError(
-                    "503",
-                    request=httpx.Request("GET", "http://fake-dispatch:8100/agents"),
-                    response=httpx.Response(503),
-                )
-            ),
+    with patch(
+        "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+        new=AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "503",
+                request=httpx.Request("GET", "http://fake-dispatch:8100/info"),
+                response=httpx.Response(503),
+            )
         ),
     ):
         res = await client.get("/api/dispatch/capabilities", headers=auth_headers)
@@ -198,18 +174,11 @@ async def test_capabilities_not_configured(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
     """Dispatch URL not configured — returns all null/empty, no HTTP calls."""
-    fetch_info = AsyncMock()
-    fetch_agents = AsyncMock()
+    fetch_host_cap = AsyncMock()
 
-    with (
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_info",
-            new=fetch_info,
-        ),
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_agents",
-            new=fetch_agents,
-        ),
+    with patch(
+        "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+        new=fetch_host_cap,
     ):
         res = await client.get("/api/dispatch/capabilities", headers=auth_headers)
 
@@ -219,9 +188,8 @@ async def test_capabilities_not_configured(
     assert data["version"] is None
     assert data["agents"] == []
 
-    # No HTTP calls should have been made
-    fetch_info.assert_not_called()
-    fetch_agents.assert_not_called()
+    # No HTTP calls should have been made (no hosts configured)
+    fetch_host_cap.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -235,18 +203,13 @@ async def test_capabilities_cache_hit(
     """Second call within 60s returns cached result without re-fetching upstream."""
     await _configure_dispatch(client, auth_headers)
 
-    fetch_info = AsyncMock(return_value={"engine": "claude-code", "version": "1.0.0"})
-    fetch_agents = AsyncMock(return_value=[])
+    fetch_host_cap = AsyncMock(
+        return_value={"engine": "claude-code", "version": "1.0.0", "agents": []}
+    )
 
-    with (
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_info",
-            new=fetch_info,
-        ),
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_agents",
-            new=fetch_agents,
-        ),
+    with patch(
+        "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+        new=fetch_host_cap,
     ):
         res1 = await client.get("/api/dispatch/capabilities", headers=auth_headers)
         res2 = await client.get("/api/dispatch/capabilities", headers=auth_headers)
@@ -256,42 +219,40 @@ async def test_capabilities_cache_hit(
     assert res1.json() == res2.json()
 
     # Upstream fetched only once — second call was a cache hit
-    assert fetch_info.call_count == 1
-    assert fetch_agents.call_count == 1
+    assert fetch_host_cap.call_count == 1
 
 
 async def test_capabilities_cache_keyed_by_url(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """Changing the dispatch URL bypasses the old cache entry."""
+    """Two different users have separate cache entries (keyed by user_id)."""
+    from agent_gtd.auth import create_token, register_user
+
     await _configure_dispatch(client, auth_headers, url="http://dispatch-v1:8100")
 
-    fetch_info = AsyncMock(return_value={"engine": "claude-code", "version": "1.0.0"})
-    fetch_agents = AsyncMock(return_value=[])
+    # Create a second user with their own dispatch host
+    user_b = await register_user("userb_caps@example.com", "passb")
+    headers_b = {"Authorization": f"Bearer {create_token(user_b.id)}"}
+    await _configure_dispatch(client, headers_b, url="http://dispatch-v2:8100")
 
-    with (
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_info",
-            new=fetch_info,
-        ),
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_agents",
-            new=fetch_agents,
-        ),
+    fetch_host_cap = AsyncMock(
+        return_value={"engine": "claude-code", "version": "1.0.0", "agents": []}
+    )
+
+    with patch(
+        "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+        new=fetch_host_cap,
     ):
-        # First call — populates cache for v1 URL
+        # First user call — populates cache for user A
         res1 = await client.get("/api/dispatch/capabilities", headers=auth_headers)
         assert res1.status_code == 200
 
-        # Change the URL — different cache key
-        await _configure_dispatch(client, auth_headers, url="http://dispatch-v2:8100")
-
-        # Second call — should hit upstream again (new URL, no cache)
-        res2 = await client.get("/api/dispatch/capabilities", headers=auth_headers)
+        # Second user call — different user_id, different cache key
+        res2 = await client.get("/api/dispatch/capabilities", headers=headers_b)
         assert res2.status_code == 200
 
-    assert fetch_info.call_count == 2
-    assert fetch_agents.call_count == 2
+    # Each user's hosts were fetched exactly once
+    assert fetch_host_cap.call_count == 2
 
 
 async def test_capabilities_cache_invalidated_after_ttl(
@@ -307,18 +268,13 @@ async def test_capabilities_cache_invalidated_after_ttl(
         lambda: current_time[0],
     )
 
-    fetch_info = AsyncMock(return_value={"engine": "claude-code", "version": "1.0.0"})
-    fetch_agents = AsyncMock(return_value=[])
+    fetch_host_cap = AsyncMock(
+        return_value={"engine": "claude-code", "version": "1.0.0", "agents": []}
+    )
 
-    with (
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_info",
-            new=fetch_info,
-        ),
-        patch(
-            "agent_gtd.routes.dispatch_routes._fetch_dispatch_agents",
-            new=fetch_agents,
-        ),
+    with patch(
+        "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+        new=fetch_host_cap,
     ):
         # First call at t=0 — populates cache
         res1 = await client.get("/api/dispatch/capabilities", headers=auth_headers)
@@ -337,8 +293,7 @@ async def test_capabilities_cache_invalidated_after_ttl(
         assert res2.status_code == 200
 
     # Upstream called twice: initial + after TTL expired (not for the t=59 call)
-    assert fetch_info.call_count == 2
-    assert fetch_agents.call_count == 2
+    assert fetch_host_cap.call_count == 2
 
 
 # ---------------------------------------------------------------------------

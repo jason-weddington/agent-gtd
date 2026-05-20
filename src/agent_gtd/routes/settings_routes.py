@@ -1,17 +1,20 @@
 """App settings API routes."""
 
 import os
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
 from agent_gtd.dispatch_constants import MAX_TIMEOUT_MINUTES, MIN_TIMEOUT_MINUTES
 from agent_gtd.models import (
+    AddDispatchHostRequest,
     BuildEngine,
+    DispatchHostResponse,
     DispatchSettingsResponse,
-    MaxConcurrentRequest,
     UpdateDispatchSettingsRequest,
     User,
 )
@@ -19,29 +22,27 @@ from agent_gtd.services import settings_service
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-_MAX_CONCURRENT_KEY = "dispatch.max_concurrent"
 _ENGINE_KEY = "dispatch.engine"
 _AGENT_NAME_KEY = "dispatch.agent_name"
 _PLAN_AGENT_NAME_KEY = "dispatch.plan_agent_name"
 _BUILD_AGENT_NAME_KEY = "dispatch.build_agent_name"
 _DEFAULT_MAX_TURNS_KEY = "dispatch.default_max_turns"
 _DEFAULT_TIMEOUT_MINUTES_KEY = "dispatch.default_timeout_minutes"
-_MIN_VALUE = 1
-_MAX_VALUE = 20
 _MAX_AGENT_NAME_LEN = 64
 _MIN_TURNS = 10
 _MAX_TURNS = 500
 
 
+def _mask_key(api_key: str) -> str:
+    """Return '****' + last 4 chars of api_key, or '' if empty."""
+    if not api_key:
+        return ""
+    suffix = api_key[-4:] if len(api_key) >= 4 else api_key
+    return f"****{suffix}"
+
+
 async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsResponse:
     """Construct a DispatchSettingsResponse from DB state."""
-    val = await settings_service.get_setting(db, _MAX_CONCURRENT_KEY)
-    max_concurrent = (
-        int(val)
-        if val is not None
-        else int(os.environ.get("DISPATCH_MAX_CONCURRENT", "6"))
-    )
-
     engine = await settings_service.get_setting(db, _ENGINE_KEY) or "claude-code"
     plan_agent_name = await settings_service.get_setting(db, _PLAN_AGENT_NAME_KEY) or ""
     build_agent_name = (
@@ -72,47 +73,11 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
         engine=BuildEngine(engine),
         plan_agent_name=plan_agent_name,
         build_agent_name=build_agent_name,
-        max_concurrent=max_concurrent,
         default_max_turns=default_max_turns,
         default_timeout_minutes=default_timeout_minutes,
         service_url=service_url,
         service_api_key_preview=preview,
     )
-
-
-@router.get("/dispatch/max-concurrent")
-async def get_max_concurrent(
-    _user: Annotated[User, Depends(get_current_user)],
-) -> dict[str, int]:
-    """Return the current dispatch concurrency cap.
-
-    Falls back to the ``DISPATCH_MAX_CONCURRENT`` env var (default 6) when no
-    DB row has been stored yet.
-    """
-    db = await get_db()
-    val = await settings_service.get_setting(db, _MAX_CONCURRENT_KEY)
-    if val is None:
-        val = os.environ.get("DISPATCH_MAX_CONCURRENT", "6")
-    return {"value": int(val)}
-
-
-@router.patch("/dispatch/max-concurrent")
-async def set_max_concurrent(
-    body: MaxConcurrentRequest,
-    _user: Annotated[User, Depends(get_current_user)],
-) -> dict[str, int]:
-    """Update the dispatch concurrency cap (1-20).
-
-    The new value takes effect after the next service restart.
-    """
-    if not (_MIN_VALUE <= body.value <= _MAX_VALUE):
-        raise HTTPException(
-            status_code=422,
-            detail=f"value must be between {_MIN_VALUE} and {_MAX_VALUE}",
-        )
-    db = await get_db()
-    await settings_service.set_setting(db, _MAX_CONCURRENT_KEY, str(body.value))
-    return {"value": body.value}
 
 
 @router.get("/dispatch", response_model=DispatchSettingsResponse)
@@ -195,3 +160,68 @@ async def update_dispatch_settings(
         )
 
     return await _build_dispatch_response(db, user.id)
+
+
+@router.get("/dispatch/hosts", response_model=list[DispatchHostResponse])
+async def list_dispatch_hosts(
+    user: Annotated[User, Depends(get_current_user)],
+) -> list[DispatchHostResponse]:
+    """List the caller's configured dispatch hosts."""
+    db = await get_db()
+    hosts = await settings_service.get_dispatch_hosts(db, user.id)
+    return [
+        DispatchHostResponse(
+            id=h["id"],
+            label=h.get("label", ""),
+            url=h["url"],
+            api_key_preview=_mask_key(h["api_key"]),
+            created_at=datetime.fromisoformat(h["created_at"]),
+        )
+        for h in hosts
+    ]
+
+
+@router.post(
+    "/dispatch/hosts",
+    response_model=DispatchHostResponse,
+    status_code=201,
+)
+async def add_dispatch_host(
+    body: AddDispatchHostRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> DispatchHostResponse:
+    """Add a new dispatch host."""
+    url = body.url.strip()
+    if not url:
+        raise HTTPException(status_code=422, detail="url must be non-empty")
+    if not body.api_key:
+        raise HTTPException(status_code=422, detail="api_key must be non-empty")
+
+    db = await get_db()
+    try:
+        host = await settings_service.add_dispatch_host(
+            db, user.id, body.label, url, body.api_key
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return DispatchHostResponse(
+        id=host["id"],
+        label=host.get("label", ""),
+        url=host["url"],
+        api_key_preview=_mask_key(host["api_key"]),
+        created_at=datetime.fromisoformat(host["created_at"]),
+    )
+
+
+@router.delete("/dispatch/hosts/{host_id}", status_code=204)
+async def delete_dispatch_host(
+    host_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+) -> Response:
+    """Delete a dispatch host."""
+    db = await get_db()
+    deleted = await settings_service.remove_dispatch_host(db, user.id, host_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Host not found")
+    return Response(status_code=204)

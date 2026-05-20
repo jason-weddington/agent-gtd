@@ -278,4 +278,13 @@ export interface DispatchCapabilities {
   engine: string | null
   version: string | null
   agents: DispatchAgentInfo[]
+  totalCapacity: number | null
+}
+
+export interface DispatchHost {
+  id: string
+  label: string
+  url: string
+  apiKeyPreview: string
+  createdAt: string
 }

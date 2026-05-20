@@ -27,7 +27,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_MAX_TURNS = int(os.environ.get("DISPATCH_DEFAULT_MAX_TURNS", "100"))
-_MAX_CONCURRENT_DEFAULT = int(os.environ.get("DISPATCH_MAX_CONCURRENT", "6"))
 POLL_INTERVAL = 15  # seconds between status polls
 
 # Terminal statuses from the shared dispatch-protocol package.
@@ -532,10 +531,7 @@ async def execute_run(
     Updates the local run row as it progresses. The remote service handles
     cloning, Claude invocation, and posting comments to the GTD API.
     """
-    from agent_gtd.services.settings_service import (
-        get_dispatch_config,
-        get_setting,
-    )
+    from agent_gtd.services.settings_service import get_setting
 
     run_id = str(run["id"])
     item_id = str(run["item_id"]) if run.get("item_id") is not None else None
@@ -554,22 +550,6 @@ async def execute_run(
         owner_id = str(proj_row["user_id"]) if proj_row else user_id
     else:
         owner_id = user_id
-
-    # Resolve dispatch config via project owner
-    settings = await get_dispatch_config(db, owner_id)
-    if not settings:
-        await _update_run(
-            db,
-            run_id,
-            status="failed",
-            finished_at=datetime.now(UTC).isoformat(),
-            error_msg="Project owner has not configured dispatch",
-        )
-        _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
-        return
-
-    dispatch_url = settings["url"]
-    dispatch_api_key = settings["api_key"]
 
     # Resolve deployment-wide engine + agent names (app_settings, not user_settings)
     global_engine = await get_setting(db, "dispatch.engine") or "claude-code"
@@ -604,6 +584,62 @@ async def execute_run(
     effective_timeout_minutes = resolve_timeout_minutes(
         project_timeout_minutes, global_timeout_minutes
     )
+
+    # Get dispatch hosts for the project owner
+    from agent_gtd.services.dispatch_router import (
+        NoCompatibleHostError,
+        pick_dispatch_host,
+    )
+    from agent_gtd.services.settings_service import get_dispatch_hosts
+
+    hosts = await get_dispatch_hosts(db, owner_id)
+    if not hosts:
+        msg = "Project owner has not configured dispatch hosts"
+        await _update_run(
+            db,
+            run_id,
+            status="failed",
+            finished_at=datetime.now(UTC).isoformat(),
+            error_msg=msg,
+        )
+        _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
+        return
+
+    # Pick the best host for the required engine + agent
+    try:
+        selected_host = await pick_dispatch_host(
+            hosts, engine=engine, agent_name=agent_name or None
+        )
+    except NoCompatibleHostError as exc:
+        error_msg = str(exc)[:500]
+        await _update_run(
+            db,
+            run_id,
+            status="failed",
+            finished_at=datetime.now(UTC).isoformat(),
+            error_msg=error_msg,
+        )
+        _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
+        # Post comment to source item
+        if item_id:
+            try:
+                from agent_gtd.services.comment_service import create_comment
+
+                await create_comment(
+                    db,
+                    user_id,
+                    item_id=item_id,
+                    content_markdown=f"Dispatch failed: {error_msg}",
+                    created_by=attribution,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to post NoCompatibleHostError comment to item %s", item_id
+                )
+        return
+
+    dispatch_url = selected_host["url"]
+    dispatch_api_key = selected_host["api_key"]
 
     async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
         # --- Dispatch to remote ---
@@ -708,7 +744,6 @@ async def execute_run(
 
 # Module-level queue — set during app startup
 _dispatch_queue: asyncio.Queue[str] | None = None
-_semaphore: asyncio.Semaphore | None = None
 
 
 def get_dispatch_queue() -> asyncio.Queue[str]:
@@ -717,26 +752,12 @@ def get_dispatch_queue() -> asyncio.Queue[str]:
     return _dispatch_queue
 
 
-async def _resolve_max_concurrent() -> int:
-    """Read the concurrency cap from DB, falling back to env var then literal 6."""
-    from agent_gtd.database import get_db
-    from agent_gtd.services import settings_service
-
-    db = await get_db()
-    val = await settings_service.get_setting(db, "dispatch.max_concurrent")
-    if val is None:
-        return _MAX_CONCURRENT_DEFAULT
-    return max(1, int(val))
-
-
 async def dispatch_worker() -> None:
     """Background worker that drains the dispatch queue."""
-    global _dispatch_queue, _semaphore
+    global _dispatch_queue
     _dispatch_queue = asyncio.Queue()
-    _max = await _resolve_max_concurrent()
-    _semaphore = asyncio.Semaphore(_max)
 
-    logger.info("Dispatch worker started (max %d concurrent)", _max)
+    logger.info("Dispatch worker started")
 
     while True:
         run_id = await _dispatch_queue.get()
@@ -747,47 +768,44 @@ async def dispatch_worker() -> None:
 
 
 async def _process_run(run_id: str) -> None:
-    """Process a single run with concurrency limiting."""
-    assert _semaphore is not None  # noqa: S101
+    """Process a single run."""
+    try:
+        from agent_gtd.database import get_db
+        from agent_gtd.services.item_service import (
+            get_item as svc_get_item,
+        )
+        from agent_gtd.services.project_service import (
+            get_project as svc_get_project,
+        )
 
-    async with _semaphore:
-        try:
-            from agent_gtd.database import get_db
-            from agent_gtd.services.item_service import (
-                get_item as svc_get_item,
-            )
-            from agent_gtd.services.project_service import (
-                get_project as svc_get_project,
-            )
+        db = await get_db()
+        # Fetch run — use a direct query since get_run needs user_id
+        row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
+        if row is None:
+            logger.error("Run %s not found, skipping", run_id)
+            return
 
-            db = await get_db()
-            # Fetch run — use a direct query since get_run needs user_id
-            row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
-            if row is None:
-                logger.error("Run %s not found, skipping", run_id)
-                return
+        from agent_gtd.database import row_to_dict
 
-            from agent_gtd.database import row_to_dict
+        run = row_to_dict(row)
 
-            run = row_to_dict(row)
+        if run["status"] not in ("pending",):
+            logger.warning("Run %s status is %s, skipping", run_id, run["status"])
+            return
 
-            if run["status"] not in ("pending",):
-                logger.warning("Run %s status is %s, skipping", run_id, run["status"])
-                return
+        user_id = str(run["user_id"])
+        run_mode = str(run.get("mode", "build"))
+        if run_mode == "manage":
+            # manage-mode runs are not scoped to a single item
+            item = None
+        else:
+            item = await svc_get_item(db, user_id, str(run["item_id"]))
+        project = await svc_get_project(db, user_id, str(run["project_id"]))
 
-            user_id = str(run["user_id"])
-            run_mode = str(run.get("mode", "build"))
-            if run_mode == "manage":
-                # manage-mode runs are not scoped to a single item
-                item = None
-            else:
-                item = await svc_get_item(db, user_id, str(run["item_id"]))
-            project = await svc_get_project(db, user_id, str(run["project_id"]))
+        await execute_run(db, run, item, project)
 
-            await execute_run(db, run, item, project)
-
-        except Exception:
-            logger.exception("Fatal error processing run %s", run_id)
+    except Exception:
+        logger.exception("Fatal error processing run %s", run_id)
 
 
 def enqueue_run(run_id: str) -> None:

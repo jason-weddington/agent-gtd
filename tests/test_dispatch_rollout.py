@@ -202,8 +202,6 @@ def _make_db_mock_for_process_run(run_dict: dict[str, Any]) -> MagicMock:
 @pytest.mark.asyncio
 async def test_process_run_manage_mode_skips_item_fetch() -> None:
     """_process_run passes item=None to execute_run for manage-mode (Bug 3 fix)."""
-    import asyncio
-
     rollout_id = str(uuid.uuid4())
     run_id = str(uuid.uuid4())
     project_id = str(uuid.uuid4())
@@ -259,10 +257,6 @@ async def test_process_run_manage_mode_skips_item_fetch() -> None:
             new=fake_svc_get_project,
         ),
         patch("agent_gtd.dispatch_worker.execute_run", new=fake_execute_run),
-        patch(
-            "agent_gtd.dispatch_worker._semaphore",
-            new=asyncio.Semaphore(1),
-        ),
     ):
         from agent_gtd.dispatch_worker import _process_run
 
@@ -296,16 +290,21 @@ def _make_db_mock_for_execute(project_owner_id: str) -> MagicMock:
     return db
 
 
-def _make_settings_mock() -> tuple[Any, Any]:
-    """Return (fake_dispatch_config, fake_get_setting) callables for use in patches."""
+def _make_settings_mock() -> tuple[Any, Any, Any]:
+    """Return (fake_get_dispatch_hosts, fake_pick_dispatch_host, fake_get_setting)."""
 
-    async def fake_dispatch_config(db_arg: Any, uid: str) -> dict[str, Any] | None:
+    async def fake_get_dispatch_hosts(db_arg: Any, uid: str) -> list[dict[str, Any]]:
+        return [{"url": "http://fake:8100", "api_key": "test-key", "label": "default"}]
+
+    async def fake_pick_dispatch_host(
+        hosts: list[dict[str, Any]], *, engine: str, agent_name: Any
+    ) -> dict[str, Any]:
         return {"url": "http://fake:8100", "api_key": "test-key"}
 
     async def fake_get_setting(db_arg: Any, key: str) -> str | None:
         return {"dispatch.engine": "claude"}.get(key)
 
-    return fake_dispatch_config, fake_get_setting
+    return fake_get_dispatch_hosts, fake_pick_dispatch_host, fake_get_setting
 
 
 @pytest.mark.asyncio
@@ -335,12 +334,20 @@ async def test_execute_run_manage_mode_omits_item_id_from_dispatch() -> None:
         captured_calls.append((args, kwargs))
         return {"id": "remote-run-manage"}
 
-    fake_dispatch_config, fake_get_setting = _make_settings_mock()
+    (
+        fake_get_dispatch_hosts,
+        fake_pick_dispatch_host,
+        fake_get_setting,
+    ) = _make_settings_mock()
 
     with (
         patch(
-            "agent_gtd.services.settings_service.get_dispatch_config",
-            new=fake_dispatch_config,
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=fake_get_dispatch_hosts,
+        ),
+        patch(
+            "agent_gtd.services.dispatch_router.pick_dispatch_host",
+            new=fake_pick_dispatch_host,
         ),
         patch(
             "agent_gtd.services.settings_service.get_setting",
@@ -401,12 +408,20 @@ async def test_execute_run_build_mode_includes_item_id() -> None:
         captured_calls.append((args, kwargs))
         return {"id": "remote-run-build"}
 
-    fake_dispatch_config, fake_get_setting = _make_settings_mock()
+    (
+        fake_get_dispatch_hosts,
+        fake_pick_dispatch_host,
+        fake_get_setting,
+    ) = _make_settings_mock()
 
     with (
         patch(
-            "agent_gtd.services.settings_service.get_dispatch_config",
-            new=fake_dispatch_config,
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=fake_get_dispatch_hosts,
+        ),
+        patch(
+            "agent_gtd.services.dispatch_router.pick_dispatch_host",
+            new=fake_pick_dispatch_host,
         ),
         patch(
             "agent_gtd.services.settings_service.get_setting",

@@ -1091,9 +1091,10 @@ async def test_execute_run_no_dispatch_config(
 
 
 async def test_execute_run_remote_dispatch_fails(
-    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str, monkeypatch
 ):
     """execute_run marks run as failed when remote dispatch service errors."""
+    import agent_gtd.services.dispatch_router as dr
     from agent_gtd.database import get_db, row_to_dict
     from agent_gtd.dispatch_worker import execute_run
     from agent_gtd.services.settings_service import set_user_setting
@@ -1121,6 +1122,13 @@ async def test_execute_run_remote_dispatch_fails(
     proj_row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     project = row_to_dict(proj_row)
 
+    # Skip /info check; return the configured host directly
+    monkeypatch.setattr(
+        dr,
+        "pick_dispatch_host",
+        AsyncMock(return_value={"url": "http://fake:9999", "api_key": "test-key"}),
+    )
+
     await execute_run(db, run, item, project)
 
     res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
@@ -1133,6 +1141,7 @@ async def test_execute_run_success(
 ):
     """execute_run marks run as success when remote dispatch succeeds."""
     import agent_gtd.dispatch_worker as dw
+    import agent_gtd.services.dispatch_router as dr
     from agent_gtd.database import get_db, row_to_dict
     from agent_gtd.dispatch_worker import execute_run
     from agent_gtd.services.settings_service import set_user_setting
@@ -1161,6 +1170,13 @@ async def test_execute_run_success(
     item = row_to_dict(item_row)
     proj_row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     project = row_to_dict(proj_row)
+
+    # Skip /info check; return the configured host directly
+    monkeypatch.setattr(
+        dr,
+        "pick_dispatch_host",
+        AsyncMock(return_value={"url": "http://fake:8100", "api_key": "test-key"}),
+    )
 
     # Mock the remote dispatch functions directly
     poll_count = 0
@@ -1204,6 +1220,7 @@ async def test_execute_run_remote_failure(
 ):
     """execute_run maps remote failure to local failed status."""
     import agent_gtd.dispatch_worker as dw
+    import agent_gtd.services.dispatch_router as dr
     from agent_gtd.database import get_db, row_to_dict
     from agent_gtd.dispatch_worker import execute_run
     from agent_gtd.services.settings_service import set_user_setting
@@ -1232,6 +1249,13 @@ async def test_execute_run_remote_failure(
     item = row_to_dict(item_row)
     proj_row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     project = row_to_dict(proj_row)
+
+    # Skip /info check; return the configured host directly
+    monkeypatch.setattr(
+        dr,
+        "pick_dispatch_host",
+        AsyncMock(return_value={"url": "http://fake:8100", "api_key": "test-key"}),
+    )
 
     async def mock_dispatch_to_remote(
         client,
@@ -1356,6 +1380,7 @@ async def test_configure_and_dispatch(
 ):
     """User A configures dispatch via PATCH, then dispatches successfully."""
     import agent_gtd.dispatch_worker as dw
+    import agent_gtd.services.dispatch_router as dr
     from agent_gtd.database import get_db, row_to_dict
     from agent_gtd.dispatch_worker import execute_run
 
@@ -1382,6 +1407,13 @@ async def test_configure_and_dispatch(
     item = row_to_dict(item_row)
     proj_row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     project = row_to_dict(proj_row)
+
+    # Skip /info check; return the configured host directly
+    monkeypatch.setattr(
+        dr,
+        "pick_dispatch_host",
+        AsyncMock(return_value={"url": "http://fake:8100", "api_key": "test-key"}),
+    )
 
     # Mock remote dispatch to return success
     async def mock_dispatch(
@@ -1617,6 +1649,7 @@ async def test_dispatch_uses_project_agent_override(
 ) -> None:
     """execute_run passes project build_dispatch_agent to remote, ignoring global."""
     import agent_gtd.dispatch_worker as dw
+    import agent_gtd.services.dispatch_router as dr
     from agent_gtd.database import get_db, row_to_dict
     from agent_gtd.dispatch_worker import execute_run
     from agent_gtd.services.settings_service import set_setting, set_user_setting
@@ -1664,6 +1697,13 @@ async def test_dispatch_uses_project_agent_override(
     proj_row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     project = row_to_dict(proj_row)
 
+    # Skip /info check; return the configured host directly
+    monkeypatch.setattr(
+        dr,
+        "pick_dispatch_host",
+        AsyncMock(return_value={"url": "http://fake:8100", "api_key": "test-key"}),
+    )
+
     dispatched_agent: list[str] = []
 
     async def mock_dispatch(
@@ -1699,6 +1739,7 @@ async def test_dispatch_falls_back_to_global_agent_when_project_unset(
 ) -> None:
     """execute_run uses global build_agent_name when project has no agent override."""
     import agent_gtd.dispatch_worker as dw
+    import agent_gtd.services.dispatch_router as dr
     from agent_gtd.database import get_db, row_to_dict
     from agent_gtd.dispatch_worker import execute_run
     from agent_gtd.services.settings_service import set_setting, set_user_setting
@@ -1728,6 +1769,13 @@ async def test_dispatch_falls_back_to_global_agent_when_project_unset(
     item = row_to_dict(item_row)
     proj_row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     project = row_to_dict(proj_row)
+
+    # Skip /info check; return the configured host directly
+    monkeypatch.setattr(
+        dr,
+        "pick_dispatch_host",
+        AsyncMock(return_value={"url": "http://fake:8100", "api_key": "test-key"}),
+    )
 
     dispatched_agent: list[str] = []
 
@@ -1764,6 +1812,7 @@ async def test_dispatch_omits_agent_when_neither_set(
 ) -> None:
     """execute_run sends empty agent_name when neither project nor global is set."""
     import agent_gtd.dispatch_worker as dw
+    import agent_gtd.services.dispatch_router as dr
     from agent_gtd.database import get_db, row_to_dict
     from agent_gtd.dispatch_worker import execute_run
     from agent_gtd.services.settings_service import set_user_setting
@@ -1792,6 +1841,13 @@ async def test_dispatch_omits_agent_when_neither_set(
     item = row_to_dict(item_row)
     proj_row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     project = row_to_dict(proj_row)
+
+    # Skip /info check; return the configured host directly
+    monkeypatch.setattr(
+        dr,
+        "pick_dispatch_host",
+        AsyncMock(return_value={"url": "http://fake:8100", "api_key": "test-key"}),
+    )
 
     dispatched_agent: list[str] = []
 
@@ -2137,6 +2193,7 @@ async def test_create_run_forwards_rollout_id_to_dispatch_worker(
     from datetime import UTC, datetime
 
     import agent_gtd.dispatch_worker as dw
+    import agent_gtd.services.dispatch_router as dr
     from agent_gtd.database import get_db, row_to_dict
     from agent_gtd.dispatch_worker import execute_run
     from agent_gtd.services.settings_service import set_user_setting
@@ -2146,6 +2203,13 @@ async def test_create_run_forwards_rollout_id_to_dispatch_worker(
     db = await get_db()
     await set_user_setting(db, user_id, "dispatch.service_url", "http://fake:8100")
     await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
+
+    # Skip /info check; return the configured host directly
+    monkeypatch.setattr(
+        dr,
+        "pick_dispatch_host",
+        AsyncMock(return_value={"url": "http://fake:8100", "api_key": "test-key"}),
+    )
 
     project_id = await _create_project_with_origin(client, auth_headers)
     item_id = await _create_item_in_project(client, auth_headers, project_id)

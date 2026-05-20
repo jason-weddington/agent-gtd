@@ -82,6 +82,119 @@ async def set_user_setting(db: Any, user_id: str, key: str, value: str) -> None:
     )
 
 
+async def get_dispatch_hosts(db: Any, user_id: str) -> list[dict[str, str]]:
+    """Return dispatch hosts for a user, with lazy migration from user_settings.
+
+    If no dispatch_hosts rows exist for the user but user_settings has
+    dispatch.service_url + dispatch.service_api_key, silently migrates those
+    to a single dispatch_hosts row with label="default". The user_settings
+    rows are NOT deleted (backward compat).
+
+    Returns:
+        List of dicts with keys: id, url, api_key, label.
+    """
+    import uuid
+    from datetime import UTC, datetime
+
+    rows = await db.fetch(
+        "SELECT id, url, api_key, label, created_at FROM dispatch_hosts "
+        "WHERE user_id = $1 ORDER BY created_at ASC",
+        user_id,
+    )
+    if rows:
+        return [dict(r) for r in rows]
+
+    # Lazy migration from legacy single-host user_settings
+    url = await get_user_setting(db, user_id, "dispatch.service_url")
+    api_key = await get_user_setting(db, user_id, "dispatch.service_api_key")
+    if url and api_key:
+        host_id = str(uuid.uuid4())
+        now = datetime.now(UTC).isoformat()
+        await db.execute(
+            "INSERT INTO dispatch_hosts "
+            "(id, user_id, label, url, api_key, created_at, updated_at) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7) "
+            "ON CONFLICT (user_id, url) DO NOTHING",
+            host_id,
+            user_id,
+            "default",
+            url,
+            api_key,
+            now,
+            now,
+        )
+        # Re-fetch to return the canonical row
+        rows = await db.fetch(
+            "SELECT id, url, api_key, label, created_at FROM dispatch_hosts "
+            "WHERE user_id = $1 ORDER BY created_at ASC",
+            user_id,
+        )
+        return [dict(r) for r in rows]
+
+    return []
+
+
+async def add_dispatch_host(
+    db: Any, user_id: str, label: str, url: str, api_key: str
+) -> dict[str, str]:
+    """Add a new dispatch host for a user.
+
+    Returns:
+        Dict with keys: id, user_id, label, url, api_key, created_at, updated_at.
+
+    Raises:
+        ValueError: If a host with the same URL already exists for this user.
+    """
+    import uuid
+    from datetime import UTC, datetime
+
+    host_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    try:
+        await db.execute(
+            "INSERT INTO dispatch_hosts "
+            "(id, user_id, label, url, api_key, created_at, updated_at) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            host_id,
+            user_id,
+            label,
+            url,
+            api_key,
+            now,
+            now,
+        )
+    except Exception as exc:
+        if "UNIQUE" in str(exc).upper() or "unique" in str(exc).lower():
+            msg = f"A dispatch host with URL '{url}' already exists"
+            raise ValueError(msg) from exc
+        raise
+    row = await db.fetchrow("SELECT * FROM dispatch_hosts WHERE id = $1", host_id)
+    assert row is not None  # noqa: S101
+    return dict(row)
+
+
+async def remove_dispatch_host(db: Any, user_id: str, host_id: str) -> bool:
+    """Remove a dispatch host owned by user_id.
+
+    Returns:
+        True if a row was deleted, False if not found.
+    """
+    # Check existence first (compatible with both asyncpg and SQLite)
+    row = await db.fetchrow(
+        "SELECT id FROM dispatch_hosts WHERE id = $1 AND user_id = $2",
+        host_id,
+        user_id,
+    )
+    if row is None:
+        return False
+    await db.execute(
+        "DELETE FROM dispatch_hosts WHERE id = $1 AND user_id = $2",
+        host_id,
+        user_id,
+    )
+    return True
+
+
 async def get_dispatch_config(db: Any, user_id: str) -> dict[str, str] | None:
     """Return dispatch config for a user, or None if not configured.
 

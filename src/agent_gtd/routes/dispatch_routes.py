@@ -31,14 +31,14 @@ from agent_gtd.models import (
     User,
 )
 from agent_gtd.services import dispatch_service, project_service
-from agent_gtd.services.settings_service import get_dispatch_config
+from agent_gtd.services.settings_service import get_dispatch_config, get_dispatch_hosts
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["dispatch"])
 
 # ---------------------------------------------------------------------------
-# Capabilities cache (in-process, per dispatch URL, 60-second TTL)
+# Capabilities cache (in-process, per user_id, 60-second TTL)
 # ---------------------------------------------------------------------------
 
 _capabilities_cache: dict[str, tuple[float, DispatchCapabilitiesResponse]] = {}
@@ -228,6 +228,24 @@ async def _fetch_dispatch_agents(url: str, api_key: str) -> list[dict[str, objec
     return []
 
 
+async def _fetch_host_capabilities(host: dict[str, Any]) -> dict[str, Any] | None:
+    """Fetch /info from a single dispatch host for capabilities aggregation.
+
+    Returns the parsed JSON dict on success, or None if the host is unreachable.
+    This is a module-level function so tests can patch it.
+    """
+    url = host["url"]
+    try:
+        async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
+            resp = await client.get(f"{url}/info", timeout=5.0)
+            resp.raise_for_status()
+        result: dict[str, Any] = resp.json()
+        return result
+    except Exception:
+        logger.warning("dispatch /info failed for %s", url)
+        return None
+
+
 @router.get(
     "/api/dispatch/capabilities",
     response_model=DispatchCapabilitiesResponse,
@@ -235,56 +253,61 @@ async def _fetch_dispatch_agents(url: str, api_key: str) -> list[dict[str, objec
 async def get_dispatch_capabilities(
     user: Annotated[User, Depends(get_current_user)],
 ) -> DispatchCapabilitiesResponse:
-    """Proxy dispatch service capabilities: engine identity + available agents.
+    """Proxy dispatch service capabilities: engine + agents + total capacity.
 
-    Always returns HTTP 200.  If dispatch is not configured, or if upstream
-    calls fail, the corresponding fields are null / empty rather than raising
-    a 5xx error.  Responses are cached in-process for 60 seconds per URL.
+    Queries /info on ALL configured hosts concurrently. Deduplicates agents by name.
+    Computes total_capacity as the sum of max_concurrent_runs from responding hosts.
+    Always returns HTTP 200; failures degrade gracefully.
+    Responses cached in-process for 60 seconds per user.
     """
     db = await get_db()
-    settings = await get_dispatch_config(db, user.id)
-    if not settings:
+    hosts = await get_dispatch_hosts(db, user.id)
+    if not hosts:
         return DispatchCapabilitiesResponse()
 
-    url = settings["url"]
-    api_key = settings["api_key"]
-
-    # Short-circuit on cache hit
+    # Short-circuit on cache hit (keyed by user_id)
     now = _now()
-    cached = _capabilities_cache.get(url)
+    cached = _capabilities_cache.get(user.id)
     if cached is not None and (now - cached[0]) < _CAPABILITIES_CACHE_TTL:
-        logger.debug("dispatch capabilities cache hit for %s", url)
+        logger.debug("dispatch capabilities cache hit for user %s", user.id)
         return cached[1]
 
-    # Parallel upstream calls — failures degrade gracefully, never propagate
-    info_result: dict[str, str | None] | BaseException
-    agents_result: list[dict[str, object]] | BaseException
-    (
-        info_result,
-        agents_result,
-    ) = await asyncio.gather(
-        _fetch_dispatch_info(url, api_key),
-        _fetch_dispatch_agents(url, api_key),
+    results = await asyncio.gather(
+        *[_fetch_host_capabilities(h) for h in hosts],
         return_exceptions=True,
     )
 
     engine: str | None = None
     version: str | None = None
-    agents: list[DispatchAgentInfo] = []
+    agents_seen: dict[str, DispatchAgentInfo] = {}
+    total_capacity = 0
 
-    if isinstance(info_result, BaseException):
-        logger.warning("dispatch /info failed for %s: %s", url, info_result)
-    else:
-        engine = info_result.get("engine")
-        version = info_result.get("version")
+    for res in results:
+        if isinstance(res, BaseException) or res is None:
+            continue
+        info = res
+        if engine is None:
+            engine = str(info["engine"]) if "engine" in info else None
+        if version is None:
+            version = str(info["version"]) if "version" in info else None
+        # agents is list[str] in new /info shape
+        for agent_name in info.get("agents", []):
+            name_str = str(agent_name)
+            if name_str not in agents_seen:
+                agents_seen[name_str] = DispatchAgentInfo(name=name_str)
+        # Sum capacity
+        max_cap = info.get("max_concurrent_runs")
+        if max_cap is not None:
+            total_capacity += int(max_cap)
 
-    if isinstance(agents_result, BaseException):
-        logger.warning("dispatch /agents failed for %s: %s", url, agents_result)
-    else:
-        agents = [DispatchAgentInfo.model_validate(a) for a in agents_result]
-
-    result = DispatchCapabilitiesResponse(engine=engine, version=version, agents=agents)
-    _capabilities_cache[url] = (now, result)
+    agents = list(agents_seen.values())
+    result = DispatchCapabilitiesResponse(
+        engine=engine,
+        version=version,
+        agents=agents,
+        total_capacity=total_capacity if total_capacity > 0 else None,
+    )
+    _capabilities_cache[user.id] = (now, result)
     return result
 
 

@@ -1,4 +1,4 @@
-import type { ActivityEvent, AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, FailedRun, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Rollout, RolloutEvent, RolloutFailureFeed, Run, StaleRun, UserResponse } from './types'
+import type { ActivityEvent, AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, DispatchHost, FailedRun, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Rollout, RolloutEvent, RolloutFailureFeed, Run, StaleRun, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -317,17 +317,19 @@ export const api = {
       request<DispatchCapabilities>('GET', '/dispatch/capabilities'),
   },
 
+  dispatchHosts: {
+    list: () => request<DispatchHost[]>('GET', '/settings/dispatch/hosts'),
+    add: (label: string, url: string, apiKey: string) =>
+      request<DispatchHost>('POST', '/settings/dispatch/hosts', { label, url, apiKey }),
+    remove: (hostId: string) => request<void>('DELETE', `/settings/dispatch/hosts/${hostId}`),
+  },
+
   settings: {
-    getMaxConcurrent: () =>
-      request<{ value: number }>('GET', '/settings/dispatch/max-concurrent'),
-    setMaxConcurrent: (value: number) =>
-      request<{ value: number }>('PATCH', '/settings/dispatch/max-concurrent', { value }),
     getDispatch: () =>
       request<{
         engine: string
         planAgentName: string
         buildAgentName: string
-        maxConcurrent: number
         defaultMaxTurns: number
         defaultTimeoutMinutes: number
         serviceUrl: string
@@ -346,7 +348,6 @@ export const api = {
         engine: string
         planAgentName: string
         buildAgentName: string
-        maxConcurrent: number
         defaultMaxTurns: number
         defaultTimeoutMinutes: number
         serviceUrl: string

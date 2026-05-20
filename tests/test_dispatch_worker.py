@@ -168,13 +168,13 @@ async def test_execute_run_uses_project_owner_config() -> None:
 
     captured_user_ids: list[str] = []
 
-    async def fake_get_dispatch_config(db_arg: object, uid: str) -> None:
+    async def fake_get_dispatch_hosts(db_arg: object, uid: str) -> list:
         captured_user_ids.append(uid)
-        return None  # no config → run will be marked failed
+        return []  # no hosts → run will be marked failed
 
     with patch(
-        "agent_gtd.services.settings_service.get_dispatch_config",
-        new=fake_get_dispatch_config,
+        "agent_gtd.services.settings_service.get_dispatch_hosts",
+        new=fake_get_dispatch_hosts,
     ):
         await execute_run(db, run, item, project)
 
@@ -216,8 +216,8 @@ async def test_execute_run_owner_no_config_fails_with_clear_message() -> None:
 
     with (
         patch(
-            "agent_gtd.services.settings_service.get_dispatch_config",
-            new=AsyncMock(return_value=None),
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(return_value=[]),
         ),
         patch(
             "agent_gtd.dispatch_worker._update_run",
@@ -229,9 +229,9 @@ async def test_execute_run_owner_no_config_fails_with_clear_message() -> None:
     ):
         await execute_run(db, run, item, project)
 
-    assert any(
-        "Project owner has not configured dispatch" in msg for msg in error_msgs
-    ), f"Expected clear error message, got: {error_msgs}"
+    assert any("not configured dispatch hosts" in msg.lower() for msg in error_msgs), (
+        f"Expected clear error message, got: {error_msgs}"
+    )
 
 
 @pytest.mark.asyncio
@@ -254,13 +254,13 @@ async def test_execute_run_inbox_item_uses_caller_config() -> None:
 
     captured_user_ids: list[str] = []
 
-    async def fake_get_dispatch_config(db_arg: object, uid: str) -> None:
+    async def fake_get_dispatch_hosts(db_arg: object, uid: str) -> list:
         captured_user_ids.append(uid)
-        return None
+        return []
 
     with patch(
-        "agent_gtd.services.settings_service.get_dispatch_config",
-        new=fake_get_dispatch_config,
+        "agent_gtd.services.settings_service.get_dispatch_hosts",
+        new=fake_get_dispatch_hosts,
     ):
         await execute_run(db, run, item, project)
 

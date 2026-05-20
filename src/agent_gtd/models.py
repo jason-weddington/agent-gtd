@@ -722,19 +722,12 @@ class CreateRunRequest(BaseModel):
     rollout_id: str | None = None
 
 
-class MaxConcurrentRequest(BaseModel):
-    """Request body for updating the dispatch concurrency cap."""
-
-    value: int
-
-
 class DispatchSettingsResponse(BaseModel):
     """Full dispatch settings returned from GET /api/settings/dispatch."""
 
     engine: BuildEngine
     plan_agent_name: str = ""
     build_agent_name: str = ""
-    max_concurrent: int
     default_max_turns: int = 100
     default_timeout_minutes: int = 30
     service_url: str
@@ -830,6 +823,25 @@ class DispatchCapabilitiesResponse(BaseModel):
     engine: str | None = None
     version: str | None = None
     agents: list[DispatchAgentInfo] = []
+    total_capacity: int | None = None
+
+
+class DispatchHostResponse(BaseModel):
+    """A configured dispatch host (API key masked)."""
+
+    id: str
+    label: str
+    url: str
+    api_key_preview: str  # "****" + last-4, never full key
+    created_at: datetime
+
+
+class AddDispatchHostRequest(BaseModel):
+    """Request to add a new dispatch host."""
+
+    label: str = ""
+    url: str  # Must be non-empty, stripped
+    api_key: str  # Must be non-empty
 
 
 # --- Rollout Manager Schemas ---
