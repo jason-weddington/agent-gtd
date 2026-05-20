@@ -81,7 +81,7 @@ describe('Settings – Dispatch Hosts', () => {
       createdAt: '2024-01-01T00:00:00Z',
     })
     vi.mocked(api.settings.getDispatch).mockResolvedValue({
-      engine: 'claude',
+      engine: 'claude-code',
       planAgentName: '',
       buildAgentName: '',
       defaultMaxTurns: 100,
@@ -90,7 +90,7 @@ describe('Settings – Dispatch Hosts', () => {
       serviceApiKeyPreview: '',
     })
     vi.mocked(api.settings.updateDispatch).mockResolvedValue({
-      engine: 'claude',
+      engine: 'claude-code',
       planAgentName: '',
       buildAgentName: '',
       defaultMaxTurns: 100,

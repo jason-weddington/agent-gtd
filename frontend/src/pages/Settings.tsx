@@ -42,7 +42,7 @@ export default function Settings() {
   // Agent Dispatch settings
   const [dispatchMaxTurns, setDispatchMaxTurns] = useState<number>(100)
   const [dispatchTimeoutMinutes, setDispatchTimeoutMinutes] = useState<number>(30)
-  const [engine, setEngine] = useState<string>('claude')
+  const [engine, setEngine] = useState<string>('claude-code')
   const [planAgentName, setPlanAgentName] = useState<string>('')
   const [buildAgentName, setBuildAgentName] = useState<string>('')
   const [savingDispatch, setSavingDispatch] = useState(false)
@@ -379,7 +379,7 @@ export default function Settings() {
                   void saveDispatchSettings({ engine: next })
                 }}
               >
-                <MenuItem value="claude">Claude Code</MenuItem>
+                <MenuItem value="claude-code">Claude Code</MenuItem>
                 <MenuItem value="kiro">Kiro CLI</MenuItem>
               </Select>
             </FormControl>
@@ -537,7 +537,7 @@ export default function Settings() {
           </Box>
 
           <Box sx={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
-            {engine === 'claude' && (
+            {engine === 'claude-code' && (
               <Box>
                 <TextField
                   label="Default max turns"
