@@ -25,16 +25,6 @@ INFO_ALL_UP_B = {
 }
 
 
-@pytest.fixture(autouse=True)
-def clear_cache():
-    """Clear the host info cache before each test."""
-    from agent_gtd.services.dispatch_router import _HOST_INFO_CACHE
-
-    _HOST_INFO_CACHE.clear()
-    yield
-    _HOST_INFO_CACHE.clear()
-
-
 @pytest.mark.asyncio
 async def test_all_up_picks_highest_capacity() -> None:
     """All hosts up: picks host with highest (max - active)."""

@@ -2,19 +2,11 @@
 
 import asyncio
 import logging
-import time
 from typing import Any
 
 import httpx
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# TTL cache for /info responses (10-second TTL, per URL)
-# ---------------------------------------------------------------------------
-
-_HOST_INFO_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
-_HOST_INFO_TTL = 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -63,21 +55,20 @@ async def _fetch_host_info(url: str, timeout: float = 5.0) -> dict[str, Any]:
 async def _gather_host_info(
     hosts: list[dict[str, Any]],
 ) -> list[dict[str, Any] | None]:
-    """Poll /info on all hosts concurrently with TTL caching.
+    """Poll /info on all hosts concurrently. No caching — see commit message.
 
     Returns a list parallel to hosts; entry is None if host is unreachable/errored.
+
+    The /info call is cheap (~15ms over LAN, ~200 bytes, no auth) and dispatch is
+    not high-frequency. Caching here previously caused burst dispatches to pile
+    on a single host because active_runs stayed stale within the TTL window.
+    Real-time fetch is correct by construction.
     """
-    now = time.monotonic()
 
     async def _get_info(host: dict[str, Any]) -> dict[str, Any] | None:
         url = host["url"]
-        cached = _HOST_INFO_CACHE.get(url)
-        if cached is not None and (now - cached[0]) < _HOST_INFO_TTL:
-            return cached[1]
         try:
-            info = await _fetch_host_info(url)
-            _HOST_INFO_CACHE[url] = (now, info)
-            return info
+            return await _fetch_host_info(url)
         except Exception:
             logger.warning("Failed to fetch /info from %s", url)
             return None
@@ -100,7 +91,7 @@ async def pick_dispatch_host(
     """Select the best dispatch host for the given engine and agent.
 
     Algorithm:
-    1. Poll /info on all hosts concurrently (5s timeout, 10s TTL cache).
+    1. Poll /info on all hosts concurrently (5s timeout, no cache — real-time).
     2. Filter: skip unreachable hosts, hosts missing the requested engine,
        and (if agent_name set) hosts missing the requested agent.
     3. Rank: pick the host with the most available capacity
