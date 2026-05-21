@@ -581,7 +581,7 @@ class CreateItemRequest(BaseModel):
     status: ItemStatus = ItemStatus.INBOX
     priority: Priority = Priority.NORMAL
     due_date: str | None = None
-    created_by: str = "human"
+    created_by: str | None = None
     assigned_to: str = ""
     waiting_on: str = ""
     sort_order: float = 0
@@ -616,7 +616,7 @@ class InboxCaptureRequest(BaseModel):
     """Quick capture to inbox — title only."""
 
     title: str
-    created_by: str = "human"
+    created_by: str | None = None
 
 
 class ClaimItemRequest(BaseModel):
@@ -690,7 +690,7 @@ class CreateCommentRequest(BaseModel):
     """Create a new comment."""
 
     content_markdown: str
-    created_by: str = "human"
+    created_by: str | None = None
 
 
 class UpdateCommentRequest(BaseModel):

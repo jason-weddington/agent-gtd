@@ -978,6 +978,22 @@ async def test_comment_attribution_build_agent(api_key, project_id, monkeypatch)
     assert data["created_by"] == "claude-build-abc12345"
 
 
+async def test_comment_attribution_plan_agent(api_key, project_id, monkeypatch):
+    """Plan-agent attribution flows through to comment created_by."""
+    import agent_gtd.mcp_server as srv
+
+    monkeypatch.setattr(srv, "_ENV_API_KEY", api_key)
+    monkeypatch.setattr(srv, "_ENV_AGENT_NAME", "claude-plan-abc12345")
+
+    async with Client(mcp) as c:
+        result = await c.call_tool(
+            "add_comment",
+            {"content_markdown": "Plan agent comment", "project_id": project_id},
+        )
+    data = _parse_result(result)
+    assert data["created_by"] == "claude-plan-abc12345"
+
+
 async def test_comment_attribution_lead_derived(api_key, project_id, monkeypatch):
     """When AGENT_GTD_AGENT_NAME is absent, lead identity is derived from user_id."""
     import agent_gtd.mcp_server as srv

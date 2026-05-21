@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
 from agent_gtd.exceptions import NotFoundError
+from agent_gtd.identity import get_current_actor_attribution
 from agent_gtd.models import (
     CommentResponse,
     CreateCommentRequest,
@@ -80,13 +81,14 @@ async def create_project_comment(
 ) -> CommentResponse:
     """Create a comment on a project."""
     db = await get_db()
+    created_by = body.created_by or get_current_actor_attribution()
     try:
         row = await comment_service.create_comment(
             db,
             user.id,
             project_id=project_id,
             content_markdown=body.content_markdown,
-            created_by=body.created_by,
+            created_by=created_by,
         )
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None
@@ -122,13 +124,14 @@ async def create_item_comment(
 ) -> CommentResponse:
     """Create a comment on an item."""
     db = await get_db()
+    created_by = body.created_by or get_current_actor_attribution()
     try:
         row = await comment_service.create_comment(
             db,
             user.id,
             item_id=item_id,
             content_markdown=body.content_markdown,
-            created_by=body.created_by,
+            created_by=created_by,
         )
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Item not found") from None

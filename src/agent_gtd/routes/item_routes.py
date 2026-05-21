@@ -15,6 +15,7 @@ from agent_gtd.exceptions import (
     ValidationError,
     VersionConflictError,
 )
+from agent_gtd.identity import get_current_actor_attribution
 from agent_gtd.models import (
     AddBlockerRequest,
     BlockerSummary,
@@ -101,6 +102,7 @@ async def create_item(
 ) -> ItemResponse:
     """Create a new item."""
     db = await get_db()
+    created_by = body.created_by or get_current_actor_attribution()
     try:
         row = await item_service.create_item(
             db,
@@ -111,7 +113,7 @@ async def create_item(
             status=body.status.value,
             priority=body.priority.value,
             due_date=body.due_date,
-            created_by=body.created_by,
+            created_by=created_by,
             assigned_to=body.assigned_to,
             waiting_on=body.waiting_on,
             sort_order=body.sort_order,
@@ -314,8 +316,9 @@ async def capture_inbox(
 ) -> ItemResponse:
     """Quick capture to inbox — title only."""
     db = await get_db()
+    created_by = body.created_by or get_current_actor_attribution()
     row = await item_service.inbox_capture(
-        db, user.id, body.title, created_by=body.created_by
+        db, user.id, body.title, created_by=created_by
     )
     return _item_response(row)
 
@@ -349,6 +352,7 @@ async def create_project_item(
 ) -> ItemResponse:
     """Create an item in a specific project."""
     db = await get_db()
+    created_by = body.created_by or get_current_actor_attribution()
     try:
         status = body.status.value if "status" in body.model_fields_set else None
         row = await item_service.create_project_item(
@@ -359,7 +363,7 @@ async def create_project_item(
             description=body.description,
             priority=body.priority.value,
             due_date=body.due_date,
-            created_by=body.created_by,
+            created_by=created_by,
             assigned_to=body.assigned_to,
             waiting_on=body.waiting_on,
             sort_order=body.sort_order,

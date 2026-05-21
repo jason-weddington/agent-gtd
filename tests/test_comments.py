@@ -65,6 +65,23 @@ async def test_comment_created_by_build_attribution(
     assert res.json()["created_by"] == attribution
 
 
+async def test_comment_attribution_from_env_variable(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str, monkeypatch
+):
+    """When AGENT_GTD_AGENT_NAME is set, HTTP API derives created_by from it."""
+
+    attribution = "claude-plan-abc12345"
+    monkeypatch.setenv("AGENT_GTD_AGENT_NAME", attribution)
+
+    res = await client.post(
+        f"/api/projects/{project_id}/comments",
+        json={"content_markdown": "Plan agent comment"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["created_by"] == attribution
+
+
 async def test_create_project_comment_not_found(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
