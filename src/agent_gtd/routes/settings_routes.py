@@ -18,6 +18,7 @@ from agent_gtd.models import (
     UpdateDispatchSettingsRequest,
     User,
 )
+from agent_gtd.routes.dispatch_routes import _capabilities_cache
 from agent_gtd.services import settings_service
 from agent_gtd.services.dispatch_router import probe_dispatch_host
 
@@ -211,6 +212,9 @@ async def add_dispatch_host(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    # Invalidate capabilities cache so the next GET reflects the new host
+    _capabilities_cache.pop(user.id, None)
+
     return DispatchHostResponse(
         id=host["id"],
         label=host.get("label", ""),
@@ -227,7 +231,11 @@ async def delete_dispatch_host(
 ) -> Response:
     """Delete a dispatch host."""
     db = await get_db()
-    deleted = await settings_service.remove_dispatch_host(db, user.id, host_id)
-    if not deleted:
+    deleted_url = await settings_service.remove_dispatch_host(db, user.id, host_id)
+    if deleted_url is None:
         raise HTTPException(status_code=404, detail="Host not found")
+
+    # Invalidate capabilities cache so the next GET reflects the removed host
+    _capabilities_cache.pop(user.id, None)
+
     return Response(status_code=204)

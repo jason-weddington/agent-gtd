@@ -173,26 +173,26 @@ async def add_dispatch_host(
     return dict(row)
 
 
-async def remove_dispatch_host(db: Any, user_id: str, host_id: str) -> bool:
+async def remove_dispatch_host(db: Any, user_id: str, host_id: str) -> str | None:
     """Remove a dispatch host owned by user_id.
 
     Returns:
-        True if a row was deleted, False if not found.
+        The URL of the deleted host on success, or None if not found.
     """
     # Check existence first (compatible with both asyncpg and SQLite)
     row = await db.fetchrow(
-        "SELECT id FROM dispatch_hosts WHERE id = $1 AND user_id = $2",
+        "SELECT id, url FROM dispatch_hosts WHERE id = $1 AND user_id = $2",
         host_id,
         user_id,
     )
     if row is None:
-        return False
+        return None
     await db.execute(
         "DELETE FROM dispatch_hosts WHERE id = $1 AND user_id = $2",
         host_id,
         user_id,
     )
-    return True
+    return str(row["url"])
 
 
 async def get_dispatch_config(db: Any, user_id: str) -> dict[str, str] | None:

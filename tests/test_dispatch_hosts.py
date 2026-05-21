@@ -5,6 +5,16 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 
+import agent_gtd.routes.dispatch_routes as dr
+
+
+@pytest.fixture(autouse=True)
+def _clear_capabilities_cache():
+    """Clear the in-process capabilities cache before and after each test."""
+    dr._capabilities_cache.clear()
+    yield
+    dr._capabilities_cache.clear()
+
 
 @pytest.fixture(autouse=True)
 def mock_probe() -> AsyncMock:
@@ -293,3 +303,123 @@ async def test_add_host_probe_non_json_returns_400(
     )
     assert res.status_code == 400
     assert "JSON" in res.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Cache invalidation (AC-4, AC-5)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_add_host_invalidates_capabilities_cache(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """POST /hosts pops capabilities cache so next GET re-fetches from upstream."""
+    # Seed the cache with a fake entry for the test user
+    from agent_gtd.models import DispatchCapabilitiesResponse
+
+    # Resolve the user id so we can seed the cache
+    me_res = await client.get("/api/auth/me", headers=auth_headers)
+    user_id = me_res.json()["id"]
+
+    # Seed the capabilities cache for this user
+    dr._capabilities_cache[user_id] = (
+        dr._now(),
+        DispatchCapabilitiesResponse(engine="stale", version="0.0.0"),
+    )
+
+    fetch_host_cap = AsyncMock(
+        return_value={
+            "engine": "claude-code",
+            "version": "1.0.0",
+            "agents": [],
+            "max_concurrent_runs": 2,
+        }
+    )
+
+    with patch(
+        "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+        new=fetch_host_cap,
+    ):
+        # Adding a host should bust the cache
+        add_res = await client.post(
+            "/api/settings/dispatch/hosts",
+            json={  # gitleaks:allow
+                "label": "cache-test",
+                "url": "http://cache-test.local:8001",
+                "api_key": "cache-test-key",
+            },
+            headers=auth_headers,
+        )
+        assert add_res.status_code == 201
+
+        # GET capabilities — cache was invalidated, so upstream is called
+        caps_res = await client.get(
+            "/api/dispatch/capabilities", headers=auth_headers
+        )
+        assert caps_res.status_code == 200
+
+    # Upstream was called once (cache miss after invalidation)
+    assert fetch_host_cap.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_host_invalidates_capabilities_cache(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """DELETE /hosts/{id} pops capabilities cache so next GET re-fetches."""
+    from agent_gtd.models import DispatchCapabilitiesResponse
+
+    # First, add a host to have something to delete
+    add_res = await client.post(
+        "/api/settings/dispatch/hosts",
+        json={  # gitleaks:allow
+            "label": "to-delete",
+            "url": "http://to-delete.local:8001",
+            "api_key": "delete-me-key",
+        },
+        headers=auth_headers,
+    )
+    assert add_res.status_code == 201
+    host_id = add_res.json()["id"]
+
+    # Resolve the user id so we can seed the cache
+    me_res = await client.get("/api/auth/me", headers=auth_headers)
+    user_id = me_res.json()["id"]
+
+    # Seed the capabilities cache for this user
+    dr._capabilities_cache[user_id] = (
+        dr._now(),
+        DispatchCapabilitiesResponse(engine="stale", version="0.0.0"),
+    )
+
+    fetch_host_cap = AsyncMock(
+        return_value={
+            "engine": "claude-code",
+            "version": "1.0.0",
+            "agents": [],
+            "max_concurrent_runs": 2,
+        }
+    )
+
+    with patch(
+        "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+        new=fetch_host_cap,
+    ):
+        # Deleting the host should bust the cache
+        del_res = await client.delete(
+            f"/api/settings/dispatch/hosts/{host_id}", headers=auth_headers
+        )
+        assert del_res.status_code == 204
+
+        # GET capabilities — no hosts left, returns empty result
+        caps_res = await client.get(
+            "/api/dispatch/capabilities", headers=auth_headers
+        )
+        assert caps_res.status_code == 200
+
+    # No hosts remain, so upstream is NOT called (short-circuits before fetch).
+    # The important assertion is that the cache was bust (not returned "stale").
+    data = caps_res.json()
+    assert data.get("engines") == [] or data.get("engine") is None
+    fetch_host_cap.assert_not_called()
