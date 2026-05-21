@@ -85,7 +85,8 @@ describe('Settings – Dispatch Hosts', () => {
       planAgentName: '',
       buildAgentName: '',
       defaultMaxTurns: 100,
-      defaultTimeoutMinutes: 30,
+      defaultTimeoutMinutes: 90,
+      managerDefaultTimeoutMinutes: 240,
       serviceUrl: '',
       serviceApiKeyPreview: '',
     })
@@ -94,7 +95,8 @@ describe('Settings – Dispatch Hosts', () => {
       planAgentName: '',
       buildAgentName: '',
       defaultMaxTurns: 100,
-      defaultTimeoutMinutes: 30,
+      defaultTimeoutMinutes: 90,
+      managerDefaultTimeoutMinutes: 240,
       serviceUrl: '',
       serviceApiKeyPreview: '',
     })
@@ -209,6 +211,29 @@ describe('Settings – Dispatch Hosts', () => {
     await waitFor(() => {
       // list should be called again after add
       expect(vi.mocked(api.dispatchHosts.list).mock.calls.length).toBeGreaterThan(1)
+    })
+  })
+
+  it('renders both "Worker default timeout (min)" and "Manager default timeout (min)" labels in Agent Dispatch card', async () => {
+    render(<Settings />)
+
+    expect(await screen.findByLabelText(/Worker default timeout \(min\)/)).toBeInTheDocument()
+    expect(await screen.findByLabelText(/Manager default timeout \(min\)/)).toBeInTheDocument()
+  })
+
+  it('calls updateDispatch with managerDefaultTimeoutMinutes when manager timeout input blurs', async () => {
+    const api = await getApi()
+
+    render(<Settings />)
+
+    const managerTimeoutInput = await screen.findByLabelText(/Manager default timeout \(min\)/)
+    fireEvent.change(managerTimeoutInput, { target: { value: '300' } })
+    fireEvent.blur(managerTimeoutInput)
+
+    await waitFor(() => {
+      expect(vi.mocked(api.settings.updateDispatch)).toHaveBeenCalledWith(
+        expect.objectContaining({ managerDefaultTimeoutMinutes: 300 }),
+      )
     })
   })
 })

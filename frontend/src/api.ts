@@ -335,6 +335,7 @@ export const api = {
         buildAgentName: string
         defaultMaxTurns: number
         defaultTimeoutMinutes: number
+        managerDefaultTimeoutMinutes: number
         serviceUrl: string
         serviceApiKeyPreview: string
       }>('GET', '/settings/dispatch'),
@@ -346,6 +347,7 @@ export const api = {
       serviceApiKey?: string
       defaultMaxTurns?: number
       defaultTimeoutMinutes?: number
+      managerDefaultTimeoutMinutes?: number
     }) =>
       request<{
         engine: string
@@ -353,6 +355,7 @@ export const api = {
         buildAgentName: string
         defaultMaxTurns: number
         defaultTimeoutMinutes: number
+        managerDefaultTimeoutMinutes: number
         serviceUrl: string
         serviceApiKeyPreview: string
       }>('PATCH', '/settings/dispatch', data),

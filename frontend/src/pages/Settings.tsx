@@ -42,7 +42,8 @@ export default function Settings() {
 
   // Agent Dispatch settings
   const [dispatchMaxTurns, setDispatchMaxTurns] = useState<number>(100)
-  const [dispatchTimeoutMinutes, setDispatchTimeoutMinutes] = useState<number>(30)
+  const [dispatchTimeoutMinutes, setDispatchTimeoutMinutes] = useState<number>(90)
+  const [dispatchManagerTimeoutMinutes, setDispatchManagerTimeoutMinutes] = useState<number>(240)
   const [engine, setEngine] = useState<string>('claude-code')
   const [planAgentName, setPlanAgentName] = useState<string>('')
   const [buildAgentName, setBuildAgentName] = useState<string>('')
@@ -71,6 +72,13 @@ export default function Settings() {
     setDispatchTimeoutMinutes(clamped)
   }
 
+  const handleManagerTimeoutMinutesChange = (raw: string) => {
+    const v = parseInt(raw, 10)
+    if (isNaN(v)) return
+    const clamped = Math.max(5, Math.min(1440, v))
+    setDispatchManagerTimeoutMinutes(clamped)
+  }
+
   const saveMaxTurns = async () => {
     try {
       const res = await api.settings.updateDispatch({ defaultMaxTurns: dispatchMaxTurns })
@@ -89,6 +97,15 @@ export default function Settings() {
     }
   }
 
+  const saveManagerTimeoutMinutes = async () => {
+    try {
+      const res = await api.settings.updateDispatch({ managerDefaultTimeoutMinutes: dispatchManagerTimeoutMinutes })
+      setDispatchManagerTimeoutMinutes(res.managerDefaultTimeoutMinutes)
+    } catch {
+      // handled by api client
+    }
+  }
+
   const saveDispatchSettings = async (fields: {
     engine?: string
     planAgentName?: string
@@ -102,6 +119,7 @@ export default function Settings() {
       setBuildAgentName(res.buildAgentName)
       setDispatchMaxTurns(res.defaultMaxTurns)
       setDispatchTimeoutMinutes(res.defaultTimeoutMinutes)
+      setDispatchManagerTimeoutMinutes(res.managerDefaultTimeoutMinutes)
     } catch {
       // handled by api client
     } finally {
@@ -155,6 +173,7 @@ export default function Settings() {
       setBuildAgentName(res.buildAgentName)
       setDispatchMaxTurns(res.defaultMaxTurns)
       setDispatchTimeoutMinutes(res.defaultTimeoutMinutes)
+      setDispatchManagerTimeoutMinutes(res.managerDefaultTimeoutMinutes)
     }).catch(() => {})
     api.dispatch.capabilities().then((caps) => {
       setCapabilities(caps)
@@ -561,7 +580,7 @@ export default function Settings() {
             </Button>
           </Box>
 
-          <Box sx={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2, mb: 1 }}>
             {engine === 'claude-code' && (
               <Box>
                 <TextField
@@ -578,7 +597,7 @@ export default function Settings() {
             )}
             <Box>
               <TextField
-                label="Default timeout (min)"
+                label="Worker default timeout (min)"
                 type="number"
                 size="small"
                 value={dispatchTimeoutMinutes}
@@ -588,7 +607,22 @@ export default function Settings() {
                 sx={{ width: 180 }}
               />
             </Box>
+            <Box>
+              <TextField
+                label="Manager default timeout (min)"
+                type="number"
+                size="small"
+                value={dispatchManagerTimeoutMinutes}
+                onChange={(e) => handleManagerTimeoutMinutesChange(e.target.value)}
+                onBlur={() => { void saveManagerTimeoutMinutes() }}
+                slotProps={{ htmlInput: { min: 5, max: 1440 } }}
+                sx={{ width: 180 }}
+              />
+            </Box>
           </Box>
+          <Typography variant="caption" color="text.secondary">
+            Worker = single build/plan dispatch. Manager = wave driver coordinating multiple items.
+          </Typography>
         </CardContent>
       </Card>
 
