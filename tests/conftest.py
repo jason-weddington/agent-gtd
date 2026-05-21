@@ -9,10 +9,10 @@ from agent_gtd.main import app
 
 @pytest.fixture(autouse=True)
 def _clear_agent_name_env(monkeypatch):
-    """Ensure AGENT_GTD_AGENT_NAME is unset so tests that assert created_by=='human' pass.
+    """Unset AGENT_GTD_AGENT_NAME for each test.
 
-    Tests that need a specific attribution (e.g. test_comment_attribution_from_env_variable)
-    must set the env var explicitly via monkeypatch.setenv().
+    Tests needing specific attribution call monkeypatch.setenv() to set
+    it explicitly (e.g. test_comment_attribution_from_env_variable).
     """
     monkeypatch.delenv("AGENT_GTD_AGENT_NAME", raising=False)
 
