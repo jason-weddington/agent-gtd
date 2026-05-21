@@ -10,6 +10,56 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Host probe
+# ---------------------------------------------------------------------------
+
+
+async def probe_dispatch_host(
+    url: str,
+    api_key: str,
+    timeout: float = 10.0,
+) -> None:
+    """Probe {url}/info with Bearer auth to verify the host is reachable and valid.
+
+    Validates that the response is HTTP 200, parseable JSON, and contains an
+    ``engine`` key.  All failures raise ``ValueError`` with a human-readable
+    reason so callers can convert them into user-facing error messages.
+
+    Args:
+        url: Base URL of the dispatch host (e.g. ``'https://dispatch.example.com'``).
+        api_key: API key for Bearer authentication.
+        timeout: Request timeout in seconds (default 10).
+
+    Raises:
+        ValueError: With a descriptive reason on any probe failure.
+    """
+    try:
+        async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
+            resp = await client.get(
+                f"{url}/info",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=timeout,
+            )
+    except httpx.TimeoutException as exc:
+        raise ValueError(f"Timed out after {int(timeout)}s") from exc
+    except httpx.ConnectError as exc:
+        raise ValueError("Connection refused") from exc
+    except httpx.RequestError as exc:
+        raise ValueError(f"Request failed: {exc}") from exc
+
+    if resp.status_code != 200:
+        raise ValueError(f"HTTP {resp.status_code} {resp.reason_phrase}")
+
+    try:
+        data: object = resp.json()
+    except Exception as exc:
+        raise ValueError("Response is not valid JSON") from exc
+
+    if not isinstance(data, dict) or "engine" not in data:
+        raise ValueError("Response missing required field: engine")
+
+
+# ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
 

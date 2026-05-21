@@ -1,7 +1,23 @@
 """Tests for dispatch host CRUD endpoints."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import AsyncClient
+
+
+@pytest.fixture(autouse=True)
+def mock_probe() -> AsyncMock:
+    """Stub out probe_dispatch_host so tests don't need a live dispatch host.
+
+    By default the probe succeeds (returns None).  Individual tests that want
+    to simulate probe failures can override ``mock_probe.side_effect``.
+    """
+    with patch(
+        "agent_gtd.routes.settings_routes.probe_dispatch_host",
+        new_callable=AsyncMock,
+    ) as m:
+        yield m
 
 
 @pytest.mark.asyncio
@@ -196,3 +212,84 @@ async def test_migration_from_legacy_user_settings(
     assert data[0]["label"] == "default"
     assert data[0]["url"] == "http://legacy.local:8001"
     assert "legacy-api-key" not in str(data)  # gitleaks:allow
+
+
+# ---------------------------------------------------------------------------
+# Probe tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_add_host_probe_success_returns_201(
+    client: AsyncClient, auth_headers: dict[str, str], mock_probe: AsyncMock
+) -> None:
+    """POST returns 201 when probe_dispatch_host succeeds (returns without error)."""
+    mock_probe.return_value = None  # default, but explicit for clarity
+    res = await client.post(
+        "/api/settings/dispatch/hosts",
+        json={  # gitleaks:allow
+            "label": "good-host",
+            "url": "http://good.local:8100",
+            "api_key": "validkey",
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["url"] == "http://good.local:8100"
+
+
+@pytest.mark.asyncio
+async def test_add_host_probe_non_200_returns_400(
+    client: AsyncClient, auth_headers: dict[str, str], mock_probe: AsyncMock
+) -> None:
+    """POST returns 400 with status code in detail when probe gets non-200 response."""
+    mock_probe.side_effect = ValueError("HTTP 301 Moved Permanently")
+    res = await client.post(
+        "/api/settings/dispatch/hosts",
+        json={  # gitleaks:allow
+            "label": "redirect-host",
+            "url": "http://redirect.local:8100",
+            "api_key": "somekey",
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert "301" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_add_host_probe_connection_error_returns_400(
+    client: AsyncClient, auth_headers: dict[str, str], mock_probe: AsyncMock
+) -> None:
+    """POST returns 400 with reason in detail when probe cannot connect."""
+    mock_probe.side_effect = ValueError("Connection refused")
+    res = await client.post(
+        "/api/settings/dispatch/hosts",
+        json={  # gitleaks:allow
+            "label": "dead-host",
+            "url": "http://unreachable.local:8100",
+            "api_key": "somekey",
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert "Connection refused" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_add_host_probe_non_json_returns_400(
+    client: AsyncClient, auth_headers: dict[str, str], mock_probe: AsyncMock
+) -> None:
+    """POST returns 400 when probe gets a non-JSON (e.g. HTML) response body."""
+    mock_probe.side_effect = ValueError("Response is not valid JSON")
+    res = await client.post(
+        "/api/settings/dispatch/hosts",
+        json={  # gitleaks:allow
+            "label": "html-host",
+            "url": "http://nginx.local:80",
+            "api_key": "somekey",
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert "JSON" in res.json()["detail"]

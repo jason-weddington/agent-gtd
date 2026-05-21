@@ -54,6 +54,7 @@ export default function Settings() {
   const [hostLabel, setHostLabel] = useState('')
   const [hostUrl, setHostUrl] = useState('')
   const [hostApiKey, setHostApiKey] = useState('')
+  const [hostError, setHostError] = useState<string | null>(null)
 
   const handleMaxTurnsChange = (raw: string) => {
     const v = parseInt(raw, 10)
@@ -176,6 +177,7 @@ export default function Settings() {
   useEffect(() => { loadDispatchHosts() }, [loadDispatchHosts])
 
   const handleAddHost = async () => {
+    setHostError(null)
     setAddingHost(true)
     try {
       await api.dispatchHosts.add(hostLabel, hostUrl.trim(), hostApiKey)
@@ -185,8 +187,8 @@ export default function Settings() {
       loadDispatchHosts()
       // Refresh capabilities after adding a host
       api.dispatch.capabilities().then(setCapabilities).catch(() => {})
-    } catch {
-      // handled by api client
+    } catch (err) {
+      if (err instanceof ApiError) setHostError(err.detail)
     } finally {
       setAddingHost(false)
     }
@@ -525,10 +527,13 @@ export default function Settings() {
             <TextField label="Label (optional)" size="small" fullWidth
               value={hostLabel} onChange={(e) => setHostLabel(e.target.value)} />
             <TextField label="URL" size="small" fullWidth required
-              value={hostUrl} onChange={(e) => setHostUrl(e.target.value)}
+              value={hostUrl}
+              onChange={(e) => { setHostUrl(e.target.value); setHostError(null) }}
               placeholder="https://dispatch.example.com" />
             <TextField label="API Key" type="password" size="small" fullWidth required
-              value={hostApiKey} onChange={(e) => setHostApiKey(e.target.value)} />
+              value={hostApiKey}
+              onChange={(e) => { setHostApiKey(e.target.value); setHostError(null) }} />
+            {hostError && <Alert severity="error">{hostError}</Alert>}
             <Button variant="outlined" size="small" onClick={() => void handleAddHost()}
               disabled={addingHost || !hostUrl.trim() || !hostApiKey.trim()}
               sx={{ alignSelf: 'flex-start' }}>

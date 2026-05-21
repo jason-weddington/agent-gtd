@@ -19,6 +19,7 @@ from agent_gtd.models import (
     User,
 )
 from agent_gtd.services import settings_service
+from agent_gtd.services.dispatch_router import probe_dispatch_host
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -196,6 +197,11 @@ async def add_dispatch_host(
         raise HTTPException(status_code=422, detail="url must be non-empty")
     if not body.api_key:
         raise HTTPException(status_code=422, detail="api_key must be non-empty")
+
+    try:
+        await probe_dispatch_host(url, body.api_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     db = await get_db()
     try:
