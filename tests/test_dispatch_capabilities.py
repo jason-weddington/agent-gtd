@@ -305,28 +305,34 @@ async def test_capabilities_divergent_versions(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
     """Two hosts report different versions — both in versions list (sorted)."""
-    # Add two explicit dispatch hosts
-    res_a = await client.post(
-        "/api/settings/dispatch/hosts",
-        json={
-            "label": "host-a",
-            "url": "http://fake-dispatch-a:8100",
-            "api_key": "key-a",  # gitleaks:allow
-        },
-        headers=auth_headers,
-    )
-    assert res_a.status_code == 201
+    # Add two explicit dispatch hosts.  probe_dispatch_host is patched so the
+    # test doesn't need a real dispatch server reachable at the fake URLs.
+    with patch(
+        "agent_gtd.routes.settings_routes.probe_dispatch_host",
+        new_callable=AsyncMock,
+        return_value=None,
+    ):
+        res_a = await client.post(
+            "/api/settings/dispatch/hosts",
+            json={
+                "label": "host-a",
+                "url": "http://fake-dispatch-a:8100",
+                "api_key": "key-a",  # gitleaks:allow
+            },
+            headers=auth_headers,
+        )
+        assert res_a.status_code == 201
 
-    res_b = await client.post(
-        "/api/settings/dispatch/hosts",
-        json={
-            "label": "host-b",
-            "url": "http://fake-dispatch-b:8100",
-            "api_key": "key-b",  # gitleaks:allow
-        },
-        headers=auth_headers,
-    )
-    assert res_b.status_code == 201
+        res_b = await client.post(
+            "/api/settings/dispatch/hosts",
+            json={
+                "label": "host-b",
+                "url": "http://fake-dispatch-b:8100",
+                "api_key": "key-b",  # gitleaks:allow
+            },
+            headers=auth_headers,
+        )
+        assert res_b.status_code == 201
 
     # Map host url → version so results are deterministic regardless of call order
     version_by_url: dict[str, str] = {
