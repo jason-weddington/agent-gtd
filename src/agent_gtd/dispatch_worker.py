@@ -645,16 +645,13 @@ async def execute_run(
         str(run["dispatch_host_id"]) if run.get("dispatch_host_id") else None
     )
 
-    # Pick the best host for the required engine + agent
-    try:
-        selected_host = await pick_dispatch_host(
-            hosts,
-            engine=engine,
-            agent_name=agent_name or None,
-            target_host_id=dispatch_host_id,
-        )
-    except (NoCompatibleHostError, HostFullError) as exc:
-        error_msg = str(exc)[:500]
+    # Retry loop: pick a host and dispatch, retrying on 503 (at capacity) by
+    # excluding the full host and trying the next-best candidate.
+    # Targeted dispatch (dispatch_host_id set) does not retry on 503.
+    excluded_urls: set[str] = set()
+
+    async def _fail_run(error_msg: str) -> None:
+        """Mark the run failed and post a comment (shared across retry paths)."""
         await _update_run(
             db,
             run_id,
@@ -663,7 +660,6 @@ async def execute_run(
             error_msg=error_msg,
         )
         _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
-        # Post comment to source item
         if item_id:
             try:
                 from agent_gtd.services.comment_service import create_comment
@@ -679,39 +675,67 @@ async def execute_run(
                 logger.warning(
                     "Failed to post dispatch failure comment to item %s", item_id
                 )
-        return
-
-    dispatch_url = selected_host["url"]
-    dispatch_api_key = selected_host["api_key"]
 
     async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
-        # --- Dispatch to remote ---
-        try:
-            remote_run = await _dispatch_to_remote(
-                client,
-                item_id,
-                max_turns,
-                mode,
-                rollout_id=str(run["rollout_id"]) if run.get("rollout_id") else None,
-                url=dispatch_url,
-                api_key=dispatch_api_key,
-                engine=engine,
-                agent_name=agent_name,
-                attribution=attribution,
-                timeout_minutes=effective_timeout_minutes,
-            )
-            remote_run_id = remote_run.id
-        except Exception as e:
-            logger.exception("Failed to dispatch run %s to remote service", run_id)
-            await _update_run(
-                db,
-                run_id,
-                status="failed",
-                finished_at=datetime.now(UTC).isoformat(),
-                error_msg=f"Dispatch service error: {e}"[:500],
-            )
-            _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
-            return
+        # --- Pick host and dispatch (with 503 retry for auto-routing) ---
+        dispatch_url: str = ""
+        dispatch_api_key: str = ""
+        remote_run_id: str = ""
+
+        while True:
+            # Pick the best host for the required engine + agent
+            try:
+                selected_host = await pick_dispatch_host(
+                    hosts,
+                    engine=engine,
+                    agent_name=agent_name or None,
+                    target_host_id=dispatch_host_id,
+                    exclude_urls=frozenset(excluded_urls),
+                )
+            except (NoCompatibleHostError, HostFullError) as exc:
+                await _fail_run(str(exc)[:500])
+                return
+
+            dispatch_url = selected_host["url"]
+            dispatch_api_key = selected_host["api_key"]
+
+            # --- Dispatch to remote ---
+            try:
+                remote_run = await _dispatch_to_remote(
+                    client,
+                    item_id,
+                    max_turns,
+                    mode,
+                    rollout_id=str(run["rollout_id"])
+                    if run.get("rollout_id")
+                    else None,
+                    url=dispatch_url,
+                    api_key=dispatch_api_key,
+                    engine=engine,
+                    agent_name=agent_name,
+                    attribution=attribution,
+                    timeout_minutes=effective_timeout_minutes,
+                )
+                remote_run_id = remote_run.id
+                break  # success — exit retry loop
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 503 and not dispatch_host_id:
+                    # Auto-routing: host is at capacity — try next-best host
+                    logger.warning(
+                        "Host %s returned 503 (at capacity) for run %s, retrying with next-best host",
+                        dispatch_url,
+                        run_id,
+                    )
+                    excluded_urls.add(dispatch_url)
+                    continue
+                # Other HTTP error or targeted-dispatch 503: fail immediately
+                logger.exception("Failed to dispatch run %s to remote service", run_id)
+                await _fail_run(f"Dispatch service error: {exc}"[:500])
+                return
+            except Exception as exc:
+                logger.exception("Failed to dispatch run %s to remote service", run_id)
+                await _fail_run(f"Dispatch service error: {exc}"[:500])
+                return
 
         # --- Running ---
         now = datetime.now(UTC).isoformat()

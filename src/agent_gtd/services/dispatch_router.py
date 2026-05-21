@@ -140,6 +140,7 @@ async def pick_dispatch_host(
     engine: str,
     agent_name: str | None,
     target_host_id: str | None = None,
+    exclude_urls: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """Select the best dispatch host for the given engine and agent.
 
@@ -149,6 +150,7 @@ async def pick_dispatch_host(
     Algorithm (auto mode, target_host_id=None):
     1. Poll /info on all hosts concurrently (5s timeout, no cache — real-time).
     2. Filter: skip unreachable hosts, hosts missing the requested engine,
+       hosts in ``exclude_urls`` (at-capacity hosts excluded by caller),
        and (if agent_name set) hosts missing the requested agent.
     3. Rank: pick the host with the most available capacity
        (max_concurrent_runs - active_runs).
@@ -160,6 +162,9 @@ async def pick_dispatch_host(
         target_host_id: Optional host UUID to pin this dispatch to a specific
             host. When set, the router validates compatibility and capacity for
             that host only and returns it directly.
+        exclude_urls: Optional set of host URLs to skip (hosts known to be at
+            capacity). Excluded hosts appear in ``NoCompatibleHostError.hosts_checked``
+            with reason ``"at capacity"``. Only used in auto mode.
 
     Returns:
         The winning host dict.
@@ -234,6 +239,9 @@ async def pick_dispatch_host(
 
     for host, info in zip(hosts, infos, strict=False):
         host_label = host.get("label") or host.get("url", "unknown")
+        if exclude_urls and host.get("url") in exclude_urls:
+            skipped.append({"host": host_label, "reason": "at capacity"})
+            continue
         if info is None:
             skipped.append({"host": host_label, "reason": "unreachable"})
             continue

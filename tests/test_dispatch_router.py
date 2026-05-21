@@ -309,3 +309,58 @@ async def test_targeted_host_full() -> None:
     exc = exc_info.value
     assert exc.max_concurrent_runs == 5
     assert "host-a" in exc.host_label
+
+
+# ---------------------------------------------------------------------------
+# exclude_urls tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_exclude_urls_skips_host() -> None:
+    """exclude_urls: host-A excluded → host-B selected."""
+    from agent_gtd.services.dispatch_router import pick_dispatch_host
+
+    async def fake_gather(hosts):  # type: ignore[no-untyped-def]
+        return [INFO_ALL_UP_A, INFO_ALL_UP_B]
+
+    with patch(
+        "agent_gtd.services.dispatch_router._gather_host_info",
+        new=fake_gather,
+    ):
+        selected = await pick_dispatch_host(
+            [HOST_A, HOST_B],
+            engine="claude-code",
+            agent_name=None,
+            exclude_urls=frozenset({HOST_A["url"]}),
+        )
+    assert selected["id"] == "b"
+
+
+@pytest.mark.asyncio
+async def test_all_excluded_raises_no_compatible() -> None:
+    """All hosts in exclude_urls → NoCompatibleHostError with both in hosts_checked."""
+    from agent_gtd.services.dispatch_router import (
+        NoCompatibleHostError,
+        pick_dispatch_host,
+    )
+
+    async def fake_gather(hosts):  # type: ignore[no-untyped-def]
+        return [INFO_ALL_UP_A, INFO_ALL_UP_B]
+
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._gather_host_info",
+            new=fake_gather,
+        ),
+        pytest.raises(NoCompatibleHostError) as exc_info,
+    ):
+        await pick_dispatch_host(
+            [HOST_A, HOST_B],
+            engine="claude-code",
+            agent_name=None,
+            exclude_urls=frozenset({HOST_A["url"], HOST_B["url"]}),
+        )
+    exc = exc_info.value
+    assert len(exc.hosts_checked) == 2
+    assert all(h["reason"] == "at capacity" for h in exc.hosts_checked)
