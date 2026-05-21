@@ -1,5 +1,7 @@
 """Tests for items CRUD API."""
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
 
@@ -967,3 +969,150 @@ async def test_update_item_scope_out_unchanged_when_omitted(
     )
     assert res.status_code == 200
     assert res.json()["scope_out"] == ["Not now"]
+
+
+# --- project_id move (AC-6, AC-7, AC-8, AC-9) ---
+
+
+async def test_move_item_between_projects(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Happy path: move item from project A to project B."""
+    # Create two projects
+    res_a = await client.post(
+        "/api/projects",
+        json={"name": "Project A"},
+        headers=auth_headers,
+    )
+    assert res_a.status_code == 201
+    project_a = res_a.json()["id"]
+
+    res_b = await client.post(
+        "/api/projects",
+        json={"name": "Project B"},
+        headers=auth_headers,
+    )
+    assert res_b.status_code == 201
+    project_b = res_b.json()["id"]
+
+    # Create item in project A with extra fields to verify they're preserved
+    create = await client.post(
+        "/api/items",
+        json={
+            "title": "Moveable task",
+            "description": "Some description",
+            "project_id": project_a,
+            "acceptance_criteria": ["AC-1: Works"],
+            "scope_out": ["Not now"],
+        },
+        headers=auth_headers,
+    )
+    assert create.status_code == 201
+    item = create.json()
+    assert item["project_id"] == project_a
+    initial_version = item["version"]
+
+    # Move item to project B
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"project_id": project_b, "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    updated = res.json()
+
+    # project_id updated, version incremented
+    assert updated["project_id"] == project_b
+    assert updated["version"] == initial_version + 1
+
+    # Other fields preserved
+    assert updated["title"] == "Moveable task"
+    assert updated["description"] == "Some description"
+    assert updated["acceptance_criteria"] == ["AC-1: Works"]
+    assert updated["scope_out"] == ["Not now"]
+
+
+async def test_move_item_to_inaccessible_project(client: AsyncClient):
+    """Moving an item to another user's project returns 404."""
+    from agent_gtd.auth import create_token, register_user
+
+    # Create two users
+    u1 = await register_user("mover@example.com", "pass123")
+    headers1 = {"Authorization": f"Bearer {create_token(u1.id)}"}
+    u2 = await register_user("owner@example.com", "pass123")
+    headers2 = {"Authorization": f"Bearer {create_token(u2.id)}"}
+
+    # User 1 creates an item in their own project
+    res = await client.post(
+        "/api/projects", json={"name": "User1 Project"}, headers=headers1
+    )
+    assert res.status_code == 201
+    project1 = res.json()["id"]
+
+    create = await client.post(
+        "/api/items",
+        json={"title": "User1 item", "project_id": project1},
+        headers=headers1,
+    )
+    assert create.status_code == 201
+    item = create.json()
+
+    # User 2 creates their own project
+    res = await client.post(
+        "/api/projects", json={"name": "User2 Project"}, headers=headers2
+    )
+    assert res.status_code == 201
+    project2 = res.json()["id"]
+
+    # User 1 tries to move their item to user 2's project — should 404
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"project_id": project2, "version": item["version"]},
+        headers=headers1,
+    )
+    assert res.status_code == 404
+
+
+async def test_move_locked_item_returns_409(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Moving an item locked by a rollout returns HTTP 409."""
+    from agent_gtd.database import get_db
+
+    # Create two projects and an item in project A
+    res_a = await client.post(
+        "/api/projects", json={"name": "Lock Project A"}, headers=auth_headers
+    )
+    assert res_a.status_code == 201
+    project_a = res_a.json()["id"]
+
+    res_b = await client.post(
+        "/api/projects", json={"name": "Lock Project B"}, headers=auth_headers
+    )
+    assert res_b.status_code == 201
+    project_b = res_b.json()["id"]
+
+    create = await client.post(
+        "/api/items",
+        json={"title": "Locked item", "project_id": project_a},
+        headers=auth_headers,
+    )
+    assert create.status_code == 201
+    item = create.json()
+
+    # Directly lock the item via DB (simulating a rollout lock)
+    rollout_id = str(uuid.uuid4())
+    db = await get_db()
+    await db.execute(
+        "UPDATE items SET locked_by_rollout_id = $1 WHERE id = $2",
+        rollout_id,
+        item["id"],
+    )
+
+    # Attempt to move the locked item — should 409
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"project_id": project_b, "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 409

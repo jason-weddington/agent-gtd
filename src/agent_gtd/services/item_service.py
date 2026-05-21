@@ -19,6 +19,7 @@ from agent_gtd.exceptions import (
     AlreadyClaimedError,
     BlockersUnresolvedError,
     NotFoundError,
+    RolloutItemLockedError,
     ValidationError,
     VersionConflictError,
 )
@@ -251,6 +252,9 @@ async def update_item(
         ValidationError: If build_engine is not a recognised value.
         VersionConflictError: If version is provided and doesn't match.
         ValidationError: If build_engine is not a recognised engine identifier.
+        RolloutItemLockedError: If project_id_set is True and the item is
+            locked by an active rollout. Move is refused while locked; caller
+            must wait for the rollout to complete or cancel it.
     """
     if (
         build_engine_set
@@ -288,6 +292,8 @@ async def update_item(
         updates.append(f"description = ${len(params)}")
 
     if project_id_set:
+        if existing.get("locked_by_rollout_id") is not None:
+            raise RolloutItemLockedError(item_id, str(existing["locked_by_rollout_id"]))
         if project_id is not None:
             await verify_project_access(db, str(project_id), user_id)
         params.append(project_id)

@@ -19,6 +19,7 @@ from agent_gtd.exceptions import (
     BlockersUnresolvedError,
     LegalityContractError,
     NotFoundError,
+    RolloutItemLockedError,
     ValidationError,
     VersionConflictError,
 )
@@ -560,6 +561,7 @@ async def update_item(
     acceptance_criteria: list[str] | None = None,
     files_to_modify: list[dict[str, Any]] | None = None,
     scope_out: list[str] | None = None,
+    project_id: str | None = None,
     *,
     ctx: Context,
 ) -> dict[str, Any]:
@@ -596,6 +598,10 @@ async def update_item(
             "change" keys (None = unchanged, empty list [] = clear, non-empty = set).
         scope_out: Structured scope-out list (None = unchanged, empty list [] = clear,
             non-empty list = set).
+        project_id: Move item to a different project (or detach from project).
+            - None (default) → unchanged
+            - Empty string "" → detach from project (set project_id to null)
+            - Non-empty UUID string → move to that project
         ctx: MCP context (injected automatically).
 
     Returns:
@@ -634,6 +640,18 @@ async def update_item(
         backend_build_engine = build_engine
         build_engine_set = True
 
+    # Translate MCP project_id sentinel into (project_id_val, project_id_set) pair.
+    # None means "don't touch it"; "" means "detach (set to null)"; UUID means "move".
+    if project_id is None:
+        backend_project_id: str | None = None
+        project_id_set = False
+    elif project_id == "":
+        backend_project_id = None
+        project_id_set = True
+    else:
+        backend_project_id = project_id
+        project_id_set = True
+
     try:
         return await _backend.update_item(
             session["user_id"],
@@ -652,10 +670,14 @@ async def update_item(
             acceptance_criteria=acceptance_criteria,
             files_to_modify=files_to_modify,
             scope_out=scope_out,
+            project_id=backend_project_id,
+            project_id_set=project_id_set,
         )
     except BlockersUnresolvedError as e:
         raise ToolError(e.detail) from None
     except NotFoundError as e:
+        raise ToolError(e.detail) from None
+    except RolloutItemLockedError as e:
         raise ToolError(e.detail) from None
     except VersionConflictError as e:
         raise ToolError(e.detail) from None

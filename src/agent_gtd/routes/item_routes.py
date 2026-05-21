@@ -12,6 +12,7 @@ from agent_gtd.exceptions import (
     AlreadyClaimedError,
     BlockersUnresolvedError,
     NotFoundError,
+    RolloutItemLockedError,
     ValidationError,
     VersionConflictError,
 )
@@ -228,6 +229,8 @@ async def update_item(
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Item not found") from None
     except VersionConflictError as e:
+        raise HTTPException(status_code=409, detail=e.detail) from None
+    except RolloutItemLockedError as e:
         raise HTTPException(status_code=409, detail=e.detail) from None
     return _item_response(row)
 

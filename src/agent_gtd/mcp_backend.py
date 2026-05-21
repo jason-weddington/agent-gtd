@@ -169,6 +169,8 @@ class McpBackend(Protocol):
         acceptance_criteria: list[str] | None = None,
         files_to_modify: list[dict[str, Any]] | None = None,
         scope_out: list[str] | None = None,
+        project_id: str | None = None,
+        project_id_set: bool = False,
     ) -> dict[str, Any]: ...
 
     async def complete_item(self, user_id: str, item_id: str) -> dict[str, Any]: ...
@@ -693,6 +695,8 @@ class LocalBackend:
         acceptance_criteria: list[str] | None = None,
         files_to_modify: list[dict[str, Any]] | None = None,
         scope_out: list[str] | None = None,
+        project_id: str | None = None,
+        project_id_set: bool = False,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import item_service
@@ -715,6 +719,8 @@ class LocalBackend:
             acceptance_criteria=acceptance_criteria,
             files_to_modify=files_to_modify,
             scope_out=scope_out,
+            project_id=project_id,
+            project_id_set=project_id_set,
             version=version,
         )
         pm = await self._build_project_map(user_id)
@@ -1578,6 +1584,8 @@ class HttpBackend:
         acceptance_criteria: list[str] | None = None,
         files_to_modify: list[dict[str, Any]] | None = None,
         scope_out: list[str] | None = None,
+        project_id: str | None = None,
+        project_id_set: bool = False,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"version": version}
         if title is not None:
@@ -1602,6 +1610,8 @@ class HttpBackend:
             body["files_to_modify"] = files_to_modify
         if scope_out is not None:
             body["scope_out"] = scope_out
+        if project_id_set:
+            body["project_id"] = project_id
         resp = await self._client.patch(
             f"/api/items/{item_id}",
             json=body,
