@@ -820,8 +820,8 @@ class DispatchAgentInfo(BaseModel):
 class DispatchCapabilitiesResponse(BaseModel):
     """Response shape for the /api/dispatch/capabilities proxy endpoint."""
 
-    engine: str | None = None
-    version: str | None = None
+    engines: list[str] = []
+    versions: list[str] = []
     agents: list[DispatchAgentInfo] = []
     total_capacity: int | None = None
 

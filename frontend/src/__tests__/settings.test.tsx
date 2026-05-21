@@ -99,8 +99,8 @@ describe('Settings – Dispatch Hosts', () => {
       serviceApiKeyPreview: '',
     })
     vi.mocked(api.dispatch.capabilities).mockResolvedValue({
-      engine: 'claude-code',
-      version: '1.2.3',
+      engines: ['claude-code'],
+      versions: ['1.2.3'],
       agents: [
         { name: 'general-purpose', description: 'General purpose agent' },
       ],

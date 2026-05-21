@@ -44,7 +44,7 @@ async def _configure_dispatch(
 async def test_capabilities_happy_path(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """/info succeeds — proxy returns engine, version, and agents."""
+    """/info succeeds — proxy returns engines, versions, and agents."""
     await _configure_dispatch(client, auth_headers)
 
     with patch(
@@ -63,8 +63,8 @@ async def test_capabilities_happy_path(
 
     assert res.status_code == 200
     data = res.json()
-    assert data["engine"] == "claude-code"
-    assert data["version"] == "1.2.3"
+    assert data["engines"] == ["claude-code"]
+    assert data["versions"] == ["1.2.3"]
     assert len(data["agents"]) == 1
     assert data["agents"][0]["name"] == "code-reviewer"
 
@@ -83,7 +83,7 @@ async def test_capabilities_requires_auth(client: AsyncClient):
 async def test_capabilities_info_fails(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """Host /info fails — returns null engine/version and empty agents."""
+    """Host /info fails — returns empty engines/versions and empty agents."""
     await _configure_dispatch(client, auth_headers)
 
     with patch(
@@ -94,15 +94,15 @@ async def test_capabilities_info_fails(
 
     assert res.status_code == 200
     data = res.json()
-    assert data["engine"] is None
-    assert data["version"] is None
+    assert data["engines"] == []
+    assert data["versions"] == []
     assert data["agents"] == []
 
 
 async def test_capabilities_agents_fails(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """Host /info returns no agents — engine/version present, agents empty."""
+    """Host /info returns no agents — engines/versions present, agents empty."""
     await _configure_dispatch(client, auth_headers)
 
     with patch(
@@ -121,15 +121,15 @@ async def test_capabilities_agents_fails(
 
     assert res.status_code == 200
     data = res.json()
-    assert data["engine"] == "claude-code"
-    assert data["version"] == "1.2.3"
+    assert data["engines"] == ["claude-code"]
+    assert data["versions"] == ["1.2.3"]
     assert data["agents"] == []
 
 
 async def test_capabilities_both_fail(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """Host /info fails — returns all null/empty fields."""
+    """Host /info fails — returns all empty list fields."""
     await _configure_dispatch(client, auth_headers)
 
     with patch(
@@ -140,8 +140,8 @@ async def test_capabilities_both_fail(
 
     assert res.status_code == 200
     data = res.json()
-    assert data["engine"] is None
-    assert data["version"] is None
+    assert data["engines"] == []
+    assert data["versions"] == []
     assert data["agents"] == []
 
 
@@ -165,15 +165,15 @@ async def test_capabilities_non_200_upstream(
 
     assert res.status_code == 200
     data = res.json()
-    assert data["engine"] is None
-    assert data["version"] is None
+    assert data["engines"] == []
+    assert data["versions"] == []
     assert data["agents"] == []
 
 
 async def test_capabilities_not_configured(
     client: AsyncClient, auth_headers: dict[str, str]
 ):
-    """Dispatch URL not configured — returns all null/empty, no HTTP calls."""
+    """Dispatch URL not configured — returns all empty lists, no HTTP calls."""
     fetch_host_cap = AsyncMock()
 
     with patch(
@@ -184,8 +184,8 @@ async def test_capabilities_not_configured(
 
     assert res.status_code == 200
     data = res.json()
-    assert data["engine"] is None
-    assert data["version"] is None
+    assert data["engines"] == []
+    assert data["versions"] == []
     assert data["agents"] == []
 
     # No HTTP calls should have been made (no hosts configured)
@@ -294,6 +294,65 @@ async def test_capabilities_cache_invalidated_after_ttl(
 
     # Upstream called twice: initial + after TTL expired (not for the t=59 call)
     assert fetch_host_cap.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# AC6 — divergent version scenario (first-responder-wins bug regression)
+# ---------------------------------------------------------------------------
+
+
+async def test_capabilities_divergent_versions(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Two hosts report different versions — both in versions list (sorted)."""
+    # Add two explicit dispatch hosts
+    res_a = await client.post(
+        "/api/settings/dispatch/hosts",
+        json={
+            "label": "host-a",
+            "url": "http://fake-dispatch-a:8100",
+            "api_key": "key-a",  # gitleaks:allow
+        },
+        headers=auth_headers,
+    )
+    assert res_a.status_code == 201
+
+    res_b = await client.post(
+        "/api/settings/dispatch/hosts",
+        json={
+            "label": "host-b",
+            "url": "http://fake-dispatch-b:8100",
+            "api_key": "key-b",  # gitleaks:allow
+        },
+        headers=auth_headers,
+    )
+    assert res_b.status_code == 201
+
+    # Map host url → version so results are deterministic regardless of call order
+    version_by_url: dict[str, str] = {
+        "http://fake-dispatch-a:8100": "1.9.0",
+        "http://fake-dispatch-b:8100": "1.8.5",
+    }
+
+    async def _side_effect(host: dict) -> dict:
+        v = version_by_url[host["url"]]
+        return {
+            "engine": "claude-code",
+            "version": v,
+            "agents": [],
+            "max_concurrent_runs": 2,
+        }
+
+    with patch(
+        "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+        side_effect=_side_effect,
+    ):
+        res = await client.get("/api/dispatch/capabilities", headers=auth_headers)
+
+    assert res.status_code == 200
+    data = res.json()
+    assert sorted(data["versions"]) == ["1.8.5", "1.9.0"]
+    assert data["engines"] == ["claude-code"]
 
 
 # ---------------------------------------------------------------------------

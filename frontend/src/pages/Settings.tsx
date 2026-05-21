@@ -32,6 +32,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import { useThemeMode } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import { api, ApiError } from '../api'
+import { formatDispatchVersions } from '../utils'
 import type { ApiKeyInfo, DispatchCapabilities, DispatchHost } from '../types'
 
 export default function Settings() {
@@ -481,11 +482,30 @@ export default function Settings() {
                       />
                     )}
                   />
-                  {capabilities !== null && !capabilitiesFailed && (
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: -1 }}>
-                      Dispatch service: {capabilities.version ?? 'unknown'}
-                    </Typography>
-                  )}
+                  {capabilities !== null && !capabilitiesFailed && (() => {
+                    const versionInfo = formatDispatchVersions(capabilities.versions ?? [])
+                    const engineInfo = formatDispatchVersions(capabilities.engines ?? [])
+                    return (
+                      <>
+                        <Typography
+                          variant="caption"
+                          color={versionInfo.mixed ? 'warning.main' : 'text.secondary'}
+                          sx={{ mt: -1 }}
+                        >
+                          Dispatch service: {versionInfo.label}
+                        </Typography>
+                        {engineInfo.mixed && (
+                          <Typography
+                            variant="caption"
+                            color="warning.main"
+                            sx={{ mt: -1 }}
+                          >
+                            Engine: {engineInfo.label}
+                          </Typography>
+                        )}
+                      </>
+                    )
+                  })()}
                 </>
               )
             })()}

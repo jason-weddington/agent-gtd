@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { toSnakeCase, toCamelCase, convertKeys, isDispatchServiceConfigured, apiKeyFieldPlaceholder, formatRelativeTime, formatFileSize, formatElapsed } from '../utils'
+import { toSnakeCase, toCamelCase, convertKeys, isDispatchServiceConfigured, apiKeyFieldPlaceholder, formatRelativeTime, formatFileSize, formatElapsed, formatDispatchVersions } from '../utils'
 
 describe('toSnakeCase', () => {
   it('converts camelCase to snake_case', () => {
@@ -157,6 +157,30 @@ describe('formatFileSize', () => {
 
   it('formats large files in KB', () => {
     expect(formatFileSize(10 * 1024)).toBe('10.0 KB')
+  })
+})
+
+describe('formatDispatchVersions', () => {
+  it('returns {label: "unknown", mixed: false} for an empty array', () => {
+    expect(formatDispatchVersions([])).toEqual({ label: 'unknown', mixed: false })
+  })
+
+  it('returns {label: version, mixed: false} for a single version', () => {
+    expect(formatDispatchVersions(['1.9.0'])).toEqual({ label: '1.9.0', mixed: false })
+  })
+
+  it('returns {label: "mixed (...)", mixed: true} for two versions', () => {
+    expect(formatDispatchVersions(['1.8.5', '1.9.0'])).toEqual({
+      label: 'mixed (1.8.5, 1.9.0)',
+      mixed: true,
+    })
+  })
+
+  it('returns {label: "mixed (...)", mixed: true} for three or more versions', () => {
+    expect(formatDispatchVersions(['1.7.0', '1.8.0', '1.9.0'])).toEqual({
+      label: 'mixed (1.7.0, 1.8.0, 1.9.0)',
+      mixed: true,
+    })
   })
 })
 

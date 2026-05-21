@@ -277,8 +277,8 @@ async def get_dispatch_capabilities(
         return_exceptions=True,
     )
 
-    engine: str | None = None
-    version: str | None = None
+    engines_seen: set[str] = set()
+    versions_seen: set[str] = set()
     agents_seen: dict[str, DispatchAgentInfo] = {}
     total_capacity = 0
 
@@ -286,10 +286,10 @@ async def get_dispatch_capabilities(
         if isinstance(res, BaseException) or res is None:
             continue
         info = res
-        if engine is None:
-            engine = str(info["engine"]) if "engine" in info else None
-        if version is None:
-            version = str(info["version"]) if "version" in info else None
+        if "engine" in info:
+            engines_seen.add(str(info["engine"]))
+        if "version" in info:
+            versions_seen.add(str(info["version"]))
         # agents is list[str] in new /info shape
         for agent_name in info.get("agents", []):
             name_str = str(agent_name)
@@ -302,8 +302,8 @@ async def get_dispatch_capabilities(
 
     agents = list(agents_seen.values())
     result = DispatchCapabilitiesResponse(
-        engine=engine,
-        version=version,
+        engines=sorted(engines_seen),
+        versions=sorted(versions_seen),
         agents=agents,
         total_capacity=total_capacity if total_capacity > 0 else None,
     )

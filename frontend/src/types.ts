@@ -276,8 +276,8 @@ export interface DispatchAgentInfo {
 }
 
 export interface DispatchCapabilities {
-  engine: string | null
-  version: string | null
+  engines: string[]
+  versions: string[]
   agents: DispatchAgentInfo[]
   totalCapacity: number | null
 }

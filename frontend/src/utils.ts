@@ -71,6 +71,22 @@ export function formatRelativeTime(dateStr: string): string {
 }
 
 /**
+ * Formats a list of dispatch service versions into a display label.
+ *
+ * - Empty array → `{label: 'unknown', mixed: false}`
+ * - Single version → `{label: '<version>', mixed: false}`
+ * - Multiple versions → `{label: 'mixed (<v1>, <v2>)', mixed: true}`
+ *
+ * The input versions are displayed in the order provided (callers should
+ * pre-sort them if a stable order is desired).
+ */
+export function formatDispatchVersions(versions: string[]): { label: string; mixed: boolean } {
+  if (versions.length === 0) return { label: 'unknown', mixed: false }
+  if (versions.length === 1) return { label: versions[0], mixed: false }
+  return { label: 'mixed (' + versions.join(', ') + ')', mixed: true }
+}
+
+/**
  * Formats a byte count as a KB string with one decimal place.
  * Example: formatFileSize(1536) → "1.5 KB".
  */
