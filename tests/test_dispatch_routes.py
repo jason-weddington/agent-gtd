@@ -51,29 +51,37 @@ def _patch_client(monkeypatch, response_or_exception):
     monkeypatch.setattr("agent_gtd.routes.dispatch_routes.httpx.AsyncClient", _patched)
 
 
+# Fake dispatch host for use in tests that need a configured host.
+_FAKE_HOST = {
+    "id": "host-1",
+    "url": "http://fake-dispatch:8100",
+    "api_key": "fake-key",  # gitleaks:allow
+    "label": "default",
+}
+
+
 # ---------------------------------------------------------------------------
 # Tests for _check_dispatch_service
 # ---------------------------------------------------------------------------
 
 
 async def test_check_dispatch_service_no_config(monkeypatch):
-    """_check_dispatch_service raises 503 when dispatch is not configured."""
+    """_check_dispatch_service raises 503 when no dispatch hosts are configured."""
     from fastapi import HTTPException
 
     from agent_gtd.database import get_db
 
-    # Get database and a user ID
     db = await get_db()
     from agent_gtd.auth import register_user
 
     user = await register_user("test@example.com", "testpass")
     user_id = user.id
 
-    # Mock get_dispatch_config to return None
+    # Mock get_dispatch_hosts to return empty list (no hosts configured)
     with patch(
-        "agent_gtd.routes.dispatch_routes.get_dispatch_config",
+        "agent_gtd.routes.dispatch_routes.get_dispatch_hosts",
         new_callable=AsyncMock,
-        return_value=None,
+        return_value=[],
     ):
         with pytest.raises(HTTPException) as exc_info:
             await dr._check_dispatch_service(db, user_id)
@@ -83,7 +91,7 @@ async def test_check_dispatch_service_no_config(monkeypatch):
 
 
 async def test_check_dispatch_service_health_non_200(monkeypatch):
-    """_check_dispatch_service raises 503 when health endpoint returns non-200."""
+    """_check_dispatch_service raises 503 when all health endpoints return non-200."""
     from fastapi import HTTPException
 
     from agent_gtd.database import get_db
@@ -94,22 +102,19 @@ async def test_check_dispatch_service_health_non_200(monkeypatch):
     user = await register_user("test2@example.com", "testpass")
     user_id = user.id
 
-    # Mock get_dispatch_config to return a fake config
-    fake_config = {"url": "http://fake-dispatch:8100", "api_key": "fake-key"}
-
     # Mock httpx.AsyncClient to return a 503 response
     _patch_client(monkeypatch, httpx.Response(503))
 
     with patch(
-        "agent_gtd.routes.dispatch_routes.get_dispatch_config",
+        "agent_gtd.routes.dispatch_routes.get_dispatch_hosts",
         new_callable=AsyncMock,
-        return_value=fake_config,
+        return_value=[_FAKE_HOST],
     ):
         with pytest.raises(HTTPException) as exc_info:
             await dr._check_dispatch_service(db, user_id)
 
         assert exc_info.value.status_code == 503
-        assert "error" in exc_info.value.detail
+        assert "unreachable" in exc_info.value.detail
 
 
 async def test_check_dispatch_service_connect_error(monkeypatch):
@@ -124,16 +129,13 @@ async def test_check_dispatch_service_connect_error(monkeypatch):
     user = await register_user("test3@example.com", "testpass")
     user_id = user.id
 
-    # Mock get_dispatch_config to return a fake config
-    fake_config = {"url": "http://fake-dispatch:8100", "api_key": "fake-key"}
-
     # Mock httpx.AsyncClient to raise ConnectError
     _patch_client(monkeypatch, httpx.ConnectError("Connection failed"))
 
     with patch(
-        "agent_gtd.routes.dispatch_routes.get_dispatch_config",
+        "agent_gtd.routes.dispatch_routes.get_dispatch_hosts",
         new_callable=AsyncMock,
-        return_value=fake_config,
+        return_value=[_FAKE_HOST],
     ):
         with pytest.raises(HTTPException) as exc_info:
             await dr._check_dispatch_service(db, user_id)
@@ -154,19 +156,88 @@ async def test_check_dispatch_service_timeout(monkeypatch):
     user = await register_user("test4@example.com", "testpass")
     user_id = user.id
 
-    # Mock get_dispatch_config to return a fake config
-    fake_config = {"url": "http://fake-dispatch:8100", "api_key": "fake-key"}
-
     # Mock httpx.AsyncClient to raise TimeoutException
     _patch_client(monkeypatch, httpx.TimeoutException("Timeout"))
 
     with patch(
-        "agent_gtd.routes.dispatch_routes.get_dispatch_config",
+        "agent_gtd.routes.dispatch_routes.get_dispatch_hosts",
         new_callable=AsyncMock,
-        return_value=fake_config,
+        return_value=[_FAKE_HOST],
     ):
         with pytest.raises(HTTPException) as exc_info:
             await dr._check_dispatch_service(db, user_id)
 
         assert exc_info.value.status_code == 503
-        assert "timed out" in exc_info.value.detail
+        assert "unreachable" in exc_info.value.detail
+
+
+async def test_check_dispatch_service_brand_new_user(monkeypatch):
+    """Brand-new user with host via hosts API passes preflight (no legacy settings).
+
+    A user who never set dispatch.service_url / dispatch.service_api_key in
+    user_settings but has added a host via the dispatch hosts API should be able
+    to dispatch successfully — _check_dispatch_service must NOT return 503.
+    """
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    from agent_gtd.auth import register_user
+
+    # Fresh user — no legacy user_settings
+    user = await register_user("brand-new@example.com", "testpass")
+    user_id = user.id
+
+    # Mock httpx.AsyncClient to return a healthy 200 response
+    _patch_client(monkeypatch, httpx.Response(200))
+
+    # Simulate get_dispatch_hosts returning the host added via the hosts API
+    with patch(
+        "agent_gtd.routes.dispatch_routes.get_dispatch_hosts",
+        new_callable=AsyncMock,
+        return_value=[_FAKE_HOST],
+    ):
+        # Should NOT raise — at least one host is healthy
+        await dr._check_dispatch_service(db, user_id)
+
+
+async def test_check_dispatch_service_one_host_down_one_up(monkeypatch):
+    """_check_dispatch_service passes when at least one of multiple hosts is healthy."""
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    from agent_gtd.auth import register_user
+
+    user = await register_user("multi-host@example.com", "testpass")
+    user_id = user.id
+
+    call_count = 0
+
+    async def _mixed_health(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        # First host fails, second succeeds
+        if call_count == 1:
+            raise httpx.ConnectError("first host down")
+        return httpx.Response(200)
+
+    _orig = httpx.AsyncClient
+
+    def _patched(*args, **kwargs):
+        transport = _MockAsyncTransport.__new__(_MockAsyncTransport)
+        transport.handle_async_request = _mixed_health
+        return _orig(transport=transport)
+
+    monkeypatch.setattr("agent_gtd.routes.dispatch_routes.httpx.AsyncClient", _patched)
+
+    two_hosts = [
+        {"id": "h1", "url": "http://host1:8100", "api_key": "key1", "label": "h1"},
+        {"id": "h2", "url": "http://host2:8100", "api_key": "key2", "label": "h2"},
+    ]
+
+    with patch(
+        "agent_gtd.routes.dispatch_routes.get_dispatch_hosts",
+        new_callable=AsyncMock,
+        return_value=two_hosts,
+    ):
+        # Should NOT raise — second host is reachable
+        await dr._check_dispatch_service(db, user_id)

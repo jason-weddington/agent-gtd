@@ -497,6 +497,8 @@ _MIGRATIONS: list[str] = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_dispatch_hosts_user_id ON dispatch_hosts(user_id)",
+    # Record which dispatch host was used for each run so reconcile can find it.
+    "ALTER TABLE claude_runs ADD COLUMN dispatch_host_url TEXT NOT NULL DEFAULT ''",
 ]
 
 

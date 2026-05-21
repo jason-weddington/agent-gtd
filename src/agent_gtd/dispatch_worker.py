@@ -321,7 +321,7 @@ async def reconcile_active_runs() -> int:
     Returns the number of runs reconciled.
     """
     from agent_gtd.database import get_db, row_to_dict
-    from agent_gtd.services.settings_service import get_dispatch_config
+    from agent_gtd.services.settings_service import get_dispatch_hosts
 
     db = await get_db()
     rows = await db.fetch(
@@ -355,31 +355,65 @@ async def reconcile_active_runs() -> int:
             reconciled += 1
             continue
 
-        # Dispatch config belongs to the project owner, not the caller.
-        # Inbox items (no project) use the caller's own config.
-        run_project_id = run.get("project_id")
-        if run_project_id:
-            proj_row = await db.fetchrow(
-                "SELECT user_id FROM projects WHERE id = $1", str(run_project_id)
-            )
-            owner_id = str(proj_row["user_id"]) if proj_row else user_id
+        # Determine the dispatch host URL from the run row (written at dispatch time).
+        # Fall back to looking up the project owner's hosts if the column is absent/empty
+        # (handles runs created before this migration).
+        dispatch_url = str(run.get("dispatch_host_url", ""))
+        dispatch_api_key = ""
+
+        if dispatch_url:
+            # Look up the api_key for this URL from the owner's hosts list.
+            run_project_id = run.get("project_id")
+            if run_project_id:
+                proj_row = await db.fetchrow(
+                    "SELECT user_id FROM projects WHERE id = $1", str(run_project_id)
+                )
+                owner_id = str(proj_row["user_id"]) if proj_row else user_id
+            else:
+                owner_id = user_id
+
+            hosts = await get_dispatch_hosts(db, owner_id)
+            matching = next((h for h in hosts if h["url"] == dispatch_url), None)
+            if matching:
+                dispatch_api_key = matching["api_key"]
+            else:
+                # URL recorded but no matching host — can't authenticate; fail the run.
+                await _update_run(
+                    db,
+                    run_id,
+                    status="failed",
+                    finished_at=now,
+                    error_msg="Dispatch host no longer configured; cannot reconcile run",
+                )
+                reconciled += 1
+                continue
         else:
-            owner_id = user_id
+            # No dispatch_host_url on the run row (pre-migration run or dispatch failed
+            # before reaching the running state). Attempt a best-effort lookup via hosts.
+            run_project_id = run.get("project_id")
+            if run_project_id:
+                proj_row = await db.fetchrow(
+                    "SELECT user_id FROM projects WHERE id = $1", str(run_project_id)
+                )
+                owner_id = str(proj_row["user_id"]) if proj_row else user_id
+            else:
+                owner_id = user_id
 
-        settings = await get_dispatch_config(db, owner_id)
-        if not settings:
-            await _update_run(
-                db,
-                run_id,
-                status="failed",
-                finished_at=now,
-                error_msg="Project owner has not configured dispatch",
-            )
-            reconciled += 1
-            continue
+            hosts = await get_dispatch_hosts(db, owner_id)
+            if not hosts:
+                await _update_run(
+                    db,
+                    run_id,
+                    status="failed",
+                    finished_at=now,
+                    error_msg="Project owner has not configured dispatch",
+                )
+                reconciled += 1
+                continue
 
-        dispatch_url = settings["url"]
-        dispatch_api_key = settings["api_key"]
+            # Use the first host as best-effort fallback for pre-migration runs.
+            dispatch_url = hosts[0]["url"]
+            dispatch_api_key = hosts[0]["api_key"]
 
         # Poll remote for actual status
         try:
@@ -678,6 +712,7 @@ async def execute_run(
             status="running",
             started_at=now,
             remote_run_id=remote_run_id,
+            dispatch_host_url=dispatch_url,
         )
         _publish_run_event(db, user_id, run_id, item_id, run, "run_started")
 

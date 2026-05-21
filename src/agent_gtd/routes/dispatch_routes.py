@@ -31,7 +31,7 @@ from agent_gtd.models import (
     User,
 )
 from agent_gtd.services import dispatch_service, project_service
-from agent_gtd.services.settings_service import get_dispatch_config, get_dispatch_hosts
+from agent_gtd.services.settings_service import get_dispatch_hosts
 
 logger = logging.getLogger(__name__)
 
@@ -154,37 +154,43 @@ def _stale_run_response(row: dict[str, object]) -> StaleRunResponse:
 
 
 async def _check_dispatch_service(db: Any, user_id: str) -> None:
-    """Pre-flight check: verify dispatch is configured and the service is reachable."""
-    settings = await get_dispatch_config(db, user_id)
-    if not settings:
+    """Pre-flight check: verify at least one dispatch host is configured and reachable.
+
+    Uses ``get_dispatch_hosts`` so brand-new users who configured a host via the
+    hosts API (without legacy ``user_settings`` keys) are not incorrectly blocked.
+
+    Raises 503 if:
+    - No hosts are configured for the user.
+    - All configured hosts fail the ``/health`` check.
+    """
+    import asyncio
+
+    hosts = await get_dispatch_hosts(db, user_id)
+    if not hosts:
         raise HTTPException(
             status_code=503,
             detail="Project owner has not configured dispatch",
         )
-    url = settings["url"]
-    api_key = settings["api_key"]
-    try:
-        async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
-            resp = await client.get(
-                f"{url}/health",
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=5.0,
-            )
-            if resp.status_code != 200:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Dispatch service returned an error",
+
+    async def _ping_host(host: dict[str, str]) -> bool:
+        """Return True if the host /health endpoint responds with HTTP 200."""
+        try:
+            async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
+                resp = await client.get(
+                    f"{host['url']}/health",
+                    headers={"Authorization": f"Bearer {host['api_key']}"},
+                    timeout=5.0,
                 )
-    except httpx.ConnectError:
+                return resp.status_code == 200
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError):
+            return False
+
+    results = await asyncio.gather(*(_ping_host(h) for h in hosts))
+    if not any(results):
         raise HTTPException(
             status_code=503,
             detail="Dispatch service is unreachable",
-        ) from None
-    except httpx.TimeoutException:
-        raise HTTPException(
-            status_code=503,
-            detail="Dispatch service timed out",
-        ) from None
+        )
 
 
 async def _fetch_dispatch_info(url: str, api_key: str) -> dict[str, str | None]:

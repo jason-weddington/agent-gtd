@@ -365,8 +365,17 @@ async def test_reconcile_active_runs_publishes_run_completed_event() -> None:
     with (
         patch("agent_gtd.database.get_db", new=AsyncMock(return_value=db)),
         patch(
-            "agent_gtd.services.settings_service.get_dispatch_config",
-            new=AsyncMock(return_value={"url": "http://dispatch", "api_key": "k"}),
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(
+                return_value=[
+                    {
+                        "url": "http://dispatch",
+                        "api_key": "k",
+                        "id": "h1",
+                        "label": "default",
+                    }
+                ]
+            ),
         ),
         patch(
             "agent_gtd.dispatch_worker._poll_remote_run",
@@ -420,8 +429,17 @@ async def test_reconcile_active_runs_publishes_run_failed_event() -> None:
     with (
         patch("agent_gtd.database.get_db", new=AsyncMock(return_value=db)),
         patch(
-            "agent_gtd.services.settings_service.get_dispatch_config",
-            new=AsyncMock(return_value={"url": "http://dispatch", "api_key": "k"}),
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(
+                return_value=[
+                    {
+                        "url": "http://dispatch",
+                        "api_key": "k",
+                        "id": "h1",
+                        "label": "default",
+                    }
+                ]
+            ),
         ),
         patch(
             "agent_gtd.dispatch_worker._poll_remote_run",
@@ -582,3 +600,133 @@ def test_dispatch_request_serialisation_parity_optional_fields(
         "timeout_minutes": 30,
     }
     assert result == {**base, **expected_extra}
+
+
+# ---------------------------------------------------------------------------
+# reconcile_active_runs — brand-new-user flow (AC-7)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reconcile_brand_new_user_with_dispatch_host_url() -> None:
+    """Brand-new-user reconcile: run row has dispatch_host_url, no legacy user_settings.
+
+    A user who only ever configured dispatch via the hosts API (no legacy
+    ``user_settings`` keys) should have their run reconciled correctly:
+    - ``dispatch_host_url`` is read from the run row.
+    - The api_key is looked up from ``get_dispatch_hosts`` by matching URL.
+    - The correct host URL is used to poll the remote status.
+    """
+    from agent_gtd.dispatch_worker import reconcile_active_runs
+
+    run_id = "run-brand-new-1"
+    user_id = "brand-new-user"
+    dispatch_url = "http://new-host:9100"
+    dispatch_api_key = "new-host-key"
+
+    run_row = {
+        "id": run_id,
+        "user_id": user_id,
+        "project_id": None,  # inbox item — uses caller's own hosts
+        "item_id": "item-bn-1",
+        "remote_run_id": "remote-bn-1",
+        "status": "running",
+        "dispatch_host_url": dispatch_url,  # written at dispatch time
+    }
+    db = _make_reconcile_db_mock([run_row])
+
+    polled_urls: list[str] = []
+    polled_keys: list[str] = []
+
+    async def fake_poll(
+        client: object,
+        remote_run_id: str,
+        *,
+        url: str,
+        api_key: str,
+    ) -> RemoteRunResponse:
+        polled_urls.append(url)
+        polled_keys.append(api_key)
+        return _make_remote_run_response(
+            RemoteRunStatus.succeeded, run_id=remote_run_id
+        )
+
+    # The user has a host registered via the hosts API only — no legacy user_settings.
+    fake_hosts = [
+        {
+            "id": "host-bn-1",
+            "url": dispatch_url,
+            "api_key": dispatch_api_key,
+            "label": "my-host",
+        }
+    ]
+
+    with (
+        patch("agent_gtd.database.get_db", new=AsyncMock(return_value=db)),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(return_value=fake_hosts),
+        ),
+        patch("agent_gtd.dispatch_worker._poll_remote_run", new=fake_poll),
+        patch("agent_gtd.dispatch_worker._update_run", new=AsyncMock()),
+        patch("agent_gtd.dispatch_worker._publish_run_event"),
+    ):
+        count = await reconcile_active_runs()
+
+    assert count == 1
+    # Verify the correct host URL and API key were used for polling
+    assert polled_urls == [dispatch_url], (
+        f"Expected [{dispatch_url}], got {polled_urls}"
+    )
+    assert polled_keys == [dispatch_api_key], (
+        f"Expected [{dispatch_api_key}], got {polled_keys}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_reconcile_brand_new_user_missing_host_fails_run() -> None:
+    """Brand-new-user reconcile: run has dispatch_host_url but the host is gone.
+
+    If the host recorded in ``dispatch_host_url`` no longer exists in
+    ``get_dispatch_hosts`` (e.g. the user deleted it), the run should be
+    marked as failed with an informative error message.
+    """
+    from agent_gtd.dispatch_worker import reconcile_active_runs
+
+    run_id = "run-missing-host"
+    user_id = "user-mh"
+    dispatch_url = "http://gone-host:9100"
+
+    run_row = {
+        "id": run_id,
+        "user_id": user_id,
+        "project_id": None,
+        "item_id": "item-mh",
+        "remote_run_id": "remote-mh",
+        "status": "running",
+        "dispatch_host_url": dispatch_url,
+    }
+    db = _make_reconcile_db_mock([run_row])
+
+    update_calls: list[dict] = []
+
+    async def fake_update(db_arg: object, rid: str, **kwargs: object) -> None:
+        update_calls.append({"run_id": rid, **kwargs})
+
+    with (
+        patch("agent_gtd.database.get_db", new=AsyncMock(return_value=db)),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(return_value=[]),  # host has been removed
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=fake_update),
+        patch("agent_gtd.dispatch_worker._publish_run_event"),
+    ):
+        count = await reconcile_active_runs()
+
+    assert count == 1
+    assert len(update_calls) == 1
+    call = update_calls[0]
+    assert call["run_id"] == run_id
+    assert call.get("status") == "failed"
+    assert "no longer configured" in str(call.get("error_msg", "")).lower()
