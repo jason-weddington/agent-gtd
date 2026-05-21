@@ -369,6 +369,23 @@ async def update_item(
     except Exception:
         logger.exception("Failed to publish item_updated event")
 
+    # Best-effort: if the item moved to a terminal status, check whether any
+    # halted rollout can now be auto-closed (AC-2).
+    _terminal = (ItemStatus.DONE.value, ItemStatus.CANCELLED.value)
+    if status is not None and status in _terminal:
+        try:
+            from agent_gtd.services.rollout_service import (
+                check_halted_rollout_completion,
+            )
+
+            await check_halted_rollout_completion(db, item_id)
+        except Exception:
+            logger.exception(
+                "check_halted_rollout_completion failed for item %s"
+                " (best-effort, ignored)",
+                item_id,
+            )
+
     return result
 
 

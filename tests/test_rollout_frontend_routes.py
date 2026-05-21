@@ -705,3 +705,83 @@ class TestRelaunchManageRollout:
             headers=auth_headers,
         )
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# AC-3: POST /api/rollouts/{id}/dismiss
+# ---------------------------------------------------------------------------
+
+
+class TestDismissRollout:
+    @pytest.fixture
+    async def halted_rollout_setup(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> dict[str, Any]:
+        """Provide a halted rollout for dismiss tests."""
+        from agent_gtd.database import get_db
+
+        db = await get_db()
+        me_resp = await client.get("/api/auth/me", headers=auth_headers)
+        user_id = me_resp.json()["id"]
+
+        proj_id = await _make_project(db, user_id, "Dismiss Test Project")
+        item_id = await _make_item(db, user_id, proj_id)
+        rollout_id = await _make_rollout(
+            db, user_id, proj_id, status="halted", halt_reason="sensitive-area review"
+        )
+        await _make_wave_item(db, rollout_id, item_id, status="halted")
+
+        return {
+            "rollout_id": rollout_id,
+            "item_id": item_id,
+            "project_id": proj_id,
+            "user_id": user_id,
+            "db": db,
+            "headers": auth_headers,
+        }
+
+    async def test_dismiss_transitions_to_cancelled(
+        self, client: AsyncClient, halted_rollout_setup: dict[str, Any]
+    ) -> None:
+        """POST /api/rollouts/{id}/dismiss transitions halted rollout to cancelled."""
+        rollout_id = halted_rollout_setup["rollout_id"]
+        headers = halted_rollout_setup["headers"]
+
+        resp = await client.post(
+            f"/api/rollouts/{rollout_id}/dismiss",
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "cancelled"
+
+    async def test_dismiss_hides_banner(
+        self, client: AsyncClient, halted_rollout_setup: dict[str, Any]
+    ) -> None:
+        """After dismiss, GET active-rollout returns 404 (banner gone)."""
+        rollout_id = halted_rollout_setup["rollout_id"]
+        project_id = halted_rollout_setup["project_id"]
+        headers = halted_rollout_setup["headers"]
+
+        resp = await client.post(
+            f"/api/rollouts/{rollout_id}/dismiss",
+            headers=headers,
+        )
+        assert resp.status_code == 200
+
+        # Banner endpoint should now 404
+        banner_resp = await client.get(
+            f"/api/projects/{project_id}/active-rollout",
+            headers=headers,
+        )
+        assert banner_resp.status_code == 404
+
+    async def test_dismiss_rollout_nonexistent_404(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """POST to nonexistent rollout ID returns 404."""
+        resp = await client.post(
+            "/api/rollouts/00000000-0000-0000-0000-000000000000/dismiss",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404

@@ -565,6 +565,40 @@ async def get_rollout(
         raise _map_exc(exc) from exc
 
 
+@router.post("/{rollout_id}/dismiss")
+async def dismiss_rollout(
+    rollout_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Dismiss a halted rollout by transitioning it to cancelled.
+
+    No request body required.  Useful when the operator wants to clear the
+    warning banner even if some items remain incomplete — semantically lighter
+    than Abort (no confirmation dialog needed).
+
+    Args:
+        rollout_id: The rollout to dismiss (typically halted).
+        user: Injected authenticated user.
+
+    Returns:
+        The updated autonomous_rollouts row dict.
+
+    Raises:
+        404 if rollout not found or caller doesn't own it.
+        422 if rollout is already completed (non-cancellable).
+    """
+    db = await get_db()
+    try:
+        return await rollout_service.cancel_rollout(
+            db,
+            user.id,
+            rollout_id,
+            "Dismissed by operator",
+        )
+    except (NotFoundError, ValidationError) as exc:
+        raise _map_exc(exc) from exc
+
+
 @router.post("/{rollout_id}/relaunch-manage")
 async def relaunch_manage(
     rollout_id: str,

@@ -1992,6 +1992,107 @@ async def get_rollout_activity(
     return {"events": result, "has_more": has_more}
 
 
+_TERMINAL_ITEM_STATUSES = frozenset(("done", "cancelled"))
+
+
+async def check_halted_rollout_completion(db: DbPool, item_id: str) -> None:
+    """Auto-close halted rollouts whose every GTD item has reached terminal status.
+
+    Called best-effort after a GTD item status changes to ``done`` or
+    ``cancelled``.  Finds any ``halted`` rollout that contains *item_id* via
+    rollout_items, then checks whether **all** GTD items belonging to that
+    rollout (joined through rollout_items → items) are in ``{done, cancelled}``.
+    If so, transitions the rollout to ``completed``, stamps ``ended_at``, and
+    emits a ``wave_completed`` event with actor ``human``.
+
+    Only acts on ``halted`` rollouts — running, planning, and pending rollouts
+    are ignored (AC-7).
+
+    This function is intentionally best-effort: callers must wrap it in
+    ``try/except`` and log failures rather than letting them surface.
+
+    Args:
+        db: Database pool.
+        item_id: ID of the GTD item whose status just changed.
+    """
+    # Find halted rollouts that contain this item
+    rollout_rows = await db.fetch(
+        """
+        SELECT ar.id, ar.project_id, ar.lead_user_id
+        FROM autonomous_rollouts ar
+        JOIN rollout_items ri ON ri.rollout_id = ar.id
+        WHERE ri.item_id = $1
+          AND ar.status = 'halted'
+        """,
+        item_id,
+    )
+
+    for rollout_row in rollout_rows:
+        rollout_id = str(rollout_row["id"])
+        project_id = str(rollout_row["project_id"])
+        lead_user_id = str(rollout_row["lead_user_id"])
+
+        # Fetch all GTD item statuses for this rollout
+        item_rows = await db.fetch(
+            """
+            SELECT i.status
+            FROM rollout_items ri
+            JOIN items i ON i.id = ri.item_id
+            WHERE ri.rollout_id = $1
+            """,
+            rollout_id,
+        )
+
+        if not item_rows:
+            continue
+
+        all_terminal = all(
+            str(row["status"]) in _TERMINAL_ITEM_STATUSES for row in item_rows
+        )
+
+        if not all_terminal:
+            continue
+
+        # Transition rollout to completed (WHERE status='halted' prevents double-apply)
+        now = datetime.now(UTC).isoformat()
+        await db.execute(
+            "UPDATE autonomous_rollouts"
+            " SET status = 'completed', ended_at = $1, updated_at = $2"
+            " WHERE id = $3 AND status = 'halted'",
+            now,
+            now,
+            rollout_id,
+        )
+
+        # Confirm the update took effect before emitting the event
+        updated = await db.fetchrow(
+            "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+        )
+        if updated is None or str(updated["status"]) != "completed":
+            logger.debug(
+                "check_halted_rollout_completion: rollout %s already transitioned,"
+                " skipping event",
+                rollout_id,
+            )
+            continue
+
+        # Emit wave_completed event
+        wave_completed_event = await _append_rollout_event(
+            db,
+            rollout_id,
+            kind="wave_completed",
+            actor="human",
+            payload={"auto_closed": True, "trigger_item_id": item_id},
+        )
+        _publish_rollout_event(db, lead_user_id, wave_completed_event, project_id)
+
+        logger.info(
+            "check_halted_rollout_completion: rollout %s auto-closed"
+            " (all GTD items are terminal)",
+            rollout_id,
+        )
+
+
 async def get_rollout_failure_feed(
     db: DbPool,
     user_id: str,

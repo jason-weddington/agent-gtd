@@ -104,6 +104,23 @@ export default function RolloutHaltCard({
     }
   }
 
+  // --- Dismiss (AC-4) ---
+  const [dismissing, setDismissing] = useState(false)
+  const [dismissError, setDismissError] = useState<string | null>(null)
+
+  const handleDismiss = async () => {
+    setDismissing(true)
+    setDismissError(null)
+    try {
+      await api.rollouts.dismiss(waveRun.id)
+      onAbort()
+    } catch (err) {
+      setDismissError(err instanceof ApiError ? err.detail : 'Failed to dismiss rollout')
+    } finally {
+      setDismissing(false)
+    }
+  }
+
   // --- Abort dialog (AC-18) ---
   const [abortOpen, setAbortOpen] = useState(false)
   const [aborting, setAborting] = useState(false)
@@ -155,6 +172,11 @@ export default function RolloutHaltCard({
               {skipError}
             </Typography>
           )}
+          {dismissError && (
+            <Typography variant="caption" color="error" sx={{ display: 'block', mt: 1 }}>
+              {dismissError}
+            </Typography>
+          )}
           {abortError && (
             <Typography variant="caption" color="error" sx={{ display: 'block', mt: 1 }}>
               {abortError}
@@ -179,6 +201,14 @@ export default function RolloutHaltCard({
             disabled={!offendingItemId || skipping}
           >
             {skipping ? <CircularProgress size={14} /> : 'Skip this item'}
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={handleDismiss}
+            disabled={dismissing}
+          >
+            {dismissing ? <CircularProgress size={14} /> : 'Dismiss Wave'}
           </Button>
           <Button
             variant="outlined"

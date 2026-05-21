@@ -201,6 +201,7 @@ export type RolloutStatus =
   | 'halted'
   | 'failed'
   | 'completed'
+  | 'cancelled'
 
 export type RolloutItemStatus =
   | 'pending'

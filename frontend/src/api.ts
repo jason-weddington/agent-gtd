@@ -290,6 +290,9 @@ export const api = {
     /** POST /api/rollouts/{id}/cancel */
     cancel: (rolloutId: string, reason: string) =>
       request<unknown>('POST', `/rollouts/${rolloutId}/cancel`, { reason }),
+    /** POST /api/rollouts/{id}/dismiss — dismiss a halted rollout (no body, transitions to cancelled) */
+    dismiss: (rolloutId: string) =>
+      request<Rollout>('POST', `/rollouts/${rolloutId}/dismiss`),
     /** POST /api/rollouts/{id}/resume */
     resume: (rolloutId: string, answer: string) =>
       request<Rollout>('POST', `/rollouts/${rolloutId}/resume`, { answer }),

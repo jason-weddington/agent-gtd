@@ -1405,3 +1405,98 @@ async def test_managed_rollout_happy_path(db):
     b_row = await db.fetchrow("SELECT status FROM items WHERE id = $1", item_b)
     assert a_row["status"] == "done"
     assert b_row["status"] == "done"
+
+
+# ---------------------------------------------------------------------------
+# check_halted_rollout_completion — AC-1, AC-6, AC-7
+# ---------------------------------------------------------------------------
+
+
+from agent_gtd.services.rollout_service import (  # noqa: E402
+    check_halted_rollout_completion,
+)
+
+
+async def test_check_halted_rollout_completion_closes_rollout(db):
+    """AC-6: Halted rollout with all GTD items done → transitions to completed."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item1_id = await _make_item(db, user_id, project_id, title="Item 1", status="done")
+    item2_id = await _make_item(db, user_id, project_id, title="Item 2", status="done")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="halted")
+    await _make_wave_plan_item(db, rollout_id, item1_id, status="halted")
+    await _make_wave_plan_item(db, rollout_id, item2_id, status="halted")
+
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        await check_halted_rollout_completion(db, item1_id)
+
+    row = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert row is not None
+    assert row["status"] == "completed"
+
+
+async def test_check_halted_rollout_completion_cancelled_item_counts(db):
+    """AC-1: Halted rollout with all GTD items in {done, cancelled} → completed."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item1_id = await _make_item(db, user_id, project_id, title="Item 1", status="done")
+    item2_id = await _make_item(
+        db, user_id, project_id, title="Item 2", status="cancelled"
+    )
+    rollout_id = await _make_rollout(db, user_id, project_id, status="halted")
+    await _make_wave_plan_item(db, rollout_id, item1_id, status="halted")
+    await _make_wave_plan_item(db, rollout_id, item2_id, status="halted")
+
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        await check_halted_rollout_completion(db, item1_id)
+
+    row = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert row is not None
+    assert row["status"] == "completed"
+
+
+async def test_check_halted_rollout_completion_partial_not_closed(db):
+    """AC-6: Halted rollout with only 1 of 2 items done → stays halted."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item1_id = await _make_item(db, user_id, project_id, title="Item 1", status="done")
+    item2_id = await _make_item(
+        db, user_id, project_id, title="Item 2", status="active"
+    )
+    rollout_id = await _make_rollout(db, user_id, project_id, status="halted")
+    await _make_wave_plan_item(db, rollout_id, item1_id, status="halted")
+    await _make_wave_plan_item(db, rollout_id, item2_id, status="halted")
+
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        await check_halted_rollout_completion(db, item1_id)
+
+    row = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert row is not None
+    assert row["status"] == "halted"
+
+
+async def test_check_halted_rollout_completion_not_halted_no_op(db):
+    """AC-7: Running rollout is not auto-closed even when items are all done."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item1_id = await _make_item(db, user_id, project_id, title="Item 1", status="done")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, rollout_id, item1_id, status="dispatched")
+
+    # Should be a no-op — running rollouts are ignored
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event") as mock_pub:
+        await check_halted_rollout_completion(db, item1_id)
+
+    # Rollout should still be running
+    row = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert row is not None
+    assert row["status"] == "running"
+    mock_pub.assert_not_called()

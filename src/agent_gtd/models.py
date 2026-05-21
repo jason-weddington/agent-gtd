@@ -101,6 +101,7 @@ class RolloutStatus(StrEnum):
     COMPLETED = "completed"
     HALTED = "halted"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class RolloutItemStatus(StrEnum):
