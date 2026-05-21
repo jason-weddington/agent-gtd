@@ -118,6 +118,19 @@ class BlockersUnresolvedError(AgentGTDError):
         )
 
 
+class HostFullError(AgentGTDError):
+    """A targeted dispatch host is at maximum capacity."""
+
+    def __init__(self, host_label: str, max_concurrent_runs: int) -> None:
+        """Initialize with the host label and its capacity limit."""
+        self.host_label = host_label
+        self.max_concurrent_runs = max_concurrent_runs
+        super().__init__(
+            f"Host '{host_label}' is at capacity "
+            f"({max_concurrent_runs} concurrent runs)"
+        )
+
+
 class LegalityContractError(AgentGTDError):
     """One or more items failed the wave legality contract.
 

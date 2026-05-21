@@ -36,7 +36,7 @@ import AttachFileIcon from '@mui/icons-material/AttachFile'
 import DeleteIcon from '@mui/icons-material/Delete'
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile'
 import { api, ApiError } from '../api'
-import type { AttachmentResponse, Item, Comment, Project, Run, ItemStatus } from '../types'
+import type { AttachmentResponse, DispatchHost, Item, Comment, Project, Run, ItemStatus } from '../types'
 import { isDispatchServiceConfigured, formatRelativeTime, formatFileSize } from '../utils'
 import { useEvents } from '../contexts/EventStreamContext'
 import { BlockerPicker } from './BlockerPicker'
@@ -97,6 +97,8 @@ export default function ItemDetailDrawer({
   const [dispatchAnimating, setDispatchAnimating] = useState(false)
   const [dispatchConfigured, setDispatchConfigured] = useState<boolean | null>(null)
   const [defaultMaxTurns, setDefaultMaxTurns] = useState<number | undefined>(undefined)
+  const [dispatchHosts, setDispatchHosts] = useState<DispatchHost[]>([])
+  const [dispatchHostId, setDispatchHostId] = useState<string>('')
 
   // Local item state — stays in sync with prop, then updated optimistically on each inline save
   const [localItem, setLocalItem] = useState<Item | null>(null)
@@ -189,6 +191,7 @@ export default function ItemDetailDrawer({
     }).catch(() => {
       setDispatchConfigured(null)
     })
+    api.dispatchHosts.list().then(setDispatchHosts).catch(() => {})
   }, [item])
 
   // Reset the dispatch-animation flag once the drawer has actually closed.
@@ -568,6 +571,7 @@ export default function ItemDetailDrawer({
       const run = await api.items.dispatch(item.id, {
         mode,
         ...(defaultMaxTurns !== undefined ? { maxTurns: defaultMaxTurns } : {}),
+        ...(dispatchHostId ? { dispatchHostId } : {}),
       })
       setActiveRun(run)
       setConfirmOpen(false)
@@ -590,7 +594,7 @@ export default function ItemDetailDrawer({
     } finally {
       setDispatching(false)
     }
-  }, [item, localItem, dispatchMode, defaultMaxTurns])
+  }, [item, localItem, dispatchMode, defaultMaxTurns, dispatchHostId])
 
   const handleCopy = () => {
     if (!item) return
@@ -1653,6 +1657,22 @@ export default function ItemDetailDrawer({
               Plan
             </Button>
           </Box>
+          {dispatchHosts.length > 0 && (
+            <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
+              <InputLabel id="dispatch-host-label">Host</InputLabel>
+              <Select
+                labelId="dispatch-host-label"
+                label="Host"
+                value={dispatchHostId}
+                onChange={(e) => setDispatchHostId(e.target.value)}
+              >
+                <MenuItem value="">{'(auto-route)'}</MenuItem>
+                {dispatchHosts.map((h) => (
+                  <MenuItem key={h.id} value={h.id}>{h.label}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
           <Typography variant="caption" color="text.secondary">
             {dispatchMode === 'build'
               ? 'Agent will implement the task and push a branch for review.'

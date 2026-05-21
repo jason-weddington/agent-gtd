@@ -215,3 +215,97 @@ async def test_gather_host_info_fetch_error_returns_none() -> None:
         results = await _gather_host_info([HOST_A])
 
     assert results == [None]
+
+
+# ---------------------------------------------------------------------------
+# Targeted dispatch tests (target_host_id)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_targeted_host_exact_match() -> None:
+    """Targeted host: engine+agent match, capacity available → returns that host."""
+    from agent_gtd.services.dispatch_router import pick_dispatch_host
+
+    with patch(
+        "agent_gtd.services.dispatch_router._fetch_host_info",
+        return_value=INFO_ALL_UP_A,
+    ):
+        selected = await pick_dispatch_host(
+            [HOST_A, HOST_B],
+            engine="claude-code",
+            agent_name="tdd-pair",
+            target_host_id="a",
+        )
+    assert selected["id"] == "a"
+
+
+@pytest.mark.asyncio
+async def test_targeted_host_not_found() -> None:
+    """target_host_id not in hosts list → raises NotFoundError."""
+    from agent_gtd.exceptions import NotFoundError
+    from agent_gtd.services.dispatch_router import pick_dispatch_host
+
+    with pytest.raises(NotFoundError) as exc_info:
+        await pick_dispatch_host(
+            [HOST_A, HOST_B],
+            engine="claude-code",
+            agent_name=None,
+            target_host_id="nonexistent",
+        )
+    assert "nonexistent" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_targeted_host_engine_mismatch() -> None:
+    """Targeted host: engine not in host's engines → raises NoCompatibleHostError."""
+    from agent_gtd.services.dispatch_router import (
+        NoCompatibleHostError,
+        pick_dispatch_host,
+    )
+
+    info_no_engine = {**INFO_ALL_UP_A, "engines": ["claude-code-haiku"]}
+
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            return_value=info_no_engine,
+        ),
+        pytest.raises(NoCompatibleHostError) as exc_info,
+    ):
+        await pick_dispatch_host(
+            [HOST_A, HOST_B],
+            engine="claude-code",
+            agent_name=None,
+            target_host_id="a",
+        )
+    exc = exc_info.value
+    assert exc.engine == "claude-code"
+    assert len(exc.hosts_checked) == 1
+    assert "not available" in exc.hosts_checked[0]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_targeted_host_full() -> None:
+    """Targeted host: active_runs >= max_concurrent_runs → raises HostFullError."""
+    from agent_gtd.exceptions import HostFullError
+    from agent_gtd.services.dispatch_router import pick_dispatch_host
+
+    info_full = {**INFO_ALL_UP_A, "max_concurrent_runs": 5, "active_runs": 5}
+
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            return_value=info_full,
+        ),
+        pytest.raises(HostFullError) as exc_info,
+    ):
+        await pick_dispatch_host(
+            [HOST_A, HOST_B],
+            engine="claude-code",
+            agent_name=None,
+            target_host_id="a",
+        )
+    exc = exc_info.value
+    assert exc.max_concurrent_runs == 5
+    assert "host-a" in exc.host_label

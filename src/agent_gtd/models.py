@@ -720,6 +720,7 @@ class CreateRunRequest(BaseModel):
     max_turns: int | None = None
     mode: DispatchMode = DispatchMode.BUILD
     rollout_id: str | None = None
+    dispatch_host_id: str | None = None
 
 
 class DispatchSettingsResponse(BaseModel):

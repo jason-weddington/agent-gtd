@@ -297,7 +297,11 @@ def _make_settings_mock() -> tuple[Any, Any, Any]:
         return [{"url": "http://fake:8100", "api_key": "test-key", "label": "default"}]
 
     async def fake_pick_dispatch_host(
-        hosts: list[dict[str, Any]], *, engine: str, agent_name: Any
+        hosts: list[dict[str, Any]],
+        *,
+        engine: str,
+        agent_name: Any,
+        target_host_id: str | None = None,
     ) -> dict[str, Any]:
         return {"url": "http://fake:8100", "api_key": "test-key"}
 

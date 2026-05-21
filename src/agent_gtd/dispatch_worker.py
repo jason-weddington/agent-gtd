@@ -16,6 +16,7 @@ from agent_gtd_dispatch_protocol import DispatchRequest
 from agent_gtd_dispatch_protocol import RunResponse as RemoteRunResponse
 from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 
+from agent_gtd.exceptions import HostFullError
 from agent_gtd.identity import compute_run_attribution
 from agent_gtd.models import LocalRunStatus
 from agent_gtd.util.tasks import supervise_task
@@ -639,12 +640,20 @@ async def execute_run(
         _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
         return
 
+    # Extract targeted host ID (None = auto-route)
+    dispatch_host_id = (
+        str(run["dispatch_host_id"]) if run.get("dispatch_host_id") else None
+    )
+
     # Pick the best host for the required engine + agent
     try:
         selected_host = await pick_dispatch_host(
-            hosts, engine=engine, agent_name=agent_name or None
+            hosts,
+            engine=engine,
+            agent_name=agent_name or None,
+            target_host_id=dispatch_host_id,
         )
-    except NoCompatibleHostError as exc:
+    except (NoCompatibleHostError, HostFullError) as exc:
         error_msg = str(exc)[:500]
         await _update_run(
             db,
@@ -668,7 +677,7 @@ async def execute_run(
                 )
             except Exception:
                 logger.warning(
-                    "Failed to post NoCompatibleHostError comment to item %s", item_id
+                    "Failed to post dispatch failure comment to item %s", item_id
                 )
         return
 

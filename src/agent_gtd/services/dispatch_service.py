@@ -50,6 +50,7 @@ async def create_run(
     max_turns: int | None = None,
     mode: str = "build",
     rollout_id: str | None = None,
+    dispatch_host_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a new dispatch run for an item.
 
@@ -154,8 +155,8 @@ async def create_run(
     await db.execute(
         "INSERT INTO claude_runs"
         " (id, item_id, project_id, user_id, status, feature_branch,"
-        "  max_turns, mode, rollout_id, created_at, updated_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        "  max_turns, mode, rollout_id, created_at, updated_at, dispatch_host_id)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
         run_id,
         item_id,
         project_id,
@@ -167,6 +168,7 @@ async def create_run(
         rollout_id,
         now,
         now,
+        dispatch_host_id,
     )
 
     # Build-mode wave linkage: transition rollout_items ready → dispatched

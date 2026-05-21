@@ -6,6 +6,8 @@ from typing import Any
 
 import httpx
 
+from agent_gtd.exceptions import HostFullError, NotFoundError
+
 logger = logging.getLogger(__name__)
 
 
@@ -137,10 +139,14 @@ async def pick_dispatch_host(
     *,
     engine: str,
     agent_name: str | None,
+    target_host_id: str | None = None,
 ) -> dict[str, Any]:
     """Select the best dispatch host for the given engine and agent.
 
-    Algorithm:
+    When ``target_host_id`` is set, the host with that ID is used directly
+    (after validation), bypassing capacity ranking.
+
+    Algorithm (auto mode, target_host_id=None):
     1. Poll /info on all hosts concurrently (5s timeout, no cache — real-time).
     2. Filter: skip unreachable hosts, hosts missing the requested engine,
        and (if agent_name set) hosts missing the requested agent.
@@ -151,13 +157,76 @@ async def pick_dispatch_host(
         hosts: List of host dicts with at least ``url`` and ``label`` keys.
         engine: Required engine name (must be in host's ``engines`` list).
         agent_name: Optional agent name (must be in host's ``agents`` list).
+        target_host_id: Optional host UUID to pin this dispatch to a specific
+            host. When set, the router validates compatibility and capacity for
+            that host only and returns it directly.
 
     Returns:
         The winning host dict.
 
     Raises:
-        NoCompatibleHostError: If no host passes the filters.
+        NotFoundError: If target_host_id is set but not found in hosts list.
+        NoCompatibleHostError: If target host fails engine/agent validation,
+            or if no host passes the filters in auto mode.
+        HostFullError: If target host is at maximum capacity.
     """
+    if target_host_id is not None:
+        # Targeted dispatch: find the host by ID
+        target = next((h for h in hosts if h.get("id") == target_host_id), None)
+        if target is None:
+            raise NotFoundError("DispatchHost", target_host_id)
+
+        host_label = target.get("label") or target.get("url", "unknown")
+
+        # Fetch /info from the targeted host
+        try:
+            target_info: dict[str, Any] = await _fetch_host_info(target["url"])
+        except Exception:
+            raise NoCompatibleHostError(
+                engine=engine,
+                agent_name=agent_name,
+                hosts_checked=[{"host": host_label, "reason": "unreachable"}],
+            ) from None
+
+        # Validate engine
+        engines: list[str] = target_info.get("engines", [])
+        if engine not in engines:
+            raise NoCompatibleHostError(
+                engine=engine,
+                agent_name=agent_name,
+                hosts_checked=[
+                    {
+                        "host": host_label,
+                        "reason": f"engine '{engine}' not available",
+                    }
+                ],
+            )
+
+        # Validate agent
+        agents: list[str] = target_info.get("agents", [])
+        if agent_name and agent_name not in agents:
+            raise NoCompatibleHostError(
+                engine=engine,
+                agent_name=agent_name,
+                hosts_checked=[
+                    {
+                        "host": host_label,
+                        "reason": f"agent '{agent_name}' not on this host",
+                    }
+                ],
+            )
+
+        # Check capacity
+        target_available = target_info.get("max_concurrent_runs", 0) - target_info.get(
+            "active_runs", 0
+        )
+        if target_available <= 0:
+            raise HostFullError(
+                host_label, int(target_info.get("max_concurrent_runs", 0))
+            )
+
+        return target
+
     infos = await _gather_host_info(hosts)
 
     candidates: list[dict[str, Any]] = []
@@ -168,14 +237,14 @@ async def pick_dispatch_host(
         if info is None:
             skipped.append({"host": host_label, "reason": "unreachable"})
             continue
-        engines: list[str] = info.get("engines", [])
-        if engine not in engines:
+        engines_list: list[str] = info.get("engines", [])
+        if engine not in engines_list:
             skipped.append(
                 {"host": host_label, "reason": f"engine '{engine}' not available"}
             )
             continue
-        agents: list[str] = info.get("agents", [])
-        if agent_name and agent_name not in agents:
+        agents_list: list[str] = info.get("agents", [])
+        if agent_name and agent_name not in agents_list:
             skipped.append(
                 {
                     "host": host_label,

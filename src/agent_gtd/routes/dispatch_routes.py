@@ -14,6 +14,7 @@ from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
 from agent_gtd.exceptions import (
     BlockersUnresolvedError,
+    HostFullError,
     NotFoundError,
     RolloutItemLockedError,
     RunActiveError,
@@ -363,6 +364,34 @@ async def dispatch_item(
     # Pre-flight: ensure the project owner's dispatch service is configured
     await _check_dispatch_service(db, owner_id)
 
+    # Validate dispatch_host_id when explicitly provided
+    if body.dispatch_host_id is not None:
+        hosts = await get_dispatch_hosts(db, owner_id)
+        host_match = next((h for h in hosts if h["id"] == body.dispatch_host_id), None)
+        if host_match is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Dispatch host {body.dispatch_host_id!r} not found",
+            )
+        # Check capacity via /info
+        try:
+            info = await _fetch_host_capabilities(host_match)
+        except Exception:
+            info = None
+        if info is not None:
+            available = info.get("max_concurrent_runs", 0) - info.get("active_runs", 0)
+            if available <= 0:
+                host_label = host_match.get("label", host_match["url"])
+                raise HTTPException(
+                    status_code=409,
+                    detail=str(
+                        HostFullError(
+                            host_label,
+                            int(info.get("max_concurrent_runs", 0)),
+                        )
+                    ),
+                )
+
     try:
         row = await dispatch_service.create_run(
             db,
@@ -371,6 +400,7 @@ async def dispatch_item(
             max_turns=body.max_turns,
             mode=body.mode,
             rollout_id=body.rollout_id,
+            dispatch_host_id=body.dispatch_host_id,
         )
     except RolloutItemLockedError as e:
         raise HTTPException(status_code=409, detail=e.detail) from None

@@ -206,7 +206,7 @@ export const api = {
     comments: (id: string) => request<Comment[]>('GET', `/items/${id}/comments`),
     createComment: (id: string, data: { contentMarkdown: string }) =>
       request<Comment>('POST', `/items/${id}/comments`, data),
-    dispatch: (id: string, data?: { maxTurns?: number; mode?: string }) =>
+    dispatch: (id: string, data?: { maxTurns?: number; mode?: string; dispatchHostId?: string }) =>
       request<Run>('POST', `/items/${id}/dispatch`, data ?? {}),
     runs: (id: string) => request<Run[]>('GET', `/items/${id}/runs`),
     search: (q: string, limit = 10) =>

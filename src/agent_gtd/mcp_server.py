@@ -1123,6 +1123,7 @@ async def dispatch_item(
     max_turns: int | None = None,
     mode: Literal["build", "plan", "manage"] = "build",
     rollout_id: str | None = None,
+    dispatch_host_id: str | None = None,
 ) -> dict[str, Any]:
     """Dispatch a headless Claude Code agent to work on an item.
 
@@ -1140,6 +1141,10 @@ async def dispatch_item(
             agent that drives an autonomous wave run). Default: "build".
         rollout_id: Required when mode="manage". The rollout ID that this
             manager agent will drive. The rollout must be in status="pending".
+        dispatch_host_id: Optional host UUID from /api/settings/dispatch/hosts.
+            Set to pin this dispatch to a specific host (use for verification,
+            debugging, or cache affinity). Omit to let the router pick
+            automatically based on engine + agent availability and capacity.
 
     Returns:
         The created run dict with status and branch name.
@@ -1161,6 +1166,7 @@ async def dispatch_item(
             max_turns=max_turns,
             mode=mode,
             rollout_id=rollout_id,
+            dispatch_host_id=dispatch_host_id,
         )
     except RolloutItemLockedError as e:
         raise ToolError(e.detail) from None

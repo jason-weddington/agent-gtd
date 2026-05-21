@@ -241,3 +241,110 @@ async def test_check_dispatch_service_one_host_down_one_up(monkeypatch):
     ):
         # Should NOT raise — second host is reachable
         await dr._check_dispatch_service(db, user_id)
+
+
+# ---------------------------------------------------------------------------
+# Tests for dispatch_host_id validation in dispatch_item route
+# ---------------------------------------------------------------------------
+
+
+async def test_dispatch_targeted_host_not_found(client, auth_headers, project_id):
+    """dispatch_item returns 404 when dispatch_host_id is not in owner's host list."""
+    # Create an item in the project
+    item_res = await client.post(
+        "/api/items",
+        json={
+            "title": "Test targeted dispatch",
+            "project_id": project_id,
+            "status": "next_action",
+        },
+        headers=auth_headers,
+    )
+    assert item_res.status_code == 201
+    item_id = item_res.json()["id"]
+
+    # Set git_origin on the project so dispatch validation passes that step
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={"git_origin": "https://github.com/example/repo.git"},
+        headers=auth_headers,
+    )
+
+    # Mock: dispatch service is configured with one host, but the requested ID differs
+    _existing_host = {**_FAKE_HOST, "id": "real-host-id"}
+    with (
+        patch(
+            "agent_gtd.routes.dispatch_routes.get_dispatch_hosts",
+            new_callable=AsyncMock,
+            return_value=[_existing_host],
+        ),
+        patch(
+            "agent_gtd.routes.dispatch_routes._check_dispatch_service",
+            new_callable=AsyncMock,
+        ),
+    ):
+        res = await client.post(
+            f"/api/items/{item_id}/dispatch",
+            json={"mode": "build", "dispatch_host_id": "nonexistent-host-uuid"},
+            headers=auth_headers,
+        )
+
+    assert res.status_code == 404
+    assert "nonexistent-host-uuid" in res.json()["detail"]
+
+
+async def test_dispatch_targeted_host_full(client, auth_headers, project_id):
+    """dispatch_item returns 409 when the targeted host is at capacity."""
+    # Create an item in the project
+    item_res = await client.post(
+        "/api/items",
+        json={
+            "title": "Test full host dispatch",
+            "project_id": project_id,
+            "status": "next_action",
+        },
+        headers=auth_headers,
+    )
+    assert item_res.status_code == 201
+    item_id = item_res.json()["id"]
+
+    # Set git_origin on the project
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={"git_origin": "https://github.com/example/repo.git"},
+        headers=auth_headers,
+    )
+
+    full_info = {
+        "engine": "claude-code",
+        "engines": ["claude-code"],
+        "agents": [],
+        "max_concurrent_runs": 4,
+        "active_runs": 4,
+    }
+
+    _target_host = {**_FAKE_HOST, "id": "target-host-id"}
+    with (
+        patch(
+            "agent_gtd.routes.dispatch_routes.get_dispatch_hosts",
+            new_callable=AsyncMock,
+            return_value=[_target_host],
+        ),
+        patch(
+            "agent_gtd.routes.dispatch_routes._check_dispatch_service",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+            new_callable=AsyncMock,
+            return_value=full_info,
+        ),
+    ):
+        res = await client.post(
+            f"/api/items/{item_id}/dispatch",
+            json={"mode": "build", "dispatch_host_id": "target-host-id"},
+            headers=auth_headers,
+        )
+
+    assert res.status_code == 409
+    assert "capacity" in res.json()["detail"].lower()

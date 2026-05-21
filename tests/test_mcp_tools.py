@@ -1430,6 +1430,7 @@ async def test_dispatch_item_manage_mode_passes_rollout_id_to_backend(
             max_turns=None,
             mode="build",
             rollout_id=None,
+            dispatch_host_id=None,
         ):
             captured["mode"] = mode
             captured["rollout_id"] = rollout_id
