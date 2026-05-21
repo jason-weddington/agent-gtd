@@ -2,6 +2,270 @@
 
 <!-- version list -->
 
+## v1.88.0 (2026-05-21)
+
+### Bug Fixes
+
+- Restore claude-code-sonnet + claude-code-haiku to BuildEngine enum
+  ([`9e77251`](https://github.com/jason-weddington/agent-gtd/commit/9e772518e0546c0ec515d9389bc45c9aa6f63f47))
+
+- **18cb685b**: MCP update_item calls intermittently came back with empty parameters
+  ([`6cce249`](https://github.com/jason-weddington/agent-gtd/commit/6cce249b29d738a86ff20280d08f623be28a62c6))
+
+- **2914d998**: Agent-gtd companion to 865b0e4e — engine rename default + settings migration
+  ([`aebb2ba`](https://github.com/jason-weddington/agent-gtd/commit/aebb2ba44071c000a6332c6971061e3dd5e32bb8))
+
+- **852b15a0**: Resolve rollout state-machine deadlock blocking manager-mode
+  ([`d0a1994`](https://github.com/jason-weddington/agent-gtd/commit/d0a19947c1dc1284f85e2e3e333b6e36984f29dc))
+
+- **dispatch**: Skip placeholder status flip for manage-mode dispatches
+  ([`eced99d`](https://github.com/jason-weddington/agent-gtd/commit/eced99d16a80a35e1d2c71d1522a0416b8009135))
+
+- **dispatch_worker**: Stale 'claude' fallback default — should be 'claude-code'
+  ([`24c2943`](https://github.com/jason-weddington/agent-gtd/commit/24c29439ba103a044fccc6b4dad388e826f42e1f))
+
+- **f08b63a4**: Fold Out of Scope into Files to Modify accordion
+  ([`f2a82ed`](https://github.com/jason-weddington/agent-gtd/commit/f2a82ed7c0eac7fae82a9d6b42f3b02fcea75c15))
+
+- **lint**: Shorten conftest fixture docstring to fix E501
+  ([`c113adb`](https://github.com/jason-weddington/agent-gtd/commit/c113adbdc00a5170c9e734c2ad9cc29f878d6629))
+
+- **models**: Drop legacy 'claude' value from BuildEngine enum
+  ([`725de93`](https://github.com/jason-weddington/agent-gtd/commit/725de93bb2af37a486868df2a5f8613e261b433f))
+
+- **rollout**: Wire dispatch_rollout end-to-end for manage runs
+  ([`46a1b51`](https://github.com/jason-weddington/agent-gtd/commit/46a1b510aaafb6f55f1d7801bac92b1f73bc823b))
+
+- **router**: Drop /info TTL cache, poll fresh on every dispatch
+  ([`d463afa`](https://github.com/jason-weddington/agent-gtd/commit/d463afad89f879e66a337074f79ad99c081652e3))
+
+- **settings**: Coding Agent dropdown uses 'claude-code' engine value
+  ([`e5dfc0d`](https://github.com/jason-weddington/agent-gtd/commit/e5dfc0de53ac7463fd39bbcaf0474b8b20c716cb))
+
+- **test**: Mock probe_dispatch_host in test_capabilities_divergent_versions
+  ([`13715ac`](https://github.com/jason-weddington/agent-gtd/commit/13715acd4f97fc65230a77c71dce07fea946ceb8))
+
+- **wave**: Link build dispatches to wave plan and validate state preconditions
+  ([`164f391`](https://github.com/jason-weddington/agent-gtd/commit/164f3912cbe8ada9c83c221a0b3b5fbc9b9abe86))
+
+### Chores
+
+- Lower coverage threshold to 95.0 after 64975539 merge
+  ([`aabe348`](https://github.com/jason-weddington/agent-gtd/commit/aabe34814c2b6ff3638b83c8d5441cea9cc2885c))
+
+- Lower coverage threshold to 95.5 after 1042a4e1 merge
+  ([`9a77ee4`](https://github.com/jason-weddington/agent-gtd/commit/9a77ee4e8ff40ed35381a0c4687cbb73fa25679d))
+
+- **ci**: Redirect coverage hook output to file to fix BlockingIOError
+  ([`6e9f74d`](https://github.com/jason-weddington/agent-gtd/commit/6e9f74d8869d7f3c33d8bc47e27d4f1d24933fce))
+
+- **cov**: Add _fetch_host_info and _gather_host_info exception-path tests
+  ([`92078f3`](https://github.com/jason-weddington/agent-gtd/commit/92078f3ec43ea902bdd0dcc0088d1b65f2fdf4dd))
+
+- **coverage**: Lower fail_under to 94.4 to match actual coverage
+  ([`7d738ed`](https://github.com/jason-weddington/agent-gtd/commit/7d738edae6a33f48e9a6e0e469c0f798da6b114f))
+
+- **coverage**: Ratchet fail_under 94.4 → 94.1 to match actual
+  ([`00ee2ba`](https://github.com/jason-weddington/agent-gtd/commit/00ee2ba43ecb2ee82c95e55745693bb96b2d8c1a))
+
+- **lint**: Fix E501 line-too-long in test files
+  ([`1620477`](https://github.com/jason-weddington/agent-gtd/commit/1620477d74952c6042da0c75c296ce906e677062))
+
+- **lint**: Shorten docstrings to satisfy E501 + drop extraneous f-string
+  ([`9f08e12`](https://github.com/jason-weddington/agent-gtd/commit/9f08e125fdcb5c9aac3ade0ed2688714f6eb57bd))
+
+### Documentation
+
+- **72703793**: Agent-gtd-dispatch-protocol git dep pins to specific SHA in uv.lock — should always
+  track latest main
+  ([`9eace2c`](https://github.com/jason-weddington/agent-gtd/commit/9eace2c03983962b2d7faa5f1db958e56f647cfb))
+
+- **claude.md**: Prominent Setup section reminding agents to install pre-commit hooks
+  ([`6941db6`](https://github.com/jason-weddington/agent-gtd/commit/6941db62c9df7e3bf58add8c752c389d34c833a9))
+
+### Features
+
+- **01d82bcc**: SSE events in reconciliation paths + guard poll-loop on unknown status
+  ([`ab78d91`](https://github.com/jason-weddington/agent-gtd/commit/ab78d911dcff55d8e03d74f3f9ff747e328f7a6c))
+
+- **02532f93**: Rollout status bar 'Open details' CTA is a no-op (relic of activity-drawer refactor)
+  ([`665061c`](https://github.com/jason-weddington/agent-gtd/commit/665061cdd587eb21945a38983147ca20603caa44))
+
+- **06666ced**: Active-rollout strip below the project header
+  ([`a67a6b4`](https://github.com/jason-weddington/agent-gtd/commit/a67a6b427622ad0c7f77995e608584571a61b77e))
+
+- **1042a4e1**: Cross-service cancel propagation: forward cancel_run from gtd to dispatch
+  ([`16cbae7`](https://github.com/jason-weddington/agent-gtd/commit/16cbae7a0fda58f0e0af96d9cf2e6f06aa960828))
+
+- **170fcc39**: Supervise fire-and-forget asyncio.create_task calls
+  ([`197992f`](https://github.com/jason-weddington/agent-gtd/commit/197992f885caac0b464169c0dd43ed50b3466030))
+
+- **1a8be458**: Coverage for _check_dispatch_service preflight path
+  ([`2098cf0`](https://github.com/jason-weddington/agent-gtd/commit/2098cf0c956e004bb72943c49d5e015352b76d16))
+
+- **1ab2f12a**: Separate manager + worker dispatch timeouts (manager defaults to 4h)
+  ([`0310877`](https://github.com/jason-weddington/agent-gtd/commit/03108775661f9c5ee0f30ddb6c0b80148c1cc2eb))
+
+- **1f651995**: Active runs number chip is not distinct in light mode
+  ([`00e5647`](https://github.com/jason-weddington/agent-gtd/commit/00e564731a2faba5377ff2e486cab18c0452cad8))
+
+- **204392e5**: Replace remaining get_dispatch_config callers with multi-host router
+  ([`43293a7`](https://github.com/jason-weddington/agent-gtd/commit/43293a7a691052f684455292fd143e0e450bdf1c))
+
+- **230a6204**: Surface build_engine value in the UI (currently invisible)
+  ([`7294645`](https://github.com/jason-weddington/agent-gtd/commit/7294645cbe5d46700d61f8170f198a14ee6e256e))
+
+- **26df3f26**: Task drawer - add an accordion to Acceptance Criteria and Files to Modify sections
+  ([`e399633`](https://github.com/jason-weddington/agent-gtd/commit/e399633e10a53a517b191f48fc5043f0da533cc8))
+
+- **2eb001fd**: Dispatch service doesn't enforce max_concurrent_runs at /dispatch (queues over cap)
+  ([`b3b1668`](https://github.com/jason-weddington/agent-gtd/commit/b3b1668d594c4232e6b3bf0651ffaa99ca85abb3))
+
+- **34c0231a**: Structured fields for item legality (replace prose-shape matching)
+  ([`afa376b`](https://github.com/jason-weddington/agent-gtd/commit/afa376b0fba7add7b81835266158ef91acbab7ba))
+
+- **38c19ee1**: Expand ALLOWED_BUILD_ENGINES to include claude-code-sonnet and claude-code-haiku
+  ([`aec3f15`](https://github.com/jason-weddington/agent-gtd/commit/aec3f15b73c7d4e429c7bcfec46e8854a2adbe84))
+
+- **3ff164f2**: Activity drawer (right-side, collapsible) + remove EVENTS/ACTIVITY tabs
+  ([`b09410a`](https://github.com/jason-weddington/agent-gtd/commit/b09410a2620156adec6b7083ed7b93cfc7c7adc8))
+
+- **418a7576**: SMOKE-7: Fix broken "Abort wave" UI button
+  ([`1029d63`](https://github.com/jason-weddington/agent-gtd/commit/1029d6377b32480341f117ed4c59b1b93fa33747))
+
+- **459fb7c0**: Add dispatch_host_id targeting to dispatch_item (MCP + REST + UI)
+  ([`218fd85`](https://github.com/jason-weddington/agent-gtd/commit/218fd85bbbd196d0f2cee182dc7f08d36a4f8efa))
+
+- **462e98b0**: MCP update_item supports project_id (move between projects)
+  ([`3dde286`](https://github.com/jason-weddington/agent-gtd/commit/3dde286923a98dd5046401df5eafdc967b6cce5d))
+
+- **46ad731a**: Tighten enum validation: Pydantic Literal types + consistent allowlists across
+  layers
+  ([`f3777a0`](https://github.com/jason-weddington/agent-gtd/commit/f3777a08baa58f861bb1add01aecd086e5ad3f8b))
+
+- **4acac9d3**: Stale halted rollouts keep showing warning banner after all items shipped
+  ([`7772ca6`](https://github.com/jason-weddington/agent-gtd/commit/7772ca63116a3c361823771800d7a1ce2450c60a))
+
+- **4ec333a3**: Activity drawer 'Item' column always renders as null/em-dash even when event has
+  currentItemId
+  ([`e68e42e`](https://github.com/jason-weddington/agent-gtd/commit/e68e42e5cc2fd2c742caa0f241d2c36039494dab))
+
+- **4ef39441**: Cross-repo contract test in CI: verify gtd dispatch payload validates against
+  dispatch schema
+  ([`408ad6b`](https://github.com/jason-weddington/agent-gtd/commit/408ad6bd5cad6336125da0c1397b5c66d5896edf))
+
+- **57453ef1**: Multi-host dispatch capacity router (agent_gtd side)
+  ([`09970c5`](https://github.com/jason-weddington/agent-gtd/commit/09970c59cee0a2cb9ae9dd25f843d2596394e4c7))
+
+- **64975539**: Consume the shared dispatch protocol package in agent_gtd
+  ([`10555c0`](https://github.com/jason-weddington/agent-gtd/commit/10555c05fcfe5e59bb334199a4fc798a9e93fc90))
+
+- **6b511788**: Settings: dispatch service version hides cluster divergence (first-responder wins)
+  ([`36d96f2`](https://github.com/jason-weddington/agent-gtd/commit/36d96f2ce40097b801ffdeaebe7bcb1180de3774))
+
+- **733b4a6d**: Active runs indicator: mode-accurate badges, semantic titles, parent/child grouping
+  ([`3e7f5dd`](https://github.com/jason-weddington/agent-gtd/commit/3e7f5ddbc23397663467dd1e06237dbdd97361aa))
+
+- **73892a38**: Settings pane: surface separate worker + manager timeout fields
+  ([`cad39b8`](https://github.com/jason-weddington/agent-gtd/commit/cad39b89f0cd52c899f8c3b2f22d034601acf0d4))
+
+- **9a3fe51b**: Plan-mode dispatch agent comments attributed to "human" instead of
+  claude-plan-<run_id>
+  ([`3a57db1`](https://github.com/jason-weddington/agent-gtd/commit/3a57db1bb09afd8c6aac1164707eeb8fdfaf859f))
+
+- **9a96f3ec**: Add build_engine field on items (per-task engine selection)
+  ([`e5b8cd2`](https://github.com/jason-weddington/agent-gtd/commit/e5b8cd2b577de3c2b7e3fd20793b410193de9160))
+
+- **a5352c4f**: SMOKE-4: Add description_preview field to ProjectResponse
+  ([`534d7d8`](https://github.com/jason-weddington/agent-gtd/commit/534d7d8b452796b1179366d980611dea2fc5f144))
+
+- **ace8fa14**: Coverage for rollout_routes uncovered paths
+  ([`9b4ddfb`](https://github.com/jason-weddington/agent-gtd/commit/9b4ddfb275b71d20220c358c6579e87137a4ae15))
+
+- **b0fac213**: Task drawer - increase width
+  ([`36b3c4c`](https://github.com/jason-weddington/agent-gtd/commit/36b3c4c4067fe78fa812ebe26b3e5ce01de20b3d))
+
+- **c3d0d4cc**: Rollout lifecycle events emitted + activity feed scopes to rollout
+  ([`093a52d`](https://github.com/jason-weddington/agent-gtd/commit/093a52d9e466a694da19736fba70a30b53a4ca09))
+
+- **d5f81cc4**: MCP read tools for rollouts so the lead agent can see live rollout state
+  ([`99b74c0`](https://github.com/jason-weddington/agent-gtd/commit/99b74c0571853230cd437e92e85265602f24c3b2))
+
+- **d97a5a4e**: Best-effort event-publish wrapper that surfaces failure rate
+  ([`36e1bcf`](https://github.com/jason-weddington/agent-gtd/commit/36e1bcf7f3320f8a17b880062c29544fcc43ad0d))
+
+- **dce77e22**: Invalidate capabilities cache on host CRUD (60s stale window)
+  ([`330519e`](https://github.com/jason-weddington/agent-gtd/commit/330519e839601d9fb13b5ef82deb42582ffe43d9))
+
+- **de04555b**: Boot migration: rewrite legacy app_settings engine value to new enum
+  ([`0d11d53`](https://github.com/jason-weddington/agent-gtd/commit/0d11d53bc3cfe33935aa9cef0539fcac78d96b0f))
+
+- **de0faf2a**: Activity drawer needs an X close button (only closable by clicking outside,
+  impossible on mobile)
+  ([`94c14a7`](https://github.com/jason-weddington/agent-gtd/commit/94c14a7edc5de3481bef0428cc10ec159eb8e3f6))
+
+- **e41a425a**: Coverage: test SSE event stream paths
+  ([`d856493`](https://github.com/jason-weddington/agent-gtd/commit/d856493712a21b52d86afd6ab2e6a8092ddba289))
+
+- **efca5b81**: Agent-gtd rollout-status CLI + event-driven rollout completion pattern
+  ([`33bd5c9`](https://github.com/jason-weddington/agent-gtd/commit/33bd5c9b7d1e9dfe0d1a6a18040d41ed29fdb2a5))
+
+- **f33df59b**: Remove dead prose-shape parsers and realign docstrings to structured-fields legality
+  ([`17b839c`](https://github.com/jason-weddington/agent-gtd/commit/17b839c4ecc18ee108b40c55d6f509c87454fcfa))
+
+- **f361e692**: Add Host form: validate URL + probe /info before save
+  ([`36c1ccc`](https://github.com/jason-weddington/agent-gtd/commit/36c1ccc16d5a3f5a02e3aa0a3df994a1d2a7179f))
+
+- **f8f073a3**: Runs/rollouts-level failure feed surface
+  ([`9b63c5f`](https://github.com/jason-weddington/agent-gtd/commit/9b63c5fbc29448d2f3db3ae177819f80ccdbce95))
+
+- **observability**: Distinct created_by per agent role (claude-build/manage/lead/plan)
+  ([`cc55e2a`](https://github.com/jason-weddington/agent-gtd/commit/cc55e2a31b859abe7f59e4bfbbd4636587be325c))
+
+- **observability**: Manager state heartbeat (semantic state, not liveness)
+  ([`249f3a9`](https://github.com/jason-weddington/agent-gtd/commit/249f3a9729982fd326df958d984f8fea22db7644))
+
+- **observability**: Per-wave Activity tab — unified historical event log
+  ([`c06a6dd`](https://github.com/jason-weddington/agent-gtd/commit/c06a6dd89e3c7bb880fbcf9c94a69241bb7e89c0))
+
+- **project-detail**: Show truncated project ID before copy icon
+  ([`1d778d8`](https://github.com/jason-weddington/agent-gtd/commit/1d778d818f16c946a988c29c5c038494bb9ccf58))
+
+- **projects**: Populate description_preview in project_service list/get (SMOKE-5)
+  ([`18963b2`](https://github.com/jason-weddington/agent-gtd/commit/18963b2b0178530850f877c8539309f006cc1425))
+
+- **rollout**: Auto-recovery infrastructure — new endpoints + halt_rollout accepts pending
+  ([`d51af1b`](https://github.com/jason-weddington/agent-gtd/commit/d51af1b427e505d612addb21791ee919306554c6))
+
+- **ui**: Render description preview under project names on Projects list (SMOKE-6)
+  ([`a02aa75`](https://github.com/jason-weddington/agent-gtd/commit/a02aa75ee2b936ddaf1bc16682832536c69737bf))
+
+- **wave**: Add start_wave service + MCP tool to flip pending → running
+  ([`30a51cd`](https://github.com/jason-weddington/agent-gtd/commit/30a51cd931f9f0b102b3e65f0adffdcaae3c345d))
+
+- **wave**: Complete_in_wave cascades item status + signals graph_complete in response
+  ([`61eea90`](https://github.com/jason-weddington/agent-gtd/commit/61eea906012e8ec180b3e1da2ece6ab79176c9ff))
+
+- **wave**: Wire cancel_wave into McpBackend protocol + MCP tool
+  ([`851ea3d`](https://github.com/jason-weddington/agent-gtd/commit/851ea3d5fdc327ac7a21045897c5f7db1ef39cda))
+
+### Refactoring
+
+- **rollout**: Rename wave_run → rollout across the stack + drop placeholder requirement
+  ([`141e80b`](https://github.com/jason-weddington/agent-gtd/commit/141e80bcc3bf02feb903fa1f183047c4a9133131))
+
+- **wave-manager**: Fully rip out the reaper + ping_wave (net -1159 lines)
+  ([`f54d323`](https://github.com/jason-weddington/agent-gtd/commit/f54d3237a2e52d599b16937e6715bb169126a7a2))
+
+### Testing
+
+- Add HTTP route coverage for list_rollouts, get_rollout_plan, get_rollout endpoints
+  ([`c862a54`](https://github.com/jason-weddington/agent-gtd/commit/c862a54c520b33a876def38ccce39cd979b699f9))
+
+- Cover event-publish exception suppression in note + comment services
+  ([`28fa6cb`](https://github.com/jason-weddington/agent-gtd/commit/28fa6cba5e00a6411f05fda2180d86321d6d3e0a))
+
+
 ## v1.87.0 (2026-05-12)
 
 ### Features
