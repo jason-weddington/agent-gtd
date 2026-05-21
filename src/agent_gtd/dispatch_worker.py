@@ -129,27 +129,34 @@ def resolve_engine(
 
 
 def resolve_timeout_minutes(
-    project_dispatch_timeout_minutes: int | None,
-    global_default_timeout_minutes: int,
+    mode: str,
+    project_timeout: int | None,
+    global_worker: int,
+    global_manager: int,
 ) -> int:
     """Resolve the effective timeout_minutes for a dispatch run.
 
-    Project-level override wins if set (non-None); otherwise falls back to
-    the deployment-wide ``dispatch.default_timeout_minutes`` setting.
+    Project-level override wins if set (non-None).  Otherwise, manage-mode
+    runs fall back to ``global_manager`` and all other modes (build, plan)
+    fall back to ``global_worker``.
 
     Args:
-        project_dispatch_timeout_minutes: The project's
-            ``dispatch_timeout_minutes`` value, or ``None`` if the project
-            inherits the global default.
-        global_default_timeout_minutes: The deployment-wide default from
-            app_settings (hard-coded fallback: 30).
+        mode: The run mode (``"manage"``, ``"build"``, ``"plan"``, etc.).
+        project_timeout: The project's ``dispatch_timeout_minutes`` value, or
+            ``None`` if the project inherits the global default.
+        global_worker: The deployment-wide default for worker modes (build,
+            plan) from app_settings (hard-coded fallback: 30).
+        global_manager: The deployment-wide default for manager-mode runs from
+            app_settings (hard-coded fallback: 240).
 
     Returns:
         The resolved timeout_minutes integer.
     """
-    if project_dispatch_timeout_minutes is not None:
-        return project_dispatch_timeout_minutes
-    return global_default_timeout_minutes
+    if project_timeout is not None:
+        return project_timeout
+    if mode == "manage":
+        return global_manager
+    return global_worker
 
 
 # ---------------------------------------------------------------------------
@@ -607,17 +614,30 @@ async def execute_run(
         global_build_agent,
     )
 
-    # Resolve effective timeout: project override > global setting > hard-coded default
-    raw_global_timeout = await get_setting(db, "dispatch.default_timeout_minutes")
-    global_timeout_minutes = (
-        int(raw_global_timeout) if raw_global_timeout is not None else 30
+    # Resolve effective timeout: project override > mode-specific global > hard-coded default
+    raw_global_worker_timeout = await get_setting(
+        db, "dispatch.default_timeout_minutes"
+    )
+    global_worker_timeout_minutes = (
+        int(raw_global_worker_timeout) if raw_global_worker_timeout is not None else 30
+    )
+    raw_global_manager_timeout = await get_setting(
+        db, "dispatch.manager_default_timeout_minutes"
+    )
+    global_manager_timeout_minutes = (
+        int(raw_global_manager_timeout)
+        if raw_global_manager_timeout is not None
+        else 240
     )
     raw_project_timeout = project.get("dispatch_timeout_minutes")
     project_timeout_minutes = (
         int(str(raw_project_timeout)) if raw_project_timeout is not None else None
     )
     effective_timeout_minutes = resolve_timeout_minutes(
-        project_timeout_minutes, global_timeout_minutes
+        mode,
+        project_timeout_minutes,
+        global_worker_timeout_minutes,
+        global_manager_timeout_minutes,
     )
 
     # Get dispatch hosts for the project owner

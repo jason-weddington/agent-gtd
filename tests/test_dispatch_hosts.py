@@ -354,9 +354,7 @@ async def test_add_host_invalidates_capabilities_cache(
         assert add_res.status_code == 201
 
         # GET capabilities — cache was invalidated, so upstream is called
-        caps_res = await client.get(
-            "/api/dispatch/capabilities", headers=auth_headers
-        )
+        caps_res = await client.get("/api/dispatch/capabilities", headers=auth_headers)
         assert caps_res.status_code == 200
 
     # Upstream was called once (cache miss after invalidation)
@@ -413,9 +411,7 @@ async def test_delete_host_invalidates_capabilities_cache(
         assert del_res.status_code == 204
 
         # GET capabilities — no hosts left, returns empty result
-        caps_res = await client.get(
-            "/api/dispatch/capabilities", headers=auth_headers
-        )
+        caps_res = await client.get("/api/dispatch/capabilities", headers=auth_headers)
         assert caps_res.status_code == 200
 
     # No hosts remain, so upstream is NOT called (short-circuits before fetch).

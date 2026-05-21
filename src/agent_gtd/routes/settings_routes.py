@@ -30,6 +30,7 @@ _PLAN_AGENT_NAME_KEY = "dispatch.plan_agent_name"
 _BUILD_AGENT_NAME_KEY = "dispatch.build_agent_name"
 _DEFAULT_MAX_TURNS_KEY = "dispatch.default_max_turns"
 _DEFAULT_TIMEOUT_MINUTES_KEY = "dispatch.default_timeout_minutes"
+_MANAGER_TIMEOUT_MINUTES_KEY = "dispatch.manager_default_timeout_minutes"
 _MAX_AGENT_NAME_LEN = 64
 _MIN_TURNS = 10
 _MAX_TURNS = 500
@@ -61,6 +62,13 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
     timeout_val = await settings_service.get_setting(db, _DEFAULT_TIMEOUT_MINUTES_KEY)
     default_timeout_minutes = int(timeout_val) if timeout_val is not None else 30
 
+    manager_timeout_val = await settings_service.get_setting(
+        db, _MANAGER_TIMEOUT_MINUTES_KEY
+    )
+    manager_default_timeout_minutes = (
+        int(manager_timeout_val) if manager_timeout_val is not None else 240
+    )
+
     service_url = (
         await settings_service.get_user_setting(db, user_id, "dispatch.service_url")
         or ""
@@ -77,6 +85,7 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
         build_agent_name=build_agent_name,
         default_max_turns=default_max_turns,
         default_timeout_minutes=default_timeout_minutes,
+        manager_default_timeout_minutes=manager_default_timeout_minutes,
         service_url=service_url,
         service_api_key_preview=preview,
     )
@@ -151,6 +160,24 @@ async def update_dispatch_settings(
             )
         await settings_service.set_setting(
             db, _DEFAULT_TIMEOUT_MINUTES_KEY, str(body.default_timeout_minutes)
+        )
+    if body.manager_default_timeout_minutes is not None:
+        if not (
+            MIN_TIMEOUT_MINUTES
+            <= body.manager_default_timeout_minutes
+            <= MAX_TIMEOUT_MINUTES
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"manager_default_timeout_minutes must be between "
+                    f"{MIN_TIMEOUT_MINUTES} and {MAX_TIMEOUT_MINUTES}"
+                ),
+            )
+        await settings_service.set_setting(
+            db,
+            _MANAGER_TIMEOUT_MINUTES_KEY,
+            str(body.manager_default_timeout_minutes),
         )
     if body.service_url is not None:
         await settings_service.set_user_setting(

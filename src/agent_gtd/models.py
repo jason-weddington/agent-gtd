@@ -731,6 +731,7 @@ class DispatchSettingsResponse(BaseModel):
     build_agent_name: str = ""
     default_max_turns: int = 100
     default_timeout_minutes: int = 30
+    manager_default_timeout_minutes: int = 240
     service_url: str
     service_api_key_preview: str = ""
 
@@ -748,6 +749,7 @@ class UpdateDispatchSettingsRequest(BaseModel):
     service_api_key: str | None = None
     default_max_turns: int | None = None
     default_timeout_minutes: int | None = None
+    manager_default_timeout_minutes: int | None = None
 
 
 class RunResponse(BaseModel):

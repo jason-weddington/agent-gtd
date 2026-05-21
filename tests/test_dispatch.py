@@ -1615,28 +1615,28 @@ def test_resolve_timeout_minutes_project_set_wins() -> None:
     """Project timeout_minutes overrides global when project value is set."""
     from agent_gtd.dispatch_worker import resolve_timeout_minutes
 
-    assert resolve_timeout_minutes(60, 30) == 60
+    assert resolve_timeout_minutes("build", 60, 30, 240) == 60
 
 
 def test_resolve_timeout_minutes_project_none_falls_back_to_global() -> None:
-    """Falls back to global timeout_minutes when project value is None."""
+    """Falls back to global worker timeout when project value is None (build mode)."""
     from agent_gtd.dispatch_worker import resolve_timeout_minutes
 
-    assert resolve_timeout_minutes(None, 30) == 30
+    assert resolve_timeout_minutes("build", None, 30, 240) == 30
 
 
 def test_resolve_timeout_minutes_project_none_global_edge() -> None:
     """Falls back to global even when global is a non-standard value."""
     from agent_gtd.dispatch_worker import resolve_timeout_minutes
 
-    assert resolve_timeout_minutes(None, 5) == 5
+    assert resolve_timeout_minutes("build", None, 5, 240) == 5
 
 
 def test_resolve_timeout_minutes_project_set_global_different() -> None:
     """Project value is returned regardless of global value."""
     from agent_gtd.dispatch_worker import resolve_timeout_minutes
 
-    assert resolve_timeout_minutes(120, 480) == 120
+    assert resolve_timeout_minutes("build", 120, 480, 240) == 120
 
 
 # ---------------------------------------------------------------------------

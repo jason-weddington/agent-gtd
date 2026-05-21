@@ -8,7 +8,11 @@ from agent_gtd_dispatch_protocol import DispatchRequest
 from agent_gtd_dispatch_protocol import RunResponse as RemoteRunResponse
 from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 
-from agent_gtd.dispatch_worker import resolve_agent, resolve_engine
+from agent_gtd.dispatch_worker import (
+    resolve_agent,
+    resolve_engine,
+    resolve_timeout_minutes,
+)
 
 
 def _make_remote_run_response(
@@ -268,6 +272,138 @@ async def test_execute_run_inbox_item_uses_caller_config() -> None:
     assert caller_id in captured_user_ids
 
 
+@pytest.mark.asyncio
+async def test_execute_run_manage_mode_uses_manager_timeout() -> None:
+    """AC-12: mode=manage uses timeout_minutes=240 when no project/DB overrides."""
+    from agent_gtd.dispatch_worker import execute_run
+
+    dispatched_timeouts: list[int] = []
+
+    async def fake_dispatch(
+        client: object,
+        item_id: object,
+        max_turns: int,
+        mode: str,
+        *,
+        rollout_id: object = None,
+        url: str,
+        api_key: str,
+        engine: str = "claude-code",
+        agent_name: str = "",
+        attribution: str = "",
+        timeout_minutes: int = 30,
+    ) -> object:
+        dispatched_timeouts.append(timeout_minutes)
+        raise RuntimeError("stop after dispatch")
+
+    run = {
+        "id": "run-mgr-1",
+        "item_id": None,
+        "user_id": "user-1",
+        "project_id": "proj-1",
+        "max_turns": 50,
+        "mode": "manage",
+    }
+    project: dict[str, object] = {}  # no dispatch_timeout_minutes override
+    db = _make_db_mock(project_owner_id="user-1")
+
+    with (
+        patch(
+            "agent_gtd.services.settings_service.get_setting",
+            new=AsyncMock(return_value=None),  # no DB rows → use hard-coded defaults
+        ),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(
+                return_value=[
+                    {"id": "h1", "url": "http://host", "api_key": "key", "label": ""}
+                ]
+            ),
+        ),
+        patch(
+            "agent_gtd.services.dispatch_router.pick_dispatch_host",
+            new=AsyncMock(return_value={"url": "http://host", "api_key": "key"}),
+        ),
+        patch(
+            "agent_gtd.dispatch_worker._dispatch_to_remote",
+            new=fake_dispatch,
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=AsyncMock()),
+        patch("agent_gtd.dispatch_worker._publish_run_event"),
+    ):
+        await execute_run(db, run, None, project)
+
+    assert dispatched_timeouts == [240], (
+        f"Expected manage-mode timeout=240, got {dispatched_timeouts}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_run_build_mode_uses_worker_timeout() -> None:
+    """AC-13: mode=build uses timeout_minutes=30 when no project/DB overrides."""
+    from agent_gtd.dispatch_worker import execute_run
+
+    dispatched_timeouts: list[int] = []
+
+    async def fake_dispatch(
+        client: object,
+        item_id: object,
+        max_turns: int,
+        mode: str,
+        *,
+        rollout_id: object = None,
+        url: str,
+        api_key: str,
+        engine: str = "claude-code",
+        agent_name: str = "",
+        attribution: str = "",
+        timeout_minutes: int = 30,
+    ) -> object:
+        dispatched_timeouts.append(timeout_minutes)
+        raise RuntimeError("stop after dispatch")
+
+    run = {
+        "id": "run-build-1",
+        "item_id": "item-1",
+        "user_id": "user-1",
+        "project_id": "proj-1",
+        "max_turns": 50,
+        "mode": "build",
+    }
+    project: dict[str, object] = {}  # no dispatch_timeout_minutes override
+    db = _make_db_mock(project_owner_id="user-1")
+
+    with (
+        patch(
+            "agent_gtd.services.settings_service.get_setting",
+            new=AsyncMock(return_value=None),  # no DB rows → use hard-coded defaults
+        ),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(
+                return_value=[
+                    {"id": "h1", "url": "http://host", "api_key": "key", "label": ""}
+                ]
+            ),
+        ),
+        patch(
+            "agent_gtd.services.dispatch_router.pick_dispatch_host",
+            new=AsyncMock(return_value={"url": "http://host", "api_key": "key"}),
+        ),
+        patch(
+            "agent_gtd.dispatch_worker._dispatch_to_remote",
+            new=fake_dispatch,
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=AsyncMock()),
+        patch("agent_gtd.dispatch_worker._publish_run_event"),
+    ):
+        await execute_run(db, run, {}, project)
+
+    assert dispatched_timeouts == [30], (
+        f"Expected build-mode timeout=30, got {dispatched_timeouts}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # resolve_engine — parametrized matrix
 # ---------------------------------------------------------------------------
@@ -295,6 +431,50 @@ def test_resolve_engine(
     expected: str,
 ) -> None:
     assert resolve_engine(mode, item_engine, global_engine) == expected
+
+
+# ---------------------------------------------------------------------------
+# resolve_timeout_minutes — parametrized matrix
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "mode,project_timeout,global_worker,global_manager,expected",
+    [
+        # AC-5: manage mode, no project override → uses global_manager
+        ("manage", None, 90, 240, 240),
+        # AC-6: build mode, no project override → uses global_worker
+        ("build", None, 90, 240, 90),
+        # AC-7: plan mode, no project override → uses global_worker
+        ("plan", None, 90, 240, 90),
+        # AC-8: manage mode with project override → project override wins
+        ("manage", 120, 90, 240, 120),
+        # AC-9: build mode with project override → project override wins
+        ("build", 60, 90, 240, 60),
+        # plan mode with project override → project override wins
+        ("plan", 45, 90, 240, 45),
+        # unknown mode, no project override → uses global_worker (not manage)
+        ("other", None, 90, 240, 90),
+        # project override of 0 is still falsy-int → not override (None check)
+        # (project_timeout=0 means no override when None is the sentinel)
+        # Non-None zero IS a valid override value
+        ("build", 0, 90, 240, 0),
+    ],
+)
+def test_resolve_timeout_minutes(
+    mode: str,
+    project_timeout: int | None,
+    global_worker: int,
+    global_manager: int,
+    expected: int,
+) -> None:
+    result = resolve_timeout_minutes(
+        mode=mode,
+        project_timeout=project_timeout,
+        global_worker=global_worker,
+        global_manager=global_manager,
+    )
+    assert result == expected
 
 
 # ---------------------------------------------------------------------------

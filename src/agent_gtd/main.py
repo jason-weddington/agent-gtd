@@ -88,6 +88,30 @@ async def _migrate_engine_name() -> None:
         logger.info("migration: dispatch.engine rename — nothing to update")
 
 
+async def _migrate_manager_timeout_default() -> None:
+    """One-time idempotent migration: write manager_default_timeout_minutes=240.
+
+    Ensures the deployment-wide default for manager-mode dispatch runs is
+    explicitly stored in ``app_settings``.  If the key is already present,
+    the existing value is left unchanged.
+
+    This migration is idempotent — running it twice is a no-op.
+    """
+    from agent_gtd.database import get_db
+    from agent_gtd.services.settings_service import get_setting, set_setting
+
+    db = await get_db()
+    existing = await get_setting(db, "dispatch.manager_default_timeout_minutes")
+    if existing is None:
+        await set_setting(db, "dispatch.manager_default_timeout_minutes", "240")
+        logger.info("migration: wrote dispatch.manager_default_timeout_minutes=240")
+    else:
+        logger.info(
+            "migration: dispatch.manager_default_timeout_minutes already set to %s",
+            existing,
+        )
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifecycle: init/close database."""
@@ -102,6 +126,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await init_db()
     await _migrate_global_agent_name()
     await _migrate_engine_name()
+    await _migrate_manager_timeout_default()
     if is_local_mode():
         _app.dependency_overrides[get_current_user] = get_local_user
 

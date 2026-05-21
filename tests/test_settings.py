@@ -831,3 +831,130 @@ async def test_engine_migration_idempotent() -> None:
 
     engine = await get_setting(db, "dispatch.engine")
     assert engine == "claude-code"
+
+
+# ---------------------------------------------------------------------------
+# manager_default_timeout_minutes — GET/PATCH/validation/migration
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_dispatch_settings_manager_timeout_default(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """AC-1: GET returns manager_default_timeout_minutes=240 when DB key is absent."""
+    from agent_gtd.database import get_db as _get_db
+
+    db = await _get_db()
+    # Ensure key is absent so we get the code default
+    await db.execute(
+        "DELETE FROM app_settings"
+        " WHERE key = 'dispatch.manager_default_timeout_minutes'"
+    )
+
+    res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["manager_default_timeout_minutes"] == 240
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_manager_timeout_persists(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """AC-2: PATCH persists manager_default_timeout_minutes; GET returns new value."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"manager_default_timeout_minutes": 360},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["manager_default_timeout_minutes"] == 360
+
+    get_res = await client.get("/api/settings/dispatch", headers=auth_headers)
+    assert get_res.status_code == 200
+    assert get_res.json()["manager_default_timeout_minutes"] == 360
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_manager_timeout_too_low(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """AC-3: PATCH with manager_default_timeout_minutes=4 returns 422 (below MIN=5)."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"manager_default_timeout_minutes": 4},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_manager_timeout_too_high(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """AC-4: PATCH with manager_default_timeout_minutes=481 returns 422 (>MAX=480)."""
+    res = await client.patch(
+        "/api/settings/dispatch",
+        json={"manager_default_timeout_minutes": 481},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_dispatch_settings_manager_timeout_boundary(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH accepts boundary values 5 and 480 for manager_default_timeout_minutes."""
+    for v in (5, 480):
+        res = await client.patch(
+            "/api/settings/dispatch",
+            json={"manager_default_timeout_minutes": v},
+            headers=auth_headers,
+        )
+        assert res.status_code == 200, f"value {v} was rejected"
+        assert res.json()["manager_default_timeout_minutes"] == v
+
+
+# ---------------------------------------------------------------------------
+# Migration: _migrate_manager_timeout_default
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_manager_timeout_migration_writes_default_when_absent() -> None:
+    """AC-10: Boot migration writes manager_default_timeout_minutes=240 when absent."""
+    from agent_gtd.database import get_db as _get_db
+    from agent_gtd.main import _migrate_manager_timeout_default
+    from agent_gtd.services.settings_service import get_setting
+
+    db = await _get_db()
+    # Ensure key is absent
+    await db.execute(
+        "DELETE FROM app_settings"
+        " WHERE key = 'dispatch.manager_default_timeout_minutes'"
+    )
+
+    await _migrate_manager_timeout_default()
+
+    val = await get_setting(db, "dispatch.manager_default_timeout_minutes")
+    assert val == "240"
+
+
+@pytest.mark.asyncio
+async def test_manager_timeout_migration_idempotent() -> None:
+    """AC-11: Boot migration is idempotent — running twice leaves value unchanged."""
+    from agent_gtd.database import get_db as _get_db
+    from agent_gtd.main import _migrate_manager_timeout_default
+    from agent_gtd.services.settings_service import get_setting, set_setting
+
+    db = await _get_db()
+    # Set an existing custom value
+    await set_setting(db, "dispatch.manager_default_timeout_minutes", "300")
+
+    await _migrate_manager_timeout_default()
+    await _migrate_manager_timeout_default()  # second run — must not overwrite
+
+    val = await get_setting(db, "dispatch.manager_default_timeout_minutes")
+    assert val == "300"
