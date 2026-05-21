@@ -1,7 +1,8 @@
 """Tests for pick_dispatch_host in dispatch_router.py."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 HOST_A = {"id": "a", "url": "http://host-a:8001", "api_key": "keya", "label": "host-a"}
@@ -174,3 +175,43 @@ async def test_divergent_cluster_raises_no_compatible_host() -> None:
     assert "agent-y" in reasons.get("host-a", "")
     # host-b doesn't have engine-x
     assert "engine-x" in reasons.get("host-b", "")
+
+
+@pytest.mark.asyncio
+async def test_fetch_host_info_success() -> None:
+    """_fetch_host_info returns parsed JSON dict on HTTP 200 response."""
+    from agent_gtd.services.dispatch_router import _fetch_host_info
+
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json.return_value = {"engine": "claude-code", "active_runs": 1}
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_resp
+
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+    with patch(
+        "agent_gtd.services.dispatch_router.httpx.AsyncClient",
+        return_value=mock_ctx,
+    ):
+        result = await _fetch_host_info("http://host:8001")
+
+    assert result["engine"] == "claude-code"
+    assert result["active_runs"] == 1
+
+
+@pytest.mark.asyncio
+async def test_gather_host_info_fetch_error_returns_none() -> None:
+    """_gather_host_info returns None for hosts where _fetch_host_info raises."""
+    from agent_gtd.services.dispatch_router import _gather_host_info
+
+    with patch(
+        "agent_gtd.services.dispatch_router._fetch_host_info",
+        side_effect=httpx.ConnectError("connection refused"),
+    ):
+        results = await _gather_host_info([HOST_A])
+
+    assert results == [None]
