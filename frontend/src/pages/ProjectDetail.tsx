@@ -1228,6 +1228,12 @@ export default function ProjectDetail() {
       {/* Dispatch Tab */}
       {tab === 3 && (
         <Box sx={{ maxWidth: 560 }}>
+          {project.isOwner === false ? (
+            <Alert severity="info">
+              Dispatch settings are managed by the project owner.
+            </Alert>
+          ) : (
+          <>
           {/* AC-19: guard when wave is active */}
           {hasActiveWave && (
             <Alert severity="info" sx={{ mb: 2 }}>
@@ -1437,6 +1443,8 @@ export default function ProjectDetail() {
               )}
             </CardContent>
           </Card>
+          </>
+          )}
         </Box>
       )}
 

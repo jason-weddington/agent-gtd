@@ -606,14 +606,14 @@ export default function ItemDetailDrawer({
   const isRunActive = activeRun && ['pending', 'cloning', 'running'].includes(activeRun.status)
   const isRunQueued = activeRun?.status === 'pending'
   // dispatchConfigured: null = unknown (endpoint not available), treat as ok
-  const isDispatchConfigured = dispatchConfigured !== false
+  // For project members, treat dispatch as configured — the backend uses the owner's settings.
+  const isDispatchConfigured = projectIsOwner ? dispatchConfigured !== false : true
   // AC-21: item locked by an active wave
   const isLockedByRollout = Boolean(item?.lockedByRolloutId)
-  const canDispatch = Boolean(projectGitOrigin) && !isRunActive && isDispatchConfigured && projectIsOwner && !isLockedByRollout
+  const canDispatch = Boolean(projectGitOrigin) && !isRunActive && isDispatchConfigured && !isLockedByRollout
   const isSaving = savingField !== null
 
   function getDispatchTooltip(): string {
-    if (!projectIsOwner) return 'Only the project owner can dispatch agents.'
     if (isLockedByRollout) return 'This item is locked by an active wave.'
     if (dispatchConfigured === false) return 'Configure dispatch in Settings → Agent Dispatch.'
     if (isRunQueued) return 'Queued — waiting for a free slot (capped at 6 concurrent runs)'
