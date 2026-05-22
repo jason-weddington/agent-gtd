@@ -242,8 +242,8 @@ async def test_comment_routes_none_created_by_falls_back_to_server_attribution(
     """body.created_by=None → server-side get_current_actor_attribution() fallback.
 
     When created_by is absent from the request body (None after Pydantic default),
-    the route must use get_current_actor_attribution(). Without AGENT_GTD_AGENT_NAME
-    set, that returns 'human'.
+    the route must use get_current_actor_attribution(human_email=user.email).
+    Without AGENT_GTD_AGENT_NAME set, that returns the authenticated user's email.
     """
     # Ensure env var is absent (conftest already does this, but be explicit)
     monkeypatch.delenv("AGENT_GTD_AGENT_NAME", raising=False)
@@ -259,7 +259,7 @@ async def test_comment_routes_none_created_by_falls_back_to_server_attribution(
             headers=headers,
         )
     assert res.status_code == 201
-    assert res.json()["created_by"] == "human"
+    assert res.json()["created_by"] == owner.email
 
 
 async def test_comment_routes_empty_string_created_by_preserved(
@@ -292,7 +292,7 @@ async def test_comment_routes_item_none_created_by_falls_back(
     shared_item,
     monkeypatch,
 ):
-    """Item comment with body.created_by=None falls back to server attribution."""
+    """Item comment with created_by=None falls back to authenticated user's email."""
     monkeypatch.delenv("AGENT_GTD_AGENT_NAME", raising=False)
 
     transport = ASGITransport(app=app)
@@ -306,7 +306,7 @@ async def test_comment_routes_item_none_created_by_falls_back(
             headers=headers,
         )
     assert res.status_code == 201
-    assert res.json()["created_by"] == "human"
+    assert res.json()["created_by"] == owner.email
 
 
 async def test_comment_routes_item_agent_name_env_attribution(

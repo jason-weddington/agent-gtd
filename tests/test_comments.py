@@ -35,7 +35,7 @@ async def test_create_project_comment(
     assert data["content_markdown"] == "Looks good!"
     assert data["project_id"] == project_id
     assert data["item_id"] is None
-    assert data["created_by"] == "human"
+    assert data["created_by"] == "test@example.com"
 
 
 async def test_create_project_comment_with_created_by(
@@ -130,6 +130,21 @@ async def test_create_item_comment(
     assert data["content_markdown"] == "Working on this"
     assert data["item_id"] == item_id
     assert data["project_id"] is None
+
+
+async def test_create_item_comment_attribution_email(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Item comment created_by defaults to the authenticated user's email."""
+    item_id = await _create_item(client, auth_headers, project_id)
+
+    res = await client.post(
+        f"/api/items/{item_id}/comments",
+        json={"content_markdown": "Email attribution check"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["created_by"] == "test@example.com"
 
 
 async def test_create_item_comment_not_found(

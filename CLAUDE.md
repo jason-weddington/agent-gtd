@@ -164,7 +164,8 @@ scheme (live as of cutover date 2026-05-13):
 | `claude-manage-<run_id_short>` | Dispatched manage-mode agent |
 | `claude-lead-<user_id_short>` | Interactive lead (Claude Code in terminal) |
 | `wave-manager` | Wave service server-side status comments |
-| `human` | Human user via the web UI |
+| `human` | Human web UI user in local/single-user mode |
+| `alice@example.com` | Authenticated human web UI user in multi-user mode (email from account) |
 | `mcp-agent` | **Legacy** — comments predating 2026-05-13 |
 
 Helpers live in `src/agent_gtd/identity.py`.
