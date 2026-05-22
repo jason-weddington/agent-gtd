@@ -81,7 +81,11 @@ async def create_project_comment(
 ) -> CommentResponse:
     """Create a comment on a project."""
     db = await get_db()
-    created_by = body.created_by or get_current_actor_attribution()
+    created_by = (
+        body.created_by
+        if body.created_by is not None
+        else get_current_actor_attribution()
+    )
     try:
         row = await comment_service.create_comment(
             db,
@@ -124,7 +128,11 @@ async def create_item_comment(
 ) -> CommentResponse:
     """Create a comment on an item."""
     db = await get_db()
-    created_by = body.created_by or get_current_actor_attribution()
+    created_by = (
+        body.created_by
+        if body.created_by is not None
+        else get_current_actor_attribution()
+    )
     try:
         row = await comment_service.create_comment(
             db,

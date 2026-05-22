@@ -1,5 +1,6 @@
 """MCP server for Agent GTD — AI agent interface to the GTD system."""
 
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -25,6 +26,8 @@ from agent_gtd.exceptions import (
 )
 from agent_gtd.identity import compute_lead_attribution
 from agent_gtd.mcp_backend import LocalBackend, create_backend
+
+logger = logging.getLogger(__name__)
 
 _backend = create_backend()
 _HTTP_MODE = not isinstance(_backend, LocalBackend)
@@ -116,6 +119,11 @@ async def _get_session(ctx: Context) -> dict[str, str]:
     if _ENV_API_KEY:
         result = await _backend.login(_ENV_API_KEY, _ENV_AGENT_NAME or "")
         agent_name = _ENV_AGENT_NAME or compute_lead_attribution(result["user_id"])
+        logger.debug(
+            "_get_session auto-login: _ENV_AGENT_NAME=%r resolved agent_name=%r",
+            _ENV_AGENT_NAME,
+            agent_name,
+        )
         session = {
             "user_id": result["user_id"],
             "agent_name": agent_name,
@@ -153,16 +161,26 @@ if _show_login:
             Login confirmation with status, user email, and agent_name.
         """
         result = await _backend.login(api_key, agent_name)
+        # Guard against empty agent_name — fall back to lead attribution so that
+        # session["agent_name"] is never "" (which would propagate as created_by=""
+        # and trigger the human fallback on the server).
+        resolved_name = agent_name or compute_lead_attribution(result["user_id"])
+        logger.debug(
+            "login tool: agent_name=%r resolved_name=%r user_id=%r",
+            agent_name,
+            resolved_name,
+            result["user_id"],
+        )
         session = {
             "user_id": result["user_id"],
-            "agent_name": agent_name,
+            "agent_name": resolved_name,
         }
         await ctx.set_state("agent_session", session)
 
         return {
             "status": "logged_in",
             "user_email": result.get("email", ""),
-            "agent_name": agent_name,
+            "agent_name": resolved_name,
         }
 
 

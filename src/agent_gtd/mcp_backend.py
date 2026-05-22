@@ -224,7 +224,7 @@ class McpBackend(Protocol):
         project_id: str | None = None,
         item_id: str | None = None,
         content_markdown: str = "",
-        created_by: str = "human",
+        created_by: str | None = None,
     ) -> dict[str, Any]: ...
 
     async def update_comment(
@@ -890,19 +890,23 @@ class LocalBackend:
         project_id: str | None = None,
         item_id: str | None = None,
         content_markdown: str = "",
-        created_by: str = "human",
+        created_by: str | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
+        from agent_gtd.identity import get_current_actor_attribution
         from agent_gtd.services import comment_service, item_service
 
         db = await get_db()
+        resolved_by = (
+            created_by if created_by is not None else get_current_actor_attribution()
+        )
         result = await comment_service.create_comment(
             db,
             user_id,
             project_id=project_id,
             item_id=item_id,
             content_markdown=content_markdown,
-            created_by=created_by,
+            created_by=resolved_by,
         )
         # Inject board_state when commenting on an item that belongs to a project
         if item_id is not None:
@@ -1783,12 +1787,14 @@ class HttpBackend:
         project_id: str | None = None,
         item_id: str | None = None,
         content_markdown: str = "",
-        created_by: str = "human",
+        created_by: str | None = None,
     ) -> dict[str, Any]:
-        body: dict[str, Any] = {
-            "content_markdown": content_markdown,
-            "created_by": created_by,
-        }
+        body: dict[str, Any] = {"content_markdown": content_markdown}
+        # Only include created_by when explicitly provided — omitting it lets the
+        # server apply its own fallback (get_current_actor_attribution), while
+        # providing it (even as an empty string) is taken as the caller's intent.
+        if created_by is not None:
+            body["created_by"] = created_by
         if project_id:
             path = f"/api/projects/{project_id}/comments"
         elif item_id:
