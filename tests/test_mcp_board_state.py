@@ -152,10 +152,10 @@ async def test_board_snapshot_title_truncation(
     assert entry[1] == "A" * 60
 
 
-async def test_board_snapshot_id_truncation(
+async def test_board_snapshot_id_full_uuid(
     authed_backend: HttpBackend, project_id: str
 ):
-    """Item IDs are truncated to 8 characters."""
+    """Item IDs are returned as full UUIDs."""
     from agent_gtd.database import get_db
     from agent_gtd.services.item_service import board_snapshot
 
@@ -171,8 +171,7 @@ async def test_board_snapshot_id_truncation(
     db = await get_db()
     snap = await board_snapshot(db, user_id, project_id)
     entry = snap["ready"][0]
-    assert len(entry[0]) == 8
-    assert item["id"].startswith(entry[0])
+    assert entry[0] == item["id"]
 
 
 # ---------------------------------------------------------------------------

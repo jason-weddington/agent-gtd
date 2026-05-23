@@ -814,7 +814,7 @@ async def board_snapshot(
     """Return a compact board-state snapshot for a project.
 
     Keys: project_id, project_name, and one list per tracked status.
-    Each item is [id_prefix(8), truncated_title(60)]. Columns with more
+    Each item is [full_id, truncated_title(60)]. Columns with more
     than ``per_column_cap`` items append ``"__more__ N"`` as the last element.
 
     Args:
@@ -848,9 +848,9 @@ async def board_snapshot(
     for row in rows:
         status = str(row["status"])
         if status in columns:
-            id_prefix = str(row["id"])[:_ID_PREFIX_LEN]
+            item_id = str(row["id"])
             title_trunc = str(row["title"])[:_TITLE_LEN]
-            columns[status].append([id_prefix, title_trunc])
+            columns[status].append([item_id, title_trunc])
 
     snapshot: dict[str, Any] = {
         "project_id": project_id,

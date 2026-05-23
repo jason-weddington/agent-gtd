@@ -56,9 +56,9 @@ def _format_board_snapshot(
     for item in sorted_items:
         status = str(item.get("status", ""))
         if status in columns:
-            id_prefix = str(item["id"])[:_ID_PREFIX_LEN]
+            item_id = str(item["id"])
             title_trunc = str(item.get("title", ""))[:_TITLE_LEN]
-            columns[status].append([id_prefix, title_trunc])
+            columns[status].append([item_id, title_trunc])
 
     snapshot: dict[str, Any] = {
         "project_id": project_id,
