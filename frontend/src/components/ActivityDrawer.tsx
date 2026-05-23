@@ -301,7 +301,7 @@ export default function ActivityDrawer({
       onClose={onClose}
       sx={{
         '& .MuiDrawer-paper': {
-          width: { xs: '100vw', md: 500 },
+          width: { xs: '100vw', sm: 792 },
           boxSizing: 'border-box',
           top: '64px',
           height: 'calc(100% - 64px)',
