@@ -229,6 +229,7 @@ export default function ProjectDetail() {
   // Search / filter
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedLabels, setSelectedLabels] = useState<string[]>([])
+  const [labelFilterMode, setLabelFilterMode] = useState<'and' | 'or'>('or')
 
   // Delete confirmation
   const [deleteItemTarget, setDeleteItemTarget] = useState<Item | null>(null)
@@ -339,6 +340,7 @@ export default function ProjectDetail() {
   useEffect(() => {
     setSearchQuery('')
     setSelectedLabels([])
+    setLabelFilterMode('or')
   }, [projectId])
 
   // Load global dispatch settings once (for "inherit" defaults and effective values)
@@ -612,11 +614,13 @@ export default function ProjectDetail() {
     }
     if (selectedLabels.length > 0) {
       result = result.filter((item) =>
-        selectedLabels.some((label) => item.labels.includes(label)),
+        labelFilterMode === 'and'
+          ? selectedLabels.every((label) => item.labels.includes(label))
+          : selectedLabels.some((label) => item.labels.includes(label)),
       )
     }
     return result
-  }, [visibleItems, searchQuery, selectedLabels])
+  }, [visibleItems, searchQuery, selectedLabels, labelFilterMode])
 
   // --- Notes ---
   const openCreateNote = () => {
@@ -932,6 +936,18 @@ export default function ProjectDetail() {
               />
               {allLabels.length > 0 && (
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 1, alignItems: 'center' }}>
+                  <ToggleButtonGroup
+                    size="small"
+                    value={labelFilterMode}
+                    exclusive
+                    onChange={(_: unknown, newMode: 'and' | 'or' | null) => {
+                      if (!newMode) return
+                      setLabelFilterMode(newMode)
+                    }}
+                  >
+                    <ToggleButton value="or">OR</ToggleButton>
+                    <ToggleButton value="and">AND</ToggleButton>
+                  </ToggleButtonGroup>
                   {allLabels.map((label) => (
                     <Chip
                       key={label}
