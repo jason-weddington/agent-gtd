@@ -580,6 +580,7 @@ export default function Settings() {
             </Button>
           </Box>
 
+          <Typography variant="subtitle2" sx={{ mb: 2 }}>Manager and Worker Timeouts</Typography>
           <Box sx={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2, mb: 1 }}>
             {engine === 'claude-code' && (
               <Box>
@@ -597,7 +598,7 @@ export default function Settings() {
             )}
             <Box>
               <TextField
-                label="Worker default timeout (min)"
+                label="Worker timeout (min)"
                 type="number"
                 size="small"
                 value={dispatchTimeoutMinutes}
@@ -609,7 +610,7 @@ export default function Settings() {
             </Box>
             <Box>
               <TextField
-                label="Manager default timeout (min)"
+                label="Manager timeout (min)"
                 type="number"
                 size="small"
                 value={dispatchManagerTimeoutMinutes}
