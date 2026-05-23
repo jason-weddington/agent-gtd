@@ -1,4 +1,4 @@
-import type { ActivityEvent, AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, DispatchHost, FailedRun, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Rollout, RolloutEvent, RolloutFailureFeed, Run, StaleRun, UserResponse } from './types'
+import type { ActivityEvent, AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, DispatchHost, FailedRun, Invite, Item, MemberSummary, Note, PasswordResetIssued, PlanRolloutResponse, Project, Rollout, RolloutEvent, RolloutFailureFeed, Run, StaleRun, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -59,7 +59,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     let blockers: Array<{ id: string; title: string; status: string }> | undefined
     try {
       const json = await res.json()
-      detail = typeof json.detail === 'string' ? json.detail : detail
+      if (typeof json.detail === 'string') {
+        detail = json.detail
+      } else if (json.detail && typeof json.detail === 'object' && 'message' in json.detail) {
+        detail = String((json.detail as { message: unknown }).message)
+      }
       if (Array.isArray(json.blockers)) {
         blockers = json.blockers as Array<{ id: string; title: string; status: string }>
       }
@@ -98,7 +102,11 @@ async function uploadRequest<T>(method: string, path: string, formData: FormData
     let blockers: Array<{ id: string; title: string; status: string }> | undefined
     try {
       const json = await res.json()
-      detail = typeof json.detail === 'string' ? json.detail : detail
+      if (typeof json.detail === 'string') {
+        detail = json.detail
+      } else if (json.detail && typeof json.detail === 'object' && 'message' in json.detail) {
+        detail = String((json.detail as { message: unknown }).message)
+      }
       if (Array.isArray(json.blockers)) {
         blockers = json.blockers as Array<{ id: string; title: string; status: string }>
       }
@@ -264,6 +272,9 @@ export const api = {
   },
 
   rollouts: {
+    /** POST /api/rollouts — plan a new rollout from selected ready items. */
+    planRollout: (itemIds: string[]) =>
+      request<PlanRolloutResponse>('POST', '/rollouts', { itemIds }),
     /** GET /api/rollouts/{id} — fetch a single rollout by ID. */
     get: (rolloutId: string) => request<Rollout>('GET', `/rollouts/${rolloutId}`),
     /** GET /api/projects/{projectId}/active-rollout — 404 if none active. */

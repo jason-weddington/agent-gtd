@@ -1,3 +1,4 @@
+import { type ReactNode } from 'react'
 import { Box, Typography, Button, Chip } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import { Droppable } from '@hello-pangea/dnd'
@@ -11,6 +12,10 @@ interface KanbanColumnProps {
   onEdit: (item: Item) => void
   onDelete: (item: Item) => void
   onAdd: (columnId: string) => void
+  headerCTA?: ReactNode
+  selectionMode?: boolean
+  selectedIds?: ReadonlySet<string>
+  onToggleSelect?: (id: string) => void
 }
 
 export default function KanbanColumn({
@@ -20,6 +25,10 @@ export default function KanbanColumn({
   onEdit,
   onDelete,
   onAdd,
+  headerCTA,
+  selectionMode,
+  selectedIds,
+  onToggleSelect,
 }: KanbanColumnProps) {
   return (
     <Box
@@ -31,6 +40,9 @@ export default function KanbanColumn({
         flexDirection: 'column',
       }}
     >
+      {/* Optional CTA above the column header */}
+      {headerCTA}
+
       {/* Column header */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, px: 0.5 }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
@@ -63,6 +75,10 @@ export default function KanbanColumn({
                 index={index}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                selectionMode={selectionMode}
+                isSelectable={item.status === 'ready'}
+                isSelected={selectedIds?.has(item.id)}
+                onToggleSelect={onToggleSelect}
               />
             ))}
             {provided.placeholder}
