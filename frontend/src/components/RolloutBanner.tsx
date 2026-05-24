@@ -315,6 +315,7 @@ export default function RolloutBanner({ projectId, onActiveChange, onRolloutIdCh
         onToggleDetails={() => setShowDetails((v) => !v)}
         showDetails={showDetails}
         onOpenActivityDrawer={onOpenActivityDrawer}
+        onDismiss={handleAbort}
       />
 
       {/* Details section — collapsed by default; only shown when halted */}

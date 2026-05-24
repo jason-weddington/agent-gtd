@@ -19,10 +19,12 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
   TextField,
   Typography,
 } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
+import CloseIcon from '@mui/icons-material/Close'
 import { api, ApiError } from '../api'
 import type { Rollout, RolloutStatus } from '../types'
 import { formatElapsed } from '../utils'
@@ -69,18 +71,38 @@ export interface RolloutStripProps {
   showDetails?: boolean
   /** Called when the user clicks the "Open details ▸" CTA — opens activity drawer and sets tab to 'rollout'. */
   onOpenActivityDrawer?: () => void
+  /** Called after a successful dismiss (halted → cancelled) so the parent can re-fetch rollout state. */
+  onDismiss?: () => void
 }
 
 export default function RolloutStrip({
   rollout,
   onHalt,
   onOpenActivityDrawer,
+  onDismiss,
 }: RolloutStripProps) {
   // --- Halt confirmation dialog state (AC-11) ---
   const [haltOpen, setHaltOpen] = useState(false)
   const [haltReason, setHaltReason] = useState('')
   const [halting, setHalting] = useState(false)
   const [haltError, setHaltError] = useState<string | null>(null)
+
+  // --- Dismiss state (AC-2, AC-3, AC-5) ---
+  const [dismissing, setDismissing] = useState(false)
+  const [dismissError, setDismissError] = useState<string | null>(null)
+
+  const handleDismiss = async () => {
+    setDismissing(true)
+    setDismissError(null)
+    try {
+      await api.rollouts.dismiss(rollout.id)
+      onDismiss?.()
+    } catch (err) {
+      setDismissError(err instanceof ApiError ? err.detail : 'Failed to dismiss rollout')
+    } finally {
+      setDismissing(false)
+    }
+  }
 
   const handleHaltConfirm = async () => {
     setHalting(true)
@@ -207,7 +229,28 @@ export default function RolloutStrip({
               Open details ▸
             </Button>
           )}
+
+          {/* Dismiss button — only for halted rollouts (AC-1, AC-2, AC-3, AC-6) */}
+          {rollout.status === 'halted' && (
+            <IconButton
+              size="small"
+              color="inherit"
+              disabled={dismissing}
+              onClick={handleDismiss}
+              aria-label="Dismiss halted rollout"
+              sx={{ p: 0.25 }}
+            >
+              {dismissing ? <CircularProgress size={14} color="inherit" /> : <CloseIcon sx={{ fontSize: 16 }} />}
+            </IconButton>
+          )}
         </Box>
+
+        {/* Dismiss error (AC-5) */}
+        {dismissError && (
+          <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+            {dismissError}
+          </Typography>
+        )}
       </Box>
 
       {/* Halt confirmation dialog (AC-11) */}
