@@ -84,7 +84,7 @@ async def create_project_comment(
     created_by = (
         body.created_by
         if body.created_by is not None
-        else get_current_actor_attribution(human_email=user.email)
+        else get_current_actor_attribution()
     )
     try:
         row = await comment_service.create_comment(
@@ -131,7 +131,7 @@ async def create_item_comment(
     created_by = (
         body.created_by
         if body.created_by is not None
-        else get_current_actor_attribution(human_email=user.email)
+        else get_current_actor_attribution()
     )
     try:
         row = await comment_service.create_comment(

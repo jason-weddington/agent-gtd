@@ -35,7 +35,7 @@ async def test_create_project_comment(
     assert data["content_markdown"] == "Looks good!"
     assert data["project_id"] == project_id
     assert data["item_id"] is None
-    assert data["created_by"] == "test@example.com"
+    assert data["created_by"] == "human"
 
 
 async def test_create_project_comment_with_created_by(
@@ -132,10 +132,10 @@ async def test_create_item_comment(
     assert data["project_id"] is None
 
 
-async def test_create_item_comment_attribution_email(
+async def test_create_item_comment_attribution_no_created_by_defaults_to_human(
     client: AsyncClient, auth_headers: dict[str, str], project_id: str
 ):
-    """Item comment created_by defaults to the authenticated user's email."""
+    """Item comment created_by defaults to 'human' when not provided."""
     item_id = await _create_item(client, auth_headers, project_id)
 
     res = await client.post(
@@ -144,7 +144,33 @@ async def test_create_item_comment_attribution_email(
         headers=auth_headers,
     )
     assert res.status_code == 201
-    assert res.json()["created_by"] == "test@example.com"
+    assert res.json()["created_by"] == "human"
+
+
+async def test_create_comment_no_created_by_does_not_echo_email(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """When created_by is absent from request body, response never contains email."""
+    # Test project comment endpoint
+    res = await client.post(
+        f"/api/projects/{project_id}/comments",
+        json={"content_markdown": "Project comment without created_by"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["created_by"] != "test@example.com"
+    assert res.json()["created_by"] == "human"
+
+    # Test item comment endpoint
+    item_id = await _create_item(client, auth_headers, project_id)
+    res = await client.post(
+        f"/api/items/{item_id}/comments",
+        json={"content_markdown": "Item comment without created_by"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["created_by"] != "test@example.com"
+    assert res.json()["created_by"] == "human"
 
 
 async def test_create_item_comment_not_found(
