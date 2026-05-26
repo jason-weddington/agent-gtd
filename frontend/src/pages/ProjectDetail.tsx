@@ -47,6 +47,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import HistoryToggleOffIcon from '@mui/icons-material/HistoryToggleOff'
 import { api, ApiError } from '../api'
+import { useAuth } from '../contexts/AuthContext'
 import type { Project, Item, Note, Comment, ItemStatus, Priority, ProjectStatus, DispatchAgentInfo } from '../types'
 import { useDraftState } from '../hooks/useDraftState'
 import { PRIORITY_BORDER } from '../priorityColors'
@@ -226,6 +227,9 @@ export default function ProjectDetail() {
   // Show completed items toggle
   const [showCompleted, setShowCompleted] = useState(false)
 
+  // My tasks filter toggle — session-only, resets on project navigation
+  const [showMyTasksOnly, setShowMyTasksOnly] = useState(false)
+
   // Search / filter
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedLabels, setSelectedLabels] = useState<string[]>([])
@@ -257,6 +261,7 @@ export default function ProjectDetail() {
   const [dispatchSaved, setDispatchSaved] = useState(false)
   const [dispatchSaveError, setDispatchSaveError] = useState<string | null>(null)
 
+  const { user } = useAuth()
   const { onEvent } = useEvents()
   const { setActiveProject, captureCount } = useQuickCapture()
   const loadDataRef = useRef<() => Promise<void>>(undefined)
@@ -336,11 +341,12 @@ export default function ProjectDetail() {
     return () => { unsubs.forEach((u) => u()) }
   }, [onEvent])
 
-  // Clear search and label filter when project changes
+  // Clear search, label filter, and my-tasks toggle when project changes
   useEffect(() => {
     setSearchQuery('')
     setSelectedLabels([])
     setLabelFilterMode('or')
+    setShowMyTasksOnly(false)
   }, [projectId])
 
   // Load global dispatch settings once (for "inherit" defaults and effective values)
@@ -604,6 +610,9 @@ export default function ProjectDetail() {
 
   const filteredItems = useMemo(() => {
     let result = visibleItems
+    if (showMyTasksOnly && user?.email) {
+      result = result.filter((i) => i.assignedTo === user.email)
+    }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       result = result.filter(
@@ -620,7 +629,16 @@ export default function ProjectDetail() {
       )
     }
     return result
-  }, [visibleItems, searchQuery, selectedLabels, labelFilterMode])
+  }, [visibleItems, showMyTasksOnly, user, searchQuery, selectedLabels, labelFilterMode])
+
+  // Board items — applies only the showMyTasksOnly filter (search/label filters
+  // are list-view-only; the Kanban board shows filtered items per the spec).
+  const boardItems = useMemo(() => {
+    if (showMyTasksOnly && user?.email) {
+      return visibleItems.filter((i) => i.assignedTo === user.email)
+    }
+    return visibleItems
+  }, [visibleItems, showMyTasksOnly, user])
 
   // --- Notes ---
   const openCreateNote = () => {
@@ -877,10 +895,23 @@ export default function ProjectDetail() {
                   />
                 }
                 label={<Typography variant="body2">Show completed</Typography>}
+              />
+            )}
+            {itemView !== 'list' && <Box />}
+            {user?.email && (
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    size="small"
+                    checked={showMyTasksOnly}
+                    onChange={(e) => setShowMyTasksOnly(e.target.checked)}
+                  />
+                }
+                label={<Typography variant="body2">My tasks</Typography>}
                 sx={{ mr: 'auto' }}
               />
             )}
-            {itemView !== 'list' && <Box sx={{ flex: 1 }} />}
+            {!user?.email && <Box sx={{ flex: 1 }} />}
             <ToggleButtonGroup
               size="small"
               value={itemView}
@@ -980,7 +1011,7 @@ export default function ProjectDetail() {
 
           {itemView === 'board' ? (
             <KanbanBoard
-              items={items}
+              items={boardItems}
               onRefresh={loadData}
               onEditItem={setDrawerItem}
               onDeleteItem={setDeleteItemTarget}

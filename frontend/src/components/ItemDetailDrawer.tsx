@@ -36,8 +36,9 @@ import AttachFileIcon from '@mui/icons-material/AttachFile'
 import DeleteIcon from '@mui/icons-material/Delete'
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile'
 import { api, ApiError } from '../api'
-import type { AttachmentResponse, DispatchHost, Item, Comment, Project, Run, ItemStatus } from '../types'
+import type { AttachmentResponse, DispatchHost, Item, Comment, MemberSummary, Project, Run, ItemStatus } from '../types'
 import { isDispatchServiceConfigured, formatRelativeTime, formatFileSize } from '../utils'
+import { useAuth } from '../contexts/AuthContext'
 import { useEvents } from '../contexts/EventStreamContext'
 import { BlockerPicker } from './BlockerPicker'
 import MarkdownContent from './MarkdownContent'
@@ -114,6 +115,7 @@ export default function ItemDetailDrawer({
   const [addingLabel, setAddingLabel] = useState(false)
   const [newLabel, setNewLabel] = useState('')
   const [allProjects, setAllProjects] = useState<Project[]>([])
+  const [projectMembers, setProjectMembers] = useState<MemberSummary[]>([])
   const [blockerExpanded, setBlockerExpanded] = useState(false)
   const [metadataExpanded, setMetadataExpanded] = useState(false)
   const [attachmentsExpanded, setAttachmentsExpanded] = useState(false)
@@ -133,6 +135,7 @@ export default function ItemDetailDrawer({
   // attachmentId → blob URL for image thumbnails
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({})
 
+  const { user } = useAuth()
   const commentsEndRef = useRef<HTMLDivElement>(null)
   const itemIdRef = useRef<string | undefined>(undefined)
   // Tracks which attachment IDs have already had blob URL fetches initiated
@@ -181,6 +184,19 @@ export default function ItemDetailDrawer({
     if (!item) return
     api.projects.list({ status: 'active' }).then(setAllProjects).catch(() => {})
   }, [item])
+
+  // Load project members for the assignee dropdown — keyed on projectId so it
+  // refreshes whenever the item is moved to a different project.
+  useEffect(() => {
+    const projectId = localItem?.projectId
+    if (!projectId) {
+      setProjectMembers([])
+      return
+    }
+    api.projects.members.list(projectId).then(setProjectMembers).catch(() => {
+      setProjectMembers([])
+    })
+  }, [localItem?.projectId])
 
   // Load dispatch config when the drawer has an item open. Same gating reason.
   useEffect(() => {
@@ -909,9 +925,43 @@ export default function ItemDetailDrawer({
                     disabled={savingField === 'dueDate'}
                     sx={{ width: 150, '& input': { fontSize: '0.75rem', py: '2px' } }}
                   />
-                  {localItem.assignedTo && (
-                    <Chip label={`@ ${localItem.assignedTo}`} size="small" variant="outlined" />
-                  )}
+                  {/* Assignee select */}
+                  <FormControl size="small" disabled={isSaving}>
+                    <InputLabel
+                      id="drawer-assignee-label"
+                      sx={{ fontSize: '0.7rem', top: '-4px', '&.MuiInputLabel-shrink': { top: 0 } }}
+                    >
+                      Assignee
+                    </InputLabel>
+                    <Select
+                      labelId="drawer-assignee-label"
+                      value={localItem.assignedTo}
+                      label="Assignee"
+                      onChange={(e) => void saveField('assignedTo', e.target.value)}
+                      sx={{
+                        fontSize: '0.75rem',
+                        height: 28,
+                        minWidth: 120,
+                        '& .MuiSelect-select': { py: '2px', px: 1 },
+                      }}
+                    >
+                      <MenuItem value="" sx={{ fontSize: '0.8rem' }}>
+                        <em>Unassigned</em>
+                      </MenuItem>
+                      {user?.email && (
+                        <MenuItem value={user.email} sx={{ fontSize: '0.8rem' }}>
+                          Me ({user.email})
+                        </MenuItem>
+                      )}
+                      {projectMembers
+                        .filter((m) => m.email !== user?.email)
+                        .map((m) => (
+                          <MenuItem key={m.userId} value={m.email} sx={{ fontSize: '0.8rem' }}>
+                            {m.email}
+                          </MenuItem>
+                        ))}
+                    </Select>
+                  </FormControl>
 
                 </Box>
 

@@ -195,11 +195,12 @@ export const api = {
   },
 
   items: {
-    list: (params?: { status?: string; projectId?: string; priority?: string }) => {
+    list: (params?: { status?: string; projectId?: string; priority?: string; assignedTo?: string }) => {
       const query = new URLSearchParams()
       if (params?.status) query.set('status', params.status)
       if (params?.projectId) query.set('project_id', params.projectId)
       if (params?.priority) query.set('priority', params.priority)
+      if (params?.assignedTo) query.set('assigned_to', params.assignedTo)
       const qs = query.toString()
       return request<Item[]>('GET', `/items${qs ? `?${qs}` : ''}`)
     },
