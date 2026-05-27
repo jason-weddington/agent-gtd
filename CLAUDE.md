@@ -29,6 +29,34 @@ ssh r7-research 'journalctl --user -u agent-gtd -f'     # Tail logs
 
 The git remote `origin` points to `r7-research`. After `git push origin main --tags`, restart the service to pick up changes. See KB entries `kb-00306` and `kb-00307` for full deployment architecture and bounce guidelines.
 
+## Headless Dispatch Hosts
+
+Dispatch runs on three hosts: `pironman01`, `ubuntu-pi-01`, and `r7-research`. On
+each host the dispatch API runs as user **`dispatch-svc`**, and it launches Claude
+Code as user **`dispatch`** (the two-user split). The dispatch code lives in the
+separate `agent-gtd-dispatch` repo, not here.
+
+**Canonical env file is `/home/dispatch-svc/.env`** — it is the systemd
+`EnvironmentFile` (read by the running service) *and* the file `setup-dispatch-host.sh`
+reads at provision time to inject KB secrets into the agent's MCP config.
+`/home/dispatch/.env` is **vestigial** (a pre-split leftover) — nothing reads it; don't
+put anything there. Full model + which-var-goes-where: **`kb-01598`**.
+
+**Headless agents read their MCP servers from `/home/dispatch/.claude.json`** (not the
+repo's gitignored `.mcp.json`, never cloned). The durable way to add/change a server is
+to edit `agent-gtd-dispatch/templates/mcp-servers.sh` and re-register (setup script or
+`claude mcp add --scope user`), not to hand-jq the JSON. The four registered servers:
+`agent-gtd`, `personal-kb`, `team-kb`, `aws-documentation-mcp-server`.
+
+Both KB servers carry `ANTHROPIC_API_KEY` in their *per-server* MCP `env` block (they
+make their own LLM calls); it is injected from `KB_ANTHROPIC_API_KEY` in
+`/home/dispatch-svc/.env` and must **never** reach the agent's own process env, or
+Claude Code billing flips off the Max subscription (`kb-01512`). `team-kb` also carries
+its own `KB_DATABASE_URL` (team DB) + `KB_INSTANCE_ROLE=team`/`KB_TEAM=grit-mile`/
+`KB_CONTRIBUTOR=jason`; `personal-kb` inherits the personal `KB_DATABASE_URL` via the
+worker passthrough. How env crosses the `dispatch-svc → dispatch` sudo boundary:
+**`kb-01583`**.
+
 ## Production Architecture
 
 ```
