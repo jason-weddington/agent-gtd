@@ -871,11 +871,13 @@ export default function ItemDetailDrawer({
                           {projectName ?? localItem.projectId}
                         </MenuItem>
                       )}
-                      {allProjects.map((p) => (
-                        <MenuItem key={p.id} value={p.id} sx={{ fontSize: '0.8rem' }}>
-                          {p.name}
-                        </MenuItem>
-                      ))}
+                      {[...allProjects]
+                        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+                        .map((p) => (
+                          <MenuItem key={p.id} value={p.id} sx={{ fontSize: '0.8rem' }}>
+                            {p.name}
+                          </MenuItem>
+                        ))}
                     </Select>
                   </FormControl>
 
