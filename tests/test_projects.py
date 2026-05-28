@@ -698,6 +698,77 @@ async def test_project_total_items_zero_when_no_items(
     assert project["total_items"] == 0
 
 
+async def test_get_project_total_items_excludes_done(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """GET /api/projects/{id} total_items excludes items with status='done'."""
+    # Create 2 open items (default status 'inbox') + 1 done item
+    for i in range(2):
+        res = await client.post(
+            "/api/items",
+            json={"title": f"Open item {i}", "project_id": project_id},
+            headers=auth_headers,
+        )
+        assert res.status_code == 201
+
+    res = await client.post(
+        "/api/items",
+        json={"title": "Done item", "project_id": project_id},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    done_item_id = res.json()["id"]
+
+    # Mark the third item as done
+    res = await client.patch(
+        f"/api/items/{done_item_id}",
+        json={"status": "done"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+
+    # total_items should be 2 (the done item is excluded)
+    res = await client.get(f"/api/projects/{project_id}", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["total_items"] == 2
+
+
+async def test_list_projects_total_items_excludes_done(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """GET /api/projects total_items per project excludes items with status='done'."""
+    # Create 2 open items (default status 'inbox') + 1 done item
+    for i in range(2):
+        res = await client.post(
+            "/api/items",
+            json={"title": f"Open task {i}", "project_id": project_id},
+            headers=auth_headers,
+        )
+        assert res.status_code == 201
+
+    res = await client.post(
+        "/api/items",
+        json={"title": "Completed task", "project_id": project_id},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    done_item_id = res.json()["id"]
+
+    # Mark the third item as done
+    res = await client.patch(
+        f"/api/items/{done_item_id}",
+        json={"status": "done"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+
+    # total_items should be 2 (the done item is excluded)
+    res = await client.get("/api/projects", headers=auth_headers)
+    assert res.status_code == 200
+    project = next(p for p in res.json() if p["id"] == project_id)
+    assert project["total_items"] == 2
+
+
 # ---------------------------------------------------------------------------
 # description_preview — pure helper unit tests
 # ---------------------------------------------------------------------------

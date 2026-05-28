@@ -91,7 +91,7 @@ export interface Project {
   planDispatchAgent?: string | null
   /** Per-project build-mode agent override. Null = inherit from global build agent. */
   buildDispatchAgent?: string | null
-  /** Total number of items in this project (across all statuses). */
+  /** Number of open (non-done) items in this project. */
   totalItems: number
   /** Short preview of the project description (first line). Null when description is empty. */
   descriptionPreview: string | null

@@ -125,7 +125,8 @@ async def list_projects(
         f"SELECT p.*, u.email AS owner_email, "  # noqa: S608
         f"(SELECT COUNT(*) FROM project_members pm WHERE pm.project_id = p.id)"
         f" AS member_count, "
-        f"(SELECT COUNT(*) FROM items i WHERE i.project_id = p.id)"
+        f"(SELECT COUNT(*) FROM items i WHERE i.project_id = p.id"
+        f" AND i.status != 'done')"
         f" AS total_items "
         f"FROM projects p JOIN users u ON u.id = p.user_id "
         f"WHERE {where} ORDER BY p.created_at DESC",
@@ -201,7 +202,8 @@ async def get_project(db: DbPool, user_id: str, project_id: str) -> dict[str, An
         "SELECT p.*, u.email AS owner_email, "
         "(SELECT COUNT(*) FROM project_members pm WHERE pm.project_id = p.id)"
         " AS member_count, "
-        "(SELECT COUNT(*) FROM items i WHERE i.project_id = p.id)"
+        "(SELECT COUNT(*) FROM items i WHERE i.project_id = p.id"
+        " AND i.status != 'done')"
         " AS total_items "
         "FROM projects p JOIN users u ON u.id = p.user_id "
         "WHERE p.id = $1 AND "
