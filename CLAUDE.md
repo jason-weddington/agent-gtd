@@ -274,7 +274,9 @@ The existing pages (`Inbox.tsx`, `ProjectDetail.tsx`, `GtdItemList.tsx`, etc.) d
 
 ## Agent GTD Is the Source of Truth
 
-**This project uses itself to manage its own development.** The Agent GTD MCP server (`agent-gtd`) is configured in `.mcp.json`. All work — features, bugs, ideas, someday/maybe items — lives in Agent GTD as items, not in markdown files, roadmap docs, or TODO comments.
+**This project uses itself to manage its own development.** The Agent GTD MCP server (`agent-gtd`) is configured at the user scope in `~/.claude.json`. All work — features, bugs, ideas, someday/maybe items — lives in Agent GTD as items, not in markdown files, roadmap docs, or TODO comments.
+
+**GTD project for this repo:** `cee5e952-c7f4-4115-8d25-17fbb62066b9` (name `agent-gtd-dev`). Use this `project_id` when calling `add_item` / `list_items` for this codebase.
 
 ### MANDATORY: Work out of Agent GTD
 
