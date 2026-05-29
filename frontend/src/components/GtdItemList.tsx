@@ -32,6 +32,7 @@ import LockIcon from '@mui/icons-material/Lock'
 import { api, ApiError } from '../api'
 import type { Item, Project, ItemStatus, Priority, BlockerSummary } from '../types'
 import { PRIORITY_BORDER } from '../priorityColors'
+import { ENGINE_LABELS } from '../engineLabels'
 import { hasUnresolvedBlockers } from '../utils'
 import { useEvents } from '../contexts/EventStreamContext'
 import ItemDetailDrawer from './ItemDetailDrawer'
@@ -46,11 +47,6 @@ const ITEM_STATUS_LABELS: Partial<Record<ItemStatus, string>> = {
   waiting_for: 'Waiting',
   someday_maybe: 'Someday',
   done: 'Done',
-}
-
-const ENGINE_LABEL: Record<string, { label: string; color: 'warning' | 'default' }> = {
-  'claude-code-ollama': { label: 'Ollama', color: 'warning' },
-  'claude-code': { label: 'Anthropic', color: 'default' },
 }
 
 interface GtdItemListProps {
@@ -390,9 +386,9 @@ export default function GtdItemList({
                       )}
                       {item.buildEngine && (
                         <Chip
-                          label={ENGINE_LABEL[item.buildEngine]?.label ?? item.buildEngine}
+                          label={ENGINE_LABELS[item.buildEngine]?.label ?? item.buildEngine}
                           size="small"
-                          color={ENGINE_LABEL[item.buildEngine]?.color ?? 'default'}
+                          color={ENGINE_LABELS[item.buildEngine]?.color ?? 'default'}
                           sx={{ height: 20, fontSize: '0.7rem' }}
                         />
                       )}

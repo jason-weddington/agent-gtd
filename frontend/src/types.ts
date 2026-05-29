@@ -64,6 +64,12 @@ export type ItemStatus =
   | 'review'
   | 'done'
 export type Priority = 'low' | 'normal' | 'high' | 'urgent'
+export type BuildEngine =
+  | 'claude-code'
+  | 'claude-code-ollama'
+  | 'claude-code-sonnet'
+  | 'claude-code-haiku'
+  | 'kiro'
 
 // --- Domain Types ---
 
@@ -120,7 +126,7 @@ export interface Item {
   blockers?: BlockerSummary[]
   version: number
   lockedByRolloutId: string | null
-  buildEngine: string | null
+  buildEngine: BuildEngine | null
   acceptanceCriteria: string[]
   filesToModify: Record<string, string>[]
   scopeOut: string[]

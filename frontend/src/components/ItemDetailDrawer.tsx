@@ -37,6 +37,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile'
 import { api, ApiError } from '../api'
 import type { AttachmentResponse, DispatchHost, Item, Comment, MemberSummary, Project, Run, ItemStatus } from '../types'
+import { BUILD_ENGINE_OPTIONS } from '../engineLabels'
 import { isDispatchServiceConfigured, formatRelativeTime, formatFileSize } from '../utils'
 import { useAuth } from '../contexts/AuthContext'
 import { useEvents } from '../contexts/EventStreamContext'
@@ -905,12 +906,11 @@ export default function ItemDetailDrawer({
                         <MenuItem value="" sx={{ fontSize: '0.8rem' }}>
                           <em>Default</em>
                         </MenuItem>
-                        <MenuItem value="claude-code" sx={{ fontSize: '0.8rem' }}>
-                          Claude Code (Anthropic)
-                        </MenuItem>
-                        <MenuItem value="claude-code-ollama" sx={{ fontSize: '0.8rem' }}>
-                          Claude Code (Ollama)
-                        </MenuItem>
+                        {BUILD_ENGINE_OPTIONS.map((opt) => (
+                          <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: '0.8rem' }}>
+                            {opt.displayLabel}
+                          </MenuItem>
+                        ))}
                       </Select>
                     </FormControl>
                   )}

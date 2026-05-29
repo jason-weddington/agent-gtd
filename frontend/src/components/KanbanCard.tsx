@@ -5,6 +5,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import { Draggable } from '@hello-pangea/dnd'
 import type { Item } from '../types'
 import { PRIORITY_BORDER } from '../priorityColors'
+import { ENGINE_LABELS } from '../engineLabels'
 
 interface KanbanCardProps {
   item: Item
@@ -15,11 +16,6 @@ interface KanbanCardProps {
   isSelectable?: boolean
   isSelected?: boolean
   onToggleSelect?: (id: string) => void
-}
-
-const ENGINE_LABEL: Record<string, { label: string; color: 'warning' | 'default' }> = {
-  'claude-code-ollama': { label: 'Ollama', color: 'warning' },
-  'claude-code': { label: 'Anthropic', color: 'default' },
 }
 
 export default memo(function KanbanCard({
@@ -33,7 +29,7 @@ export default memo(function KanbanCard({
   onToggleSelect,
 }: KanbanCardProps) {
   const isOverdue = item.dueDate && new Date(item.dueDate) < new Date()
-  const engineChip = item.buildEngine ? (ENGINE_LABEL[item.buildEngine] ?? { label: item.buildEngine, color: 'default' as const }) : null
+  const engineChip = item.buildEngine ? (ENGINE_LABELS[item.buildEngine] ?? { label: item.buildEngine, color: 'default' as const }) : null
   const selectableCard = selectionMode && isSelectable
 
   return (
