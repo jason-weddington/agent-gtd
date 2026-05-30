@@ -598,21 +598,35 @@ export default function ProjectDetail() {
 
   const visibleItems = showCompleted ? items : items.filter((i) => i.status !== 'done')
 
+  // myTasksItems applies only the showMyTasksOnly filter; allLabels, filteredItems,
+  // and boardItems all derive from it, eliminating duplication of the my-tasks filter logic.
+  const myTasksItems = useMemo(() => {
+    if (showMyTasksOnly && user?.email) {
+      return visibleItems.filter((i) => i.assignedTo === user.email)
+    }
+    return visibleItems
+  }, [visibleItems, showMyTasksOnly, user])
+
   const allLabels = useMemo(() => {
     const labelSet = new Set<string>()
-    for (const item of visibleItems) {
+    for (const item of myTasksItems) {
       for (const label of item.labels) {
         labelSet.add(label)
       }
     }
     return Array.from(labelSet).sort()
-  }, [visibleItems])
+  }, [myTasksItems])
+
+  // Prune stale label selections when the tag pill set shrinks (e.g., after enabling 'My tasks').
+  // Must come after allLabels is declared — referencing it earlier hits the temporal dead zone.
+  useEffect(() => {
+    setSelectedLabels((prev) =>
+      prev.filter((label) => allLabels.includes(label)),
+    )
+  }, [allLabels])
 
   const filteredItems = useMemo(() => {
-    let result = visibleItems
-    if (showMyTasksOnly && user?.email) {
-      result = result.filter((i) => i.assignedTo === user.email)
-    }
+    let result = myTasksItems
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       result = result.filter(
@@ -629,16 +643,13 @@ export default function ProjectDetail() {
       )
     }
     return result
-  }, [visibleItems, showMyTasksOnly, user, searchQuery, selectedLabels, labelFilterMode])
+  }, [myTasksItems, searchQuery, selectedLabels, labelFilterMode])
 
   // Board items — applies only the showMyTasksOnly filter (search/label filters
   // are list-view-only; the Kanban board shows filtered items per the spec).
   const boardItems = useMemo(() => {
-    if (showMyTasksOnly && user?.email) {
-      return visibleItems.filter((i) => i.assignedTo === user.email)
-    }
-    return visibleItems
-  }, [visibleItems, showMyTasksOnly, user])
+    return myTasksItems
+  }, [myTasksItems])
 
   // --- Notes ---
   const openCreateNote = () => {
