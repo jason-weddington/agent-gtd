@@ -2,6 +2,75 @@
 
 <!-- version list -->
 
+## v1.89.0 (2026-05-30)
+
+### Bug Fixes
+
+- **6b905566**: Attribution regression: shared-project dispatches by non-owners show "human"
+  ([`0b887ee`](https://github.com/jason-weddington/agent-gtd/commit/0b887eec85862f59a00dd43f2d7f0a7f114312a6))
+
+- **85741022**: Project list item count
+  ([`9e7b13c`](https://github.com/jason-weddington/agent-gtd/commit/9e7b13c4fbbbfbf1d4ee5017eb1548c8464624d2))
+
+- **comments**: Don't echo user.email in REST route fallback for created_by
+  ([`dd27f2b`](https://github.com/jason-weddington/agent-gtd/commit/dd27f2b8284e01a9b8549e3e0224d550ce224974))
+
+### Documentation
+
+- Bootstrap docs/ scaffold from claude_workflow_example templates
+  ([`038cf0a`](https://github.com/jason-weddington/agent-gtd/commit/038cf0a40e5672e1ccf620385ef6922d37544331))
+
+- Clarify dispatch host env model and MCP provisioning
+  ([`839d89b`](https://github.com/jason-weddington/agent-gtd/commit/839d89b05c3a06ceaa4852af643b191382c9cfaf))
+
+- Record GTD project id and fix MCP config location in CLAUDE.md
+  ([`e764ec0`](https://github.com/jason-weddington/agent-gtd/commit/e764ec01dfc8cc4af72172565f8b659efb0036ff))
+
+### Features
+
+- **087f519f**: Add "Assign to me" button to list and board views
+  ([`3ccf71a`](https://github.com/jason-weddington/agent-gtd/commit/3ccf71a5c571210e643236f1741b3572adf7c566))
+
+- **33ed64c7**: Build engine dropdown matches full BuildEngine enum
+  ([`dfcb551`](https://github.com/jason-weddington/agent-gtd/commit/dfcb5511ddee0654a15d14043b10bddc99d902fe))
+
+- **50f0e9f2**: Rollout Activity Drawer Width
+  ([`24a252a`](https://github.com/jason-weddington/agent-gtd/commit/24a252ac5723c2a0904ef4b889cf4c839958dd9e))
+
+- **64e76439**: Return full UUIDs in board_state tool responses
+  ([`0a7210c`](https://github.com/jason-weddington/agent-gtd/commit/0a7210c1542a5da117242973e5576d540a3a3e5c))
+
+- **6c333bbd**: Settings - manager and worker timeout field headings
+  ([`5c429f6`](https://github.com/jason-weddington/agent-gtd/commit/5c429f6ee8164279cac36aa4c4769c23e5ab3ef9))
+
+- **73c26224**: Starting rollouts from web UI
+  ([`abc20be`](https://github.com/jason-weddington/agent-gtd/commit/abc20beaa52614b98c1cd1cc56f01f0c77308802))
+
+- **9125f6c3**: Task drawer - project list drop down
+  ([`9b59bbf`](https://github.com/jason-weddington/agent-gtd/commit/9b59bbfe065a014745db0ce53fd98b4ffb67b6f5))
+
+- **aaab9503**: Relabel claude-code build engine as Opus
+  ([`3f7eaa5`](https://github.com/jason-weddington/agent-gtd/commit/3f7eaa5a6e7ed4728cf71db211e5abd719aeeb1b))
+
+- **assignments**: Wire task assignments into the UI
+  ([`79e2512`](https://github.com/jason-weddington/agent-gtd/commit/79e2512e3f9f82ddbdf51e9fca4b3c6c41355288))
+
+- **c9100e7e**: List View - Filtering by Tag
+  ([`8314165`](https://github.com/jason-weddington/agent-gtd/commit/8314165e79d166cf7c1008e70d547704310bf661))
+
+- **dc54e1ea**: Comment attribution - human
+  ([`83ed070`](https://github.com/jason-weddington/agent-gtd/commit/83ed0701c1bd9ab6757f96d00f88dd80b5117d50))
+
+- **eaef216e**: Dispatch in saved projects
+  ([`6ca92d3`](https://github.com/jason-weddington/agent-gtd/commit/6ca92d374137a6ec2a9148906456d9eee65244d5))
+
+- **faa926be**: Tag filter pills respect 'My tasks' filter
+  ([`97befe9`](https://github.com/jason-weddington/agent-gtd/commit/97befe972ff5bde4a8d5a78795139015f1ae3130))
+
+- **rollouts**: Add dismiss X button to RolloutStrip for halted rollouts
+  ([`f5c2f26`](https://github.com/jason-weddington/agent-gtd/commit/f5c2f26f81c744cba0f8aaeab9387373d9e6db49))
+
+
 ## v1.88.0 (2026-05-21)
 
 ### Bug Fixes
