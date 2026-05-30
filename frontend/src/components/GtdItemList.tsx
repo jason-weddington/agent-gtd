@@ -25,11 +25,13 @@ import {
 import EditIcon from '@mui/icons-material/Edit'
 import DoneIcon from '@mui/icons-material/Done'
 import DeleteIcon from '@mui/icons-material/Delete'
+import PersonAddIcon from '@mui/icons-material/PersonAdd'
 import SearchIcon from '@mui/icons-material/Search'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import LockIcon from '@mui/icons-material/Lock'
 import { api, ApiError } from '../api'
+import { useAuth } from '../contexts/AuthContext'
 import type { Item, Project, ItemStatus, Priority, BlockerSummary } from '../types'
 import { PRIORITY_BORDER } from '../priorityColors'
 import { ENGINE_LABELS } from '../engineLabels'
@@ -91,6 +93,7 @@ export default function GtdItemList({
   // Copy ID feedback
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
+  const { user } = useAuth()
   const { onEvent } = useEvents()
   const loadDataRef = useRef<() => Promise<void>>(undefined)
 
@@ -207,6 +210,16 @@ export default function GtdItemList({
     }
   }
 
+  const handleAssignToMe = async (item: Item) => {
+    if (!user?.email) return
+    try {
+      await api.items.update(item.id, { assignedTo: user.email })
+      await loadData()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : 'Failed to assign item')
+    }
+  }
+
   const handleDelete = async () => {
     if (!deleteTarget) return
     setDeleting(true)
@@ -320,11 +333,18 @@ export default function GtdItemList({
                 borderRadius: 1,
                 mb: 1,
                 cursor: 'pointer',
-                pr: { xs: '112px', sm: '104px' },
+                pr: { xs: '148px', sm: '140px' },
                 '&:hover': { bgcolor: 'action.hover' },
               }}
               secondaryAction={
                 <Box>
+                  {user?.email && item.assignedTo !== user.email && (
+                    <Tooltip title="Assign to me">
+                      <IconButton size="small" onClick={(e) => { e.stopPropagation(); void handleAssignToMe(item) }}>
+                        <PersonAddIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                   <IconButton size="small" onClick={(e) => { e.stopPropagation(); openEdit(item) }} title="Edit">
                     <EditIcon fontSize="small" />
                   </IconButton>

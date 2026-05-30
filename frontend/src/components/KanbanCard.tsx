@@ -2,6 +2,7 @@ import { memo } from 'react'
 import { Box, Typography, Chip, IconButton, Tooltip, Checkbox } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
+import PersonAddIcon from '@mui/icons-material/PersonAdd'
 import { Draggable } from '@hello-pangea/dnd'
 import type { Item } from '../types'
 import { PRIORITY_BORDER } from '../priorityColors'
@@ -12,6 +13,8 @@ interface KanbanCardProps {
   index: number
   onEdit: (item: Item) => void
   onDelete: (item: Item) => void
+  onAssignToMe?: (item: Item) => void
+  currentUserEmail?: string
   selectionMode?: boolean
   isSelectable?: boolean
   isSelected?: boolean
@@ -23,6 +26,8 @@ export default memo(function KanbanCard({
   index,
   onEdit,
   onDelete,
+  onAssignToMe,
+  currentUserEmail,
   selectionMode,
   isSelectable,
   isSelected,
@@ -114,6 +119,13 @@ export default memo(function KanbanCard({
               className="kanban-actions"
               sx={{ opacity: 0, transition: 'opacity 0.15s', display: selectableCard ? 'none' : 'flex' }}
             >
+              {onAssignToMe && currentUserEmail && item.assignedTo !== currentUserEmail && (
+                <Tooltip title="Assign to me">
+                  <IconButton size="small" onClick={(e) => { e.stopPropagation(); onAssignToMe(item) }} sx={{ p: 0.25 }}>
+                    <PersonAddIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+              )}
               <Tooltip title="Edit">
                 <IconButton size="small" onClick={(e) => { e.stopPropagation(); onEdit(item) }} sx={{ p: 0.25 }}>
                   <EditIcon sx={{ fontSize: 16 }} />

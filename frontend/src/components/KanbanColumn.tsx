@@ -12,6 +12,8 @@ interface KanbanColumnProps {
   onEdit: (item: Item) => void
   onDelete: (item: Item) => void
   onAdd: (columnId: string) => void
+  onAssignToMe?: (item: Item) => void
+  currentUserEmail?: string
   headerCTA?: ReactNode
   selectionMode?: boolean
   selectedIds?: ReadonlySet<string>
@@ -25,6 +27,8 @@ export default function KanbanColumn({
   onEdit,
   onDelete,
   onAdd,
+  onAssignToMe,
+  currentUserEmail,
   headerCTA,
   selectionMode,
   selectedIds,
@@ -75,6 +79,8 @@ export default function KanbanColumn({
                 index={index}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                onAssignToMe={onAssignToMe}
+                currentUserEmail={currentUserEmail}
                 selectionMode={selectionMode}
                 isSelectable={item.status === 'ready'}
                 isSelected={selectedIds?.has(item.id)}

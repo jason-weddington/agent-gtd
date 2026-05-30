@@ -7,6 +7,7 @@ import { DragDropContext, type DropResult } from '@hello-pangea/dnd'
 import KanbanColumn from './KanbanColumn'
 import { api, ApiError } from '../api'
 import type { Item, ItemStatus } from '../types'
+import { useAuth } from '../contexts/AuthContext'
 
 /** Column definitions */
 const COLUMNS = [
@@ -49,6 +50,7 @@ export default function KanbanBoard({
   onDeleteItem,
   onAddItem,
 }: KanbanBoardProps) {
+  const { user } = useAuth()
   const [doneExpanded, setDoneExpanded] = useState(false)
   const [dragError, setDragError] = useState<string | null>(null)
   const [rolloutError, setRolloutError] = useState<string | null>(null)
@@ -191,6 +193,20 @@ export default function KanbanBoard({
     [onAddItem],
   )
 
+  const handleAssignToMe = useCallback(
+    async (item: Item) => {
+      if (!user?.email) return
+      try {
+        await api.items.update(item.id, { assignedTo: user.email })
+        await onRefresh()
+      } catch {
+        // Refresh will restore correct state
+        await onRefresh()
+      }
+    },
+    [user, onRefresh],
+  )
+
   const ctaLabel = rolloutSelectionMode && selectedReadyIds.size > 0
     ? 'Rollout Selected Items'
     : 'Select for Rollout...'
@@ -243,6 +259,8 @@ export default function KanbanBoard({
               onEdit={onEditItem}
               onDelete={onDeleteItem}
               onAdd={handleAddToColumn}
+              onAssignToMe={user?.email ? handleAssignToMe : undefined}
+              currentUserEmail={user?.email}
               {...(col.id === 'ready' ? {
                 headerCTA: readyColumnCTA,
                 selectionMode: rolloutSelectionMode,

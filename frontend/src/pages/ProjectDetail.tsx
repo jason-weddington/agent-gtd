@@ -38,6 +38,7 @@ import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import DoneIcon from '@mui/icons-material/Done'
+import PersonAddIcon from '@mui/icons-material/PersonAdd'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ViewListIcon from '@mui/icons-material/ViewList'
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
@@ -596,6 +597,16 @@ export default function ProjectDetail() {
     }
   }
 
+  const handleAssignToMe = async (item: Item) => {
+    if (!user?.email) return
+    try {
+      await api.items.update(item.id, { assignedTo: user.email })
+      await loadData()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : 'Failed to assign item')
+    }
+  }
+
   const visibleItems = showCompleted ? items : items.filter((i) => i.status !== 'done')
 
   // myTasksItems applies only the showMyTasksOnly filter; allLabels, filteredItems,
@@ -1047,6 +1058,13 @@ export default function ProjectDetail() {
                   secondaryAction={
                     item._optimistic ? null : (
                       <Box>
+                        {user?.email && item.assignedTo !== user.email && (
+                          <Tooltip title="Assign to me">
+                            <IconButton size="small" onClick={(e) => { e.stopPropagation(); void handleAssignToMe(item) }}>
+                              <PersonAddIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         <IconButton size="small" onClick={(e) => { e.stopPropagation(); openEditItem(item) }}>
                           <EditIcon fontSize="small" />
                         </IconButton>
