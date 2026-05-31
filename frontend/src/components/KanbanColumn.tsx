@@ -3,6 +3,7 @@ import { Box, Typography, Button, Chip } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import { Droppable } from '@hello-pangea/dnd'
 import KanbanCard from './KanbanCard'
+import { isRolloutEligible } from './KanbanBoard'
 import type { Item } from '../types'
 
 interface KanbanColumnProps {
@@ -82,7 +83,7 @@ export default function KanbanColumn({
                 onAssignToMe={onAssignToMe}
                 currentUserEmail={currentUserEmail}
                 selectionMode={selectionMode}
-                isSelectable={item.status === 'ready'}
+                isSelectable={isRolloutEligible(item)}
                 isSelected={selectedIds?.has(item.id)}
                 onToggleSelect={onToggleSelect}
               />

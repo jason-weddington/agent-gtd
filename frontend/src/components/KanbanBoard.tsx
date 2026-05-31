@@ -9,6 +9,11 @@ import { api, ApiError } from '../api'
 import type { Item, ItemStatus } from '../types'
 import { useAuth } from '../contexts/AuthContext'
 
+/** Check if an item is eligible for rollout selection (ready and not already locked into a rollout) */
+export function isRolloutEligible(item: Item): boolean {
+  return item.status === 'ready' && item.lockedByRolloutId === null
+}
+
 /** Column definitions */
 const COLUMNS = [
   { id: 'new', title: 'New', statuses: ['new'] as ItemStatus[] },
@@ -88,9 +93,9 @@ export default function KanbanBoard({
     [displayItems],
   )
 
-  // Items in the ready column that are eligible for rollout (status === 'ready')
+  // Items in the ready column that are eligible for rollout (status === 'ready' and not locked by a rollout)
   const readyItems = useMemo(
-    () => items.filter((i) => i.status === 'ready'),
+    () => items.filter(isRolloutEligible),
     [items],
   )
 
