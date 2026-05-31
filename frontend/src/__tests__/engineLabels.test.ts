@@ -18,6 +18,29 @@ describe('BUILD_ENGINE_OPTIONS', () => {
       expect(ENGINE_LABELS[opt.value].label).toBeTruthy()
     }
   })
+
+  it('all claude-code-prefixed entries use parenthesized Claude Code format', () => {
+    const claudeCodeOptions = BUILD_ENGINE_OPTIONS.filter((o) =>
+      o.value.startsWith('claude-code')
+    )
+    expect(claudeCodeOptions.length).toBe(4)
+    for (const opt of claudeCodeOptions) {
+      expect(opt.displayLabel).toMatch(/^Claude Code \(.+\)$/)
+    }
+    // Also verify the exact labels for consistency
+    expect(BUILD_ENGINE_OPTIONS.find((o) => o.value === 'claude-code')?.displayLabel).toBe(
+      'Claude Code (Opus)'
+    )
+    expect(BUILD_ENGINE_OPTIONS.find((o) => o.value === 'claude-code-sonnet')?.displayLabel).toBe(
+      'Claude Code (Sonnet)'
+    )
+    expect(BUILD_ENGINE_OPTIONS.find((o) => o.value === 'claude-code-haiku')?.displayLabel).toBe(
+      'Claude Code (Haiku)'
+    )
+    expect(BUILD_ENGINE_OPTIONS.find((o) => o.value === 'claude-code-ollama')?.displayLabel).toBe(
+      'Claude Code (Ollama)'
+    )
+  })
 })
 
 describe('ENGINE_LABELS', () => {

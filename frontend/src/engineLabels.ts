@@ -10,8 +10,8 @@ export const ENGINE_LABELS: Record<BuildEngine, { label: string; color: 'warning
 
 export const BUILD_ENGINE_OPTIONS: { value: BuildEngine; displayLabel: string }[] = [
   { value: 'claude-code', displayLabel: 'Claude Code (Opus)' },
-  { value: 'claude-code-sonnet', displayLabel: 'Claude Code Sonnet' },
-  { value: 'claude-code-haiku', displayLabel: 'Claude Code Haiku' },
+  { value: 'claude-code-sonnet', displayLabel: 'Claude Code (Sonnet)' },
+  { value: 'claude-code-haiku', displayLabel: 'Claude Code (Haiku)' },
   { value: 'claude-code-ollama', displayLabel: 'Claude Code (Ollama)' },
   { value: 'kiro', displayLabel: 'Kiro' },
 ]
