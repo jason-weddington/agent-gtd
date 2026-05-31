@@ -21,6 +21,17 @@ export default defineConfig([
     },
     rules: {
       'react-refresh/only-export-components': 'off',
+      '@typescript-eslint/no-use-before-define': [
+        'error',
+        {
+          variables: true,
+          functions: false,
+          classes: false,
+          enums: false,
+          typedefs: false,
+          ignoreTypeReferences: true,
+        },
+      ],
     },
   },
 ])
