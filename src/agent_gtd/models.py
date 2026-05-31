@@ -6,7 +6,7 @@ from enum import StrEnum
 from typing import Any, Literal, assert_never
 
 from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 # --- Enums ---
 
@@ -876,6 +876,18 @@ class PlanRolloutResult(BaseModel):
     per_item: list[PlanRolloutItemSummary]
 
 
+class InFlightBuildRun(BaseModel):
+    """A non-terminal child build run tracked under a rollout (derived on read).
+
+    Derived at read time from a JOIN of rollout_items -> claude_runs.
+    Never persisted; no new column on autonomous_rollouts.
+    """
+
+    run_id: str = Field(alias="runId", serialization_alias="runId")
+    item_id: str = Field(alias="itemId", serialization_alias="itemId")
+    status: str
+
+
 class RolloutResponse(BaseModel):
     """Rollout data returned from the API, augmented with progress counts."""
 
@@ -890,6 +902,12 @@ class RolloutResponse(BaseModel):
     updated_at: str
     total_count: int
     done_count: int
+    in_flight_build_runs: list[InFlightBuildRun] = Field(
+        default_factory=list,
+        alias="inFlightBuildRuns",
+        serialization_alias="inFlightBuildRuns",
+        description="Non-terminal child build runs (derived on read; never stored).",
+    )
 
 
 class RolloutEventResponse(BaseModel):

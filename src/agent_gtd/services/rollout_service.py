@@ -23,6 +23,10 @@ _TERMINAL_STATUSES = frozenset(("completed", "halted", "skipped"))
 _ACTIVE_ITEM_STATUSES = frozenset(("pending", "ready", "dispatched"))
 _HALTED_FROM_STATUSES = ("pending", "ready", "dispatched")
 
+# Terminal statuses for claude_runs rows.  A run is "in-flight" when its
+# status is NOT in this set (i.e. pending / cloning / running).
+_TERMINAL_RUN_STATUSES = frozenset(("success", "failed", "cancelled", "timeout"))
+
 
 # ---------------------------------------------------------------------------
 # Legality contract validation
@@ -378,6 +382,94 @@ async def plan_rollout(
         "item_count": len(nodes),
         "per_item": per_item,
     }
+
+
+# ---------------------------------------------------------------------------
+# In-flight build run helpers (derived-on-read, never persisted)
+# ---------------------------------------------------------------------------
+
+
+async def _fetch_in_flight_build_runs(
+    db: DbPool,
+    rollout_id: str,
+) -> list[dict[str, Any]]:
+    """Return non-terminal child build runs for *rollout_id*.
+
+    Performs a JOIN of rollout_items -> claude_runs and filters to rows whose
+    claude_runs.status is NOT in ``_TERMINAL_RUN_STATUSES`` (i.e. pending /
+    cloning / running).  The result is a list of dicts with keys
+    ``runId``, ``itemId``, and ``status`` — camelCase so the shape is
+    identical for both the HTTP JSON response and the MCP tool dict.
+
+    Args:
+        db: Database pool.
+        rollout_id: The rollout whose in-flight runs to fetch.
+
+    Returns:
+        List of ``{runId, itemId, status}`` dicts, possibly empty.
+    """
+    rows = await db.fetch(
+        """
+        SELECT cr.id AS run_id, ri.item_id, cr.status
+        FROM rollout_items ri
+        JOIN claude_runs cr ON cr.id = ri.claude_run_id
+        WHERE ri.rollout_id = $1
+          AND cr.status NOT IN ('success', 'failed', 'cancelled', 'timeout')
+        """,
+        rollout_id,
+    )
+    return [
+        {
+            "runId": str(r["run_id"]),
+            "itemId": str(r["item_id"]),
+            "status": str(r["status"]),
+        }
+        for r in rows
+    ]
+
+
+async def _fetch_in_flight_build_runs_batch(
+    db: DbPool,
+    rollout_ids: list[str],
+) -> dict[str, list[dict[str, Any]]]:
+    """Batch variant of :func:`_fetch_in_flight_build_runs` for multiple rollouts.
+
+    Returns a mapping of rollout_id -> list of ``{runId, itemId, status}`` dicts.
+    Missing keys (no in-flight runs) map to empty lists.
+
+    Args:
+        db: Database pool.
+        rollout_ids: The rollout IDs to query.
+
+    Returns:
+        Dict keyed by rollout_id.
+    """
+    result: dict[str, list[dict[str, Any]]] = {rid: [] for rid in rollout_ids}
+    if not rollout_ids:
+        return result
+
+    placeholders = ", ".join(f"${i + 1}" for i in range(len(rollout_ids)))
+    rows = await db.fetch(
+        f"""
+        SELECT ri.rollout_id, cr.id AS run_id, ri.item_id, cr.status
+        FROM rollout_items ri
+        JOIN claude_runs cr ON cr.id = ri.claude_run_id
+        WHERE ri.rollout_id IN ({placeholders})
+          AND cr.status NOT IN ('success', 'failed', 'cancelled', 'timeout')
+        """,  # noqa: S608
+        *rollout_ids,
+    )
+    for r in rows:
+        rid = str(r["rollout_id"])
+        if rid in result:
+            result[rid].append(
+                {
+                    "runId": str(r["run_id"]),
+                    "itemId": str(r["item_id"]),
+                    "status": str(r["status"]),
+                }
+            )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -977,12 +1069,16 @@ async def get_rollout(
         rollout_id: The rollout to fetch.
 
     Returns:
-        The autonomous_rollouts row as a dict.
+        The autonomous_rollouts row as a dict, augmented with the computed
+        ``inFlightBuildRuns`` field (list of ``{runId, itemId, status}`` for
+        child build runs that are currently non-terminal).
 
     Raises:
         NotFoundError: If not found or not owned by the caller.
     """
-    return await _get_rollout(db, user_id, rollout_id)
+    wave = await _get_rollout(db, user_id, rollout_id)
+    in_flight = await _fetch_in_flight_build_runs(db, rollout_id)
+    return {**wave, "inFlightBuildRuns": in_flight}
 
 
 async def list_rollouts(
@@ -1006,6 +1102,8 @@ async def list_rollouts(
 
     Returns:
         List of autonomous_rollouts row dicts ordered by created_at DESC.
+        Each dict includes the computed ``inFlightBuildRuns`` field
+        (list of ``{runId, itemId, status}`` for non-terminal child build runs).
     """
     clamped_limit = min(max(1, limit), 100)
 
@@ -1027,7 +1125,13 @@ async def list_rollouts(
     params.append(clamped_limit)
 
     rows = await db.fetch(query, *params)
-    return [row_to_dict(r) for r in rows]
+    waves = [row_to_dict(r) for r in rows]
+
+    # Batch-fetch in-flight build runs for all rollouts in one query.
+    rollout_ids = [w["id"] for w in waves]
+    in_flight_map = await _fetch_in_flight_build_runs_batch(db, rollout_ids)
+
+    return [{**w, "inFlightBuildRuns": in_flight_map[w["id"]]} for w in waves]
 
 
 async def get_rollout_plan(
