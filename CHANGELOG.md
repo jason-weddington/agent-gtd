@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v1.90.0 (2026-05-31)
+
+### Bug Fixes
+
+- **506b3f1f**: Parenthesize Sonnet and Haiku build-engine labels
+  ([`470a766`](https://github.com/jason-weddington/agent-gtd/commit/470a7660629f71f17f34f3004d63f8bf2d734622))
+
+- **c5616469**: Exclude rollout-locked items from kanban "Select for Rollout"
+  ([`2a47070`](https://github.com/jason-weddington/agent-gtd/commit/2a470704c5125f6501af15e8dc803da2f1b39865))
+
+### Chores
+
+- **cfb68e2d**: Enable @typescript-eslint/no-use-before-define
+  ([`c2e3c28`](https://github.com/jason-weddington/agent-gtd/commit/c2e3c28aad232aa134183e11318108d0f6707161))
+
+### Features
+
+- **0aecc298**: Expose server-derived inFlightBuildRuns on rollout reads
+  ([`6399758`](https://github.com/jason-weddington/agent-gtd/commit/6399758772aad89e41531b5240540d426c86b461))
+
+
 ## v1.89.0 (2026-05-30)
 
 ### Bug Fixes
