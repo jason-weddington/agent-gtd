@@ -664,6 +664,12 @@ export default function ItemDetailDrawer({
         open={Boolean(item)}
         onClose={dispatchAnimating ? undefined : onClose}
         variant="temporary"
+        // Regression guard (GTD 36c1b775): same mechanism as ActivityDrawer.
+        // This temporary Drawer's Modal would lock body scroll on open; the
+        // `top:'64px'` offset is paper-only so the modal/backdrop span the full
+        // viewport. `disableScrollLock` stops it from mutating `document.body`
+        // so no scroll-lock residue can leave Sidebar nav dead after close.
+        disableScrollLock
         transitionDuration={dispatchAnimating ? 0 : undefined}
         sx={{
           '& .MuiDrawer-paper': {

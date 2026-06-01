@@ -299,6 +299,14 @@ export default function ActivityDrawer({
       anchor="right"
       open={open}
       onClose={onClose}
+      // Regression guard (GTD 36c1b775): this is a `temporary` Drawer (no
+      // `variant` → MUI default), whose Modal otherwise locks body scroll
+      // (`overflow:hidden` + `padding-right`) on open. The `top:'64px'` offset
+      // below is scoped to the paper only, so the modal/backdrop span the whole
+      // viewport. `disableScrollLock` keeps the drawer from mutating
+      // `document.body`, so no scroll-lock residue can outlive the drawer and
+      // leave the Sidebar nav unclickable after close.
+      disableScrollLock
       sx={{
         '& .MuiDrawer-paper': {
           width: { xs: '100vw', sm: 792 },
