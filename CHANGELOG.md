@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.90.1 (2026-06-01)
+
+### Bug Fixes
+
+- **36c1b775**: Disable body scroll-lock on right-side drawers to restore nav
+  ([`80acc9d`](https://github.com/jason-weddington/agent-gtd/commit/80acc9dfb1465d0c0f1f1a4d026ea99cfbcbe6dc))
+
+
 ## v1.90.0 (2026-05-31)
 
 ### Bug Fixes
