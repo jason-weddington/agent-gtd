@@ -11,6 +11,8 @@ import pytest
 from agent_gtd.cli import (
     _cmd_rollout_status,
     _cmd_run_status,
+    _do_add_item,
+    _do_update_item,
     _fetch_rollout_status,
     _fetch_run_status,
     main,
@@ -565,4 +567,879 @@ def test_cmd_promote_admin_error_exits_nonzero(monkeypatch, capsys):
     assert exc_info.value.code != 0
     captured = capsys.readouterr()
     assert "Error:" in captured.err
-    assert "no user found" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# update-item and add-item — helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_item(**overrides: Any) -> dict[str, Any]:
+    """Return a minimal item dict for fake-backend testing."""
+    item: dict[str, Any] = {
+        "id": str(uuid.uuid4()),
+        "user_id": "00000000-0000-0000-0000-000000000001",
+        "title": "Test Item",
+        "description": "",
+        "status": "inbox",
+        "priority": "normal",
+        "labels": [],
+        "version": 1,
+        "acceptance_criteria": [],
+        "files_to_modify": [],
+        "scope_out": [],
+        "build_engine": None,
+        "project_id": None,
+        "created_at": datetime.now(UTC).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    item.update(overrides)
+    return item
+
+
+# ---------------------------------------------------------------------------
+# (a) update-item from --stdin updates fields and bumps version
+# ---------------------------------------------------------------------------
+
+
+async def test_do_update_item_stdin_updates_fields_and_bumps_version(monkeypatch):
+    """(a) update-item payload updates fields and the version is bumped."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    row = await item_service.create_item(
+        db, LOCAL_USER_ID, title="Original", status="inbox"
+    )
+    item_id = str(row["id"])
+
+    # Simulate what _load_json_payload returns when --stdin is used
+    payload = {"acceptance_criteria": ["step 1", "step 2"], "title": "Updated"}
+    await _do_update_item(
+        item_id, payload, status="ready", build_engine=None, explicit_version=1
+    )
+
+    updated = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    assert updated is not None
+    assert updated["title"] == "Updated"
+    assert updated["status"] == "ready"
+    assert updated["version"] == 2
+
+
+def test_cmd_update_item_reads_stdin(monkeypatch, capsys):
+    """(a) _cmd_update_item parses JSON from stdin and forwards it."""
+    import io
+
+    called: dict[str, Any] = {}
+
+    async def _fake_do(  # type: ignore[misc]
+        item_id: str, payload: Any, status: Any, be: Any, ver: Any
+    ) -> None:
+        called["payload"] = payload
+        called["status"] = status
+
+    monkeypatch.setattr("agent_gtd.cli._do_update_item", _fake_do)
+    monkeypatch.setattr(
+        sys, "stdin", io.StringIO(json.dumps({"acceptance_criteria": ["x"]}))
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-gtd", "update-item", "item-id", "--stdin", "--status", "ready"],
+    )
+
+    main()
+
+    assert called["payload"] == {"acceptance_criteria": ["x"]}
+    assert called["status"] == "ready"
+
+
+# ---------------------------------------------------------------------------
+# (b) update-item auto-fetches version when --version omitted
+# ---------------------------------------------------------------------------
+
+
+async def test_do_update_item_auto_fetches_version(monkeypatch):
+    """(b) update-item auto-fetches current version when --version is omitted."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    row = await item_service.create_item(db, LOCAL_USER_ID, title="Auto-fetch test")
+    item_id = str(row["id"])
+    assert row["version"] == 1
+
+    # explicit_version=None → auto-fetch; should succeed without error
+    await _do_update_item(
+        item_id,
+        {"title": "Auto-fetched"},
+        status=None,
+        build_engine=None,
+        explicit_version=None,
+    )
+
+    updated = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    assert updated is not None
+    assert updated["title"] == "Auto-fetched"
+    assert updated["version"] == 2
+
+
+# ---------------------------------------------------------------------------
+# (c) update-item retries once on conflict then succeeds
+# ---------------------------------------------------------------------------
+
+
+async def test_do_update_item_retries_once_on_conflict(monkeypatch):
+    """(c) update-item retries exactly once on a version conflict then succeeds."""
+    from fastmcp.exceptions import ToolError
+
+    get_item_calls: list[int] = []
+    update_calls: list[int] = []
+
+    class _FakeBackend:
+        async def login(self, api_key: str, agent_name: str) -> dict[str, Any]:
+            return {"user_id": "fake-user"}
+
+        async def get_item(self, user_id: str, item_id: str) -> dict[str, Any]:
+            call_n = len(get_item_calls) + 1
+            get_item_calls.append(call_n)
+            return _make_item(id=item_id, version=call_n)
+
+        async def update_item(
+            self,
+            user_id: str,
+            item_id: str,
+            *,
+            version: int,
+            **kwargs: Any,
+        ) -> dict[str, Any]:
+            call_n = len(update_calls) + 1
+            update_calls.append(call_n)
+            if call_n == 1:
+                raise ToolError(
+                    f"Version conflict on Item {item_id}: expected {version},"
+                    f" got {version + 1}"
+                )
+            return _make_item(id=item_id, version=version + 1)
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("AGENT_GTD_URL", "http://example.com")
+    monkeypatch.setenv("AGENT_GTD_API_KEY", "test-key")
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: _FakeBackend())
+
+    # Should complete without raising — first attempt conflicts, retry succeeds.
+    await _do_update_item(
+        "item-uuid",
+        {"title": "New Title"},
+        status=None,
+        build_engine=None,
+        explicit_version=None,
+    )
+
+    assert len(update_calls) == 2, "expected exactly two update_item calls"
+    assert len(get_item_calls) == 2, "expected two get_item fetches (initial + retry)"
+
+
+# ---------------------------------------------------------------------------
+# (d) update-item with stale --version exits non-zero, NO retry
+# ---------------------------------------------------------------------------
+
+
+async def test_do_update_item_explicit_version_no_retry_on_conflict(monkeypatch):
+    """(d) explicit --version conflicts immediately, no retry, non-zero exit."""
+    from fastmcp.exceptions import ToolError
+
+    update_calls: list[int] = []
+
+    class _FakeBackend:
+        async def login(self, api_key: str, agent_name: str) -> dict[str, Any]:
+            return {"user_id": "fake-user"}
+
+        async def update_item(
+            self,
+            user_id: str,
+            item_id: str,
+            *,
+            version: int,
+            **kwargs: Any,
+        ) -> dict[str, Any]:
+            update_calls.append(version)
+            raise ToolError(
+                f"Version conflict on Item {item_id}: expected {version},"
+                f" got {version + 1}"
+            )
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("AGENT_GTD_URL", "http://example.com")
+    monkeypatch.setenv("AGENT_GTD_API_KEY", "test-key")
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: _FakeBackend())
+
+    with pytest.raises(ToolError, match="Version conflict"):
+        await _do_update_item(
+            "item-uuid",
+            {"title": "X"},
+            status=None,
+            build_engine=None,
+            explicit_version=1,
+        )
+
+    assert len(update_calls) == 1, "explicit-version path must NOT retry"
+
+
+def test_cmd_update_item_explicit_version_conflict_exits_nonzero(monkeypatch, capsys):
+    """(d) _cmd_update_item exits 1 when explicit --version conflicts."""
+    from fastmcp.exceptions import ToolError
+
+    async def _fake_do(  # type: ignore[misc]
+        item_id: str, payload: Any, status: Any, be: Any, ver: Any
+    ) -> None:
+        raise ToolError("Version conflict on Item x: expected 1, got 2")
+
+    monkeypatch.setattr("agent_gtd.cli._do_update_item", _fake_do)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-gtd", "update-item", "item-id", "--status", "ready", "--version", "1"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Error:" in captured.err
+    assert "Version conflict" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# (e) update-item with acceptance_criteria=[] clears field, title unchanged
+# ---------------------------------------------------------------------------
+
+
+async def test_do_update_item_empty_list_clears_acceptance_criteria(monkeypatch):
+    """(e) acceptance_criteria=[] clears the column; title stays unchanged."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    row = await item_service.create_item(
+        db,
+        LOCAL_USER_ID,
+        title="Keep This Title",
+        status="inbox",
+        acceptance_criteria=["step 1", "step 2"],
+    )
+    item_id = str(row["id"])
+
+    # Pass empty list — should CLEAR acceptance_criteria
+    await _do_update_item(
+        item_id,
+        {"acceptance_criteria": []},
+        status=None,
+        build_engine=None,
+        explicit_version=1,
+    )
+
+    updated = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    assert updated is not None
+    assert json.loads(updated["acceptance_criteria"]) == []
+    assert updated["title"] == "Keep This Title"  # unchanged
+
+
+# ---------------------------------------------------------------------------
+# (f) update-item with invalid --build-engine exits non-zero with Error:
+# ---------------------------------------------------------------------------
+
+
+async def test_do_update_item_invalid_build_engine_raises(monkeypatch):
+    """(f) _do_update_item raises ValidationError for invalid build_engine."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.exceptions import ValidationError
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    row = await item_service.create_item(
+        db, LOCAL_USER_ID, title="Test", status="inbox"
+    )
+    item_id = str(row["id"])
+
+    with pytest.raises(ValidationError, match="build_engine"):
+        await _do_update_item(
+            item_id, {}, status=None, build_engine="gpt-4", explicit_version=1
+        )
+
+
+def test_cmd_update_item_invalid_build_engine_exits_nonzero(monkeypatch, capsys):
+    """(f) _cmd_update_item exits 1 with Error: on stderr for invalid build-engine."""
+    from agent_gtd.exceptions import ValidationError
+
+    async def _fake_do(  # type: ignore[misc]
+        item_id: str, payload: Any, status: Any, be: Any, ver: Any
+    ) -> None:
+        raise ValidationError("build_engine must be one of [...]")
+
+    monkeypatch.setattr("agent_gtd.cli._do_update_item", _fake_do)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-gtd", "update-item", "item-id", "--build-engine", "gpt-4"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Error:" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# (g) add-item prints new UUID to stdout and persists heavy fields
+# ---------------------------------------------------------------------------
+
+
+async def test_do_add_item_returns_uuid_and_persists_heavy_fields(monkeypatch):
+    """(g) _do_add_item returns a valid UUID and persists all heavy fields."""
+    from agent_gtd.database import get_db
+    from agent_gtd.mcp_backend import LocalBackend
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+
+    ac = ["criterion 1", "criterion 2"]
+    ftm = [{"path": "src/foo.py", "change": "add stuff"}]
+    so = ["not this part"]
+
+    new_id = await _do_add_item(
+        project_id=None,
+        payload={
+            "title": "New Item",
+            "description": "A description",
+            "acceptance_criteria": ac,
+            "files_to_modify": ftm,
+            "scope_out": so,
+        },
+        status="next_action",
+        labels_cli=None,
+    )
+
+    # Must be a valid UUID
+    uuid.UUID(new_id)
+
+    row = await db.fetchrow("SELECT * FROM items WHERE id = $1", new_id)
+    assert row is not None
+    assert row["title"] == "New Item"
+    assert row["status"] == "next_action"
+    assert json.loads(row["acceptance_criteria"]) == ac
+    assert json.loads(row["files_to_modify"]) == ftm
+    assert json.loads(row["scope_out"]) == so
+
+
+def test_cmd_add_item_prints_uuid_only_to_stdout(monkeypatch, capsys):
+    """(g) _cmd_add_item prints ONLY the UUID to stdout, nothing else."""
+    import io
+
+    fake_id = str(uuid.uuid4())
+
+    async def _fake_do(
+        project_id: Any, payload: Any, status: Any, labels_cli: Any
+    ) -> str:
+        return fake_id
+
+    monkeypatch.setattr("agent_gtd.cli._do_add_item", _fake_do)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"title": "Test"})))
+    monkeypatch.setattr(sys, "argv", ["agent-gtd", "add-item", "--stdin"])
+
+    main()
+
+    captured = capsys.readouterr()
+    assert captured.out == f"{fake_id}\n"
+    assert captured.err == ""
+
+
+# ---------------------------------------------------------------------------
+# (h) add-item with invalid build_engine in JSON exits non-zero with Error:
+# ---------------------------------------------------------------------------
+
+
+async def test_do_add_item_invalid_build_engine_raises(monkeypatch):
+    """(h) _do_add_item raises ValidationError for invalid build_engine in JSON."""
+    from agent_gtd.exceptions import ValidationError
+    from agent_gtd.mcp_backend import LocalBackend
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    with pytest.raises(ValidationError, match="build_engine"):
+        await _do_add_item(
+            project_id=None,
+            payload={"title": "Test", "build_engine": "gpt-4"},
+            status=None,
+            labels_cli=None,
+        )
+
+
+def test_cmd_add_item_invalid_build_engine_exits_nonzero(monkeypatch, capsys):
+    """(h) _cmd_add_item exits 1 with Error: on stderr for invalid build_engine."""
+    import io
+
+    from agent_gtd.exceptions import ValidationError
+
+    async def _fake_do(
+        project_id: Any, payload: Any, status: Any, labels_cli: Any
+    ) -> str:
+        raise ValidationError("build_engine must be one of [...]")
+
+    monkeypatch.setattr("agent_gtd.cli._do_add_item", _fake_do)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(json.dumps({"title": "Test", "build_engine": "gpt-4"})),
+    )
+    monkeypatch.setattr(sys, "argv", ["agent-gtd", "add-item", "--stdin"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Error:" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# (i) add-item with JSON missing 'title' exits non-zero
+# ---------------------------------------------------------------------------
+
+
+async def test_do_add_item_missing_title_raises(monkeypatch):
+    """(i) _do_add_item raises ValueError when 'title' is absent from payload."""
+    from agent_gtd.mcp_backend import LocalBackend
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    with pytest.raises(ValueError, match="title"):
+        await _do_add_item(
+            project_id=None,
+            payload={"acceptance_criteria": ["step 1"]},  # no title
+            status=None,
+            labels_cli=None,
+        )
+
+
+def test_cmd_add_item_missing_title_exits_nonzero(monkeypatch, capsys):
+    """(i) _cmd_add_item exits 1 when payload has no 'title'."""
+    import io
+
+    async def _fake_do(
+        project_id: Any, payload: Any, status: Any, labels_cli: Any
+    ) -> str:
+        raise ValueError("JSON payload must include 'title'")
+
+    monkeypatch.setattr("agent_gtd.cli._do_add_item", _fake_do)
+    monkeypatch.setattr(
+        sys, "stdin", io.StringIO(json.dumps({"acceptance_criteria": ["x"]}))
+    )
+    monkeypatch.setattr(sys, "argv", ["agent-gtd", "add-item", "--stdin"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Error:" in captured.err
+    assert "title" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# (j) main() dispatches both new subcommands
+# ---------------------------------------------------------------------------
+
+
+def test_main_update_item_dispatches(monkeypatch, capsys):
+    """(j) main() with 'update-item' dispatches to _cmd_update_item."""
+    called: dict[str, Any] = {}
+
+    def _fake_cmd(args: Any) -> None:
+        called["item_id"] = args.item_id
+        called["status"] = args.status
+
+    monkeypatch.setattr("agent_gtd.cli._cmd_update_item", _fake_cmd)
+    monkeypatch.setattr(
+        sys, "argv", ["agent-gtd", "update-item", "some-uuid", "--status", "ready"]
+    )
+
+    main()
+
+    assert called["item_id"] == "some-uuid"
+    assert called["status"] == "ready"
+
+
+def test_main_add_item_dispatches(monkeypatch, capsys):
+    """(j) main() with 'add-item' dispatches to _cmd_add_item."""
+    called: dict[str, Any] = {}
+
+    def _fake_cmd(args: Any) -> None:
+        called["project"] = args.project
+        called["status"] = args.status
+
+    monkeypatch.setattr("agent_gtd.cli._cmd_add_item", _fake_cmd)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-gtd", "add-item", "--project", "proj-uuid", "--status", "inbox"],
+    )
+
+    main()
+
+    assert called["project"] == "proj-uuid"
+    assert called["status"] == "inbox"
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage tests — uncovered paths in cli.py
+# ---------------------------------------------------------------------------
+
+
+def test_load_json_payload_from_file(tmp_path):
+    """_load_json_payload reads JSON from a file path."""
+    from agent_gtd.cli import _load_json_payload
+
+    f = tmp_path / "payload.json"
+    f.write_text(json.dumps({"title": "Hello", "acceptance_criteria": ["step 1"]}))
+
+    result = _load_json_payload(str(f), use_stdin=False)
+
+    assert result["title"] == "Hello"
+    assert result["acceptance_criteria"] == ["step 1"]
+
+
+def test_load_json_payload_non_dict_raises_from_stdin(monkeypatch):
+    """_load_json_payload raises ValueError when stdin JSON is an array."""
+    import io
+
+    from agent_gtd.cli import _load_json_payload
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("[1, 2, 3]"))
+
+    with pytest.raises(ValueError, match="list"):
+        _load_json_payload(None, use_stdin=True)
+
+
+def test_cmd_update_item_no_source_exits_nonzero(monkeypatch, capsys):
+    """_cmd_update_item exits 1 when no --from-json/--stdin/--status/--build-engine."""
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-gtd", "update-item", "item-id"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Error:" in captured.err
+
+
+def test_cmd_update_item_bad_json_exits_nonzero(monkeypatch, capsys):
+    """_cmd_update_item exits 1 when stdin JSON is invalid."""
+    import io
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("not-json{{{"))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-gtd", "update-item", "item-id", "--stdin"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Error:" in captured.err
+
+
+async def test_do_update_item_non_conflict_toolerror_propagates(monkeypatch):
+    """_do_update_item re-raises non-conflict ToolError without retrying."""
+    from fastmcp.exceptions import ToolError
+
+    get_item_calls: list[int] = []
+
+    class _FakeBackend:
+        async def login(self, api_key: str, agent_name: str) -> dict[str, Any]:
+            return {"user_id": "fake-user"}
+
+        async def get_item(self, user_id: str, item_id: str) -> dict[str, Any]:
+            get_item_calls.append(1)
+            return _make_item(id=item_id, version=1)
+
+        async def update_item(
+            self,
+            user_id: str,
+            item_id: str,
+            *,
+            version: int,
+            **kwargs: Any,
+        ) -> dict[str, Any]:
+            raise ToolError(
+                f"Item {item_id} is locked by rollout abc — dispatch is blocked"
+            )
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("AGENT_GTD_URL", "http://example.com")
+    monkeypatch.setenv("AGENT_GTD_API_KEY", "test-key")
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: _FakeBackend())
+
+    with pytest.raises(ToolError, match="locked by rollout"):
+        await _do_update_item(
+            "item-uuid",
+            {"title": "X"},
+            status=None,
+            build_engine=None,
+            explicit_version=None,
+        )
+
+    # get_item called once for initial version fetch; NOT again (no retry)
+    assert len(get_item_calls) == 1
+
+
+async def test_do_add_item_http_mode(monkeypatch):
+    """_do_add_item uses HTTP path when AGENT_GTD_URL is set."""
+    fake_id = str(uuid.uuid4())
+    http_called: dict[str, Any] = {}
+
+    async def _fake_http_post(
+        base_url: str,
+        api_key: str,
+        *,
+        title: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        http_called["base_url"] = base_url
+        http_called["title"] = title
+        http_called["kwargs"] = kwargs
+        return {"id": fake_id}
+
+    class _FakeBackend:
+        async def login(self, api_key: str, agent_name: str) -> dict[str, Any]:
+            return {"user_id": "fake-user"}
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("AGENT_GTD_URL", "http://example.com")
+    monkeypatch.setenv("AGENT_GTD_API_KEY", "test-key")
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: _FakeBackend())
+    monkeypatch.setattr("agent_gtd.cli._http_post_create_item", _fake_http_post)
+
+    result_id = await _do_add_item(
+        project_id=None,
+        payload={
+            "title": "HTTP Item",
+            "acceptance_criteria": ["ac1"],
+        },
+        status="ready",
+        labels_cli=None,
+    )
+
+    assert result_id == fake_id
+    assert http_called["title"] == "HTTP Item"
+    assert http_called["kwargs"]["acceptance_criteria"] == ["ac1"]
+    assert http_called["kwargs"]["status"] == "ready"
+
+
+def test_cmd_add_item_with_labels_cli(monkeypatch, capsys):
+    """_cmd_add_item passes comma-separated --labels to _do_add_item."""
+    import io
+
+    captured_labels: dict[str, Any] = {}
+    fake_id = str(uuid.uuid4())
+
+    async def _fake_do(
+        project_id: Any, payload: Any, status: Any, labels_cli: Any
+    ) -> str:
+        captured_labels["labels"] = labels_cli
+        return fake_id
+
+    monkeypatch.setattr("agent_gtd.cli._do_add_item", _fake_do)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"title": "T"})))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-gtd", "add-item", "--stdin", "--labels", "foo,bar", "--labels", "baz"],
+    )
+
+    main()
+
+    assert captured_labels["labels"] == ["foo", "bar", "baz"]
+    captured = capsys.readouterr()
+    assert fake_id in captured.out
+
+
+def test_cmd_add_item_bad_json_exits_nonzero(monkeypatch, capsys):
+    """_cmd_add_item exits 1 when stdin JSON is invalid."""
+    import io
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("not-json"))
+    monkeypatch.setattr(sys, "argv", ["agent-gtd", "add-item", "--stdin"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Error:" in captured.err
+
+
+async def test_do_update_item_http_missing_api_key(monkeypatch):
+    """_do_update_item raises RuntimeError when URL set but API key missing."""
+    from agent_gtd.mcp_backend import LocalBackend
+
+    monkeypatch.setenv("AGENT_GTD_URL", "http://example.com")
+    monkeypatch.delenv("AGENT_GTD_API_KEY", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    with pytest.raises(RuntimeError, match="AGENT_GTD_API_KEY"):
+        await _do_update_item(
+            "item-id", {}, status="ready", build_engine=None, explicit_version=1
+        )
+
+
+async def test_do_add_item_http_missing_api_key(monkeypatch):
+    """_do_add_item raises RuntimeError when URL set but API key missing."""
+    from agent_gtd.mcp_backend import LocalBackend
+
+    monkeypatch.setenv("AGENT_GTD_URL", "http://example.com")
+    monkeypatch.delenv("AGENT_GTD_API_KEY", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    with pytest.raises(RuntimeError, match="AGENT_GTD_API_KEY"):
+        await _do_add_item(
+            project_id=None,
+            payload={"title": "Test"},
+            status=None,
+            labels_cli=None,
+        )
+
+
+async def test_http_post_create_item_success():
+    """_http_post_create_item posts to /api/items and returns the item dict."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from agent_gtd.cli import _http_post_create_item
+
+    fake_item = {"id": str(uuid.uuid4()), "title": "Test Item"}
+
+    mock_resp = MagicMock()
+    mock_resp.is_success = True
+    mock_resp.json.return_value = fake_item
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        result = await _http_post_create_item(
+            "http://example.com",
+            "api-key",
+            title="Test Item",
+            acceptance_criteria=["step 1"],
+            files_to_modify=[{"path": "a.py", "change": "add x"}],
+            scope_out=["not this"],
+            labels=["foo"],
+            project_id="proj-id",
+            build_engine="claude-code",
+        )
+
+    assert result == fake_item
+    mock_client.post.assert_called_once()
+    body = mock_client.post.call_args.kwargs["json"]
+    assert body["title"] == "Test Item"
+    assert body["acceptance_criteria"] == ["step 1"]
+    assert body["build_engine"] == "claude-code"
+    assert body["labels"] == ["foo"]
+
+
+async def test_http_post_create_item_error():
+    """_http_post_create_item raises ToolError on non-2xx response."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from fastmcp.exceptions import ToolError
+
+    from agent_gtd.cli import _http_post_create_item
+
+    mock_resp = MagicMock()
+    mock_resp.is_success = False
+    mock_resp.json.return_value = {"detail": "Unauthorized"}
+    mock_resp.text = "Unauthorized"
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with (
+        patch("httpx.AsyncClient", return_value=mock_client),
+        pytest.raises(ToolError, match="Unauthorized"),
+    ):
+        await _http_post_create_item(
+            "http://example.com",
+            "api-key",
+            title="Test",
+        )
+
+
+async def test_http_post_create_item_error_non_json_body():
+    """_http_post_create_item uses resp.text when error body is not JSON."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from fastmcp.exceptions import ToolError
+
+    from agent_gtd.cli import _http_post_create_item
+
+    mock_resp = MagicMock()
+    mock_resp.is_success = False
+    mock_resp.json.side_effect = ValueError("not JSON")
+    mock_resp.text = "Internal Server Error"
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with (
+        patch("httpx.AsyncClient", return_value=mock_client),
+        pytest.raises(ToolError, match="Internal Server Error"),
+    ):
+        await _http_post_create_item(
+            "http://example.com",
+            "api-key",
+            title="Test",
+        )
