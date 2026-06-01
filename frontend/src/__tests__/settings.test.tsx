@@ -214,11 +214,11 @@ describe('Settings – Dispatch Hosts', () => {
     })
   })
 
-  it('renders both "Worker default timeout (min)" and "Manager default timeout (min)" labels in Agent Dispatch card', async () => {
+  it('renders both "Worker timeout (min)" and "Manager timeout (min)" labels in Agent Dispatch card', async () => {
     render(<Settings />)
 
-    expect(await screen.findByLabelText(/Worker default timeout \(min\)/)).toBeInTheDocument()
-    expect(await screen.findByLabelText(/Manager default timeout \(min\)/)).toBeInTheDocument()
+    expect(await screen.findByLabelText(/Worker timeout \(min\)/)).toBeInTheDocument()
+    expect(await screen.findByLabelText(/Manager timeout \(min\)/)).toBeInTheDocument()
   })
 
   it('calls updateDispatch with managerDefaultTimeoutMinutes when manager timeout input blurs', async () => {
@@ -226,7 +226,7 @@ describe('Settings – Dispatch Hosts', () => {
 
     render(<Settings />)
 
-    const managerTimeoutInput = await screen.findByLabelText(/Manager default timeout \(min\)/)
+    const managerTimeoutInput = await screen.findByLabelText(/Manager timeout \(min\)/)
     fireEvent.change(managerTimeoutInput, { target: { value: '300' } })
     fireEvent.blur(managerTimeoutInput)
 
