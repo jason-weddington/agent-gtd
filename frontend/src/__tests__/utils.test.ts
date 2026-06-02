@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { toSnakeCase, toCamelCase, convertKeys, isDispatchServiceConfigured, apiKeyFieldPlaceholder, formatRelativeTime, formatFileSize, formatElapsed, formatDispatchVersions, isModalOpen } from '../utils'
+import { toSnakeCase, toCamelCase, convertKeys, isDispatchServiceConfigured, apiKeyFieldPlaceholder, formatRelativeTime, formatFileSize, formatElapsed, formatDispatchVersions } from '../utils'
 
 describe('toSnakeCase', () => {
   it('converts camelCase to snake_case', () => {
@@ -181,55 +181,6 @@ describe('formatDispatchVersions', () => {
       label: 'mixed (1.7.0, 1.8.0, 1.9.0)',
       mixed: true,
     })
-  })
-})
-
-describe('isModalOpen', () => {
-  let sentinelEl: HTMLElement | null = null
-
-  afterEach(() => {
-    if (sentinelEl && sentinelEl.parentElement) {
-      sentinelEl.parentElement.removeChild(sentinelEl)
-    }
-    sentinelEl = null
-  })
-
-  it('returns false when no .MuiModal-root element is present', () => {
-    expect(isModalOpen(document)).toBe(false)
-  })
-
-  it('returns true when a .MuiModal-root element is appended to the document', () => {
-    sentinelEl = document.createElement('div')
-    sentinelEl.className = 'MuiModal-root'
-    document.body.appendChild(sentinelEl)
-
-    expect(isModalOpen(document)).toBe(true)
-  })
-
-  it('returns false after the .MuiModal-root element is removed', () => {
-    sentinelEl = document.createElement('div')
-    sentinelEl.className = 'MuiModal-root'
-    document.body.appendChild(sentinelEl)
-
-    expect(isModalOpen(document)).toBe(true)
-
-    document.body.removeChild(sentinelEl)
-    sentinelEl = null
-    expect(isModalOpen(document)).toBe(false)
-  })
-
-  it('accepts an injected document and queries only within it', () => {
-    // Using the real `document` as a proxy for "injectable"; the helper must
-    // query the passed-in document, not a captured closure reference.
-    const freshDoc = document.implementation.createHTMLDocument('test')
-    expect(isModalOpen(freshDoc)).toBe(false)
-
-    const modal = freshDoc.createElement('div')
-    modal.className = 'MuiModal-root'
-    freshDoc.body.appendChild(modal)
-    expect(isModalOpen(freshDoc)).toBe(true)
-    // The real document is unaffected
-    expect(isModalOpen(document)).toBe(false)
   })
 })
 

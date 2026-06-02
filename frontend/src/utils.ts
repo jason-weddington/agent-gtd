@@ -95,24 +95,6 @@ export function formatFileSize(bytes: number): string {
 }
 
 /**
- * Returns true if a live MUI modal surface is currently present in the
- * document.  Checks for `.MuiModal-root`, the class applied by MUI's Modal
- * component and every component that extends it (Dialog, Popover, Menu,
- * Select, and temporary Drawer).
- *
- * Used by the inert-guard to distinguish a legitimate open modal (the `inert`
- * / `aria-hidden` on the app-root container is expected and must be left
- * alone) from a stranded state (the modal unmounted without its un-inert
- * cleanup running — safe to strip).
- *
- * @param doc  Document to query.  Defaults to the global `document`.  Pass a
- *             different Document in tests to keep the assertion hermetic.
- */
-export function isModalOpen(doc: Document = document): boolean {
-  return doc.querySelector('.MuiModal-root') !== null
-}
-
-/**
  * Returns a human-readable elapsed duration from a given ISO start timestamp
  * to now.  Returns "—" when startedAt is null.
  *

@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useInertGuard } from '../hooks/useInertGuard'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { useHotkeys } from 'react-hotkeys-hook'
 import {
@@ -41,11 +40,6 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
-
-  // Guaranteed-recovery guard: removes stranded MUI inert/aria-hidden that can
-  // be left on the app-root element when a modal unmounts without cleanup,
-  // silently killing Sidebar nav until the user reloads.  See useInertGuard.ts.
-  useInertGuard()
 
   useHotkeys('escape', () => {
     // Don't navigate if a dialog is open
