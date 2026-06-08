@@ -48,6 +48,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import HistoryToggleOffIcon from '@mui/icons-material/HistoryToggleOff'
 import { api, ApiError } from '../api'
+import { pruneSelectedLabels } from '../utils'
 import { useAuth } from '../contexts/AuthContext'
 import type { Project, Item, Note, Comment, ItemStatus, Priority, ProjectStatus, DispatchAgentInfo } from '../types'
 import { useDraftState } from '../hooks/useDraftState'
@@ -634,13 +635,7 @@ export default function ProjectDetail() {
   // Prune stale label selections when the tag pill set shrinks (e.g., after enabling 'My tasks').
   // Must come after allLabels is declared — referencing it earlier hits the temporal dead zone.
   useEffect(() => {
-    setSelectedLabels((prev) => {
-      const next = prev.filter((label) => allLabels.includes(label))
-      // Return the same reference when nothing was pruned so React bails out of
-      // the state update — otherwise filter()'s always-new array re-renders on a
-      // loop when allLabels changes identity each render (GTD render-loop fix).
-      return next.length === prev.length ? prev : next
-    })
+    setSelectedLabels((prev) => pruneSelectedLabels(prev, allLabels))
   }, [allLabels])
 
   const filteredItems = useMemo(() => {

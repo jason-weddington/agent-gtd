@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { toSnakeCase, toCamelCase, convertKeys, isDispatchServiceConfigured, apiKeyFieldPlaceholder, formatRelativeTime, formatFileSize, formatElapsed, formatDispatchVersions } from '../utils'
+import { toSnakeCase, toCamelCase, convertKeys, isDispatchServiceConfigured, apiKeyFieldPlaceholder, formatRelativeTime, formatFileSize, formatElapsed, formatDispatchVersions, pruneSelectedLabels } from '../utils'
 
 describe('toSnakeCase', () => {
   it('converts camelCase to snake_case', () => {
@@ -218,5 +218,57 @@ describe('formatElapsed', () => {
   it('returns "59m" just below the 1-hour boundary', () => {
     const start = new Date(FIXED_NOW - 59 * 60 * 1000).toISOString()
     expect(formatElapsed(start)).toBe('59m')
+  })
+})
+
+// Regression guard for the ~239 Hz ProjectDetail render loop (kb-01682, commit 16f0703).
+//
+// The loop arose because the reconcile effect called setSelectedLabels with
+// Array.prototype.filter, which always returns a NEW array — even when nothing
+// is pruned.  React compares state via Object.is: a new array !== the previous
+// array, so the state committed every render, which churned the allLabels
+// identity, which re-ran the effect… ad infinitum.
+//
+// The fix: pruneSelectedLabels MUST return the SAME `selected` reference
+// (===) when every selected label is still present in allLabels.  That
+// identity equality lets React bail out of the state update, breaking the
+// loop.  The tests below assert this invariant directly.
+describe('pruneSelectedLabels', () => {
+  it('(a) returns the SAME array reference when no labels are pruned', () => {
+    const selected = ['bug', 'frontend']
+    const allLabels = ['bug', 'frontend', 'backend']
+    const result = pruneSelectedLabels(selected, allLabels)
+    // Must be reference-equal (===), not just deep-equal — this is what
+    // triggers React's Object.is bail-out and prevents the render loop.
+    expect(result).toBe(selected)
+  })
+
+  it('(b) returns a new array with the missing label removed when one label is absent', () => {
+    const selected = ['bug', 'obsolete']
+    const allLabels = ['bug', 'frontend']
+    const result = pruneSelectedLabels(selected, allLabels)
+    expect(result).not.toBe(selected)
+    expect(result).toEqual(['bug'])
+  })
+
+  it('(c) returns an empty array when all selected labels are absent from allLabels', () => {
+    const selected = ['gone', 'also-gone']
+    const allLabels = ['bug', 'frontend']
+    const result = pruneSelectedLabels(selected, allLabels)
+    expect(result).toEqual([])
+  })
+
+  it('(d) returns the SAME empty array reference when selected is already empty', () => {
+    const selected: string[] = []
+    const allLabels = ['bug', 'frontend']
+    const result = pruneSelectedLabels(selected, allLabels)
+    expect(result).toBe(selected)
+  })
+
+  it('(e) returns an empty array when allLabels is empty and selected is non-empty', () => {
+    const selected = ['bug', 'frontend']
+    const allLabels: string[] = []
+    const result = pruneSelectedLabels(selected, allLabels)
+    expect(result).toEqual([])
   })
 })

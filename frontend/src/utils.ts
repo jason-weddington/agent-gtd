@@ -87,6 +87,24 @@ export function formatDispatchVersions(versions: string[]): { label: string; mix
 }
 
 /**
+ * Prunes a selected-labels array to only contain labels that still exist in
+ * `allLabels`.  The invariant that prevents render loops: returns the SAME
+ * `selected` array reference (identity-equal, ===) when nothing was pruned,
+ * so React's Object.is bail-out fires and no state update is committed.  A
+ * new filtered array is returned only when at least one label was removed.
+ *
+ * This is the pure helper extracted from ProjectDetail's reconcile effect
+ * (the useEffect keyed on [allLabels]).  Keeping the same-reference-return
+ * here — not inside an inline arrow — is what makes the invariant testable
+ * and guards against the ~239 Hz render loop described in kb-01682 / commit
+ * 16f0703.
+ */
+export function pruneSelectedLabels(selected: string[], allLabels: string[]): string[] {
+  const next = selected.filter((label) => allLabels.includes(label))
+  return next.length === selected.length ? selected : next
+}
+
+/**
  * Formats a byte count as a KB string with one decimal place.
  * Example: formatFileSize(1536) → "1.5 KB".
  */
