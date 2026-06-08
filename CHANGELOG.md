@@ -2,6 +2,33 @@
 
 <!-- version list -->
 
+## v1.91.0 (2026-06-08)
+
+### Bug Fixes
+
+- Stop ProjectDetail render loop that blocked navigation
+  ([`16f0703`](https://github.com/jason-weddington/agent-gtd/commit/16f07033ca4a4def4b0c827171f212b8134296f7))
+
+- **3de89070**: Fix 2 pre-existing failures in frontend settings.test.tsx
+  ([`d8c2426`](https://github.com/jason-weddington/agent-gtd/commit/d8c242694d2f58590ad837e015d9801500709bda))
+
+- **aec3ee1f**: Guard against stranded MUI inert/aria-hidden that kills sidebar nav
+  ([`e71414d`](https://github.com/jason-weddington/agent-gtd/commit/e71414da332d10432889b445aa30f3a20bfdb27a))
+
+### Chores
+
+- Revert useInertGuard nav-recovery guard (e71414d)
+  ([`9b06b75`](https://github.com/jason-weddington/agent-gtd/commit/9b06b75f9d85e0a3bde8ffabe4483bb53eef0777))
+
+### Features
+
+- **156043e5**: Add list_dispatch_hosts MCP tool
+  ([`cda872b`](https://github.com/jason-weddington/agent-gtd/commit/cda872bfbdc5252a39a6dab70760c32870ad285f))
+
+- **691da122**: CLI file/stdin structured item writes (update-item/add-item --from-json)
+  ([`8aee19e`](https://github.com/jason-weddington/agent-gtd/commit/8aee19ef226446e19e29e8def1cedc462f4712b8))
+
+
 ## v1.90.1 (2026-06-01)
 
 ### Bug Fixes
