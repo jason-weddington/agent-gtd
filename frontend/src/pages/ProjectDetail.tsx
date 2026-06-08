@@ -607,7 +607,10 @@ export default function ProjectDetail() {
     }
   }
 
-  const visibleItems = showCompleted ? items : items.filter((i) => i.status !== 'done')
+  const visibleItems = useMemo(
+    () => (showCompleted ? items : items.filter((i) => i.status !== 'done')),
+    [items, showCompleted],
+  )
 
   // myTasksItems applies only the showMyTasksOnly filter; allLabels, filteredItems,
   // and boardItems all derive from it, eliminating duplication of the my-tasks filter logic.
@@ -631,9 +634,13 @@ export default function ProjectDetail() {
   // Prune stale label selections when the tag pill set shrinks (e.g., after enabling 'My tasks').
   // Must come after allLabels is declared — referencing it earlier hits the temporal dead zone.
   useEffect(() => {
-    setSelectedLabels((prev) =>
-      prev.filter((label) => allLabels.includes(label)),
-    )
+    setSelectedLabels((prev) => {
+      const next = prev.filter((label) => allLabels.includes(label))
+      // Return the same reference when nothing was pruned so React bails out of
+      // the state update — otherwise filter()'s always-new array re-renders on a
+      // loop when allLabels changes identity each render (GTD render-loop fix).
+      return next.length === prev.length ? prev : next
+    })
   }, [allLabels])
 
   const filteredItems = useMemo(() => {
