@@ -230,7 +230,7 @@ This repo uses **conventional commits** enforced by a `commit-msg` hook. Format:
 - `refactor:` — restructuring (no bump)
 - `feat!:` or `fix!:` — breaking change (bumps major)
 
-Releases are automated via a post-commit hook on main. When a `feat:` or `fix:` commit lands on main, `semantic-release version` runs automatically — bumps pyproject.toml, updates CHANGELOG.md and uv.lock, commits, and tags. You just need to `git push origin main --tags` after.
+Releases are **decoupled from commits** (the old post-commit auto-release hook has been removed — `.pre-commit-config.yaml` has no `post-commit` stage). Commit freely on main, push to origin, and deploy liberally during a work session. A release is a deliberate step run at a meaningful boundary via `./release.sh`, which runs `semantic-release version` (bumps pyproject.toml + CHANGELOG.md + uv.lock and tags from the `feat:`/`fix:` commits since the last tag), pushes main + tags to **both** origin and github, then deploys. The version on the settings page tracks the latest release, so this doubles as "promote to UI."
 
 ## Code Style
 - **Python**: Ruff (linting + formatting), mypy strict mode, Google-style docstrings
