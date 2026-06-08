@@ -1789,3 +1789,40 @@ async def test_update_item_invalid_build_engine(registered_client):
                 "build_engine": "not-a-real-engine",
             },
         )
+
+
+# --- Dispatch hosts ---
+
+
+async def test_list_dispatch_hosts_empty(registered_client):
+    """list_dispatch_hosts returns [] when no hosts are configured."""
+    result = await registered_client.call_tool("list_dispatch_hosts")
+    data = _parse_result(result)
+    assert data == []
+
+
+async def test_list_dispatch_hosts(registered_client, user_id):
+    """list_dispatch_hosts returns id/label/url and never exposes api_key."""
+    from agent_gtd.services import settings_service
+
+    db = await get_db()
+    host = await settings_service.add_dispatch_host(
+        db,
+        user_id,
+        label="pironman01",
+        url="https://dispatch.example.com",
+        api_key="super-secret-key",
+    )
+
+    result = await registered_client.call_tool("list_dispatch_hosts")
+    data = _parse_result(result)
+
+    assert len(data) == 1
+    returned = data[0]
+    assert returned["id"] == host["id"]
+    assert returned["label"] == "pironman01"
+    assert returned["url"] == "https://dispatch.example.com"
+    # Critical: no secret material is ever returned.
+    assert "api_key" not in returned
+    assert "api_key_preview" not in returned
+    assert set(returned.keys()) == {"id", "label", "url"}

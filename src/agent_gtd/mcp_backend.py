@@ -279,6 +279,11 @@ class McpBackend(Protocol):
         status: str | None = None,
     ) -> list[dict[str, Any]]: ...
 
+    async def list_dispatch_hosts(
+        self,
+        user_id: str,
+    ) -> list[dict[str, Any]]: ...
+
     async def add_blocker(
         self,
         user_id: str,
@@ -1038,6 +1043,18 @@ class LocalBackend:
 
         db = await get_db()
         return await list_runs(db, user_id, item_id=item_id, status=status)
+
+    async def list_dispatch_hosts(
+        self,
+        user_id: str,
+    ) -> list[dict[str, Any]]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import settings_service
+
+        db = await get_db()
+        hosts = await settings_service.get_dispatch_hosts(db, user_id)
+        # Project down to non-secret fields only — never return api_key.
+        return [{"id": h["id"], "label": h["label"], "url": h["url"]} for h in hosts]
 
     async def add_blocker(
         self,
@@ -1950,6 +1967,18 @@ class HttpBackend:
         self._check(resp)
         result: list[dict[str, Any]] = resp.json()
         return result
+
+    async def list_dispatch_hosts(
+        self,
+        user_id: str,
+    ) -> list[dict[str, Any]]:
+        resp = await self._client.get(
+            "/api/settings/dispatch/hosts", headers=self._headers()
+        )
+        self._check(resp)
+        hosts: list[dict[str, Any]] = resp.json()
+        # Project down to non-secret fields only — drop api_key_preview/created_at.
+        return [{"id": h["id"], "label": h["label"], "url": h["url"]} for h in hosts]
 
     async def add_blocker(
         self,

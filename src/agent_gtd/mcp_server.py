@@ -1277,6 +1277,30 @@ async def list_runs(
     return await _backend.list_runs(session["user_id"], item_id=item_id, status=status)
 
 
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
+)
+async def list_dispatch_hosts(
+    ctx: Context,
+) -> list[dict[str, Any]]:
+    """List the caller's registered dispatch hosts.
+
+    Use this to discover the host UUID needed to pin a dispatch to a specific
+    host via ``dispatch_item(dispatch_host_id=...)``. The ``id`` field of each
+    returned host is the value to pass as ``dispatch_host_id``.
+
+    No secret material is returned — only ``id``, ``label``, and ``url``.
+
+    Args:
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        List of host dicts, each with keys ``id``, ``label``, and ``url``.
+    """
+    session = await _get_session(ctx)
+    return await _backend.list_dispatch_hosts(session["user_id"])
+
+
 # --- Rollout manager tools ---
 
 

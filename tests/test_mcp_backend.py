@@ -391,3 +391,31 @@ async def test_list_runs_filter_item(authed_backend: HttpBackend):
     runs = await authed_backend.list_runs("", item_id=item_a["id"])
     assert len(runs) == 1
     assert runs[0]["item_id"] == item_a["id"]
+
+
+async def test_list_dispatch_hosts_backend(authed_backend: HttpBackend):
+    """HttpBackend.list_dispatch_hosts returns id/label/url with no secrets."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services import settings_service
+
+    db = await get_db()
+    row = await db.fetchrow("SELECT id FROM users WHERE email = $1", "test@example.com")
+    user_id = row["id"]
+    host = await settings_service.add_dispatch_host(
+        db,
+        user_id,
+        "pironman01",
+        "https://dispatch.example.com",
+        "super-secret-key",
+    )
+
+    hosts = await authed_backend.list_dispatch_hosts("")
+    assert len(hosts) == 1
+    returned = hosts[0]
+    assert returned["id"] == host["id"]
+    assert returned["label"] == "pironman01"
+    assert returned["url"] == "https://dispatch.example.com"
+    # Critical: no secret material — not even the masked preview.
+    assert "api_key" not in returned
+    assert "api_key_preview" not in returned
+    assert set(returned.keys()) == {"id", "label", "url"}
