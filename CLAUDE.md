@@ -31,7 +31,8 @@ The git remote `origin` points to `r7-research`. After `git push origin main --t
 
 ## Headless Dispatch Hosts
 
-Dispatch runs on three hosts: `pironman01`, `ubuntu-pi-01`, and `r7-research`. On
+Dispatch runs on two hosts: `pironman01` and `r7-research` (`ubuntu-pi-01` was
+removed from the rotation 2026-06-10 — too slow). On
 each host the dispatch API runs as user **`dispatch-svc`**, and it launches Claude
 Code as user **`dispatch`** (the two-user split). The dispatch code lives in the
 separate `agent-gtd-dispatch` repo, not here.
