@@ -245,10 +245,15 @@ async def plan_rollout(
 
     # Step 3: Look up dispatch config for the project owner.
     project_row = await db.fetchrow(
-        "SELECT user_id FROM projects WHERE id = $1", project_id
+        "SELECT user_id, repo_mode FROM projects WHERE id = $1", project_id
     )
     if project_row is None:
         raise ValidationError(f"Project {project_id!r} not found")
+    if str(project_row.get("repo_mode") or "monorepo") == "workspace":
+        raise ValidationError(
+            "Workspace projects do not support rollouts yet; dispatch items"
+            " individually with dispatch_item"
+        )
     owner_user_id = str(project_row["user_id"])
 
     dispatch_config = await get_dispatch_config(db, owner_user_id)

@@ -1,5 +1,6 @@
 """Tests for dispatch run CRUD API and remote dispatch worker."""
 
+import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
@@ -227,6 +228,102 @@ async def test_dispatch_no_git_origin(
         headers=auth_headers,
     )
     assert res.status_code == 404
+
+
+async def test_dispatch_workspace_project_with_repos_succeeds(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Workspace project with repos dispatches (201) in build and plan modes."""
+    res = await client.post(
+        "/api/projects",
+        json={
+            "name": "Workspace Project",
+            "repo_mode": "workspace",
+            "workspace_repos": ["https://github.com/example/repo-a.git"],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    project_id = res.json()["id"]
+
+    # Build mode — create and dispatch a separate item for each mode
+    item_id_build = await _create_item_in_project(
+        client, auth_headers, project_id, title="Build task"
+    )
+    res = await client.post(
+        f"/api/items/{item_id_build}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+
+    # Plan mode
+    item_id_plan = await _create_item_in_project(
+        client, auth_headers, project_id, title="Plan task"
+    )
+    res = await client.post(
+        f"/api/items/{item_id_plan}/dispatch",
+        json={"mode": "plan"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+
+
+async def test_dispatch_workspace_empty_repos(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+):
+    """Workspace project with no repos returns 404 with the workspace message."""
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    # Direct DB insert — bypass the API validation that requires non-empty repos for
+    # workspace mode, so we can test the dispatch-path guard independently.
+    project_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO projects"
+        " (id, user_id, name, repo_mode, workspace_repos, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        project_id,
+        user_id,
+        "Empty Workspace",
+        "workspace",
+        "[]",
+        now,
+        now,
+    )
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert res.status_code == 404
+    assert "Workspace project" in res.json()["detail"]
+    assert "has no repos configured" in res.json()["detail"]
+
+
+async def test_dispatch_monorepo_no_git_origin_message_unchanged(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Monorepo project without git_origin returns 404 with the original message."""
+    res = await client.post(
+        "/api/projects",
+        json={"name": "No Git Monorepo"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    project_id = res.json()["id"]
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={},
+        headers=auth_headers,
+    )
+    assert res.status_code == 404
+    assert "has no git_origin configured" in res.json()["detail"]
 
 
 async def test_dispatch_no_project(client: AsyncClient, auth_headers: dict[str, str]):

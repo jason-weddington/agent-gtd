@@ -56,7 +56,8 @@ async def create_run(
 
     Validates:
     - Item exists and belongs to user
-    - Item has a project with git_origin configured
+    - Item has a project with git_origin configured (monorepo) or a non-empty
+      repos list (workspace)
     - No other active run exists for this item
     - When mode="manage" with rollout_id: wave exists, is owned by caller,
       and has status="pending" (manage-mode launch is one-shot).
@@ -87,11 +88,18 @@ async def create_run(
         raise NotFoundError("Project", "none (item has no project)")
 
     project = await get_project(db, user_id, project_id)
-    if not project.get("git_origin"):
-        raise NotFoundError(
-            "git_origin",
-            f"Project '{project['name']}' has no git_origin configured",
-        )
+    if project.get("repo_mode") == "workspace":
+        if not project.get("workspace_repos"):
+            raise NotFoundError(
+                "repos",
+                f"Workspace project '{project['name']}' has no repos configured",
+            )
+    else:
+        if not project.get("git_origin"):
+            raise NotFoundError(
+                "git_origin",
+                f"Project '{project['name']}' has no git_origin configured",
+            )
 
     # Check for active run on this item
     existing = await db.fetchrow(
@@ -264,6 +272,11 @@ async def dispatch_rollout_run(
 
     project_id = str(rollout["project_id"])
     project = await get_project(db, user_id, project_id)
+    if project.get("repo_mode") == "workspace":
+        raise ValidationError(
+            "Workspace projects do not support rollouts yet; dispatch items"
+            " individually with dispatch_item"
+        )
     if not project.get("git_origin"):
         raise NotFoundError(
             "git_origin",

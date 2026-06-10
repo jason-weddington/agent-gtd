@@ -840,6 +840,49 @@ async def test_plan_rollout_project_not_found(db):
 
 
 # ---------------------------------------------------------------------------
+# plan_rollout — workspace project rejection
+# ---------------------------------------------------------------------------
+
+
+async def test_plan_rollout_workspace_project_raises(db):
+    """plan_rollout raises the pinned ValidationError for workspace projects.
+
+    The workspace check must fire before the autonomous_rollouts INSERT so no
+    orphaned 'planning' row is created.
+    """
+    from agent_gtd.services.rollout_service import plan_rollout
+
+    user_id = await _make_user(db)
+
+    # Insert workspace project directly — bypasses the API validation that
+    # requires non-empty repos, to keep the test self-contained.
+    workspace_project_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO projects"
+        " (id, user_id, name, repo_mode, workspace_repos, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        workspace_project_id,
+        user_id,
+        "Workspace Project",
+        "workspace",
+        encode_json_list(["https://github.com/example/repo-a.git"]),
+        NOW,
+        NOW,
+    )
+    item_id = await _make_item(db, user_id, workspace_project_id)
+
+    with pytest.raises(
+        ValidationError,
+        match="Workspace projects do not support rollouts yet",
+    ):
+        await plan_rollout(db, user_id, [item_id])
+
+    # No orphaned autonomous_rollouts row must have been inserted
+    rows = await db.fetch("SELECT id FROM autonomous_rollouts")
+    assert len(rows) == 0
+
+
+# ---------------------------------------------------------------------------
 # complete_item_in_rollout — cascade + graph_complete
 # ---------------------------------------------------------------------------
 

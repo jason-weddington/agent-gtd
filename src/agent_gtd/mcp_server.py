@@ -1186,7 +1186,9 @@ async def dispatch_item(
 ) -> dict[str, Any]:
     """Dispatch a headless Claude Code agent to work on an item.
 
-    The item's project must have a git_origin configured. Creates a
+    The item's project must have a git_origin configured (monorepo projects) or a
+    non-empty repos list (workspace projects, which are cloned as a multi-repo
+    workspace). Creates a
     dispatch run that clones the repo, launches Claude Code, and
     reports back via comments.
 

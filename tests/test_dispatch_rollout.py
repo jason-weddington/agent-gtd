@@ -177,6 +177,45 @@ async def test_dispatch_rollout_creates_run_row(
     assert str(row["rollout_id"]) == rollout_id
 
 
+async def test_dispatch_rollout_workspace_project_raises(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    """dispatch_rollout_run on a workspace project raises the workspace ValidationError.
+
+    Uses a workspace project with git_origin empty to prove the workspace check
+    fires before the git_origin guard (i.e. we get 409 from workspace, not 404
+    from git_origin).
+    """
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+
+    # Create a workspace project via API (requires non-empty repos, git_origin absent)
+    res = await client.post(
+        "/api/projects",
+        json={
+            "name": "Workspace Rollout Project",
+            "repo_mode": "workspace",
+            "workspace_repos": ["https://github.com/example/repo-a.git"],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    project_id = res.json()["id"]
+    # Confirm git_origin is empty so the git_origin guard would fire if reached
+    assert res.json().get("git_origin", "") == ""
+
+    rollout_id = await _insert_pending_rollout(db, user_id, project_id)
+
+    res = await client.post(
+        f"/api/rollouts/{rollout_id}/dispatch",
+        headers=auth_headers,
+    )
+    # 409 (ValidationError) not 404 (NotFoundError) — workspace guard fires first
+    assert res.status_code == 409
+    assert "Workspace projects do not support rollouts yet" in res.json()["detail"]
+
+
 # ---------------------------------------------------------------------------
 # Worker unit tests — _process_run manage-mode skips svc_get_item (Bug 3 fix)
 # ---------------------------------------------------------------------------
