@@ -219,6 +219,8 @@ async def add_project(
     status: str = "active",
     git_origin: str = "",
     kb_project_ref: str = "",
+    repo_mode: str = "monorepo",
+    workspace_repos: list[str] | None = None,
     dispatch_max_turns: int | None = None,
     dispatch_timeout_minutes: int | None = None,
     plan_dispatch_agent: str | None = None,
@@ -236,6 +238,10 @@ async def add_project(
         git_origin: Optional git remote URL for the project repo.
         kb_project_ref: Optional personal-kb project reference for
             agent context preflight.
+        repo_mode: Repository mode — 'monorepo' (default) or 'workspace'.
+            Use 'workspace' when the project spans multiple git repositories.
+        workspace_repos: Ordered list of git clone URLs for workspace mode.
+            Required when repo_mode='workspace'; ignored for monorepo.
         dispatch_max_turns: Optional override for max agent turns per dispatch
             run. Must be between 10 and 500. None = use server default.
         dispatch_timeout_minutes: Optional override for dispatch run timeout in
@@ -262,19 +268,24 @@ async def add_project(
             f"{MIN_TIMEOUT_MINUTES} and {MAX_TIMEOUT_MINUTES}"
         )
     session = await _get_session(ctx)
-    return await _backend.create_project(
-        session["user_id"],
-        name=name,
-        description=description,
-        area=area,
-        status=status,
-        git_origin=git_origin,
-        kb_project_ref=kb_project_ref,
-        dispatch_max_turns=dispatch_max_turns,
-        dispatch_timeout_minutes=dispatch_timeout_minutes,
-        plan_dispatch_agent=plan_dispatch_agent,
-        build_dispatch_agent=build_dispatch_agent,
-    )
+    try:
+        return await _backend.create_project(
+            session["user_id"],
+            name=name,
+            description=description,
+            area=area,
+            status=status,
+            git_origin=git_origin,
+            kb_project_ref=kb_project_ref,
+            repo_mode=repo_mode,
+            workspace_repos=workspace_repos,
+            dispatch_max_turns=dispatch_max_turns,
+            dispatch_timeout_minutes=dispatch_timeout_minutes,
+            plan_dispatch_agent=plan_dispatch_agent,
+            build_dispatch_agent=build_dispatch_agent,
+        )
+    except ValidationError as e:
+        raise ToolError(e.detail) from None
 
 
 @mcp.tool(
@@ -289,6 +300,8 @@ async def update_project(
     area: str | None = None,
     git_origin: str | None = None,
     kb_project_ref: str | None = None,
+    repo_mode: str | None = None,
+    workspace_repos: list[str] | None = None,
     dispatch_max_turns: int | None = None,
     clear_dispatch_max_turns: bool = False,
     dispatch_timeout_minutes: int | None = None,
@@ -319,6 +332,10 @@ async def update_project(
         area: New area/category (None = unchanged).
         git_origin: New git remote URL (None = unchanged).
         kb_project_ref: New personal-kb project reference (None = unchanged).
+        repo_mode: New repository mode — 'monorepo' or 'workspace'
+            (None = unchanged).
+        workspace_repos: New ordered list of git clone URLs for workspace mode
+            (None = unchanged).
         dispatch_max_turns: Override max agent turns (10-500). None = unchanged.
         clear_dispatch_max_turns: Set True to reset dispatch_max_turns to NULL
             (use server default). Mutually exclusive with dispatch_max_turns.
@@ -365,6 +382,8 @@ async def update_project(
             area=area,
             git_origin=git_origin,
             kb_project_ref=kb_project_ref,
+            repo_mode=repo_mode,
+            workspace_repos=workspace_repos,
             dispatch_max_turns=dispatch_max_turns,
             clear_dispatch_max_turns=clear_dispatch_max_turns,
             dispatch_timeout_minutes=dispatch_timeout_minutes,

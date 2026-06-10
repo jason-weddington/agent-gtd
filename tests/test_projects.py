@@ -3,6 +3,8 @@
 import pytest
 from httpx import AsyncClient
 
+from agent_gtd.services.project_service import workspace_repo_dir
+
 
 async def test_create_project(client: AsyncClient, auth_headers: dict[str, str]):
     res = await client.post(
@@ -923,3 +925,542 @@ async def test_description_preview_whitespace_only_via_api(
 
     res = await client.get(f"/api/projects/{pid}", headers=auth_headers)
     assert res.json()["description_preview"] is None
+
+
+# ---------------------------------------------------------------------------
+# workspace_repo_dir unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_workspace_repo_dir_https():
+    assert workspace_repo_dir("https://github.com/org/repo.git") == "repo"
+
+
+def test_workspace_repo_dir_https_no_git_suffix():
+    assert workspace_repo_dir("https://github.com/org/repo") == "repo"
+
+
+def test_workspace_repo_dir_scp_style():
+    assert workspace_repo_dir("git@github.com:org/repo.git") == "repo"
+
+
+def test_workspace_repo_dir_trailing_slash():
+    assert workspace_repo_dir("https://github.com/org/repo/") == "repo"
+
+
+def test_workspace_repo_dir_scp_no_git_suffix():
+    assert workspace_repo_dir("git@github.com:org/myrepo") == "myrepo"
+
+
+def test_workspace_repo_dir_pathological_empty():
+    """A URL ending in /.git yields an empty checkout directory name."""
+    assert workspace_repo_dir("https://example.com/.git") == ""
+
+
+# ---------------------------------------------------------------------------
+# Workspace fields via REST — POST / PATCH / GET round-trips
+# ---------------------------------------------------------------------------
+
+
+async def test_create_project_workspace_defaults(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """New projects default to monorepo mode with empty workspace_repos."""
+    res = await client.post("/api/projects", json={"name": "P"}, headers=auth_headers)
+    assert res.status_code == 201
+    data = res.json()
+    assert data["repo_mode"] == "monorepo"
+    assert data["workspace_repos"] == []
+
+
+async def test_create_project_workspace_mode(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Creating a workspace project stores repo_mode and workspace_repos."""
+    res = await client.post(
+        "/api/projects",
+        json={
+            "name": "Workspace P",
+            "repo_mode": "workspace",
+            "workspace_repos": [
+                "https://github.com/org/repo-a.git",
+                "https://github.com/org/repo-b.git",
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["repo_mode"] == "workspace"
+    assert data["workspace_repos"] == [
+        "https://github.com/org/repo-a.git",
+        "https://github.com/org/repo-b.git",
+    ]
+
+
+async def test_create_project_workspace_strips_urls(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Whitespace in URLs is stripped before storage."""
+    res = await client.post(
+        "/api/projects",
+        json={
+            "name": "P",
+            "repo_mode": "workspace",
+            "workspace_repos": ["  https://github.com/org/repo.git  "],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["workspace_repos"] == ["https://github.com/org/repo.git"]
+
+
+async def test_create_workspace_project_requires_at_least_one_url(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Workspace mode with empty workspace_repos returns 400."""
+    res = await client.post(
+        "/api/projects",
+        json={"name": "P", "repo_mode": "workspace", "workspace_repos": []},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert "at least one repository URL" in res.json()["detail"]
+
+
+async def test_create_workspace_project_missing_repos_400(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Workspace mode with workspace_repos omitted returns 400."""
+    res = await client.post(
+        "/api/projects",
+        json={"name": "P", "repo_mode": "workspace"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert "at least one repository URL" in res.json()["detail"]
+
+
+async def test_create_project_blank_url_rejected(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Blank URL element in workspace_repos is rejected even for monorepo."""
+    res = await client.post(
+        "/api/projects",
+        json={"name": "P", "workspace_repos": ["  "]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+
+
+async def test_create_project_invalid_repo_mode_422(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Invalid repo_mode value is rejected with 422 by Pydantic."""
+    res = await client.post(
+        "/api/projects",
+        json={"name": "P", "repo_mode": "bogus"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+async def test_create_workspace_duplicate_dir_rejected(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Two URLs deriving the same checkout dir return 400."""
+    res = await client.post(
+        "/api/projects",
+        json={
+            "name": "P",
+            "repo_mode": "workspace",
+            "workspace_repos": [
+                "https://github.com/org/repo.git",
+                "https://github.com/other-org/repo.git",
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert "duplicate checkout directory" in res.json()["detail"]
+
+
+async def test_create_workspace_empty_dir_url_rejected(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """URL that yields empty checkout dir is rejected."""
+    # "https://example.com/.git" → workspace_repo_dir → ""
+    res = await client.post(
+        "/api/projects",
+        json={
+            "name": "P",
+            "repo_mode": "workspace",
+            "workspace_repos": ["https://example.com/.git"],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert "empty checkout directory" in res.json()["detail"]
+
+
+async def test_update_project_workspace_fields(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """PATCH stores and returns repo_mode + workspace_repos correctly."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={
+            "repo_mode": "workspace",
+            "workspace_repos": ["https://github.com/org/repo.git"],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["repo_mode"] == "workspace"
+    assert data["workspace_repos"] == ["https://github.com/org/repo.git"]
+
+    # Verify via GET
+    res = await client.get(f"/api/projects/{project_id}", headers=auth_headers)
+    assert res.json()["repo_mode"] == "workspace"
+    assert res.json()["workspace_repos"] == ["https://github.com/org/repo.git"]
+
+
+async def test_update_project_workspace_repos_returned_as_list(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """GET response returns workspace_repos as a JSON array, not raw JSON text."""
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={
+            "repo_mode": "workspace",
+            "workspace_repos": ["https://github.com/org/a.git"],
+        },
+        headers=auth_headers,
+    )
+    res = await client.get(f"/api/projects/{project_id}", headers=auth_headers)
+    assert isinstance(res.json()["workspace_repos"], list)
+
+
+async def test_update_project_absent_workspace_fields_unchanged(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Omitting workspace fields leaves them unchanged."""
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={
+            "repo_mode": "workspace",
+            "workspace_repos": ["https://github.com/org/repo.git"],
+        },
+        headers=auth_headers,
+    )
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"name": "New Name"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["name"] == "New Name"
+    assert data["repo_mode"] == "workspace"
+    assert data["workspace_repos"] == ["https://github.com/org/repo.git"]
+
+
+async def test_update_workspace_to_monorepo(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Switching workspace → monorepo is allowed."""
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={
+            "repo_mode": "workspace",
+            "workspace_repos": ["https://github.com/org/repo.git"],
+        },
+        headers=auth_headers,
+    )
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"repo_mode": "monorepo"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["repo_mode"] == "monorepo"
+
+
+async def test_update_project_switch_to_workspace_needs_repos(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Switching mode to workspace when stored repos is [] returns 400."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"repo_mode": "workspace"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert "at least one repository URL" in res.json()["detail"]
+
+
+async def test_update_project_empty_repos_while_workspace_rejected(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Clearing workspace_repos while mode is workspace returns 400."""
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={
+            "repo_mode": "workspace",
+            "workspace_repos": ["https://github.com/org/repo.git"],
+        },
+        headers=auth_headers,
+    )
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"workspace_repos": []},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert "at least one repository URL" in res.json()["detail"]
+
+
+async def test_update_project_monorepo_with_empty_list_succeeds(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Sending workspace_repos=[] while mode is monorepo is fine."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"workspace_repos": []},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["workspace_repos"] == []
+
+
+async def test_update_project_monorepo_blank_element_rejected(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """workspace_repos with blank element is rejected even in monorepo mode."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"workspace_repos": ["  "]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+
+
+async def test_update_project_invalid_repo_mode_422(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Invalid repo_mode string is rejected with 422 by Pydantic."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"repo_mode": "bogus"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+async def test_update_workspace_duplicate_dir_rejected(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Two URLs deriving same checkout dir in PATCH return 400."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={
+            "repo_mode": "workspace",
+            "workspace_repos": [
+                "https://github.com/org-a/repo.git",
+                "https://github.com/org-b/repo.git",
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 400
+    assert "duplicate checkout directory" in res.json()["detail"]
+
+
+async def test_legacy_project_response_defaults(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """Projects without workspace fields in the body default to monorepo/[]."""
+    res = await client.post(
+        "/api/projects",
+        json={"name": "Legacy"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["repo_mode"] == "monorepo"
+    assert data["workspace_repos"] == []
+
+
+async def test_service_create_project_bogus_repo_mode(client: AsyncClient):
+    """Service-layer bogus repo_mode raises ValidationError (bypasses Pydantic)."""
+    from agent_gtd.database import get_db
+    from agent_gtd.exceptions import ValidationError as GtdValidationError
+    from agent_gtd.services import project_service
+
+    db = await get_db()
+    with pytest.raises(GtdValidationError, match=r"monorepo|workspace"):
+        await project_service.create_project(
+            db, "00000000-0000-0000-0000-000000000001", name="P", repo_mode="bogus"
+        )
+
+
+async def test_service_update_project_bogus_repo_mode(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Service-layer bogus repo_mode on update raises ValidationError."""
+    from agent_gtd.database import get_db
+    from agent_gtd.exceptions import ValidationError as GtdValidationError
+    from agent_gtd.services import project_service
+
+    me = await client.get("/api/auth/me", headers=auth_headers)
+    uid = me.json()["id"]
+
+    db = await get_db()
+    with pytest.raises(GtdValidationError, match=r"monorepo|workspace"):
+        await project_service.update_project(db, uid, project_id, repo_mode="bogus")
+
+
+async def test_workspace_repos_decoded_in_service_return(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Service returns workspace_repos as list[str], not raw JSON text."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services import project_service
+
+    me = await client.get("/api/auth/me", headers=auth_headers)
+    uid = me.json()["id"]
+    db = await get_db()
+
+    result = await project_service.update_project(
+        db,
+        uid,
+        project_id,
+        repo_mode="workspace",
+        workspace_repos=["https://github.com/org/repo.git"],
+    )
+    assert isinstance(result["workspace_repos"], list)
+    assert result["workspace_repos"] == ["https://github.com/org/repo.git"]
+
+
+async def _make_owner_and_member(client: AsyncClient):
+    """Helper: register owner + member, create project, add member.
+
+    Returns (pid, owner_headers, member_headers).
+    """
+    from agent_gtd.auth import create_token, register_user
+
+    owner = await register_user("owner_ws2@example.com", "pass123")
+    owner_headers = {"Authorization": f"Bearer {create_token(owner.id)}"}
+
+    member = await register_user("member_ws2@example.com", "pass123")
+    member_headers = {"Authorization": f"Bearer {create_token(member.id)}"}
+
+    res = await client.post(
+        "/api/projects",
+        json={"name": "Shared"},
+        headers=owner_headers,
+    )
+    pid = res.json()["id"]
+    await client.post(
+        f"/api/projects/{pid}/members",
+        json={"email": "member_ws2@example.com"},
+        headers=owner_headers,
+    )
+    return pid, owner_headers, member_headers
+
+
+async def test_non_owner_member_patch_repo_mode_gets_403(client: AsyncClient):
+    """A non-owner member PATCHing repo_mode (owner-only) gets 403."""
+    pid, _owner_headers, member_headers = await _make_owner_and_member(client)
+
+    res = await client.patch(
+        f"/api/projects/{pid}",
+        json={
+            "repo_mode": "workspace",
+            "workspace_repos": ["https://github.com/org/repo.git"],
+        },
+        headers=member_headers,
+    )
+    assert res.status_code == 403
+
+
+async def test_non_owner_member_patch_git_origin_gets_403(client: AsyncClient):
+    """A non-owner member PATCHing git_origin (owner-only) gets 403."""
+    pid, _owner_headers, member_headers = await _make_owner_and_member(client)
+
+    res = await client.patch(
+        f"/api/projects/{pid}",
+        json={"git_origin": "https://github.com/org/repo.git"},
+        headers=member_headers,
+    )
+    assert res.status_code == 403
+
+
+async def test_non_owner_member_patch_workspace_repos_gets_403(client: AsyncClient):
+    """A non-owner member PATCHing workspace_repos (owner-only) gets 403."""
+    pid, _owner_headers, member_headers = await _make_owner_and_member(client)
+
+    res = await client.patch(
+        f"/api/projects/{pid}",
+        json={"workspace_repos": ["https://github.com/org/repo.git"]},
+        headers=member_headers,
+    )
+    assert res.status_code == 403
+
+
+async def test_non_owner_member_patch_name_description_succeeds(client: AsyncClient):
+    """A non-owner member PATCHing only name/description succeeds.
+
+    None of the owner-only fields are present in the body.
+    """
+    pid, _owner_headers, member_headers = await _make_owner_and_member(client)
+
+    res = await client.patch(
+        f"/api/projects/{pid}",
+        json={"name": "Updated by member"},
+        headers=member_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["name"] == "Updated by member"
+
+
+async def test_owner_patch_all_clone_target_fields_succeeds(client: AsyncClient):
+    """The project owner can PATCH git_origin, repo_mode, and workspace_repos."""
+    pid, owner_headers, _member_headers = await _make_owner_and_member(client)
+
+    res = await client.patch(
+        f"/api/projects/{pid}",
+        json={
+            "git_origin": "https://github.com/org/meta.git",
+            "repo_mode": "workspace",
+            "workspace_repos": ["https://github.com/org/repo.git"],
+        },
+        headers=owner_headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["git_origin"] == "https://github.com/org/meta.git"
+    assert data["repo_mode"] == "workspace"
+    assert data["workspace_repos"] == ["https://github.com/org/repo.git"]
+
+
+# --- Unit tests for _decode_project_workspace_repos ---
+
+
+def test_decode_project_workspace_repos_already_list():
+    """No-op when workspace_repos is already a Python list (pre-decoded)."""
+    from agent_gtd.services.project_service import _decode_project_workspace_repos
+
+    data = {"workspace_repos": ["https://github.com/org/a.git"]}
+    out = _decode_project_workspace_repos(data)
+    assert out["workspace_repos"] == ["https://github.com/org/a.git"]
+
+
+def test_decode_project_workspace_repos_none_becomes_empty_list():
+    """Sets workspace_repos to [] when value is None (absent/legacy row)."""
+    from agent_gtd.services.project_service import _decode_project_workspace_repos
+
+    data = {"workspace_repos": None}
+    out = _decode_project_workspace_repos(data)
+    assert out["workspace_repos"] == []

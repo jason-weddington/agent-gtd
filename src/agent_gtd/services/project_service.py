@@ -5,12 +5,125 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from agent_gtd.database import row_to_dict
+from agent_gtd.database import decode_json_list, encode_json_list, row_to_dict
 from agent_gtd.db_types import DbPool
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.exceptions import NotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
+
+
+def workspace_repo_dir(url: str) -> str:
+    """Derive the checkout directory name from a git clone URL.
+
+    Used for collision detection when validating workspace_repos lists.
+    This is a pure function — it does not touch the filesystem.
+
+    The formula mirrors the logic used by the dispatch host so both ends
+    agree on the derived directory name without a round-trip.
+
+    Examples:
+        >>> workspace_repo_dir("https://github.com/org/repo.git")
+        'repo'
+        >>> workspace_repo_dir("git@github.com:org/repo.git")
+        'repo'
+        >>> workspace_repo_dir("https://github.com/org/repo/")
+        'repo'
+
+    Args:
+        url: A git clone URL (HTTPS, SCP-style SSH, or local path).
+
+    Returns:
+        The bare directory name that ``git clone`` would create.
+    """
+    return url.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1].removesuffix(".git")
+
+
+def _validate_workspace_fields(
+    repo_mode: str | None,
+    workspace_repos: list[str] | None,
+    *,
+    effective_mode: str,
+    effective_repos: list[str],
+) -> None:
+    """Validate workspace fields and raise ValidationError on any violation.
+
+    Validation cases (per spec):
+    (a/b) effective mode 'workspace' requires at least one URL.
+    (c)   any explicitly-provided list element must be non-blank after .strip().
+    (d)   effective mode 'workspace': no duplicate derived dirs, no empty dir.
+    (f)   provided repo_mode must be a valid RepoMode member.
+
+    Args:
+        repo_mode: The repo_mode value being set (may be None if not changing).
+        workspace_repos: The workspace_repos list being set, or None if not
+            changing.
+        effective_mode: The post-update effective repo_mode string.
+        effective_repos: The post-update effective workspace_repos list
+            (already stripped).
+    """
+    # (f) validate repo_mode membership when provided
+    if repo_mode is not None:
+        from agent_gtd.models import RepoMode
+
+        try:
+            RepoMode(repo_mode)
+        except ValueError as exc:
+            raise ValidationError(
+                f"Invalid repo_mode '{repo_mode}': must be 'monorepo' or 'workspace'"
+            ) from exc
+
+    # (c) every element in an explicitly-provided list must be non-blank
+    if workspace_repos is not None:
+        for url in workspace_repos:
+            if not url.strip():
+                raise ValidationError(
+                    "workspace_repos: every element must be non-blank "
+                    "after stripping whitespace"
+                )
+
+    # (a/b) workspace mode requires at least one URL
+    if effective_mode == "workspace" and not effective_repos:
+        raise ValidationError("workspace projects require at least one repository URL")
+
+    # (d) dir collision and empty-dir checks (workspace mode only)
+    if effective_mode == "workspace":
+        seen_dirs: list[str] = []
+        for url in effective_repos:
+            d = workspace_repo_dir(url)
+            if not d:
+                raise ValidationError(
+                    f"workspace_repos: URL '{url}' derives an empty checkout directory"
+                )
+            if d in seen_dirs:
+                raise ValidationError(
+                    f"workspace_repos: duplicate checkout directory '{d}'"
+                )
+            seen_dirs.append(d)
+
+
+def _decode_project_workspace_repos(result: dict[str, Any]) -> dict[str, Any]:
+    """Decode workspace_repos from JSON text to list[str] in-place.
+
+    Handles three cases:
+    - Already a list (pre-decoded by a join query): no-op.
+    - A JSON text string (raw DB row): decoded via decode_json_list.
+    - Missing or None: set to [].
+
+    Args:
+        result: Mutable project dict (modified in place).
+
+    Returns:
+        The same dict for chaining.
+    """
+    raw = result.get("workspace_repos")
+    if isinstance(raw, list):
+        pass  # already decoded
+    elif raw:
+        result["workspace_repos"] = decode_json_list(str(raw))
+    else:
+        result["workspace_repos"] = []
+    return result
 
 
 def _description_preview(description: str | None) -> str | None:
@@ -134,6 +247,7 @@ async def list_projects(
     )
     results = [row_to_dict(r) for r in rows]
     for result in results:
+        _decode_project_workspace_repos(result)
         result["description_preview"] = _description_preview(result.get("description"))
     return results
 
@@ -148,16 +262,48 @@ async def create_project(
     area: str = "",
     git_origin: str = "",
     kb_project_ref: str = "",
+    repo_mode: str = "monorepo",
+    workspace_repos: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Create a new project and return its row data."""
+    """Create a new project and return its row data.
+
+    Args:
+        db: Database pool.
+        user_id: Owner's user ID.
+        name: Project name.
+        description: Optional description.
+        status: Initial status (default 'active').
+        area: Optional area/category.
+        git_origin: Optional git remote URL.
+        kb_project_ref: Optional KB project reference.
+        repo_mode: Repository mode — 'monorepo' (default) or 'workspace'.
+        workspace_repos: Ordered list of git clone URLs for workspace mode.
+
+    Returns:
+        The created project row as a dict (workspace_repos decoded to list[str]).
+
+    Raises:
+        ValidationError: If the workspace fields fail validation.
+    """
+    # Strip URLs before validation and storage.
+    stripped_repos = [u.strip() for u in (workspace_repos or [])]
+    effective_mode = repo_mode
+
+    _validate_workspace_fields(
+        repo_mode,
+        workspace_repos,
+        effective_mode=effective_mode,
+        effective_repos=stripped_repos,
+    )
+
     now = datetime.now(UTC).isoformat()
     project_id = str(uuid.uuid4())
 
     await db.execute(
         "INSERT INTO projects "
         "(id, user_id, name, description, status, area, git_origin,"
-        " kb_project_ref, created_at, updated_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        " kb_project_ref, repo_mode, workspace_repos, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
         project_id,
         user_id,
         name,
@@ -166,6 +312,8 @@ async def create_project(
         area,
         git_origin,
         kb_project_ref,
+        repo_mode,
+        encode_json_list(stripped_repos),
         now,
         now,
     )
@@ -173,6 +321,7 @@ async def create_project(
     row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     assert row is not None  # noqa: S101
     result = row_to_dict(row)
+    _decode_project_workspace_repos(result)
 
     try:
         await get_event_bus().publish(
@@ -217,6 +366,7 @@ async def get_project(db: DbPool, user_id: str, project_id: str) -> dict[str, An
     if row is None:
         raise NotFoundError("Project", project_id)
     result = row_to_dict(row)
+    _decode_project_workspace_repos(result)
     result["description_preview"] = _description_preview(result.get("description"))
     return result
 
@@ -232,6 +382,8 @@ async def update_project(
     area: str | None = None,
     git_origin: str | None = None,
     kb_project_ref: str | None = None,
+    repo_mode: str | None = None,
+    workspace_repos: list[str] | None = None,
     dispatch_max_turns: int | None = None,
     clear_dispatch_max_turns: bool = False,
     dispatch_timeout_minutes: int | None = None,
@@ -249,10 +401,49 @@ async def update_project(
     - Pass clear_dispatch_max_turns=True (with dispatch_max_turns=None) to set NULL.
     - Omit both to leave the column unchanged.
 
+    For repo_mode and workspace_repos:
+    - None = leave unchanged.
+    - Non-None = set to that value.
+
     Raises:
-        NotFoundError: If the project doesn't exist or isn't owned by user.
+        NotFoundError: If the project doesn't exist or isn't accessible.
+        ValidationError: If the workspace fields fail validation.
     """
-    await verify_project_access(db, project_id, user_id)
+    # Fetch current row to (a) verify access and (b) compute effective state.
+    current_row = await db.fetchrow(
+        "SELECT * FROM projects WHERE id = $1 AND "
+        "(user_id = $2 OR EXISTS "
+        "(SELECT 1 FROM project_members WHERE project_id = $3 AND user_id = $4))",
+        project_id,
+        user_id,
+        project_id,
+        user_id,
+    )
+    if current_row is None:
+        raise NotFoundError("Project", project_id)
+
+    # Compute effective post-update workspace fields for validation.
+    current_mode = str(current_row.get("repo_mode") or "monorepo")
+    current_repos_raw = current_row.get("workspace_repos")
+    if isinstance(current_repos_raw, list):
+        current_repos: list[str] = current_repos_raw
+    elif current_repos_raw:
+        current_repos = decode_json_list(str(current_repos_raw))
+    else:
+        current_repos = []
+
+    effective_mode = repo_mode if repo_mode is not None else current_mode
+    stripped_repos = (
+        [u.strip() for u in workspace_repos] if workspace_repos is not None else None
+    )
+    effective_repos = stripped_repos if stripped_repos is not None else current_repos
+
+    _validate_workspace_fields(
+        repo_mode,
+        workspace_repos,
+        effective_mode=effective_mode,
+        effective_repos=effective_repos,
+    )
 
     updates: list[str] = []
     params: list[object] = []
@@ -275,6 +466,12 @@ async def update_project(
     if kb_project_ref is not None:
         params.append(kb_project_ref)
         updates.append(f"kb_project_ref = ${len(params)}")
+    if repo_mode is not None:
+        params.append(repo_mode)
+        updates.append(f"repo_mode = ${len(params)}")
+    if stripped_repos is not None:
+        params.append(encode_json_list(stripped_repos))
+        updates.append(f"workspace_repos = ${len(params)}")
     if dispatch_max_turns is not None:
         params.append(dispatch_max_turns)
         updates.append(f"dispatch_max_turns = ${len(params)}")
@@ -311,6 +508,7 @@ async def update_project(
     row = await db.fetchrow("SELECT * FROM projects WHERE id = $1", project_id)
     assert row is not None  # noqa: S101
     result = row_to_dict(row)
+    _decode_project_workspace_repos(result)
 
     try:
         await get_event_bus().publish(

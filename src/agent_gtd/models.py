@@ -20,6 +20,18 @@ class ProjectStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class RepoMode(StrEnum):
+    """Project repository mode.
+
+    MONOREPO: single git repo (default, today's behaviour).
+    WORKSPACE: ordered list of git clone URLs that the dispatch host checks
+               out together under a shared workspace root.
+    """
+
+    MONOREPO = "monorepo"
+    WORKSPACE = "workspace"
+
+
 class ItemStatus(StrEnum):
     """GTD item status."""
 
@@ -214,6 +226,8 @@ class Project(BaseModel):
     area: str = ""
     git_origin: str = ""
     kb_project_ref: str = ""
+    repo_mode: RepoMode = RepoMode.MONOREPO
+    workspace_repos: list[str] = []
     dispatch_max_turns: int | None = None
     dispatch_timeout_minutes: int | None = None
     plan_dispatch_agent: str | None = None
@@ -481,6 +495,8 @@ class CreateProjectRequest(BaseModel):
     area: str = ""
     git_origin: str = ""
     kb_project_ref: str = ""
+    repo_mode: RepoMode = RepoMode.MONOREPO
+    workspace_repos: list[str] = []
 
 
 class UpdateProjectRequest(BaseModel):
@@ -491,6 +507,10 @@ class UpdateProjectRequest(BaseModel):
     - Field absent → unchanged
     - Field explicitly null → clear the override (revert to inheriting global)
     - Field set → persist the value
+
+    For repo_mode and workspace_repos:
+    - Field absent → unchanged
+    - Field set → persist the value (None = unchanged, not a clear)
     """
 
     name: str | None = None
@@ -499,6 +519,8 @@ class UpdateProjectRequest(BaseModel):
     area: str | None = None
     git_origin: str | None = None
     kb_project_ref: str | None = None
+    repo_mode: RepoMode | None = None
+    workspace_repos: list[str] | None = None
     dispatch_max_turns: int | None = None
     dispatch_timeout_minutes: int | None = None
     plan_dispatch_agent: str | None = None
@@ -515,6 +537,8 @@ class ProjectResponse(BaseModel):
     area: str
     git_origin: str
     kb_project_ref: str
+    repo_mode: RepoMode = RepoMode.MONOREPO
+    workspace_repos: list[str] = []
     dispatch_max_turns: int | None = None
     dispatch_timeout_minutes: int | None = None
     plan_dispatch_agent: str | None = None

@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agent_gtd.auth import get_current_user
-from agent_gtd.database import get_db
+from agent_gtd.database import decode_json_list, get_db
 from agent_gtd.dispatch_constants import (
     MAX_TIMEOUT_MINUTES,
     MAX_TURNS,
@@ -20,6 +20,7 @@ from agent_gtd.models import (
     MemberSummary,
     ProjectResponse,
     ProjectStatus,
+    RepoMode,
     UpdateProjectRequest,
     User,
 )
@@ -33,6 +34,12 @@ _DISPATCH_ONLY_FIELDS = {
     "dispatch_timeout_minutes",
     "plan_dispatch_agent",
     "build_dispatch_agent",
+    # Clone-target fields: repo_mode, workspace_repos, and git_origin control which
+    # repos headless agents clone/push to.  Owner-only closes the pre-existing gap
+    # where a member could repoint git_origin.
+    "git_origin",
+    "repo_mode",
+    "workspace_repos",
 }
 
 
@@ -53,6 +60,15 @@ def _project_response(
         if caller_user_id is not None
         else None
     )
+    # Tolerant decode: handles pre-decoded list (service layer), raw TEXT (DB row),
+    # and absent/None (legacy rows without the column).
+    raw_workspace_repos = row.get("workspace_repos")
+    workspace_repos: list[str] = (
+        raw_workspace_repos
+        if isinstance(raw_workspace_repos, list)
+        else (decode_json_list(str(raw_workspace_repos)) if raw_workspace_repos else [])
+    )
+    repo_mode = RepoMode(str(row.get("repo_mode") or "monorepo"))
     return ProjectResponse(
         id=str(row["id"]),
         name=str(row["name"]),
@@ -61,6 +77,8 @@ def _project_response(
         area=str(row["area"]),
         git_origin=str(row.get("git_origin", "")),
         kb_project_ref=str(row.get("kb_project_ref", "")),
+        repo_mode=repo_mode,
+        workspace_repos=workspace_repos,
         dispatch_max_turns=int(str(raw_turns)) if raw_turns is not None else None,
         dispatch_timeout_minutes=int(str(raw_timeout))
         if raw_timeout is not None
@@ -112,16 +130,21 @@ async def create_project(
 ) -> ProjectResponse:
     """Create a new project."""
     db = await get_db()
-    row = await project_service.create_project(
-        db,
-        user.id,
-        name=body.name,
-        description=body.description,
-        status=body.status.value,
-        area=body.area,
-        git_origin=body.git_origin,
-        kb_project_ref=body.kb_project_ref,
-    )
+    try:
+        row = await project_service.create_project(
+            db,
+            user.id,
+            name=body.name,
+            description=body.description,
+            status=body.status.value,
+            area=body.area,
+            git_origin=body.git_origin,
+            kb_project_ref=body.kb_project_ref,
+            repo_mode=body.repo_mode.value,
+            workspace_repos=body.workspace_repos,
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=e.detail) from None
     return _project_response(row)
 
 
@@ -220,6 +243,8 @@ async def update_project(
             area=body.area,
             git_origin=body.git_origin,
             kb_project_ref=body.kb_project_ref,
+            repo_mode=body.repo_mode.value if body.repo_mode is not None else None,
+            workspace_repos=body.workspace_repos,
             dispatch_max_turns=body.dispatch_max_turns,
             clear_dispatch_max_turns=clear_dispatch_max_turns,
             dispatch_timeout_minutes=body.dispatch_timeout_minutes,
@@ -231,6 +256,8 @@ async def update_project(
         )
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=e.detail) from None
     return _project_response(row, caller_user_id=user.id)
 
 

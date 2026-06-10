@@ -419,3 +419,91 @@ async def test_list_dispatch_hosts_backend(authed_backend: HttpBackend):
     assert "api_key" not in returned
     assert "api_key_preview" not in returned
     assert set(returned.keys()) == {"id", "label", "url"}
+
+
+# --- Workspace project fields (LocalBackend via HttpBackend) ---
+
+
+async def test_create_project_workspace_mode(authed_backend: HttpBackend):
+    """HttpBackend passes workspace fields through to the REST API."""
+    result = await authed_backend.create_project(
+        "",
+        name="WS Project",
+        repo_mode="workspace",
+        workspace_repos=["https://github.com/org/repo.git"],
+    )
+    assert result["repo_mode"] == "workspace"
+    assert result["workspace_repos"] == ["https://github.com/org/repo.git"]
+
+
+async def test_create_project_default_monorepo(authed_backend: HttpBackend):
+    """HttpBackend defaults to monorepo when workspace fields omitted."""
+    result = await authed_backend.create_project("", name="Mono")
+    assert result["repo_mode"] == "monorepo"
+    assert result["workspace_repos"] == []
+
+
+async def test_update_project_workspace_fields(
+    authed_backend: HttpBackend, project_id: str
+):
+    """HttpBackend update_project passes workspace fields."""
+    result = await authed_backend.update_project(
+        "",
+        project_id,
+        repo_mode="workspace",
+        workspace_repos=["https://github.com/org/repo.git"],
+    )
+    assert result["repo_mode"] == "workspace"
+    assert result["workspace_repos"] == ["https://github.com/org/repo.git"]
+
+
+# --- LocalBackend dispatch_only_touched guard for clone-target fields ---
+
+
+async def test_local_backend_non_owner_repo_mode_raises():
+    """LocalBackend: non-owner updating repo_mode raises ValidationError."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.exceptions import ValidationError
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import project_service
+
+    owner = await register_user("lb_owner@example.com", "pass123")
+    member = await register_user("lb_member@example.com", "pass123")
+
+    db = await get_db()
+    row = await project_service.create_project(db, owner.id, name="LB Test")
+    pid = row["id"]
+    await project_service.add_project_member(db, owner.id, pid, "lb_member@example.com")
+
+    lb = LocalBackend()
+    with pytest.raises(ValidationError, match="Only the project owner"):
+        await lb.update_project(
+            member.id,
+            pid,
+            repo_mode="workspace",
+            workspace_repos=["https://github.com/org/r.git"],
+        )
+
+
+async def test_local_backend_owner_repo_mode_succeeds():
+    """LocalBackend: owner updating repo_mode + workspace_repos succeeds."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import project_service
+
+    owner = await register_user("lb_owner2@example.com", "pass123")
+    db = await get_db()
+    row = await project_service.create_project(db, owner.id, name="LB Owner Test")
+    pid = row["id"]
+
+    lb = LocalBackend()
+    result = await lb.update_project(
+        owner.id,
+        pid,
+        repo_mode="workspace",
+        workspace_repos=["https://github.com/org/r.git"],
+    )
+    assert result["repo_mode"] == "workspace"
+    assert result["workspace_repos"] == ["https://github.com/org/r.git"]

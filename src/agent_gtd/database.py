@@ -40,6 +40,8 @@ _SCHEMA_STATEMENTS: list[str] = [
         area TEXT NOT NULL DEFAULT '',
         git_origin TEXT NOT NULL DEFAULT '',
         kb_project_ref TEXT NOT NULL DEFAULT '',
+        repo_mode TEXT NOT NULL DEFAULT 'monorepo',
+        workspace_repos TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )
@@ -501,6 +503,9 @@ _MIGRATIONS: list[str] = [
     "ALTER TABLE claude_runs ADD COLUMN dispatch_host_url TEXT NOT NULL DEFAULT ''",
     # Allow pinning a dispatch to a specific host by its UUID.
     "ALTER TABLE claude_runs ADD COLUMN dispatch_host_id TEXT",
+    # Workspace project support: repo_mode and ordered list of clone URLs.
+    "ALTER TABLE projects ADD COLUMN repo_mode TEXT NOT NULL DEFAULT 'monorepo'",
+    "ALTER TABLE projects ADD COLUMN workspace_repos TEXT NOT NULL DEFAULT '[]'",
 ]
 
 

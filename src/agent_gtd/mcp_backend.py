@@ -98,6 +98,8 @@ class McpBackend(Protocol):
         status: str = "active",
         git_origin: str = "",
         kb_project_ref: str = "",
+        repo_mode: str = "monorepo",
+        workspace_repos: list[str] | None = None,
         dispatch_max_turns: int | None = None,
         dispatch_timeout_minutes: int | None = None,
         plan_dispatch_agent: str | None = None,
@@ -115,6 +117,8 @@ class McpBackend(Protocol):
         area: str | None = None,
         git_origin: str | None = None,
         kb_project_ref: str | None = None,
+        repo_mode: str | None = None,
+        workspace_repos: list[str] | None = None,
         dispatch_max_turns: int | None = None,
         clear_dispatch_max_turns: bool = False,
         dispatch_timeout_minutes: int | None = None,
@@ -457,6 +461,8 @@ class LocalBackend:
         status: str = "active",
         git_origin: str = "",
         kb_project_ref: str = "",
+        repo_mode: str = "monorepo",
+        workspace_repos: list[str] | None = None,
         dispatch_max_turns: int | None = None,
         dispatch_timeout_minutes: int | None = None,
         plan_dispatch_agent: str | None = None,
@@ -475,6 +481,8 @@ class LocalBackend:
             status=status,
             git_origin=git_origin,
             kb_project_ref=kb_project_ref,
+            repo_mode=repo_mode,
+            workspace_repos=workspace_repos,
         )
         # Apply dispatch overrides immediately after creation if any are provided.
         if any(
@@ -509,6 +517,8 @@ class LocalBackend:
         area: str | None = None,
         git_origin: str | None = None,
         kb_project_ref: str | None = None,
+        repo_mode: str | None = None,
+        workspace_repos: list[str] | None = None,
         dispatch_max_turns: int | None = None,
         clear_dispatch_max_turns: bool = False,
         dispatch_timeout_minutes: int | None = None,
@@ -524,7 +534,9 @@ class LocalBackend:
 
         db = await get_db()
 
-        # Ownership guard: only the project owner may change dispatch-only fields.
+        # Ownership guard: only the project owner may change dispatch-only fields
+        # (dispatch overrides + clone-target fields that control which repos agents
+        # clone/push to: git_origin, repo_mode, workspace_repos).
         dispatch_only_touched = (
             dispatch_max_turns is not None
             or clear_dispatch_max_turns
@@ -534,6 +546,9 @@ class LocalBackend:
             or clear_plan_dispatch_agent
             or build_dispatch_agent is not None
             or clear_build_dispatch_agent
+            or git_origin is not None
+            or repo_mode is not None
+            or workspace_repos is not None
         )
         if dispatch_only_touched:
             row = await db.fetchrow(
@@ -554,6 +569,8 @@ class LocalBackend:
             area=area,
             git_origin=git_origin,
             kb_project_ref=kb_project_ref,
+            repo_mode=repo_mode,
+            workspace_repos=workspace_repos,
             dispatch_max_turns=dispatch_max_turns,
             clear_dispatch_max_turns=clear_dispatch_max_turns,
             dispatch_timeout_minutes=dispatch_timeout_minutes,
@@ -1400,12 +1417,14 @@ class HttpBackend:
         status: str = "active",
         git_origin: str = "",
         kb_project_ref: str = "",
+        repo_mode: str = "monorepo",
+        workspace_repos: list[str] | None = None,
         dispatch_max_turns: int | None = None,
         dispatch_timeout_minutes: int | None = None,
         plan_dispatch_agent: str | None = None,
         build_dispatch_agent: str | None = None,
     ) -> dict[str, Any]:
-        body: dict[str, str] = {
+        body: dict[str, Any] = {
             "name": name,
             "description": description,
             "area": area,
@@ -1415,6 +1434,12 @@ class HttpBackend:
             body["git_origin"] = git_origin
         if kb_project_ref:
             body["kb_project_ref"] = kb_project_ref
+        # Include workspace fields only when non-default (keeps old-payload bodies
+        # byte-identical so hosts and app can deploy at different times).
+        if repo_mode != "monorepo":
+            body["repo_mode"] = repo_mode
+        if workspace_repos is not None:
+            body["workspace_repos"] = workspace_repos
         resp = await self._client.post(
             "/api/projects",
             json=body,
@@ -1454,6 +1479,8 @@ class HttpBackend:
         area: str | None = None,
         git_origin: str | None = None,
         kb_project_ref: str | None = None,
+        repo_mode: str | None = None,
+        workspace_repos: list[str] | None = None,
         dispatch_max_turns: int | None = None,
         clear_dispatch_max_turns: bool = False,
         dispatch_timeout_minutes: int | None = None,
@@ -1476,6 +1503,11 @@ class HttpBackend:
             body["git_origin"] = git_origin
         if kb_project_ref is not None:
             body["kb_project_ref"] = kb_project_ref
+        # Workspace fields: include only when explicitly provided (not None).
+        if repo_mode is not None:
+            body["repo_mode"] = repo_mode
+        if workspace_repos is not None:
+            body["workspace_repos"] = workspace_repos
         # Dispatch override fields: send value to set, send null to clear,
         # omit to leave unchanged.  The REST API uses model_fields_set to
         # distinguish "explicit null" (clear) from "absent" (unchanged).
