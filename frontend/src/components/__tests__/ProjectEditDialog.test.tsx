@@ -312,4 +312,168 @@ describe('ProjectEditDialog', () => {
       expect(screen.getByRole('button', { name: 'Add repo' })).toBeDisabled()
     })
   })
+  describe('(h) pre-seed workspace repo list from existing gitOrigin on monorepo→workspace toggle', () => {
+    it('(1) edit mode, monorepo with non-empty gitOrigin → click Workspace → one Repo URL row equal to gitOrigin', async () => {
+      const editing = makeMockProject({
+        gitOrigin: 'git@github.com:org/repo.git',
+        repoMode: 'monorepo',
+        workspaceRepos: [],
+        isOwner: true,
+      })
+
+      render(
+        <ProjectEditDialog open={true} onClose={noop} editing={editing} onSaved={noop} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Workspace' })).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Workspace' }))
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText(/Git Origin/i)).not.toBeInTheDocument()
+      })
+
+      const repoFields = screen.getAllByLabelText(/Repo URL/i)
+      expect(repoFields).toHaveLength(1)
+      expect(repoFields[0]).toHaveValue('git@github.com:org/repo.git')
+    })
+
+    it('(2) edit mode, monorepo with non-empty gitOrigin → click Workspace → Save → correct payload', async () => {
+      const editing = makeMockProject({
+        gitOrigin: 'git@github.com:org/repo.git',
+        repoMode: 'monorepo',
+        workspaceRepos: [],
+        isOwner: true,
+      })
+
+      render(
+        <ProjectEditDialog open={true} onClose={noop} editing={editing} onSaved={noop} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Workspace' })).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Workspace' }))
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText(/Git Origin/i)).not.toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() => {
+        expect(vi.mocked(api.projects.update)).toHaveBeenCalledOnce()
+      })
+
+      const [, payload] = vi.mocked(api.projects.update).mock.calls[0]
+      expect(payload).toMatchObject({
+        repoMode: 'workspace',
+        workspaceRepos: ['git@github.com:org/repo.git'],
+        gitOrigin: 'git@github.com:org/repo.git',
+      })
+    })
+
+    it('(3) edit mode, monorepo with empty gitOrigin → click Workspace → one EMPTY Repo URL row (no pre-seed)', async () => {
+      const editing = makeMockProject({
+        gitOrigin: '',
+        repoMode: 'monorepo',
+        workspaceRepos: [],
+        isOwner: true,
+      })
+
+      render(
+        <ProjectEditDialog open={true} onClose={noop} editing={editing} onSaved={noop} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Workspace' })).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Workspace' }))
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText(/Git Origin/i)).not.toBeInTheDocument()
+      })
+
+      const repoFields = screen.getAllByLabelText(/Repo URL/i)
+      expect(repoFields).toHaveLength(1)
+      expect(repoFields[0]).toHaveValue('')
+    })
+
+    it('(4) edit mode, monorepo with gitOrigin AND pre-existing non-empty workspaceRepos → click Workspace → list unchanged', async () => {
+      const editing = makeMockProject({
+        gitOrigin: 'git@github.com:org/repo.git',
+        repoMode: 'monorepo',
+        workspaceRepos: ['git@github.com:org/other.git'],
+        isOwner: true,
+      })
+
+      render(
+        <ProjectEditDialog open={true} onClose={noop} editing={editing} onSaved={noop} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Workspace' })).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Workspace' }))
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText(/Git Origin/i)).not.toBeInTheDocument()
+      })
+
+      const repoFields = screen.getAllByLabelText(/Repo URL/i)
+      expect(repoFields).toHaveLength(1)
+      expect(repoFields[0]).toHaveValue('git@github.com:org/other.git')
+    })
+
+    it('(5) round-trip: monorepo with gitOrigin → Workspace (pre-seeds) → Monorepo → Workspace again → still one entry, not duplicated', async () => {
+      const editing = makeMockProject({
+        gitOrigin: 'git@github.com:org/repo.git',
+        repoMode: 'monorepo',
+        workspaceRepos: [],
+        isOwner: true,
+      })
+
+      render(
+        <ProjectEditDialog open={true} onClose={noop} editing={editing} onSaved={noop} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Workspace' })).toBeInTheDocument()
+      })
+
+      // First: monorepo → workspace (pre-seeds)
+      fireEvent.click(screen.getByRole('button', { name: 'Workspace' }))
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText(/Git Origin/i)).not.toBeInTheDocument()
+      })
+
+      let repoFields = screen.getAllByLabelText(/Repo URL/i)
+      expect(repoFields[0]).toHaveValue('git@github.com:org/repo.git')
+
+      // Second: workspace → monorepo
+      fireEvent.click(screen.getByRole('button', { name: 'Monorepo' }))
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Git Origin/i)).toBeInTheDocument()
+      })
+
+      // Third: monorepo → workspace again (list already has the value, no duplication)
+      fireEvent.click(screen.getByRole('button', { name: 'Workspace' }))
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText(/Git Origin/i)).not.toBeInTheDocument()
+      })
+
+      repoFields = screen.getAllByLabelText(/Repo URL/i)
+      expect(repoFields).toHaveLength(1)
+      expect(repoFields[0]).toHaveValue('git@github.com:org/repo.git')
+    })
+  })
+
 })

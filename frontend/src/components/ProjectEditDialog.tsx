@@ -116,6 +116,20 @@ export default function ProjectEditDialog({
   // Non-owners cannot edit dispatch fields; undefined isOwner = treat as owner
   const isOwner = editing?.isOwner !== false
 
+  // Pre-seed workspaceRepos[0] from gitOrigin when transitioning monorepo → workspace.
+  // Only fires when: gitOrigin is non-empty AND every entry in workspaceRepos is ''.
+  // All other transitions (workspace→monorepo, workspace→workspace, monorepo→monorepo) are no-ops.
+  const handleRepoModeChange = (val: RepoMode) => {
+    if (val === null) return
+    if (val === 'workspace' && repoMode === 'monorepo') {
+      const effectivelyEmpty = workspaceRepos.every((r) => r === '')
+      if (gitOrigin.trim() !== '' && effectivelyEmpty) {
+        setWorkspaceRepos([gitOrigin.trim()])
+      }
+    }
+    setRepoMode(val)
+  }
+
   const handleSave = async () => {
     if (!name.trim()) return
     setSaving(true)
@@ -274,7 +288,7 @@ export default function ProjectEditDialog({
               exclusive
               size="small"
               value={repoMode}
-              onChange={(_, val) => { if (val !== null) setRepoMode(val as RepoMode) }}
+              onChange={(_, val) => handleRepoModeChange(val as RepoMode)}
               disabled={!isOwner && editing !== null}
               sx={{ mt: 2, mb: 0.5 }}
             >
