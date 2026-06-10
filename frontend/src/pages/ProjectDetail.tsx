@@ -48,7 +48,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import HistoryToggleOffIcon from '@mui/icons-material/HistoryToggleOff'
 import { api, ApiError } from '../api'
-import { pruneSelectedLabels } from '../utils'
+import { pruneSelectedLabels, projectDispatchSource } from '../utils'
 import { useAuth } from '../contexts/AuthContext'
 import type { Project, Item, Note, Comment, ItemStatus, Priority, ProjectStatus, DispatchAgentInfo } from '../types'
 import { useDraftState } from '../hooks/useDraftState'
@@ -515,7 +515,7 @@ export default function ProjectDetail() {
   }
 
   const handleSaveAndPlan = async () => {
-    if (!projectId || !itemTitle.trim() || !project?.gitOrigin) return
+    if (!projectId || !itemTitle.trim() || !(project && projectDispatchSource(project))) return
     setSavingItem(true)
 
     // Optimistic create — identical to the Create path in handleSaveItem
@@ -1546,7 +1546,7 @@ export default function ProjectDetail() {
           // Cmd/Ctrl+Shift+Enter → Save and Plan (new-item mode only, requires git origin)
           if (e.shiftKey && modifier) {
             e.preventDefault()
-            if (!editingItem && itemTitle.trim() && !savingItem && project?.gitOrigin) {
+            if (!editingItem && itemTitle.trim() && !savingItem && project && projectDispatchSource(project)) {
               void handleSaveAndPlan()
             }
             return
@@ -1692,11 +1692,11 @@ export default function ProjectDetail() {
         <DialogActions sx={{ justifyContent: 'space-between' }}>
           {/* Left slot: Save and Plan (new item mode only) */}
           {!editingItem ? (
-            <Tooltip title={!project?.gitOrigin ? 'No dispatch origin configured for this project' : ''}>
+            <Tooltip title={!project || !projectDispatchSource(project) ? 'No dispatch origin configured for this project' : ''}>
               <span>
                 <Button
                   onClick={handleSaveAndPlan}
-                  disabled={savingItem || !itemTitle.trim() || !project?.gitOrigin}
+                  disabled={savingItem || !itemTitle.trim() || !project || !projectDispatchSource(project)}
                 >
                   Save and Plan
                 </Button>
@@ -1812,7 +1812,7 @@ export default function ProjectDetail() {
           setItems((prev) => prev.map((i) => (i.id === updated.id ? (updated as DisplayItem) : i)))
         }}
         projectName={project.name}
-        projectGitOrigin={project.gitOrigin}
+        projectDispatchSource={projectDispatchSource(project) ?? undefined}
         projectIsOwner={project.isOwner !== false}
         showAttribution={(project.memberCount ?? 0) > 0 || project.isOwner === false}
       />

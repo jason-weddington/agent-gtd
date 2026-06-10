@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { toSnakeCase, toCamelCase, convertKeys, isDispatchServiceConfigured, apiKeyFieldPlaceholder, formatRelativeTime, formatFileSize, formatElapsed, formatDispatchVersions, pruneSelectedLabels } from '../utils'
+import { toSnakeCase, toCamelCase, convertKeys, isDispatchServiceConfigured, apiKeyFieldPlaceholder, formatRelativeTime, formatFileSize, formatElapsed, formatDispatchVersions, pruneSelectedLabels, projectDispatchSource } from '../utils'
 
 describe('toSnakeCase', () => {
   it('converts camelCase to snake_case', () => {
@@ -58,6 +58,10 @@ describe('convertKeys', () => {
     const camel = convertKeys(original, toCamelCase)
     const back = convertKeys(camel, toSnakeCase)
     expect(back).toEqual(original)
+  })
+
+  it('converts the key but leaves string-array elements untouched (workspaceRepos passthrough)', () => {
+    expect(convertKeys({ workspaceRepos: ['a', 'b'] }, toSnakeCase)).toEqual({ workspace_repos: ['a', 'b'] })
   })
 })
 
@@ -270,5 +274,35 @@ describe('pruneSelectedLabels', () => {
     const allLabels: string[] = []
     const result = pruneSelectedLabels(selected, allLabels)
     expect(result).toEqual([])
+  })
+})
+
+describe('projectDispatchSource', () => {
+  it('monorepo + origin → returns the origin string', () => {
+    expect(projectDispatchSource({ repoMode: 'monorepo', gitOrigin: 'git@github.com:org/repo.git' })).toBe('git@github.com:org/repo.git')
+  })
+
+  it('monorepo + empty origin → null', () => {
+    expect(projectDispatchSource({ repoMode: 'monorepo', gitOrigin: '' })).toBeNull()
+  })
+
+  it('repoMode undefined + origin → returns the origin string (monorepo fallback)', () => {
+    expect(projectDispatchSource({ gitOrigin: 'git@github.com:org/repo.git' })).toBe('git@github.com:org/repo.git')
+  })
+
+  it('workspace + 0 repos → null', () => {
+    expect(projectDispatchSource({ repoMode: 'workspace', workspaceRepos: [] })).toBeNull()
+  })
+
+  it('workspace + 1 repo → "Workspace (1 repo)"', () => {
+    expect(projectDispatchSource({ repoMode: 'workspace', workspaceRepos: ['git@github.com:org/a.git'] })).toBe('Workspace (1 repo)')
+  })
+
+  it('workspace + 3 repos → "Workspace (3 repos)"', () => {
+    expect(projectDispatchSource({ repoMode: 'workspace', workspaceRepos: ['a', 'b', 'c'] })).toBe('Workspace (3 repos)')
+  })
+
+  it('workspace + undefined workspaceRepos → null', () => {
+    expect(projectDispatchSource({ repoMode: 'workspace' })).toBeNull()
   })
 })

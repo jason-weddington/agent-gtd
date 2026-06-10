@@ -70,6 +70,7 @@ export type BuildEngine =
   | 'claude-code-sonnet'
   | 'claude-code-haiku'
   | 'kiro'
+export type RepoMode = 'monorepo' | 'workspace'
 
 // --- Domain Types ---
 
@@ -97,6 +98,10 @@ export interface Project {
   planDispatchAgent?: string | null
   /** Per-project build-mode agent override. Null = inherit from global build agent. */
   buildDispatchAgent?: string | null
+  /** Dispatch mode: 'monorepo' (single git_origin) or 'workspace' (multiple repos). Undefined = monorepo. */
+  repoMode?: RepoMode
+  /** Workspace repo URLs. Only used when repoMode === 'workspace'. */
+  workspaceRepos?: string[]
   /** Number of open (non-done) items in this project. */
   totalItems: number
   /** Short preview of the project description (first line). Null when description is empty. */

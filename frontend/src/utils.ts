@@ -1,3 +1,5 @@
+import type { RepoMode } from './types'
+
 export function toSnakeCase(str: string): string {
   return str.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)
 }
@@ -110,6 +112,31 @@ export function pruneSelectedLabels(selected: string[], allLabels: string[]): st
  */
 export function formatFileSize(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)} KB`
+}
+
+/**
+ * Returns the dispatch source string for a project, or null when dispatch
+ * is not possible.
+ *
+ * - Non-workspace mode (or repoMode undefined) → returns gitOrigin, or null
+ *   when gitOrigin is empty/undefined.
+ * - Workspace mode → returns 'Workspace (N repos)' when N >= 1, or null when
+ *   the workspace has zero repos.
+ *
+ * Callers coerce null → undefined when passing to optional string props.
+ */
+export function projectDispatchSource(p: {
+  repoMode?: RepoMode
+  gitOrigin?: string
+  workspaceRepos?: string[]
+}): string | null {
+  if (p.repoMode !== 'workspace') {
+    return p.gitOrigin || null
+  }
+  const n = (p.workspaceRepos ?? []).length
+  if (n === 0) return null
+  if (n === 1) return 'Workspace (1 repo)'
+  return `Workspace (${n} repos)`
 }
 
 /**

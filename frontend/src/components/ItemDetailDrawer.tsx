@@ -69,7 +69,7 @@ interface ItemDetailDrawerProps {
   onEdit: (item: Item) => void
   onItemUpdated?: (item: Item) => void
   projectName?: string
-  projectGitOrigin?: string
+  projectDispatchSource?: string
   /** Whether the current user owns the project. Defaults to true (solo context). */
   projectIsOwner?: boolean
   /** Whether to show item attribution (createdBy email). */
@@ -82,7 +82,7 @@ export default function ItemDetailDrawer({
   onEdit,
   onItemUpdated,
   projectName,
-  projectGitOrigin,
+  projectDispatchSource,
   projectIsOwner = true,
   showAttribution = false,
 }: ItemDetailDrawerProps) {
@@ -627,7 +627,7 @@ export default function ItemDetailDrawer({
   const isDispatchConfigured = projectIsOwner ? dispatchConfigured !== false : true
   // AC-21: item locked by an active wave
   const isLockedByRollout = Boolean(item?.lockedByRolloutId)
-  const canDispatch = Boolean(projectGitOrigin) && !isRunActive && isDispatchConfigured && !isLockedByRollout
+  const canDispatch = Boolean(projectDispatchSource) && !isRunActive && isDispatchConfigured && !isLockedByRollout
   const isSaving = savingField !== null
 
   function getDispatchTooltip(): string {
@@ -635,7 +635,7 @@ export default function ItemDetailDrawer({
     if (dispatchConfigured === false) return 'Configure dispatch in Settings → Agent Dispatch.'
     if (isRunQueued) return 'Queued — waiting for a free slot (capped at 6 concurrent runs)'
     if (isRunActive) return 'Agent is working'
-    if (!projectGitOrigin) return 'No git origin'
+    if (!projectDispatchSource) return 'No dispatch source configured'
     return 'Dispatch to Remote Agent'
   }
 
@@ -1072,7 +1072,7 @@ export default function ItemDetailDrawer({
               </Box>
 
               {/* Action buttons */}
-              {projectGitOrigin && localItem.status !== 'done' && (
+              {projectDispatchSource && localItem.status !== 'done' && (
                 <Tooltip title={getDispatchTooltip()}>
                   <span>
                     <IconButton
@@ -1694,7 +1694,7 @@ export default function ItemDetailDrawer({
             <strong>Task:</strong> {localItem?.title}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            <strong>Repo:</strong> {projectGitOrigin}
+            <strong>Repo:</strong> {projectDispatchSource}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             <strong>Max turns:</strong> {defaultMaxTurns ?? 'server default'}

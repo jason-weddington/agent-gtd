@@ -9,15 +9,19 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Select,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
 } from '@mui/material'
+import DeleteIcon from '@mui/icons-material/Delete'
 import { api, ApiError } from '../api'
-import type { Project, ProjectStatus, DispatchAgentInfo } from '../types'
+import type { Project, ProjectStatus, DispatchAgentInfo, RepoMode } from '../types'
 
 interface ProjectEditDialogProps {
   open: boolean
@@ -40,6 +44,8 @@ export default function ProjectEditDialog({
   const [area, setArea] = useState('')
   const [gitOrigin, setGitOrigin] = useState('')
   const [kbProjectRef, setKbProjectRef] = useState('')
+  const [repoMode, setRepoMode] = useState<RepoMode>('monorepo')
+  const [workspaceRepos, setWorkspaceRepos] = useState<string[]>([''])
   const [planDispatchAgent, setPlanDispatchAgent] = useState<string | null>(null)
   const [buildDispatchAgent, setBuildDispatchAgent] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -88,6 +94,8 @@ export default function ProjectEditDialog({
       setArea(editing.area)
       setGitOrigin(editing.gitOrigin || '')
       setKbProjectRef(editing.kbProjectRef || '')
+      setRepoMode(editing.repoMode ?? 'monorepo')
+      setWorkspaceRepos(editing.workspaceRepos && editing.workspaceRepos.length > 0 ? editing.workspaceRepos : [''])
       setPlanDispatchAgent(editing.planDispatchAgent ?? null)
       setBuildDispatchAgent(editing.buildDispatchAgent ?? null)
     } else {
@@ -97,31 +105,55 @@ export default function ProjectEditDialog({
       setArea('')
       setGitOrigin('')
       setKbProjectRef('')
+      setRepoMode('monorepo')
+      setWorkspaceRepos([''])
       setPlanDispatchAgent(null)
       setBuildDispatchAgent(null)
     }
     setSaveError(null)
   }, [open, editing])
 
+  // Non-owners cannot edit dispatch fields; undefined isOwner = treat as owner
+  const isOwner = editing?.isOwner !== false
+
   const handleSave = async () => {
     if (!name.trim()) return
     setSaving(true)
     setSaveError(null)
+    // Trim repo URLs and drop empty rows; empty resulting list is valid.
+    const trimmedRepos = workspaceRepos.map((r) => r.trim()).filter((r) => r !== '')
     try {
       let saved: Project
       if (editing) {
+        // Owner-only fields: omit entirely for non-owners to avoid a 403.
+        // This also fixes the pre-existing latent bug where planDispatchAgent /
+        // buildDispatchAgent were always sent even for member saves.
+        const ownerFields = isOwner ? {
+          gitOrigin,
+          repoMode,
+          workspaceRepos: trimmedRepos,
+          planDispatchAgent,
+          buildDispatchAgent,
+        } : {}
         saved = await api.projects.update(editing.id, {
+          name,
+          description,
+          status,
+          area,
+          kbProjectRef,
+          ...ownerFields,
+        })
+      } else {
+        saved = await api.projects.create({
           name,
           description,
           status,
           area,
           gitOrigin,
           kbProjectRef,
-          planDispatchAgent,
-          buildDispatchAgent,
+          repoMode,
+          workspaceRepos: trimmedRepos,
         })
-      } else {
-        saved = await api.projects.create({ name, description, status, area, gitOrigin, kbProjectRef })
       }
       onSaved(saved)
       onClose()
@@ -131,9 +163,6 @@ export default function ProjectEditDialog({
       setSaving(false)
     }
   }
-
-  // Non-owners cannot edit dispatch fields; undefined isOwner = treat as owner
-  const isOwner = editing?.isOwner !== false
 
   // Derived Autocomplete data
   const capabilityNames = dispatchCapabilities?.map((a) => a.name) ?? []
@@ -236,16 +265,75 @@ export default function ProjectEditDialog({
           size="small"
           placeholder="e.g. work, personal, health"
         />
-        <TextField
-          fullWidth
-          label="Git Origin"
-          value={gitOrigin}
-          onChange={(e) => setGitOrigin(e.target.value)}
-          margin="normal"
-          size="small"
-          placeholder="e.g. git@github.com:org/repo.git"
-          helperText="Repository URL for agent dispatch"
-        />
+        <Tooltip
+          title={!isOwner && editing !== null ? 'Only the project owner can edit dispatch settings' : ''}
+          disableHoverListener={isOwner}
+        >
+          <span>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={repoMode}
+              onChange={(_, val) => { if (val !== null) setRepoMode(val as RepoMode) }}
+              disabled={!isOwner && editing !== null}
+              sx={{ mt: 2, mb: 0.5 }}
+            >
+              <ToggleButton value="monorepo">Monorepo</ToggleButton>
+              <ToggleButton value="workspace">Workspace</ToggleButton>
+            </ToggleButtonGroup>
+          </span>
+        </Tooltip>
+        {repoMode !== 'workspace' ? (
+          <TextField
+            fullWidth
+            label="Git Origin"
+            value={gitOrigin}
+            onChange={(e) => setGitOrigin(e.target.value)}
+            margin="normal"
+            size="small"
+            placeholder="e.g. git@github.com:org/repo.git"
+            helperText="Repository URL for agent dispatch"
+            disabled={!isOwner && editing !== null}
+          />
+        ) : (
+          <Box sx={{ mt: 1 }}>
+            {workspaceRepos.map((repo, idx) => (
+              <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <TextField
+                  fullWidth
+                  label="Repo URL"
+                  value={repo}
+                  onChange={(e) => {
+                    const next = [...workspaceRepos]
+                    next[idx] = e.target.value
+                    setWorkspaceRepos(next)
+                  }}
+                  size="small"
+                  placeholder="e.g. git@github.com:org/repo.git"
+                  disabled={!isOwner && editing !== null}
+                />
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    const next = workspaceRepos.filter((_, i) => i !== idx)
+                    setWorkspaceRepos(next.length > 0 ? next : [''])
+                  }}
+                  disabled={(!isOwner && editing !== null) || workspaceRepos.length === 1}
+                  aria-label="Remove repo"
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Box>
+            ))}
+            <Button
+              size="small"
+              onClick={() => setWorkspaceRepos([...workspaceRepos, ''])}
+              disabled={!isOwner && editing !== null}
+            >
+              Add repo
+            </Button>
+          </Box>
+        )}
         <TextField
           fullWidth
           label="KB Project Ref"

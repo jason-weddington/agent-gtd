@@ -16,6 +16,7 @@ import EventNoteIcon from '@mui/icons-material/EventNote'
 import TaskAltIcon from '@mui/icons-material/TaskAlt'
 import { api, ApiError } from '../api'
 import type { Item, Project, ItemStatus } from '../types'
+import { projectDispatchSource } from '../utils'
 import { useEvents } from '../contexts/EventStreamContext'
 import ReviewStepper from '../components/review/ReviewStepper'
 import InboxReviewStep from '../components/review/InboxReviewStep'
@@ -440,7 +441,7 @@ export default function WeeklyReview() {
           setNextActionItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))
         }}
         projectName={drawerItem?.projectId ? projectMap[drawerItem.projectId]?.name : undefined}
-        projectGitOrigin={drawerItem?.projectId ? projectMap[drawerItem.projectId]?.gitOrigin : undefined}
+        projectDispatchSource={drawerItem?.projectId && projectMap[drawerItem.projectId] ? projectDispatchSource(projectMap[drawerItem.projectId]) ?? undefined : undefined}
         projectIsOwner={
           drawerItem?.projectId
             ? projectMap[drawerItem.projectId]?.isOwner !== false

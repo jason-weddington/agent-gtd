@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback } from 'react'
 import ItemDetailDrawer from '../components/ItemDetailDrawer'
 import type { Item, Project } from '../types'
+import { projectDispatchSource } from '../utils'
 
 interface ItemDrawerContextType {
   openItemDrawer: (item: Item, project?: Project) => void
@@ -35,7 +36,7 @@ export function ItemDrawerProvider({ children }: { children: React.ReactNode }) 
         onEdit={() => { closeItemDrawer() }}
         onItemUpdated={(updated) => setDrawerItem(updated)}
         projectName={drawerProject?.name}
-        projectGitOrigin={drawerProject?.gitOrigin}
+        projectDispatchSource={drawerProject ? projectDispatchSource(drawerProject) ?? undefined : undefined}
         projectIsOwner={drawerProject ? (drawerProject.isOwner !== false) : true}
         showAttribution={false}
       />

@@ -35,7 +35,7 @@ import { useAuth } from '../contexts/AuthContext'
 import type { Item, Project, ItemStatus, Priority, BlockerSummary } from '../types'
 import { PRIORITY_BORDER } from '../priorityColors'
 import { ENGINE_LABELS } from '../engineLabels'
-import { hasUnresolvedBlockers } from '../utils'
+import { hasUnresolvedBlockers, projectDispatchSource } from '../utils'
 import { useEvents } from '../contexts/EventStreamContext'
 import ItemDetailDrawer from './ItemDetailDrawer'
 import { BlockerPicker } from './BlockerPicker'
@@ -654,7 +654,7 @@ export default function GtdItemList({
           setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))
         }}
         projectName={drawerItem?.projectId ? projectMap[drawerItem.projectId]?.name : undefined}
-        projectGitOrigin={drawerItem?.projectId ? projectMap[drawerItem.projectId]?.gitOrigin : undefined}
+        projectDispatchSource={drawerItem?.projectId && projectMap[drawerItem.projectId] ? projectDispatchSource(projectMap[drawerItem.projectId]) ?? undefined : undefined}
         projectIsOwner={
           drawerItem?.projectId
             ? projectMap[drawerItem.projectId]?.isOwner !== false
