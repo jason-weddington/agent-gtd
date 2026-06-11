@@ -2,10 +2,13 @@
 
 ```bash
 uv sync
-uv run pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type post-commit --hook-type pre-push
+npm --prefix frontend install
+uv run pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
 ```
 
-Without local hooks installed, working-tree edits that haven't been staged can land on origin/main as lint/format regressions — happened three times on 2026-05-13. Run this every time you clone fresh.
+Without local hooks installed, working-tree edits that haven't been staged can land on origin/main as lint/format regressions — happened three times on 2026-05-13. Run this every time you clone fresh. (`npm install` is part of setup because the pre-commit hooks run eslint + tsc via `npm --prefix frontend` — they fail on a fresh clone without it.)
+
+Full fresh-machine setup (prerequisites, database creation, env vars, local SQLite mode): `docs/setup.md`.
 
 ## Check the Knowledge Base First
 
@@ -30,6 +33,18 @@ ssh r7-research 'journalctl --user -u agent-gtd -f'     # Tail logs
 The git remote `origin` points to `r7-research`. After `git push origin main --tags`, restart the service to pick up changes. See KB entries `kb-00306` and `kb-00307` for full deployment architecture and bounce guidelines.
 
 ## Headless Dispatch Hosts
+
+**Two provisioning modes.** `setup-dispatch-host.sh` (in the `agent-gtd-dispatch`
+repo) supports the **two-user split** described below (production homelab hosts) and a
+**single-user mode** for a personal/dev machine: run
+`sudo DISPATCH_SINGLE_USER=1 ./setup-dispatch-host.sh` — no sudoers rules, no user
+split; the agent and the dispatch service run as the invoking user, and the
+`/home/dispatch-svc` / `/home/dispatch` paths below do not exist (their equivalents
+live under the invoking user's home). The script refuses to create a mixed state on a
+host already provisioned in the other mode, and it mints a `DISPATCH_API_KEY` into the
+service env file when one is absent. Single-user mode is the right starting point on a
+fresh machine outside this homelab; everything below describes the two-user production
+setup — adapt usernames/paths accordingly.
 
 Dispatch runs on two hosts: `pironman01` and `r7-research` (`ubuntu-pi-01` was
 removed from the rotation 2026-06-10 — too slow). On
@@ -57,6 +72,12 @@ its own `KB_DATABASE_URL` (team DB) + `KB_INSTANCE_ROLE=team`/`KB_TEAM=grit-mile
 `KB_CONTRIBUTOR=jason`; `personal-kb` inherits the personal `KB_DATABASE_URL` via the
 worker passthrough. How env crosses the `dispatch-svc → dispatch` sudo boundary:
 **`kb-01583`**.
+
+**Workspace (multi-repo) projects.** GTD projects have a `repo_mode`
+(`monorepo` | `workspace`). Workspace projects carry a `workspace_repos` list
+(pre-seeded from the git origin when toggled in the UI), and dispatch clones every
+listed repo under a shared workspace root for the run. Rollouts are supported for
+workspace projects.
 
 ## Production Architecture
 
@@ -94,7 +115,7 @@ uv run mypy src/                     # Type check
 uv run pre-commit run --all-files    # Run all pre-commit hooks
 
 # Install git hooks (not carried by git clone)
-uv run pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type post-commit --hook-type pre-push
+uv run pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
 
 npm --prefix frontend install        # Install frontend dependencies
 npm --prefix frontend run dev        # Start frontend dev server (port 5173)
@@ -110,46 +131,46 @@ agent_gtd/
 ├── src/agent_gtd/              # Python backend (FastAPI)
 │   ├── main.py                # App entry, lifespan (init/close DB), CORS, router mounts
 │   ├── auth.py                # JWT (HS256, 72h) + bcrypt, get_current_user dependency
-│   ├── database.py            # Async PostgreSQL (asyncpg), connection pool
+│   ├── database.py            # asyncpg PostgreSQL pool; SQLite fallback (sqlite_pool.py)
+│   │                          #   when AGENT_GTD_DATABASE_URL is unset — single-user
+│   │                          #   local mode, no auth (fixed LOCAL_USER_ID)
+│   ├── sqlite_pool.py         # SQLite pool backing local single-user mode
 │   ├── models.py              # Pydantic v2 domain models + API request/response schemas
-│   └── routes/
-│       ├── auth_routes.py     # POST register, login, logout; GET me
-│       └── note_routes.py     # Notes CRUD — example resource, replace with your domain
-├── tests/
-│   ├── conftest.py            # Shared fixtures (async client, test DB, auth helpers)
-│   ├── test_auth.py           # Auth endpoint tests
-│   └── test_smoke.py          # Health check, app startup
+│   ├── cli.py                 # `agent-gtd` CLI (run-status, rollout-status, add-item, ...)
+│   ├── mcp_server.py          # MCP server entry point (tools for items/notes/dispatch/rollouts)
+│   ├── mcp_backend.py         # Shared MCP backend — local-DB or HTTP mode
+│   ├── dispatch_worker.py     # Executes dispatched runs against the dispatch service
+│   ├── identity.py            # created_by attribution helpers
+│   ├── event_bus.py           # In-process pub/sub feeding the SSE endpoint
+│   ├── routes/                # 11 routers: auth, item, project, note, comment, dispatch,
+│   │                          #   rollout, event (SSE), attachment, settings, admin
+│   └── services/              # Business logic — item_service.py, project_service.py,
+│                              #   dispatch_service.py, rollout_service.py, dispatch_router.py, ...
+├── tests/                     # ~50 pytest modules; conftest.py gives each test a fresh
+│                              #   in-memory SQLite pool — no PostgreSQL needed for tests
 ├── frontend/                  # React 19 + TypeScript + MUI 7 (Vite)
 │   ├── src/
 │   │   ├── App.tsx            # Route definitions (react-router-dom v7)
-│   │   ├── main.tsx           # React root with Auth + Theme providers
+│   │   ├── main.tsx           # React root with providers
 │   │   ├── api.ts             # Typed API client — auto snake/camelCase conversion
 │   │   ├── types.ts           # TypeScript interfaces matching backend response schemas
-│   │   ├── utils.ts           # Pure utilities (key conversion) — tested
+│   │   ├── utils.ts           # Pure utilities — tested
 │   │   ├── theme.ts           # MUI theme customization
-│   │   ├── contexts/
-│   │   │   ├── AuthContext.tsx # Login/register/logout, JWT in localStorage
-│   │   │   └── ThemeContext.tsx# Dark/light toggle, persisted in localStorage
-│   │   ├── components/
-│   │   │   ├── Layout.tsx     # App shell: header, sidebar, content area
-│   │   │   ├── Sidebar.tsx    # Navigation drawer (GTD sections: Collect/Lists/Organize)
-│   │   │   ├── GtdItemList.tsx # Shared GTD status list (fetch, edit, done, delete)
-│   │   │   └── ProtectedRoute.tsx  # Redirects to /login if not authenticated
-│   │   ├── pages/
-│   │   │   ├── Login.tsx      # Login + registration form
-│   │   │   ├── Inbox.tsx      # Quick capture + inbox item list with triage
-│   │   │   ├── NextActions.tsx # Cross-project next actions list
-│   │   │   ├── WaitingFor.tsx  # Cross-project waiting-for list
-│   │   │   ├── SomedayMaybe.tsx # Cross-project someday/maybe list
-│   │   │   ├── Projects.tsx   # Project list with create/edit
-│   │   │   ├── ProjectDetail.tsx # Project items + notes with tabs
-│   │   │   └── Settings.tsx   # User settings (theme toggle, etc.)
-│   │   └── __tests__/
-│   │       └── utils.test.ts  # Tests for pure utility functions
+│   │   ├── contexts/          # Auth, Theme, EventStream, ItemDrawer, QuickCapture
+│   │   ├── hooks/             # useDraftState, useEventStream
+│   │   ├── components/        # ~30 shared components: Layout, Sidebar, GtdItemList,
+│   │   │                      #   KanbanBoard/Card/Column, ItemDetailDrawer, QuickCapture,
+│   │   │                      #   ActivityDrawer, Rollout* widgets, ProtectedRoute, ...
+│   │   ├── pages/             # 16 pages: Login, Register, ResetPassword, Inbox,
+│   │   │                      #   InboxProcessor, NextActions, WaitingFor, SomedayMaybe,
+│   │   │                      #   Projects, ProjectDetail, Runs, RolloutDetail,
+│   │   │                      #   WeeklyReview, AdminUsers, AdminInvites, Settings
+│   │   └── __tests__/         # vitest tests (pure utilities + components)
 │   ├── vite.config.ts         # Dev server (port 5173), /api proxy to :8000, vitest config
 │   ├── tsconfig.json          # Strict TS (noUnusedLocals, noUnusedParameters)
 │   └── eslint.config.js       # ESLint config
-├── docs/                      # Project documentation
+├── docs/                      # setup.md (fresh-machine runbook), deploy.md, architecture.md, ...
+├── scripts/                   # seed.py (seed user + project), migration SQL, commit-msg check
 ├── planning/                  # Feature planning docs
 │   ├── templates/             # feature.md template
 │   └── <branch-name>/        # Per-branch planning (mirrors git branch)
@@ -157,7 +178,8 @@ agent_gtd/
 ├── .env.example               # Environment variables template (JWT_SECRET, AGENT_GTD_DATABASE_URL, etc.)
 ├── .pre-commit-config.yaml    # Git hooks config (ruff, mypy, eslint, tsc, gitleaks, etc.)
 ├── pyproject.toml             # Python config (deps, ruff, mypy, pytest, semantic-release)
-└── start.sh                   # Dev server launcher (backend + frontend)
+├── start.sh                   # Dev entry point (backend + Vite dev server)
+└── serve.sh                   # Production entry point (uvicorn only — see Production Architecture)
 ```
 
 ## What Already Exists
@@ -165,18 +187,22 @@ agent_gtd/
 This project ships with a **working app** — not just boilerplate. Before writing new code, understand what's already here:
 
 **Backend (fully functional):**
-- User registration and login with JWT auth (bcrypt passwords, 72h token expiry)
+- Full GTD domain: items (statuses, priorities, blockers), projects, notes, comments, attachments
+- Dispatch system: build/plan-mode runs, manage-mode rollouts, dispatch worker + engine router
+- MCP server (`agent-gtd-mcp`) and `agent-gtd` CLI — both work in local-DB or HTTP mode
+- SSE event stream at `/api/events` for live UI updates
+- Auth: JWT login (bcrypt passwords, 72h token expiry), invite-token registration, admin user/invite management, API keys
 - `get_current_user` FastAPI dependency — add it to any route that needs auth
-- Async PostgreSQL database (asyncpg pool), schema auto-creation on startup
-- Notes CRUD API as a reference implementation (list, create, get, update, delete)
+- Database: asyncpg PostgreSQL pool, with **SQLite fallback** when `AGENT_GTD_DATABASE_URL` is unset — single-user local mode, auth disabled. Schema auto-creates on startup in both modes. See the "Local Mode vs PostgreSQL Mode" table in `docs/setup.md`.
 - Health check endpoint at `/api/health`
 
 **Frontend (fully functional):**
-- Login page with registration flow
-- Inbox with quick capture and triage dialog
+- Login page; separate Register page (registration requires an admin-issued invite token, PostgreSQL mode only — not available in local SQLite mode); password reset
+- Inbox with quick capture and triage dialog, plus a dedicated Inbox Processor flow
 - GTD list views: Next Actions, Waiting For, Someday/Maybe (cross-project, shared `GtdItemList` component)
-- Projects list with create/edit, project detail with items + notes tabs
-- Settings page with theme toggle
+- Projects list with create/edit; project detail with kanban board, item detail drawer, notes, and sharing
+- Runs and Rollout Detail pages for monitoring dispatched agents, with live SSE activity
+- Weekly Review, admin pages (users, invites), Settings page with theme toggle
 - Sidebar organized into GTD sections (Collect / Lists / Organize)
 - App shell with sidebar navigation, header, and content area
 - API client (`api.ts`) that handles auth tokens and snake/camelCase conversion automatically
@@ -206,10 +232,10 @@ timestamps, and wave context. Attribution is trustworthy only after cutover.
 
 | What you're adding | Where it goes |
 |---|---|
-| New API resource (e.g., photos, tasks) | `src/agent_gtd/routes/new_routes.py` — copy `note_routes.py` as a starting point, mount in `main.py` |
+| New API resource | `src/agent_gtd/routes/new_routes.py` — `note_routes.py` is the simplest existing router and a good copy-from template; mount in `main.py` |
 | New domain/API models | `src/agent_gtd/models.py` — domain models at top, request/response schemas below |
 | New database tables | `src/agent_gtd/database.py` — add to `_SCHEMA_STATEMENTS` list, tables auto-create on startup |
-| New service/business logic | `src/agent_gtd/services/` — create this directory for non-trivial logic that doesn't belong in routes |
+| New service/business logic | `src/agent_gtd/services/` — follow the existing `*_service.py` modules (e.g. `item_service.py`) |
 | New frontend page | `frontend/src/pages/NewPage.tsx` — add route in `App.tsx`, add nav link in `Sidebar.tsx` |
 | New frontend component | `frontend/src/components/` — shared/reusable UI components |
 | New API namespace | `frontend/src/api.ts` — add a new namespace object (like `notes: { ... }`) |
@@ -294,7 +320,7 @@ There is no `docs/roadmap.md`. There are no TODO lists in markdown. If something
 
 ### Prerequisites
 
-PostgreSQL with `agent_gtd` and `agent_gtd_test` databases. Connection strings in `.env` (`AGENT_GTD_DATABASE_URL` and `AGENT_GTD_TEST_DATABASE_URL`).
+None for local single-user mode — leave `AGENT_GTD_DATABASE_URL` unset and the app uses SQLite at `~/.local/share/agent_gtd/gtd.db` (auth disabled, fixed `LOCAL_USER_ID`). For multi-user/PostgreSQL mode, create an `agent_gtd` database and set `AGENT_GTD_DATABASE_URL` in `.env` (psql commands in `docs/setup.md`, step 4). Tests always run against in-memory SQLite — no test database or `AGENT_GTD_TEST_DATABASE_URL` is needed.
 
 **First-time setup:**
 ```bash

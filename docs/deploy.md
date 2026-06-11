@@ -38,6 +38,7 @@ Read these from your machine before starting.
 | `<SSL_KEY>`       | Path to TLS private key                              | Same as above                                                                   |
 | `<HOME_USER>`     | Linux user running the systemd unit                  | `whoami` on the host                                                            |
 | `<HOST>`          | SSH alias / hostname for remote deploys              | The name in `~/.ssh/config`. Omit `ssh <HOST>` for local-only deploys           |
+| `<DISPATCH_REPO_URL>` | Git URL of the `agent-gtd-dispatch` repo         | The `[tool.uv.sources]` entry in `pyproject.toml` — adapt to your git host (see Step 3) |
 
 **TLS:** If the host doesn't already have certs, the simplest local-LAN
 option is a self-signed cert (`openssl req -x509 -nodes -days 3650
@@ -184,6 +185,63 @@ nginx: configuration file /etc/nginx/nginx.conf test is successful
 
 ---
 
+## Step 1.5 — Environment (`.env`)
+
+Nothing in the app loads `.env` automatically — there is no `load_dotenv`
+in the backend, and `serve.sh` just execs `uv run uvicorn`. In production
+the environment must come from systemd: Step 2 adds
+`EnvironmentFile=<APP_DIR>/.env` to the unit, and this step creates that
+file.
+
+**Pick your mode first:**
+
+- **Single-engineer machine (single-user mode):** if `AGENT_GTD_DATABASE_URL`
+  is unset, the app runs in SQLite single-user local mode — data lives in
+  `~/.local/share/agent_gtd/gtd.db` (or `$XDG_DATA_HOME/agent_gtd/gtd.db`),
+  no PostgreSQL required. This is the intended path for one person on one
+  box: skip the PostgreSQL setup below, but still set a real `JWT_SECRET`.
+- **Shared / production instance:** PostgreSQL is mandatory — set
+  `AGENT_GTD_DATABASE_URL` explicitly and verify the mode after deploy
+  (verification check #7 below).
+
+Create `.env` from the template and generate a real JWT secret:
+
+```bash
+cd <APP_DIR>
+cp .env.example .env
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"   # → JWT_SECRET value
+```
+
+Then edit `.env` and set:
+
+```
+JWT_SECRET=<the generated value>
+AGENT_GTD_DATABASE_URL=postgresql://<DB_USER>:<DB_PASSWORD>@localhost:5432/agent_gtd
+```
+
+(`auth.py` falls back to `dev-secret-change-me` when `JWT_SECRET` is
+unset — never ship that default.)
+
+If PostgreSQL isn't installed yet (shared-instance mode only):
+
+```bash
+sudo apt install -y postgresql
+sudo -u postgres createuser --pwprompt <DB_USER>
+sudo -u postgres createdb -O <DB_USER> agent_gtd
+```
+
+The schema auto-creates on app startup — there is no migration step.
+
+**The silent-SQLite trap:** if `AGENT_GTD_DATABASE_URL` is unset (typo'd
+var name, missing `EnvironmentFile=` line, `.env` not created), the app
+does **not** fail — it silently falls back to SQLite local mode. The
+service shows `active (running)`, `/api/health` returns ok, and a shared
+instance is quietly serving the wrong (empty) database, possibly with the
+insecure default JWT secret. Verification check #7 below distinguishes
+the two modes — run it on every shared-instance deploy.
+
+---
+
 ## Step 2 — Install / update the systemd user unit
 
 `serve.sh` is the production entry point — it's checked into the repo
@@ -200,6 +258,14 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=<APP_DIR>
+# .env created in Step 1.5 — JWT_SECRET and (for shared instances)
+# AGENT_GTD_DATABASE_URL. Without this line the app silently falls back
+# to SQLite local mode with the insecure default JWT secret.
+EnvironmentFile=<APP_DIR>/.env
+# serve.sh execs `uv run uvicorn`. The standard uv installer puts uv in
+# ~/.local/bin, which is NOT on the systemd user manager's default PATH
+# on stock Ubuntu — without this line the unit crash-loops with exit 127.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=<APP_DIR>/serve.sh
 Restart=on-failure
 RestartSec=5
@@ -222,6 +288,13 @@ the cgroup listing showing only the uvicorn process — **no `node`,
 `npm`, or `vite` processes**. If Vite still appears, `daemon-reload`
 didn't take — re-run it and restart.
 
+If `status` instead shows the unit flapping with `status=127`
+(`uv: command not found`), `uv` isn't on the unit's PATH — check the
+`Environment=PATH=` line above, or hardcode the absolute path from
+`which uv` into `serve.sh`. If it fails with
+`Failed to load environment files`, you skipped Step 1.5 — create
+`<APP_DIR>/.env` first.
+
 If the unit isn't running on login, enable lingering so it survives
 logout: `sudo loginctl enable-linger <HOME_USER>`.
 
@@ -236,17 +309,37 @@ one — without it, frontend changes from a `git pull` won't show up.
 ### Protocol package lock refresh
 
 `agent-gtd-dispatch-protocol` is declared as a git dependency with
-`rev = "main"` in `pyproject.toml`, but `uv.lock` pins to a specific
-commit SHA at lock time. The git server (`ubuntu-vm01`) only advertises
-branch HEADs — it does not serve arbitrary SHA fetches — so if the
-pinned SHA has drifted behind dispatch main, `uv sync` will fail with
-a fetch error. The project policy is **always latest main**: every
-deploy must refresh the lock against the current dispatch main tip
-before syncing.
+`rev = "main"` in `pyproject.toml` (`[tool.uv.sources]`), but `uv.lock`
+pins to a specific commit SHA at lock time.
 
-Run `uv lock --upgrade-package agent-gtd-dispatch-protocol` after each
-`git pull` to advance the pin to the current HEAD of dispatch main, then
-commit the updated `uv.lock` if it changed.
+> **Adapt this to your environment.** In this checkout the source URL is
+> `ssh://git@ubuntu-vm01/~/repos/agent-gtd-dispatch` — Jason's homelab
+> git server. Both `uv lock` **and** `uv sync` fetch from that URL, so on
+> any machine without SSH reachability to the configured git host they
+> fail outright with an unreachable-host fetch error — the deploy scripts
+> below will not get past `uv lock`/`uv sync`. For an internal port:
+> repoint the `[tool.uv.sources]` entry for `agent-gtd-dispatch-protocol`
+> in `pyproject.toml` to your own mirror of the `agent-gtd-dispatch` repo
+> (or vendor/publish the protocol package), then run
+> `uv lock --upgrade-package agent-gtd-dispatch-protocol` to re-pin and
+> commit the updated `uv.lock`.
+
+The git server only advertises branch HEADs — it does not serve
+arbitrary SHA fetches — so if the pinned SHA has drifted behind dispatch
+main, `uv sync` fails with a fetch error. The lock refresh is needed
+**when the protocol package (or any Python dep) has changed** — not
+literally on every deploy. The templates below include it because it's
+the safe default for a copy-paste script; a minimal deploy that skips
+the `uv lock`/`uv sync` lines (pull + frontend build + restart, which is
+what the operator's actual `deploy.sh` does when Python deps are stable)
+also works, **but then you must run
+`uv lock --upgrade-package agent-gtd-dispatch-protocol && uv sync`
+manually after any pull that changes `pyproject.toml` or `uv.lock`** —
+otherwise Python dependency changes never land on the host.
+
+To refresh: run `uv lock --upgrade-package agent-gtd-dispatch-protocol`
+after `git pull` to advance the pin to the current HEAD of dispatch
+main, then commit the updated `uv.lock` if it changed.
 
 **Remote deploy (over SSH):**
 
@@ -323,12 +416,23 @@ curl -sk -o /dev/null -w "%{http_code}\n" https://<HOSTNAME>/projects    # → 2
 systemctl --user status <SYSTEMD_UNIT> --no-pager | grep -E 'CGroup:|node|vite|uvicorn'
 
 # 6. Protocol package reflects current dispatch main
-#    uv.lock should reference the same SHA as dispatch main HEAD
-ssh <HOST> "cd <APP_DIR> && grep -A2 'name = \"agent-gtd-dispatch-protocol\"' uv.lock | grep 'rev = '"
-ssh <HOST> "git -C ~/repos/agent-gtd-dispatch rev-parse main"
-# Both lines should print the same 40-character SHA.
+#    uv.lock embeds the pinned SHA as a URL fragment on the package's
+#    `source = { git = "...#<sha>" }` line (there is no `rev = ` line)
+ssh <HOST> "cd <APP_DIR> && grep -A3 '^name = \"agent-gtd-dispatch-protocol\"' uv.lock | grep -o '#[0-9a-f]\{40\}'"
+git ls-remote <DISPATCH_REPO_URL> main
+# The fragment SHA (minus the leading '#') should match the ls-remote SHA.
+# <DISPATCH_REPO_URL> is the [tool.uv.sources] URL from pyproject.toml —
+# ls-remote works against any reachable remote, no host-side clone needed.
 # Alternatively, inspect the installed package version:
 ssh <HOST> 'cd <APP_DIR> && uv run python -c "import agent_gtd_dispatch_protocol; print(agent_gtd_dispatch_protocol.__file__)"'
+
+# 7. Confirm database mode (PostgreSQL vs silent SQLite fallback)
+#    Reads the env of the running service's main process.
+ssh <HOST> 'MAINPID=$(systemctl --user show <SYSTEMD_UNIT> -p MainPID --value) && \
+  tr "\0" "\n" < /proc/$MAINPID/environ | grep "^AGENT_GTD_DATABASE_URL=" \
+  || echo "SQLite local mode (no AGENT_GTD_DATABASE_URL)"'
+# Shared instance: must print the postgresql:// DSN.
+# Single-user machine: "SQLite local mode" is the expected output.
 ```
 
 ### Browser checks
@@ -379,6 +483,10 @@ sudo nginx -t && sudo systemctl reload nginx
 - **`frontend/dist/` must exist before nginx reload.** Otherwise nginx
   serves 404 and may redirect-loop on the SPA fallback. Always build
   before swapping the systemd unit.
+- **Unset `AGENT_GTD_DATABASE_URL` does not fail — it silently switches
+  to SQLite local mode.** The service runs, `/api/health` passes, and a
+  shared instance serves the wrong database. See Step 1.5 and
+  verification check #7.
 - **Headless dispatch agents installing new npm deps don't propagate to
   local/prod automatically.** That's why `deploy.sh` runs `npm install`
   on every deploy — a freshly-added package from a `git pull` would

@@ -4,6 +4,12 @@ A full-stack [Getting Things Done](https://gettingthingsdone.com/) app with an M
 
 ![Agent GTD project board](images/agent-gtd.png)
 
+## Prerequisites
+
+- **Python 3.13+** and [uv](https://docs.astral.sh/uv/) — `curl -LsSf https://astral.sh/uv/install.sh | sh` (uv downloads a matching Python automatically during `uv sync` if needed)
+- **Node.js 20.19+** and npm — via [nvm](https://github.com/nvm-sh/nvm) or your package manager
+- **PostgreSQL — only for multi-user mode.** Local mode uses SQLite with zero setup, and the test suite runs against in-memory SQLite, so `uv run pytest` works on a fresh clone with no database server installed.
+
 ## Quick Start (Local Mode)
 
 No database setup required. The app uses SQLite and skips authentication automatically.
@@ -22,19 +28,28 @@ Open http://localhost:5173. That's it.
 ## Quick Start (PostgreSQL)
 
 ```bash
-# Create the database
-createdb agent_gtd
+# Install PostgreSQL and create a role + database
+# (stock Ubuntu shown — adapt the role/password and pg setup to your environment)
+sudo apt install -y postgresql
+sudo -u postgres psql -c "CREATE USER gtd WITH PASSWORD 'gtd' CREATEDB;"
+sudo -u postgres createdb -O gtd agent_gtd
 
 # Configure environment
 cp .env.example .env
-# Edit .env: set AGENT_GTD_DATABASE_URL and JWT_SECRET
+# Edit .env: set AGENT_GTD_DATABASE_URL (e.g. postgresql://gtd:gtd@localhost:5432/agent_gtd)
+# and JWT_SECRET
+
+# IMPORTANT: .env is NOT auto-loaded — export it into the shell first
+# (or use direnv / your own env mechanism). Without AGENT_GTD_DATABASE_URL
+# in the environment, the steps below silently run against local SQLite.
+set -a; source .env; set +a
 
 # Install and seed
 uv sync
 npm --prefix frontend install
 uv run python scripts/seed.py   # Creates admin user (admin@local / admin)
 
-# Start
+# Start (same shell, so the exported vars are visible)
 ./start.sh
 ```
 
@@ -52,11 +67,14 @@ Authentication uses API keys. Get one, set it in your environment, and the MCP s
 
 **1. Get an API key**
 
-Either generate one with the seed script:
+Either generate one with the seed script (run with `AGENT_GTD_DATABASE_URL` exported — see the PostgreSQL Quick Start — or the key lands in the local SQLite database instead):
 
 ```bash
-uv run python scripts/seed.py   # Prints the key
+uv run python scripts/seed.py   # First run prints the key and saves it to data/seed.json
 ```
+
+The full key is only printed on the **first** run. On subsequent runs the script
+prints just a key prefix — read the saved key from `data/seed.json` instead.
 
 Or log into the web UI, go to **Settings > API Access**, and create one there.
 
@@ -93,6 +111,8 @@ When the env vars are set, the MCP server auto-authenticates on first tool call.
 
 ### Available Tools
 
+Core tools (subset):
+
 | Tool | Description |
 |------|-------------|
 | `login` | Authenticate with API key (not needed if env var is set) |
@@ -102,10 +122,15 @@ When the env vars are set, the MCP server auto-authenticates on first tool call.
 | `complete_item` | Mark an item done |
 | `list_items` | List items (filter by status, project, etc.) |
 | `get_item` | Get a single item by ID |
-| `claim_item` / `release_item` | Lock/unlock items for concurrent agents |
 | `add_note` / `update_note` | Create or update project notes |
 | `list_notes` / `get_note` | Read project notes |
 | `list_projects` / `add_project` | Manage projects |
+
+The full surface also covers blockers, comments, project sharing, dispatch
+(`dispatch_item`, `get_run_status`, `list_runs`, `list_dispatch_hosts`), and the
+rollout family — see the `@mcp.tool` registrations in
+`src/agent_gtd/mcp_server.py` for the complete list. (`claim_item` /
+`release_item` are REST-only endpoints, not MCP tools.)
 
 ## CLI
 
@@ -128,6 +153,27 @@ pattern below — `agent-gtd run-status <run_id>` returns the same dispatch stat
 that the MCP `get_run_status` tool returns, so a lead agent can poll from the
 shell and wake on completion instead of burning context on a timer.
 
+## Dispatch Service (Optional)
+
+Headless dispatch (`dispatch_item`, rollouts, `agent-gtd run-status`) requires a
+dispatch host running the service from the separate
+[agent-gtd-dispatch](https://github.com/jason-weddington/agent-gtd-dispatch)
+repository. Provision it with that repo's `setup-dispatch-host.sh` (full
+walkthrough in its `docs/install.md`). For a single dev machine, use
+**single-user mode** — everything runs under your own login account, with no
+two-user split and no sudoers rules:
+
+```bash
+# From a clone of agent-gtd-dispatch, on the machine that will run agents
+sudo --preserve-env=DISPATCH_SINGLE_USER DISPATCH_SINGLE_USER=1 \
+  ./setup-dispatch-host.sh --env-file <your-env-file>
+```
+
+Then set `DISPATCH_SERVICE_URL` (and `DISPATCH_SERVICE_API_KEY`) in this app's
+environment to point at that host — see `.env.example`. Without a dispatch
+service, everything else in this README still works; only the dispatch and
+rollout tools are unavailable.
+
 ## Development
 
 ```bash
@@ -138,7 +184,7 @@ npm --prefix frontend run test        # Frontend tests
 
 # Install git hooks (recommended)
 uv run pre-commit install --hook-type pre-commit --hook-type commit-msg \
-  --hook-type post-commit --hook-type pre-push
+  --hook-type pre-push
 ```
 
 ## Steering Your Agents
