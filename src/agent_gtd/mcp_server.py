@@ -1486,6 +1486,13 @@ async def plan_rollout(
     service planner (``POST {dispatch_url}/plan``), persists the resulting
     DAG, and returns a plan summary for the lead to confirm.
 
+    Workspace projects are supported.  For workspace items,
+    ``files_to_modify`` paths are workspace-relative and repo-dir-prefixed
+    (e.g. ``'agent_gtd/src/...'``, ``'agent-gtd-dispatch/src/...'``); the DAG
+    planner's overlap detection compares these path strings as-is, so identical
+    prefixed paths across items produce dependency edges with no special
+    handling.
+
     Args:
         item_ids: IDs of the items to include in the rollout (minimum 1).
         ctx: MCP context (injected automatically).
@@ -1766,6 +1773,9 @@ async def dispatch_rollout(
     Use this instead of dispatch_item when launching a manage-mode run.
     Creates a manage-mode claude_runs row scoped to the rollout (no item_id),
     and transitions the rollout from pending → running.
+
+    Workspace projects are supported; the manage agent receives workspace-aware
+    repo information from the project record.
 
     Args:
         rollout_id: ID of the rollout to dispatch.

@@ -253,12 +253,15 @@ async def dispatch_rollout_run(
     Validates:
     - Rollout exists and is owned by user
     - Rollout has status="pending" (one-shot)
+    - Workspace projects: non-empty workspace_repos required
+    - Monorepo projects: non-empty git_origin required
 
     Creates a claude_runs row with item_id=NULL, mode="manage".
     Transitions rollout pending → running.
 
     Raises:
-        NotFoundError: If rollout not found or not owned by user.
+        NotFoundError: If rollout not found or not owned by user, or if the
+            project is missing its required repo configuration.
         ValidationError: If rollout is not in pending status.
     """
     from agent_gtd.services.rollout_service import _get_rollout, start_rollout
@@ -273,15 +276,17 @@ async def dispatch_rollout_run(
     project_id = str(rollout["project_id"])
     project = await get_project(db, user_id, project_id)
     if project.get("repo_mode") == "workspace":
-        raise ValidationError(
-            "Workspace projects do not support rollouts yet; dispatch items"
-            " individually with dispatch_item"
-        )
-    if not project.get("git_origin"):
-        raise NotFoundError(
-            "git_origin",
-            f"Project '{project['name']}' has no git_origin configured",
-        )
+        if not project.get("workspace_repos"):
+            raise NotFoundError(
+                "repos",
+                f"Workspace project '{project['name']}' has no repos configured",
+            )
+    else:
+        if not project.get("git_origin"):
+            raise NotFoundError(
+                "git_origin",
+                f"Project '{project['name']}' has no git_origin configured",
+            )
 
     from agent_gtd.dispatch_worker import DEFAULT_MAX_TURNS, resolve_max_turns
     from agent_gtd.services import settings_service

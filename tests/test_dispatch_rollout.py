@@ -177,14 +177,13 @@ async def test_dispatch_rollout_creates_run_row(
     assert str(row["rollout_id"]) == rollout_id
 
 
-async def test_dispatch_rollout_workspace_project_raises(
+async def test_dispatch_rollout_workspace_project_succeeds(
     client: AsyncClient, auth_headers: dict[str, str], user_id: str
 ) -> None:
-    """dispatch_rollout_run on a workspace project raises the workspace ValidationError.
+    """dispatch_rollout_run on a workspace project returns 201 (guard removed).
 
-    Uses a workspace project with git_origin empty to prove the workspace check
-    fires before the git_origin guard (i.e. we get 409 from workspace, not 404
-    from git_origin).
+    Creates a workspace project via API, inserts a pending rollout, dispatches,
+    and asserts the manage-mode run row and rollout transition.
     """
     from agent_gtd.database import get_db
 
@@ -202,8 +201,6 @@ async def test_dispatch_rollout_workspace_project_raises(
     )
     assert res.status_code == 201
     project_id = res.json()["id"]
-    # Confirm git_origin is empty so the git_origin guard would fire if reached
-    assert res.json().get("git_origin", "") == ""
 
     rollout_id = await _insert_pending_rollout(db, user_id, project_id)
 
@@ -211,9 +208,63 @@ async def test_dispatch_rollout_workspace_project_raises(
         f"/api/rollouts/{rollout_id}/dispatch",
         headers=auth_headers,
     )
-    # 409 (ValidationError) not 404 (NotFoundError) — workspace guard fires first
-    assert res.status_code == 409
-    assert "Workspace projects do not support rollouts yet" in res.json()["detail"]
+    assert res.status_code == 201, res.text
+
+    # claude_runs row: item_id is None, mode is manage, rollout_id matches
+    run_id = res.json()["id"]
+    run_row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
+    assert run_row is not None
+    assert run_row["item_id"] is None
+    assert run_row["mode"] == "manage"
+    assert str(run_row["rollout_id"]) == rollout_id
+
+    # Rollout transitions to running
+    rollout_row = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert rollout_row is not None
+    assert rollout_row["status"] == "running"
+
+
+async def test_dispatch_rollout_workspace_empty_repos_raises(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    """dispatch_rollout_run on a workspace project with empty repos returns 404.
+
+    Inserts the project directly into the DB (bypassing API validation that
+    requires non-empty repos) to exercise the NotFoundError guard.
+    """
+    import uuid as _uuid
+
+    from agent_gtd.database import encode_json_list, get_db
+
+    db = await get_db()
+
+    # Insert workspace project with empty workspace_repos directly — bypasses
+    # the API-level validation so we can test the service-level guard.
+    project_id = str(_uuid.uuid4())
+    now = _now()
+    await db.execute(
+        "INSERT INTO projects"
+        " (id, user_id, name, repo_mode, workspace_repos, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        project_id,
+        user_id,
+        "Empty Workspace Project",
+        "workspace",
+        encode_json_list([]),
+        now,
+        now,
+    )
+
+    rollout_id = await _insert_pending_rollout(db, user_id, project_id)
+
+    res = await client.post(
+        f"/api/rollouts/{rollout_id}/dispatch",
+        headers=auth_headers,
+    )
+    assert res.status_code == 404
+    assert "has no repos configured" in res.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

@@ -840,15 +840,16 @@ async def test_plan_rollout_project_not_found(db):
 
 
 # ---------------------------------------------------------------------------
-# plan_rollout — workspace project rejection
+# plan_rollout — workspace project happy path
 # ---------------------------------------------------------------------------
 
 
-async def test_plan_rollout_workspace_project_raises(db):
-    """plan_rollout raises the pinned ValidationError for workspace projects.
+async def test_plan_rollout_workspace_project_succeeds(db):
+    """plan_rollout succeeds for workspace projects (rejection guard removed).
 
-    The workspace check must fire before the autonomous_rollouts INSERT so no
-    orphaned 'planning' row is created.
+    Inserts a workspace project directly, configures dispatch settings for the
+    owner, patches call_planner, and asserts the returned dict and persisted
+    row both have status='pending'.
     """
     from agent_gtd.services.rollout_service import plan_rollout
 
@@ -871,15 +872,41 @@ async def test_plan_rollout_workspace_project_raises(db):
     )
     item_id = await _make_item(db, user_id, workspace_project_id)
 
-    with pytest.raises(
-        ValidationError,
-        match="Workspace projects do not support rollouts yet",
-    ):
-        await plan_rollout(db, user_id, [item_id])
+    # Insert dispatch config for the owner user (mirrors _configure_dispatch in
+    # test_mcp_rollout.py but uses the db fixture directly).
+    for key, value in [
+        ("dispatch.service_url", "http://dispatch.test:8100"),
+        ("dispatch.service_api_key", "test-api-key"),
+    ]:
+        await db.execute(
+            "INSERT INTO user_settings (user_id, key, value, updated_at) "
+            "VALUES ($1, $2, $3, $4) "
+            "ON CONFLICT (user_id, key) DO UPDATE "
+            "SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
+            user_id,
+            key,
+            value,
+            NOW,
+        )
 
-    # No orphaned autonomous_rollouts row must have been inserted
-    rows = await db.fetch("SELECT id FROM autonomous_rollouts")
-    assert len(rows) == 0
+    planner_return = {
+        "nodes": [item_id],
+        "edges": [],
+        "planner_model": "claude-sonnet-4-6",
+    }
+    with patch(
+        "agent_gtd.services.rollout_service.call_planner",
+        new_callable=AsyncMock,
+        return_value=planner_return,
+    ):
+        result = await plan_rollout(db, user_id, [item_id])
+
+    assert result["status"] == "pending"
+
+    # Exactly one autonomous_rollouts row with status='pending'
+    rows = await db.fetch("SELECT status FROM autonomous_rollouts")
+    assert len(rows) == 1
+    assert rows[0]["status"] == "pending"
 
 
 # ---------------------------------------------------------------------------

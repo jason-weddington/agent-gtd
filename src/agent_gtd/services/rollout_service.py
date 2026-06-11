@@ -212,6 +212,13 @@ async def plan_rollout(
     rollout, calls the remote planner, persists the DAG, and returns a plan
     summary for the lead to confirm before execution begins.
 
+    Workspace projects are supported.  For workspace items,
+    ``files_to_modify`` paths are workspace-relative and repo-dir-prefixed
+    (e.g. ``'agent_gtd/src/...'``, ``'agent-gtd-dispatch/src/...'``); the DAG
+    planner's overlap detection compares these path strings as-is, so identical
+    prefixed paths across items produce dependency edges with no special
+    handling.
+
     Args:
         db: Database connection pool.
         user_id: ID of the calling user (the lead).
@@ -245,15 +252,10 @@ async def plan_rollout(
 
     # Step 3: Look up dispatch config for the project owner.
     project_row = await db.fetchrow(
-        "SELECT user_id, repo_mode FROM projects WHERE id = $1", project_id
+        "SELECT user_id FROM projects WHERE id = $1", project_id
     )
     if project_row is None:
         raise ValidationError(f"Project {project_id!r} not found")
-    if str(project_row.get("repo_mode") or "monorepo") == "workspace":
-        raise ValidationError(
-            "Workspace projects do not support rollouts yet; dispatch items"
-            " individually with dispatch_item"
-        )
     owner_user_id = str(project_row["user_id"])
 
     dispatch_config = await get_dispatch_config(db, owner_user_id)
