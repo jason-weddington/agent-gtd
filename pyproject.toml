@@ -127,5 +127,6 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_gtd"]
 
+# See README section "Internal dependency: agent-gtd-dispatch-protocol" for how to override this pin on machines without SSH access to ubuntu-vm01.
 [tool.uv.sources]
 agent-gtd-dispatch-protocol = { git = "ssh://git@ubuntu-vm01/~/repos/agent-gtd-dispatch", subdirectory = "packages/protocol", rev = "main" }

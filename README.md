@@ -10,6 +10,56 @@ A full-stack [Getting Things Done](https://gettingthingsdone.com/) app with an M
 - **Node.js 20.19+** and npm — via [nvm](https://github.com/nvm-sh/nvm) or your package manager
 - **PostgreSQL — only for multi-user mode.** Local mode uses SQLite with zero setup, and the test suite runs against in-memory SQLite, so `uv run pytest` works on a fresh clone with no database server installed.
 
+## Internal dependency: agent-gtd-dispatch-protocol
+
+`agent-gtd-dispatch-protocol` is an internal shared-schema package that lives in
+the [agent-gtd-dispatch](https://github.com/jason-weddington/agent-gtd-dispatch)
+repository — it is **not published to PyPI**. The default pin in
+`pyproject.toml` (`[tool.uv.sources]`, line 131) fetches it over SSH from the
+homelab host `ubuntu-vm01`:
+
+```toml
+agent-gtd-dispatch-protocol = { git = "ssh://git@ubuntu-vm01/~/repos/agent-gtd-dispatch", subdirectory = "packages/protocol", rev = "main" }
+```
+
+**On any machine without SSH access to `ubuntu-vm01`, `uv sync` will fail**
+with an SSH connection error. Before running `uv sync`, you must either (a) have
+SSH access to `ubuntu-vm01`, or (b) substitute the source entry in
+`pyproject.toml` line 131 with one of the two override forms below.
+
+> **Do not commit your override.** The homelab `git+ssh` pin is the
+> source of truth. Keep the override as an uncommitted local edit, or put
+> it on a worktree / branch you never push.
+
+### Override form A — fork the dispatch repo on GitHub
+
+1. Fork `agent-gtd-dispatch` to your own GitHub account.
+2. Replace the `agent-gtd-dispatch-protocol` line in `[tool.uv.sources]`
+   (`pyproject.toml` line 131) with:
+
+```toml
+agent-gtd-dispatch-protocol = { git = "https://github.com/<your-fork>/agent-gtd-dispatch", subdirectory = "packages/protocol", rev = "main" }
+```
+
+Replace `<your-fork>` with your GitHub username and use a real branch or
+commit SHA you control.
+
+### Override form B — local sibling checkout (tested ✓)
+
+**Prerequisite:** clone `agent-gtd-dispatch` as a sibling directory of `agent_gtd/`
+(so the path `../agent-gtd-dispatch` resolves from inside this repo).
+
+Replace the `agent-gtd-dispatch-protocol` line in `[tool.uv.sources]`
+(`pyproject.toml` line 131) with the following exact line — verified with
+`uv sync` + `uv run pytest` in the workspace:
+
+```toml
+agent-gtd-dispatch-protocol = { path = "../agent-gtd-dispatch/packages/protocol" }
+```
+
+Run `uv sync` from `agent_gtd/`. uv resolves the package from the local
+checkout; the full test suite passes unchanged.
+
 ## Quick Start (Local Mode)
 
 No database setup required. The app uses SQLite and skips authentication automatically.
@@ -47,7 +97,7 @@ set -a; source .env; set +a
 # Install and seed
 uv sync
 npm --prefix frontend install
-uv run python scripts/seed.py   # Creates admin user (admin@local / admin)
+uv run python scripts/seed.py   # Creates seed user admin@local / admin (NOT an admin — run `agent-gtd promote-admin admin@local` to grant admin)
 
 # Start (same shell, so the exported vars are visible)
 ./start.sh
