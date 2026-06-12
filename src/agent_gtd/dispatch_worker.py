@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-from agent_gtd_dispatch_protocol import DispatchRequest
+from agent_gtd_dispatch_protocol import DispatchMode, DispatchRequest
 from agent_gtd_dispatch_protocol import RunResponse as RemoteRunResponse
 from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 
@@ -259,7 +259,7 @@ async def _dispatch_to_remote(
     req = DispatchRequest(
         item_id=item_id,
         max_turns=max_turns,
-        mode=mode,
+        mode=DispatchMode(mode),
         engine=engine,
         timeout_minutes=timeout_minutes,
         agent_name=agent_name or None,
