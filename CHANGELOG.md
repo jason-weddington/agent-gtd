@@ -2,6 +2,53 @@
 
 <!-- version list -->
 
+## v1.92.0 (2026-06-12)
+
+### Chores
+
+- Add .kb_project + correct stale release docs
+  ([`5c447ef`](https://github.com/jason-weddington/agent-gtd/commit/5c447ef7a28b09583bfb87dfa61c7ed1b9de0ac1))
+
+- Pin agent-gtd-dispatch-protocol to public GitHub over https
+  ([`eb86861`](https://github.com/jason-weddington/agent-gtd/commit/eb8686107f1207dd3932a279b0c7b395707e551b))
+
+### Documentation
+
+- Drop ubuntu-pi-01 from dispatch host list
+  ([`c00a04c`](https://github.com/jason-weddington/agent-gtd/commit/c00a04c9a209ec12220d18f60dacbc09325a79a9))
+
+- Setup-audit fixes — verified against current code (workflow wf_8865dd55)
+  ([`51514e9`](https://github.com/jason-weddington/agent-gtd/commit/51514e96739639670a2398826c8fc8cf8a238c3c))
+
+- **71643696**: Overhaul setup.md — working PG16 recipe, no false claims
+  ([`1982479`](https://github.com/jason-weddington/agent-gtd/commit/1982479101db9cae55ff72080ad42b1d22ac9f50))
+
+- **f9416e62**: Document protocol-dependency override for non-homelab machines
+  ([`417754c`](https://github.com/jason-weddington/agent-gtd/commit/417754cddeb58c26203a538a3c519a24d7581912))
+
+### Features
+
+- **339b907d**: Workspace projects: [Monorepo|Workspace] toggle + repo list editor
+  ([`7c2c6d2`](https://github.com/jason-weddington/agent-gtd/commit/7c2c6d21d02497d19ea1aa096b178b5c8d7eab22))
+
+- **3e4b4991**: Workspace projects: GTD-side dispatch-path validation + contract
+  ([`6eb9617`](https://github.com/jason-weddington/agent-gtd/commit/6eb9617fb013f0358826f7659b78f358fae8e4b0))
+
+- **96a31c5d**: Enable rollouts for workspace projects
+  ([`1eef6e4`](https://github.com/jason-weddington/agent-gtd/commit/1eef6e4a661d3a907afbc943aac3ff085f7b89c9))
+
+- **9a4002b9**: Pre-seed workspace repo list from git origin on monorepo->workspace toggle
+  ([`b1e24a9`](https://github.com/jason-weddington/agent-gtd/commit/b1e24a9b15e65cc2c181c5c2da8bd0b510772889))
+
+- **c55ccdc3**: Workspace projects: backend schema, models, validation + REST/MCP exposure
+  ([`6921083`](https://github.com/jason-weddington/agent-gtd/commit/69210836448d5e52e2839e8a5dd704d4860d50c6))
+
+### Testing
+
+- Guard ProjectDetail render-loop fix with pruneSelectedLabels helper
+  ([`2e6f393`](https://github.com/jason-weddington/agent-gtd/commit/2e6f393f80cdc73cc2cfb3914100ee3ceadcfc8d))
+
+
 ## v1.91.0 (2026-06-08)
 
 ### Bug Fixes
