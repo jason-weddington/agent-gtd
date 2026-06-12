@@ -34,7 +34,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-gtd-dispatch-protocol", git = "ssh://git@ubuntu-vm01/~/repos/agent-gtd-dispatch?subdirectory=packages%2Fprotocol&rev=main" },
+    { name = "agent-gtd-dispatch-protocol", git = "https://github.com/jason-weddington/agent-gtd-dispatch?subdirectory=packages%2Fprotocol&rev=main" },
     { name = "aiosqlite", specifier = ">=0.20" },
     { name = "asyncpg", specifier = ">=0.30" },
     { name = "bcrypt", specifier = ">=4.0" },
@@ -62,7 +62,7 @@ dev = [
 [[package]]
 name = "agent-gtd-dispatch-protocol"
 version = "0.1.0"
-source = { git = "ssh://git@ubuntu-vm01/~/repos/agent-gtd-dispatch?subdirectory=packages%2Fprotocol&rev=main#c78825e5cee2ae1dba312551af74295d8b5930b9" }
+source = { git = "https://github.com/jason-weddington/agent-gtd-dispatch?subdirectory=packages%2Fprotocol&rev=main#60c72612d20a22a8674db498a1969deed6533569" }
 dependencies = [
     { name = "pydantic" },
 ]

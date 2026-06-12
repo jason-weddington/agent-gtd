@@ -15,50 +15,47 @@ A full-stack [Getting Things Done](https://gettingthingsdone.com/) app with an M
 `agent-gtd-dispatch-protocol` is an internal shared-schema package that lives in
 the [agent-gtd-dispatch](https://github.com/jason-weddington/agent-gtd-dispatch)
 repository — it is **not published to PyPI**. The default pin in
-`pyproject.toml` (`[tool.uv.sources]`, line 131) fetches it over SSH from the
-homelab host `ubuntu-vm01`:
+`pyproject.toml` (`[tool.uv.sources]`, line 131) fetches it anonymously over
+https from the public GitHub repo:
 
 ```toml
-agent-gtd-dispatch-protocol = { git = "ssh://git@ubuntu-vm01/~/repos/agent-gtd-dispatch", subdirectory = "packages/protocol", rev = "main" }
+agent-gtd-dispatch-protocol = { git = "https://github.com/jason-weddington/agent-gtd-dispatch", subdirectory = "packages/protocol", rev = "main" }
 ```
 
-**On any machine without SSH access to `ubuntu-vm01`, `uv sync` will fail**
-with an SSH connection error. Before running `uv sync`, you must either (a) have
-SSH access to `ubuntu-vm01`, or (b) substitute the source entry in
-`pyproject.toml` line 131 with one of the two override forms below.
+`uv sync` works on any machine with internet access — no SSH keys or private
+hosts required. The lockfile pins an exact commit; to pick up a newer protocol
+release run `uv lock --upgrade-package agent-gtd-dispatch-protocol`.
 
-> **Do not commit your override.** The homelab `git+ssh` pin is the
-> source of truth. Keep the override as an uncommitted local edit, or put
-> it on a worktree / branch you never push.
+You only need an override in two situations:
 
-### Override form A — fork the dispatch repo on GitHub
+### Override form A — porting: fork the dispatch repo
 
-1. Fork `agent-gtd-dispatch` to your own GitHub account.
-2. Replace the `agent-gtd-dispatch-protocol` line in `[tool.uv.sources]`
-   (`pyproject.toml` line 131) with:
+If you are forking this system (e.g. to an internal git host), fork
+`agent-gtd-dispatch` too and replace the `agent-gtd-dispatch-protocol` line in
+`[tool.uv.sources]` (`pyproject.toml` line 131) with your fork's URL:
 
 ```toml
-agent-gtd-dispatch-protocol = { git = "https://github.com/<your-fork>/agent-gtd-dispatch", subdirectory = "packages/protocol", rev = "main" }
+agent-gtd-dispatch-protocol = { git = "https://<your-git-host>/<your-fork>/agent-gtd-dispatch", subdirectory = "packages/protocol", rev = "main" }
 ```
 
-Replace `<your-fork>` with your GitHub username and use a real branch or
-commit SHA you control.
+In a fork this is a committed change — your fork's pin is your source of truth.
 
-### Override form B — local sibling checkout (tested ✓)
+### Override form B — local protocol development (tested ✓)
 
-**Prerequisite:** clone `agent-gtd-dispatch` as a sibling directory of `agent_gtd/`
-(so the path `../agent-gtd-dispatch` resolves from inside this repo).
-
-Replace the `agent-gtd-dispatch-protocol` line in `[tool.uv.sources]`
-(`pyproject.toml` line 131) with the following exact line — verified with
-`uv sync` + `uv run pytest` in the workspace:
+The GitHub pin only sees protocol changes after they are pushed to GitHub
+(release time). When actively co-developing the protocol package, point at a
+local sibling checkout instead (clone `agent-gtd-dispatch` next to `agent_gtd/`
+so `../agent-gtd-dispatch` resolves):
 
 ```toml
 agent-gtd-dispatch-protocol = { path = "../agent-gtd-dispatch/packages/protocol" }
 ```
 
-Run `uv sync` from `agent_gtd/`. uv resolves the package from the local
-checkout; the full test suite passes unchanged.
+Run `uv sync` from `agent_gtd/`; the full test suite passes unchanged against
+the local checkout.
+
+> **Do not commit the path override** — it is a local-development convenience.
+> Revert to the GitHub pin before pushing.
 
 ## Quick Start (Local Mode)
 
