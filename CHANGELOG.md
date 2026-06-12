@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.92.1 (2026-06-12)
+
+### Bug Fixes
+
+- Coerce dispatch mode str to DispatchMode for the typed protocol
+  ([`75bbf21`](https://github.com/jason-weddington/agent-gtd/commit/75bbf21792610411c0acb3cd7890b05b84a86db5))
+
+
 ## v1.92.0 (2026-06-12)
 
 ### Chores
