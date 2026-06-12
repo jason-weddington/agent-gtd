@@ -56,6 +56,22 @@ The installer is idempotent (re-run it to true-up a host) and mints the
 `DISPATCH_API_KEY` for you, printing an ACTION REQUIRED banner. Read the
 "Side effects on your account" subsection before the first run.
 
+**Corporate / Bedrock environments:** if your hosts can't call the Anthropic
+API directly, route the rollout planner (the LLM that builds dependency DAGs
+for managed rollouts) through Amazon Bedrock — in the host's env file set:
+
+```bash
+DISPATCH_PLANNER_PROVIDER=bedrock
+AWS_REGION=us-east-1        # required — the SDK does NOT read ~/.aws/config for region
+# credentials via the standard AWS chain (AWS_PROFILE, instance role, etc.)
+# optional: DISPATCH_PLANNER_BEDROCK_MODEL=us.anthropic.claude-sonnet-4-6  (regional/CRIS)
+```
+
+Default model is `global.anthropic.claude-sonnet-4-6`. In bedrock mode
+`ANTHROPIC_API_KEY` is not required for the planner. Note the scope: this
+covers the planner LLM call only — the build agents themselves run Claude
+Code, authenticated separately in step 4.
+
 ## 4. Pair the two halves
 
 [install.md → Authentication & pairing](https://github.com/jason-weddington/agent-gtd-dispatch/blob/main/docs/install.md#authentication--pairing)
