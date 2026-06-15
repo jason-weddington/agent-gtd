@@ -2,6 +2,42 @@
 
 <!-- version list -->
 
+## v1.93.0 (2026-06-15)
+
+### Bug Fixes
+
+- **db874804**: Schema FK forward-reference breaking fresh PostgreSQL bootstrap
+  ([`b55b228`](https://github.com/jason-weddington/agent-gtd/commit/b55b2284bff2b13a94e4a88df74f5eaa1cc5befc))
+
+### Documentation
+
+- Document externally-authenticated Claude Code; correct dispatch-protocol source
+  ([`3717170`](https://github.com/jason-weddington/agent-gtd/commit/3717170e26662a37f28a63870e3a5de6f76f981d))
+
+- START-HERE gains the Bedrock planner option for corporate environments
+  ([`93fbac8`](https://github.com/jason-weddington/agent-gtd/commit/93fbac8ca3c48bb97d1578ccbd17175aeb41c41d))
+
+- START-HERE.md — single entry point for agent onboarding
+  ([`4258b3d`](https://github.com/jason-weddington/agent-gtd/commit/4258b3d11dae539a6e83b7959bb46b1ba643b084))
+
+- **33220e1e**: README lifecycle diagram uses real enum values
+  ([`d5da717`](https://github.com/jason-weddington/agent-gtd/commit/d5da7174e1b885c9a55aab75a5f423315d0025aa))
+
+- **6a0566ea**: AL2023/RHEL PostgreSQL first-run + pg_hba auth note
+  ([`8f67840`](https://github.com/jason-weddington/agent-gtd/commit/8f67840bcd040995a1a4bbca999dad737a656734))
+
+- **713b1ca7**: Deploy.md AL2023/RHEL distro gaps + 5432 port contention
+  ([`ad3d022`](https://github.com/jason-weddington/agent-gtd/commit/ad3d022c7f8945f946a651fa63c22e5675438356))
+
+- **e8fda58a**: MCP setup README — agent-gtd-mcp not on PyPI; co-located server note
+  ([`1e07d10`](https://github.com/jason-weddington/agent-gtd/commit/1e07d10d25c3ba83c299ececaf12f7208d8b1141))
+
+### Features
+
+- **d81261c1**: Add a PostgreSQL schema-bootstrap test (close the SQLite-only test gap)
+  ([`0a0b75c`](https://github.com/jason-weddington/agent-gtd/commit/0a0b75cbc3018e659cd44e3000a2343b419a0198))
+
+
 ## v1.92.1 (2026-06-12)
 
 ### Bug Fixes
