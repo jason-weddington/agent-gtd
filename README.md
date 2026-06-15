@@ -277,13 +277,13 @@ A task is **Ready** when:
 ### The Lifecycle
 
 ```
-New → Ready → To Do → In Progress → Review → Done
-         ↑ grooming    ↑ dispatch     ↑ agent     ↑ human
+New → Ready → Active → Review → Done
+       ↑ grooming  ↑ dispatch  ↑ agent  ↑ human
 ```
 
 **Interactive sessions** (human + agent): Groom the backlog, review dispatched work, tackle ambiguous problems.
 
-**Headless dispatch**: Pick up Ready/To Do tasks and execute autonomously. Agents post progress comments and set status to Review when done.
+**Headless dispatch**: Pick up Ready tasks and execute autonomously. Agents post progress comments and set status to Review when done.
 
 ### Writing Good Task Descriptions
 
