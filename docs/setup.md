@@ -42,9 +42,12 @@ This installs all runtime and dev dependencies into a `.venv` managed by `uv`. T
 (`uv.lock`) pins exact versions — never modify it by hand. Use `uv add <package>` to add new
 dependencies.
 
-Note: `agent-gtd-dispatch-protocol` is a git dependency pointing to `ubuntu-vm01`. If you
-are not on the internal network, this dependency may fail to fetch. In that case, contact the
-project lead for a pre-built wheel or access to the repository.
+Note: `agent-gtd-dispatch-protocol` is a git dependency fetched **anonymously over https from
+the public GitHub repo** (`[tool.uv.sources]` in `pyproject.toml` pins
+`git = "https://github.com/jason-weddington/agent-gtd-dispatch"`, `rev = "main"`) — no internal
+network or credentials required. If you maintain a private fork, repoint that line at your own
+git host (see README → "Internal dependency: agent-gtd-dispatch-protocol" for the fork-URL and
+local-path override forms).
 
 ### 3. Install git hooks
 
@@ -376,8 +379,11 @@ If the seed script ran successfully, use the credentials from `data/seed.json` t
 
 ### `uv sync` fails with "fetch error" on `agent-gtd-dispatch-protocol`
 
-The dispatch protocol package is hosted on an internal git server (`ubuntu-vm01`). If you are
-not on the internal network or VPN, `uv sync` cannot fetch this dependency.
+The dispatch protocol package is fetched anonymously over https from public GitHub
+(`https://github.com/jason-weddington/agent-gtd-dispatch`, pinned in `pyproject.toml`'s
+`[tool.uv.sources]`). This normally needs no credentials; a failure here usually means no
+network egress to github.com, a proxy/firewall blocking it, or a private fork whose URL you
+must repoint.
 
 **Solution:** Use SSH access to the internal network, or ask the project lead for a pre-built
 wheel or a tarball of the package.

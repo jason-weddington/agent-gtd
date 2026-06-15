@@ -77,7 +77,13 @@ Code, authenticated separately in step 4.
 [install.md → Authentication & pairing](https://github.com/jason-weddington/agent-gtd-dispatch/blob/main/docs/install.md#authentication--pairing)
 covers all three credentials:
 
-1. `CLAUDE_CODE_OAUTH_TOKEN` — authenticates the headless agent (`claude setup-token`)
+1. `CLAUDE_CODE_OAUTH_TOKEN` — authenticates the headless agent (`claude setup-token`).
+   **Skip this in environments where Claude Code is already authenticated** — an
+   enterprise/managed distribution, an internal wrapper, or a Bedrock-backed login where
+   `claude` "just works" with no token or API key. Leave both `CLAUDE_CODE_OAUTH_TOKEN`
+   and `ANTHROPIC_API_KEY` unset; the dispatch service attempts the run and lets the
+   binary authenticate itself. (On a plain homelab host where the binary is *not*
+   externally authenticated, set this token — otherwise the run fails at exec time.)
 2. `AGENT_GTD_API_KEY` — the host's credential *to* the app
 3. `DISPATCH_API_KEY` — the app's credential *to* the host (minted in step 3;
    register it in the app's dispatch settings UI)

@@ -282,4 +282,4 @@ See `src/agent_gtd/database.py` for the canonical `_SCHEMA_STATEMENTS` list. Key
 ## Pointers
 
 > See KB entries `kb-00306` and `kb-00307` for deployment architecture details and bounce guidelines.
-> The dispatch protocol is defined in the `agent-gtd-dispatch-protocol` package (`ubuntu-vm01:/~/repos/agent-gtd-dispatch`).
+> The dispatch protocol is defined in the `agent-gtd-dispatch-protocol` package, hosted on the git server your `pyproject.toml` dispatch dependency points at (the maintainer's homelab default; substitute your own git host).
