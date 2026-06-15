@@ -84,6 +84,72 @@ sudo -u postgres psql -c "CREATE USER gtd WITH PASSWORD 'gtd' CREATEDB;"
 sudo -u postgres createdb -O gtd agent_gtd
 ```
 
+> **Ubuntu note:** Ubuntu auto-initializes the PostgreSQL data directory during package install
+> and defaults to `md5` (or `scram-sha-256` on newer releases) for TCP connections, so
+> password-based DSNs work without additional configuration.
+
+#### AL2023 / RHEL / CentOS Stream — extra first-run steps
+
+These distros ship `postgresql16-server` (or similar) without auto-initializing the data
+directory. Two extra steps are required before you can connect:
+
+**Step A — initialize and start the database**
+
+```bash
+# Initialize the data directory (run once, as root)
+sudo postgresql-setup --initdb
+
+# Enable and start the service
+sudo systemctl enable --now postgresql
+```
+
+**Step B — fix pg_hba.conf for password authentication**
+
+A fresh `initdb` defaults TCP connections (127.0.0.1 and ::1) to **ident** auth. The app's
+DSN uses password auth (`postgresql://gtd:gtd@localhost/...`), which is rejected until you
+switch those lines to `scram-sha-256` (or `md5`):
+
+```bash
+# Open pg_hba.conf — path may vary; check 'pg_lsclusters' or the postgresql.conf
+# for data_directory, then look for pg_hba.conf inside it.
+sudo vi /var/lib/pgsql/data/pg_hba.conf
+```
+
+Find the `host` lines for `127.0.0.1/32` and `::1/128` and change the method from
+`ident` to `scram-sha-256`:
+
+```
+# Before:
+host    all    all    127.0.0.1/32    ident
+host    all    all    ::1/128         ident
+
+# After:
+host    all    all    127.0.0.1/32    scram-sha-256
+host    all    all    ::1/128         scram-sha-256
+```
+
+Then reload PostgreSQL to pick up the change:
+
+```bash
+sudo systemctl reload postgresql
+```
+
+**Step C — create the role and database**
+
+If `sudo -u postgres psql` is blocked (e.g. root-only sudoers), use `runuser` instead:
+
+```bash
+sudo runuser -u postgres -- psql -c "CREATE USER gtd WITH PASSWORD 'gtd' CREATEDB;"
+sudo runuser -u postgres -- createdb -O gtd agent_gtd
+```
+
+Or with the standard form where `sudo -u` is available:
+
+```bash
+sudo -u postgres psql -c "CREATE USER gtd WITH PASSWORD 'gtd' CREATEDB;"
+sudo -u postgres createdb -O gtd agent_gtd
+```
+
 The database schema is created automatically at startup via `_SCHEMA_STATEMENTS` in
 `database.py`. You do not need to run any migration scripts manually.
 
@@ -396,6 +462,30 @@ Check that PostgreSQL is running and the connection string in `.env` is correct.
 set -a; source .env; set +a
 psql "$AGENT_GTD_DATABASE_URL" -c "SELECT 1"
 ```
+
+**On AL2023/RHEL:** If the service never started (fresh install), run:
+
+```bash
+sudo postgresql-setup --initdb   # only needed once
+sudo systemctl enable --now postgresql
+```
+
+### Password authentication failed (AL2023/RHEL — ident auth mismatch)
+
+If you see `FATAL: password authentication failed` or
+`FATAL: Ident authentication failed for user "gtd"` on a RHEL-family host, the
+`pg_hba.conf` TCP entries still use **ident** (the default after `initdb`). Switch
+the `host` lines for `127.0.0.1/32` and `::1/128` to `scram-sha-256` and reload:
+
+```bash
+# Edit (path may vary — run `sudo -u postgres psql -c 'SHOW hba_file;'` to locate it)
+sudo vi /var/lib/pgsql/data/pg_hba.conf
+
+# Reload without a full restart
+sudo systemctl reload postgresql
+```
+
+Ubuntu auto-sets md5/scram-sha-256 at install time, so this step is only needed on RHEL-family distros.
 
 ### Pre-commit hooks not running
 

@@ -80,6 +80,31 @@ Open http://localhost:5173. That's it.
 sudo apt install -y postgresql
 sudo -u postgres psql -c "CREATE USER gtd WITH PASSWORD 'gtd' CREATEDB;"
 sudo -u postgres createdb -O gtd agent_gtd
+```
+
+> **AL2023 / RHEL / CentOS Stream:** `postgresql16-server` is NOT auto-initialized on install.
+> Run these two steps first (once only), then continue with the `CREATE USER` commands above:
+>
+> ```bash
+> sudo postgresql-setup --initdb
+> sudo systemctl enable --now postgresql
+> ```
+>
+> A fresh `initdb` also defaults TCP connections to **ident** auth, which rejects password DSNs.
+> Edit `/var/lib/pgsql/data/pg_hba.conf` and change the `host` lines for `127.0.0.1/32` and
+> `::1/128` from `ident` to `scram-sha-256`, then reload:
+>
+> ```bash
+> sudo systemctl reload postgresql
+> ```
+>
+> Ubuntu hides both steps — it auto-inits the data directory and ships md5/scram-sha-256 as
+> the default TCP auth method, so no `pg_hba.conf` edit is needed there.
+>
+> If `sudo -u postgres psql` is blocked (e.g. root-only sudoers), use
+> `sudo runuser -u postgres -- psql ...` instead.
+
+```bash
 
 # Configure environment
 cp .env.example .env
