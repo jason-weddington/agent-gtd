@@ -32,7 +32,7 @@ Read these from your machine before starting.
 | `<APP_DIR>`       | Absolute path to the cloned agent-gtd repo on host   | `pwd` inside the checkout                                                       |
 | `<API_PORT>`      | Port uvicorn listens on (default `8000`)             | Check `serve.sh` or your systemd unit                                           |
 | `<SYSTEMD_UNIT>`  | User-level systemd service name                      | e.g. `agent-gtd.service` — pick a name if creating new                          |
-| `<NGINX_SITE>`    | Filename under `/etc/nginx/sites-enabled/`           | e.g. `agent-gtd`                                                                |
+| `<NGINX_SITE>`    | Base name for the nginx config file                  | e.g. `agent-gtd` (Debian/Ubuntu: `sites-enabled/agent-gtd`; AL2023/RHEL: `conf.d/agent-gtd.conf`) |
 | `<SERVER_NAMES>`  | `server_name` values for nginx                       | Hostname(s) and/or IP(s) the host answers on                                    |
 | `<SSL_CERT>`      | Path to TLS certificate                              | Existing nginx config, or generate self-signed (see "TLS" below)                |
 | `<SSL_KEY>`       | Path to TLS private key                              | Same as above                                                                   |
@@ -78,10 +78,10 @@ beyond v4 — v5 does not exist on npm.
 
 ### 0b. Allow nginx to traverse the home directory
 
-nginx runs as `www-data`. Ubuntu 24.04 sets `/home/<user>` to mode `750`
-by default, which blocks `www-data` from traversing into `<APP_DIR>` →
-`[crit] stat() ... Permission denied` → HTTP 500. Grant traverse-only
-access:
+nginx runs as **`www-data`** (Debian/Ubuntu) or **`nginx`** (AL2023/RHEL/CentOS).
+Ubuntu 24.04 sets `/home/<user>` to mode `750` by default, which blocks the nginx
+process user from traversing into `<APP_DIR>` → `[crit] stat() ... Permission denied`
+→ HTTP 500. Grant traverse-only access:
 
 ```bash
 chmod o+x /home/<HOME_USER>
@@ -94,6 +94,18 @@ can `stat` files inside but cannot `ls` the directory. If you want a
 listable home directory, `chmod 755` works too, but `o+x` is the
 tighter posture.
 
+**Symlinked home directories:** if `/home/<HOME_USER>` is a symlink to a real
+path (e.g. `/home/<HOME_USER>` → `/local/home/<HOME_USER>`), `chmod o+x`
+updates the permissions of the symlink _target_ — but every directory _component_
+of the real path must also be traversable. Run
+`namei -lx <APP_DIR>/frontend/dist/index.html` and scan each component; the first
+entry showing `drwx------` (mode `700`) or `drwxr-x---` (mode `750`) is the
+blocking one. Apply `chmod o+x` to that real path, e.g.:
+
+```bash
+chmod o+x /local/home/<HOME_USER>
+```
+
 This step is not needed if `<APP_DIR>` is outside `/home/` (e.g.
 `/srv/agent-gtd`).
 
@@ -101,10 +113,22 @@ This step is not needed if `<APP_DIR>` is outside `/home/` (e.g.
 
 ## Step 1 — Install the nginx site config
 
-Back up the current site config (if present) **outside** `sites-enabled/`.
-nginx loads every file in `sites-enabled/` regardless of extension —
-saving an `agent-gtd.bak` next to the active config produces "conflicting
-server name" warnings and may serve stale config.
+> **Distro note — config path and nginx user:**
+>
+> | Distro | Config drop-in directory | nginx process user |
+> |---|---|---|
+> | Debian / Ubuntu | `/etc/nginx/sites-enabled/` | `www-data` |
+> | AL2023 / RHEL / CentOS | `/etc/nginx/conf.d/` (files must end in `.conf`) | `nginx` |
+>
+> The commands below use the Debian/Ubuntu paths. On AL2023/RHEL, replace
+> `/etc/nginx/sites-enabled/<NGINX_SITE>` with `/etc/nginx/conf.d/<NGINX_SITE>.conf`
+> throughout this step, and remember Step 0b uses `nginx` (not `www-data`) as the
+> nginx process user.
+
+Back up the current site config (if present) **outside** the config drop-in
+directory. nginx loads every file in `sites-enabled/` (or `conf.d/`) regardless
+of extension — saving an `agent-gtd.bak` next to the active config produces
+"conflicting server name" warnings and may serve stale config.
 
 ```bash
 sudo mkdir -p /etc/nginx/backups
@@ -183,6 +207,27 @@ nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
 nginx: configuration file /etc/nginx/nginx.conf test is successful
 ```
 
+**Long FQDN?** If `<SERVER_NAMES>` contains a hostname longer than roughly
+56 characters, `nginx -t` may report:
+
+```
+nginx: [emerg] could not build server_names_hash, you should increase
+server_names_hash_bucket_size: 64
+```
+
+Fix: add `server_names_hash_bucket_size 128;` inside the `http {}` block of
+`/etc/nginx/nginx.conf` (not in the site config):
+
+```nginx
+http {
+    server_names_hash_bucket_size 128;
+    # ... rest of http block
+}
+```
+
+The default is `64` bytes. Increasing to `128` comfortably covers FQDNs up to
+~120 characters. After editing, re-run `sudo nginx -t && sudo systemctl reload nginx`.
+
 ---
 
 ## Step 1.5 — Environment (`.env`)
@@ -229,6 +274,32 @@ sudo apt install -y postgresql
 sudo -u postgres createuser --pwprompt <DB_USER>
 sudo -u postgres createdb -O <DB_USER> agent_gtd
 ```
+
+**Port 5432 contention:** On a development machine, port 5432 may already be in
+use — for example, by an RDS/Aurora SSM tunnel that _must_ bind 5432 for IAM
+token port matching. Before installing or starting PostgreSQL, check:
+
+```bash
+ss -tlnp | grep :5432
+```
+
+If another process holds 5432, configure the local PostgreSQL instance to use a
+different port. Edit `postgresql.conf` (find it with
+`pg_lsclusters` on Debian/Ubuntu, or look in
+`/var/lib/pgsql/data/postgresql.conf` on AL2023/RHEL):
+
+```
+port = 5433    # or any other free port
+```
+
+Restart PostgreSQL after changing the port, then update `.env` to match:
+
+```
+AGENT_GTD_DATABASE_URL=postgresql://<DB_USER>:<DB_PASSWORD>@localhost:5433/agent_gtd
+```
+
+The app reads the full DSN from `AGENT_GTD_DATABASE_URL`, so any port is valid —
+5432 is the default but is not hard-coded anywhere in the application.
 
 The schema auto-creates on app startup — there is no migration step.
 
@@ -470,10 +541,27 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ## Known gotchas
 
-- **`*.bak` files in `sites-enabled/` are loaded by nginx.** Always store
-  backups outside `sites-enabled/` (e.g. `/etc/nginx/backups/`).
-- **`/home/<user>` is mode `750` on Ubuntu 24.04.** `chmod o+x /home/<user>`
-  for nginx traversal without exposing directory listings.
+- **`*.bak` files in `sites-enabled/` (or `conf.d/`) are loaded by nginx.**
+  Always store backups outside those directories (e.g. `/etc/nginx/backups/`).
+- **AL2023 / RHEL use `/etc/nginx/conf.d/*.conf`, not `sites-enabled/`.**
+  The nginx process user on those distros is `nginx`, not `www-data`. Adjust
+  the Step 0b `chmod` target and the Step 1 config paths accordingly.
+- **`/home/<user>` is mode `750` on Ubuntu 24.04** (and on many AL2023/RHEL
+  setups). `chmod o+x /home/<user>` grants nginx traversal without exposing
+  directory listings.
+- **Symlinked home dirs: chmod the real path, not just the symlink entry.**
+  If `/home/<user>` is a symlink to `/local/home/<user>`, run
+  `namei -lx <APP_DIR>/frontend/dist/index.html` to find the first directory
+  component with `700`/`750` permissions and apply `chmod o+x` to that real
+  path.
+- **Long FQDNs exceed nginx's default `server_names_hash_bucket_size 64`.**
+  If `nginx -t` reports "could not build server_names_hash", add
+  `server_names_hash_bucket_size 128;` inside the `http {}` block of
+  `/etc/nginx/nginx.conf`.
+- **Port 5432 may be occupied (e.g., an SSM tunnel to RDS/Aurora).** Check
+  with `ss -tlnp | grep :5432` before deploying. If contended, set a
+  different `port =` in `postgresql.conf` and update the DSN in `.env`
+  to match (see Step 1.5).
 - **`react-transition-group` v5 does not exist on npm** (verified May 2026).
   If you hit a build error there, the fix is the `commonjsOptions.include`
   entry in `frontend/vite.config.ts`, not a version bump.
