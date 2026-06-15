@@ -138,6 +138,26 @@ _SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)",
     "CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id)",
     """
+    CREATE TABLE IF NOT EXISTS autonomous_rollouts (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        lead_user_id TEXT NOT NULL REFERENCES users(id),
+        status TEXT NOT NULL DEFAULT 'pending',
+        halt_reason TEXT,
+        started_at TEXT,
+        ended_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        manager_phase TEXT,
+        manager_current_item_id TEXT,
+        manager_current_step TEXT,
+        manager_state_updated_at TEXT
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_rollouts_project_id "
+    "ON autonomous_rollouts(project_id)",
+    "CREATE INDEX IF NOT EXISTS idx_rollouts_status ON autonomous_rollouts(status)",
+    """
     CREATE TABLE IF NOT EXISTS claude_runs (
         id TEXT PRIMARY KEY,
         item_id TEXT REFERENCES items(id) ON DELETE CASCADE,
@@ -248,26 +268,6 @@ _SCHEMA_STATEMENTS: list[str] = [
         used_at TEXT
     )
     """,
-    """
-    CREATE TABLE IF NOT EXISTS autonomous_rollouts (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        lead_user_id TEXT NOT NULL REFERENCES users(id),
-        status TEXT NOT NULL DEFAULT 'pending',
-        halt_reason TEXT,
-        started_at TEXT,
-        ended_at TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        manager_phase TEXT,
-        manager_current_item_id TEXT,
-        manager_current_step TEXT,
-        manager_state_updated_at TEXT
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_rollouts_project_id "
-    "ON autonomous_rollouts(project_id)",
-    "CREATE INDEX IF NOT EXISTS idx_rollouts_status ON autonomous_rollouts(status)",
     """
     CREATE TABLE IF NOT EXISTS rollout_plans (
         id TEXT PRIMARY KEY,
