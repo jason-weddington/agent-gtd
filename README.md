@@ -129,6 +129,13 @@ uv run python scripts/seed.py   # Creates seed user admin@local / admin (NOT an 
 
 The app includes an MCP server for managing GTD items from AI agents (Claude Code, etc.).
 
+> **`agent-gtd-mcp` is not published to PyPI.** Running `uvx agent-gtd-mcp`
+> bare will fail with "Package not found in the package registry." You must
+> invoke it from a local checkout — `uv run --directory /path/to/agent_gtd
+> agent-gtd-mcp` — or directly from the GitHub source:
+> `uvx --from git+https://github.com/jason-weddington/agent_gtd agent-gtd-mcp`.
+> See the config examples below.
+
 ### Local mode
 
 In local mode (no `AGENT_GTD_DATABASE_URL`), the MCP server uses SQLite and auto-authenticates — no setup needed.
@@ -176,6 +183,14 @@ export AGENT_GTD_API_KEY=agtd_...
   }
 }
 ```
+
+> **Co-located MCP + backend (same host):** use
+> `AGENT_GTD_URL=http://localhost:8000` (plain HTTP, direct to uvicorn) rather
+> than the public HTTPS hostname. The MCP server runs as a subprocess and does
+> not trust self-signed certificates by default — pointing it at an HTTPS
+> endpoint backed by a self-signed cert causes TLS verification failures. Plain
+> `http://localhost:8000` bypasses TLS entirely when the backend is reachable
+> on loopback.
 
 When the env vars are set, the MCP server auto-authenticates on first tool call. No explicit `login` step needed.
 
