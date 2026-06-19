@@ -23,5 +23,9 @@ export default defineConfig({
     environment: 'happy-dom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
+    // Cap worker pool so a dispatch build on a shared host can't fan vitest out
+    // to host-CPU-count and OOM the box (see kb-01857; mirrors grit-mile's cap).
+    minWorkers: 1,
+    maxWorkers: 4,
   },
 })
