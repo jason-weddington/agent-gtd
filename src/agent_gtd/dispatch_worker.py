@@ -449,12 +449,16 @@ async def reconcile_active_runs() -> int:
             # Already finished — sync local status
             local_status = LocalRunStatus.from_remote(remote.status)
             error_msg = remote.error or ""
+            engine_actual = getattr(remote, "engine_actual", None) or run.get(
+                "engine", ""
+            )
             await _update_run(
                 db,
                 run_id,
                 status=local_status,
                 finished_at=now,
                 error_msg=error_msg[:500] if error_msg else "",
+                engine_actual=engine_actual,
             )
             event_type = (
                 "run_completed"
@@ -538,6 +542,8 @@ async def _resume_polling(
         finished = datetime.now(UTC).isoformat()
         local_status = LocalRunStatus.from_remote(remote.status)
         error_msg = remote.error or ""
+        # Capture actual engine used (remote may differ from requested on fallback)
+        engine_actual = getattr(remote, "engine_actual", None) or run.get("engine", "")
 
         await _update_run(
             db,
@@ -545,6 +551,7 @@ async def _resume_polling(
             status=local_status,
             finished_at=finished,
             error_msg=error_msg[:500] if error_msg else "",
+            engine_actual=engine_actual,
         )
 
         event_type = (
@@ -766,6 +773,7 @@ async def execute_run(
             started_at=now,
             remote_run_id=remote_run_id,
             dispatch_host_url=dispatch_url,
+            engine=engine,
         )
         _publish_run_event(db, user_id, run_id, item_id, run, "run_started")
 
@@ -811,6 +819,8 @@ async def execute_run(
         finished = datetime.now(UTC).isoformat()
         local_status = LocalRunStatus.from_remote(remote.status)
         error_msg = remote.error or ""
+        # Capture actual engine used (remote may differ from requested on fallback)
+        engine_actual = getattr(remote, "engine_actual", None) or engine
 
         await _update_run(
             db,
@@ -818,6 +828,7 @@ async def execute_run(
             status=local_status,
             finished_at=finished,
             error_msg=error_msg[:500] if error_msg else "",
+            engine_actual=engine_actual,
         )
 
         event_type = (

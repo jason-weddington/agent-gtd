@@ -791,6 +791,8 @@ class RunResponse(BaseModel):
     finished_at: datetime | None
     error_msg: str
     rollout_id: str | None = None
+    engine: str = "claude-code"
+    engine_actual: str | None = None
     created_at: datetime
     updated_at: datetime
     dispatched_by_email: str | None = None
