@@ -332,12 +332,54 @@ uv run python scripts/seed.py    # Creates seed user + project, writes data/seed
 ## Monitoring dispatched runs — event-driven, not polled
 
 The CLI provides `run-status` and `rollout-status` subcommands that print the
-relevant row as JSON to stdout. Pair them with a Monitor on a sentinel line for
-event-driven completion detection — no curl, no fragile glue.
+relevant row as JSON to stdout.  Both support a `--wait` flag that blocks until
+the run or rollout reaches a terminal state, collapsing the old two-tool pattern
+(bash loop + Monitor) into a single call.
 
-### Watching a dispatched run
+### Preferred: `--wait` flag (native blocking waiter)
 
-Non-terminal states to keep looping: `pending`, `running`.
+Run in the background and arm a Monitor on the process exit:
+
+```bash
+# Blocking run waiter — exits when terminal; exit code encodes outcome.
+agent-gtd run-status <run_id> --wait
+# exit 0  → success
+# exit 2  → failed / cancelled / error / timeout
+# exit 124 → client --timeout exceeded (last JSON written to stderr)
+# exit 1  → operational error (auth / not-found / network)
+```
+
+```bash
+# Blocking rollout waiter
+agent-gtd rollout-status <rollout_id> --wait
+# exit 0  → completed
+# exit 2  → failed / halted / cancelled
+# exit 124 → client --timeout exceeded
+# exit 1  → operational error
+```
+
+Additional options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--poll-interval SECONDS` | 30 | Seconds between polls (floor: 5 s) |
+| `--timeout SECONDS` | 0 (∞) | Client-side timeout; exits 124 on expiry, last JSON to stderr |
+
+Terminal states — **run**: `success`, `failed`, `cancelled`, `error`, `timeout`.
+Non-terminal: `pending`, `running`.
+
+Terminal states — **rollout**: `completed`, `failed`, `halted`, `cancelled`.
+Non-terminal: `pending`, `planning`, `running`.
+
+Transient network/5xx errors during a wait are retried at the next poll
+interval, not fatal.  Auth / not-found errors abort immediately with exit 1.
+
+### Fallback: bash poll loop + Monitor
+
+Keep the bash loop if you need fine-grained control (e.g., custom back-off,
+per-poll side-effects) or cannot use blocking processes:
+
+**Run:**
 
 ```bash
 until s=$(agent-gtd run-status <run_id> | jq -r .status) && \
@@ -350,9 +392,7 @@ echo "DONE run <run_id> status=$s"
 Arm a Monitor on `"DONE run <run_id>"` in the script's output. When the run
 reaches a terminal state (`success`, `failed`, `cancelled`), the Monitor fires.
 
-### Watching a dispatched rollout
-
-Non-terminal states to keep looping: `pending`, `planning`, `running`.
+**Rollout:**
 
 ```bash
 until s=$(agent-gtd rollout-status <rollout_id> | jq -r .status) && \

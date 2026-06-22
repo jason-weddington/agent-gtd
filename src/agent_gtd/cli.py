@@ -5,9 +5,28 @@ import asyncio
 import json
 import os
 import sys
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from agent_gtd.mcp_backend import create_backend
+
+# ---------------------------------------------------------------------------
+# Terminal-state definitions (client-only; do not change server semantics)
+# ---------------------------------------------------------------------------
+
+#: Run statuses that are considered terminal successes.
+_RUN_SUCCESS_STATES: frozenset[str] = frozenset({"success"})
+#: All terminal run statuses.
+_RUN_TERMINAL_STATES: frozenset[str] = frozenset(
+    {"success", "failed", "cancelled", "error", "timeout"}
+)
+
+#: Rollout statuses that are considered terminal successes.
+_ROLLOUT_SUCCESS_STATES: frozenset[str] = frozenset({"completed"})
+#: All terminal rollout statuses.
+_ROLLOUT_TERMINAL_STATES: frozenset[str] = frozenset(
+    {"completed", "failed", "halted", "cancelled"}
+)
 
 
 def _load_json_payload(from_json: str | None, use_stdin: bool) -> dict[str, Any]:
@@ -161,19 +180,152 @@ async def _fetch_run_status(run_id: str) -> dict[str, Any]:
         await backend.close()
 
 
-def _cmd_run_status(run_id: str) -> None:
-    """Execute the run-status subcommand.
+def _is_fatal_wait_error(exc: Exception) -> bool:
+    """Return True if *exc* should abort the wait loop immediately.
+
+    Fatal errors are those that cannot resolve on the next poll: entity not
+    found, missing auth credentials, or explicit HTTP 401/403 responses.
+    All other exceptions (network errors, transient 5xx) are treated as
+    transient and retried at the next poll interval.
 
     Args:
-        run_id: ID of the dispatch run to print status for.
+        exc: Exception raised by a fetcher during the wait loop.
+
+    Returns:
+        True if the wait loop should abort; False to retry.
     """
+    from agent_gtd.exceptions import NotFoundError
+
+    if isinstance(exc, NotFoundError):
+        return True
+    # Only the specific "missing API key" RuntimeError is unrecoverable — generic
+    # RuntimeErrors from network layers are transient and should be retried.
+    if isinstance(exc, RuntimeError) and "API_KEY" in str(exc):
+        return True
+    msg = str(exc).lower()
+    return any(
+        kw in msg
+        for kw in ("not found", "404", "401", "403", "unauthorized", "forbidden")
+    )
+
+
+async def _wait_for_terminal(
+    fetcher: Callable[[str], Awaitable[dict[str, Any]]],
+    entity_id: str,
+    terminal_states: frozenset[str],
+    success_states: frozenset[str],
+    poll_interval: float,
+    timeout: float,
+) -> tuple[dict[str, Any], int]:
+    """Poll *fetcher* until terminal state or client timeout.
+
+    Transient fetch errors (network issues, 5xx) are logged to stderr and
+    retried at the next poll interval. Fatal errors (not-found, auth) are
+    re-raised so the caller can exit with code 1.
+
+    Args:
+        fetcher: Async callable that takes an entity ID and returns a status
+            dict. Must be ``_fetch_run_status`` or ``_fetch_rollout_status``.
+        entity_id: ID passed verbatim to *fetcher* on each poll.
+        terminal_states: Set of status strings that end the wait.
+        success_states: Subset of *terminal_states* that map to exit code 0;
+            all others map to exit code 2.
+        poll_interval: Seconds between polls (already clamped to floor ≥ 5 by
+            the caller).
+        timeout: Client timeout in seconds; 0 means wait indefinitely.
+
+    Returns:
+        ``(last_data, exit_code)`` where *exit_code* is one of:
+        - 0  — terminal success
+        - 2  — terminal non-success
+        - 124 — client timeout exceeded
+    """
+    loop = asyncio.get_running_loop()
+    deadline: float | None = loop.time() + timeout if timeout > 0 else None
+    last_data: dict[str, Any] = {}
+
+    while True:
+        # --- fetch ---
+        try:
+            data = await fetcher(entity_id)
+            last_data = data
+            status = str(data.get("status", ""))
+            if status in terminal_states:
+                return data, 0 if status in success_states else 2
+        except Exception as exc:
+            if _is_fatal_wait_error(exc):
+                raise
+            # Transient error — print a notice and retry at the next interval.
+            print(f"[wait] transient fetch error (will retry): {exc}", file=sys.stderr)
+
+        # --- check timeout before sleeping ---
+        if deadline is not None:
+            now = loop.time()
+            if now >= deadline:
+                return last_data, 124
+            sleep_time = min(poll_interval, deadline - now)
+        else:
+            sleep_time = poll_interval
+
+        await asyncio.sleep(sleep_time)
+
+        # --- recheck after sleep (accounts for any over-sleep) ---
+        if deadline is not None and loop.time() >= deadline:
+            return last_data, 124
+
+
+def _cmd_run_status(args: argparse.Namespace) -> None:
+    """Execute the run-status subcommand.
+
+    Without ``--wait``: single fetch, print JSON to stdout, return.
+    With ``--wait``: block until the run reaches a terminal state, print the
+    final JSON to stdout (or to stderr on client timeout), then exit with the
+    appropriate exit code (0/2/124/1).
+
+    Args:
+        args: Parsed namespace containing run_id, wait, poll_interval, timeout.
+    """
+    run_id: str = args.run_id
+    wait: bool = args.wait
+    poll_interval = max(5.0, float(args.poll_interval))
+    timeout = float(args.timeout)
+
+    if not wait:
+        # Original one-shot behaviour — unchanged.
+        try:
+            run = asyncio.run(_fetch_run_status(run_id))
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        json.dump(run, sys.stdout, default=str)
+        print()  # trailing newline for shell friendliness
+        return
+
+    # --- blocking wait mode ---
     try:
-        run = asyncio.run(_fetch_run_status(run_id))
+        data, exit_code = asyncio.run(
+            _wait_for_terminal(
+                _fetch_run_status,
+                run_id,
+                _RUN_TERMINAL_STATES,
+                _RUN_SUCCESS_STATES,
+                poll_interval,
+                timeout,
+            )
+        )
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    json.dump(run, sys.stdout, default=str)
-    print()  # trailing newline for shell friendliness
+
+    if exit_code == 124:
+        # Timeout: print last-known JSON to stderr and exit 124.
+        json.dump(data, sys.stderr, default=str)
+        print(file=sys.stderr)
+        sys.exit(124)
+
+    json.dump(data, sys.stdout, default=str)
+    print()
+    sys.exit(exit_code)
 
 
 async def _fetch_rollout_status(rollout_id: str) -> dict[str, Any]:
@@ -214,19 +366,59 @@ async def _fetch_rollout_status(rollout_id: str) -> dict[str, Any]:
         await backend.close()
 
 
-def _cmd_rollout_status(rollout_id: str) -> None:
+def _cmd_rollout_status(args: argparse.Namespace) -> None:
     """Execute the rollout-status subcommand.
 
+    Without ``--wait``: single fetch, print JSON to stdout, return.
+    With ``--wait``: block until the rollout reaches a terminal state, print
+    the final JSON to stdout (or to stderr on client timeout), then exit with
+    the appropriate exit code (0/2/124/1).
+
     Args:
-        rollout_id: ID of the autonomous rollout to print status for.
+        args: Parsed namespace containing rollout_id, wait, poll_interval,
+            timeout.
     """
+    rollout_id: str = args.rollout_id
+    wait: bool = args.wait
+    poll_interval = max(5.0, float(args.poll_interval))
+    timeout = float(args.timeout)
+
+    if not wait:
+        # Original one-shot behaviour — unchanged.
+        try:
+            rollout = asyncio.run(_fetch_rollout_status(rollout_id))
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        json.dump(rollout, sys.stdout, default=str)
+        print()  # trailing newline for shell friendliness
+        return
+
+    # --- blocking wait mode ---
     try:
-        rollout = asyncio.run(_fetch_rollout_status(rollout_id))
+        data, exit_code = asyncio.run(
+            _wait_for_terminal(
+                _fetch_rollout_status,
+                rollout_id,
+                _ROLLOUT_TERMINAL_STATES,
+                _ROLLOUT_SUCCESS_STATES,
+                poll_interval,
+                timeout,
+            )
+        )
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    json.dump(rollout, sys.stdout, default=str)
-    print()  # trailing newline for shell friendliness
+
+    if exit_code == 124:
+        # Timeout: print last-known JSON to stderr and exit 124.
+        json.dump(data, sys.stderr, default=str)
+        print(file=sys.stderr)
+        sys.exit(124)
+
+    json.dump(data, sys.stdout, default=str)
+    print()
+    sys.exit(exit_code)
 
 
 async def _promote_admin(email: str) -> str:
@@ -563,15 +755,97 @@ def main() -> None:
     rs = subparsers.add_parser(
         "run-status",
         help="Print dispatch run status as JSON to stdout.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "Print a dispatch run's current status as JSON.  With --wait, block\n"
+            "until the run reaches a terminal state and exit with a status code\n"
+            "that reflects the outcome:\n\n"
+            "  0   terminal success  (status=success)\n"
+            "  2   terminal failure  (status=failed|cancelled|error|timeout)\n"
+            "  124 client --timeout exceeded (last-fetched JSON goes to stderr)\n"
+            "  1   operational error (auth / network / not-found)\n"
+        ),
     )
     rs.add_argument("run_id", help="Dispatch run ID.")
+    rs.add_argument(
+        "--wait",
+        action="store_true",
+        default=False,
+        help=(
+            "Block until the run reaches a terminal state "
+            "(success|failed|cancelled|error|timeout), then print the final "
+            "status JSON and exit with the appropriate exit code."
+        ),
+    )
+    rs.add_argument(
+        "--poll-interval",
+        type=float,
+        default=30,
+        metavar="SECONDS",
+        help=(
+            "Seconds between status polls (default: 30; minimum 5 — "
+            "values below 5 are clamped up to 5)."
+        ),
+    )
+    rs.add_argument(
+        "--timeout",
+        type=float,
+        default=0,
+        metavar="SECONDS",
+        help=(
+            "Maximum seconds to wait before giving up (default: 0 = wait "
+            "indefinitely).  On expiry, the last-fetched JSON is written to "
+            "stderr and the process exits with code 124."
+        ),
+    )
 
     # --- rollout-status ---
     rls = subparsers.add_parser(
         "rollout-status",
         help="Print autonomous rollout status as JSON to stdout.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "Print a rollout's current status as JSON.  With --wait, block\n"
+            "until the rollout reaches a terminal state and exit with a status\n"
+            "code that reflects the outcome:\n\n"
+            "  0   terminal success  (status=completed)\n"
+            "  2   terminal failure  (status=failed|halted|cancelled)\n"
+            "  124 client --timeout exceeded (last-fetched JSON goes to stderr)\n"
+            "  1   operational error (auth / network / not-found)\n"
+        ),
     )
     rls.add_argument("rollout_id", help="Autonomous rollout ID.")
+    rls.add_argument(
+        "--wait",
+        action="store_true",
+        default=False,
+        help=(
+            "Block until the rollout reaches a terminal state "
+            "(completed|failed|halted|cancelled), then print the final "
+            "status JSON and exit with the appropriate exit code."
+        ),
+    )
+    rls.add_argument(
+        "--poll-interval",
+        type=float,
+        default=30,
+        metavar="SECONDS",
+        help=(
+            "Seconds between status polls (default: 30; minimum 5 — "
+            "values below 5 are clamped up to 5)."
+        ),
+    )
+    rls.add_argument(
+        "--timeout",
+        type=float,
+        default=0,
+        metavar="SECONDS",
+        help=(
+            "Maximum seconds to wait before giving up (default: 0 = wait "
+            "indefinitely).  On expiry, the last-fetched JSON is written to "
+            "stderr and the process exits with code 124."
+        ),
+    )
 
     # --- promote-admin ---
     pa = subparsers.add_parser(
@@ -635,9 +909,9 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "run-status":
-        _cmd_run_status(args.run_id)
+        _cmd_run_status(args)
     elif args.command == "rollout-status":
-        _cmd_rollout_status(args.rollout_id)
+        _cmd_rollout_status(args)
     elif args.command == "promote-admin":
         _cmd_promote_admin(args.email)
     elif args.command == "update-item":

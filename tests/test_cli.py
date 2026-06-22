@@ -1,5 +1,6 @@
 """Tests for the agent-gtd CLI (src/agent_gtd/cli.py)."""
 
+import argparse
 import json
 import sys
 import uuid
@@ -22,6 +23,30 @@ from agent_gtd.exceptions import NotFoundError
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _run_status_args(**overrides: Any) -> argparse.Namespace:
+    """Return a Namespace for the run-status subcommand with defaults."""
+    defaults: dict[str, Any] = {
+        "run_id": "test-run-id",
+        "wait": False,
+        "poll_interval": 30,
+        "timeout": 0,
+    }
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
+def _rollout_status_args(**overrides: Any) -> argparse.Namespace:
+    """Return a Namespace for the rollout-status subcommand with defaults."""
+    defaults: dict[str, Any] = {
+        "rollout_id": "test-rollout-id",
+        "wait": False,
+        "poll_interval": 30,
+        "timeout": 0,
+    }
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
 
 
 def _make_run(**overrides: Any) -> dict[str, Any]:
@@ -53,7 +78,7 @@ def _make_run(**overrides: Any) -> dict[str, Any]:
 
 
 def test_cmd_run_status_prints_json(monkeypatch, capsys):
-    """_cmd_run_status prints valid JSON with expected fields on stdout."""
+    """_cmd_run_status prints valid JSON with expected fields on stdout (no --wait)."""
     expected = _make_run()
 
     async def _fake_fetch(run_id: str) -> dict[str, Any]:
@@ -61,7 +86,7 @@ def test_cmd_run_status_prints_json(monkeypatch, capsys):
 
     monkeypatch.setattr("agent_gtd.cli._fetch_run_status", _fake_fetch)
 
-    _cmd_run_status(expected["id"])
+    _cmd_run_status(_run_status_args(run_id=expected["id"]))
 
     captured = capsys.readouterr()
     assert captured.err == ""
@@ -85,7 +110,7 @@ def test_cmd_run_status_not_found_exits_nonzero(monkeypatch, capsys):
     monkeypatch.setattr("agent_gtd.cli._fetch_run_status", _fake_fetch)
 
     with pytest.raises(SystemExit) as exc_info:
-        _cmd_run_status("nonexistent-id")
+        _cmd_run_status(_run_status_args(run_id="nonexistent-id"))
 
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
@@ -102,7 +127,7 @@ def test_cmd_run_status_generic_error_exits_nonzero(monkeypatch, capsys):
     monkeypatch.setattr("agent_gtd.cli._fetch_run_status", _fake_fetch)
 
     with pytest.raises(SystemExit) as exc_info:
-        _cmd_run_status("some-run-id")
+        _cmd_run_status(_run_status_args(run_id="some-run-id"))
 
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
@@ -296,7 +321,7 @@ def _make_rollout(**overrides: Any) -> dict[str, Any]:
 
 
 def test_cmd_rollout_status_prints_json(monkeypatch, capsys):
-    """_cmd_rollout_status prints valid JSON with expected fields on stdout."""
+    """_cmd_rollout_status prints JSON with expected fields on stdout (no --wait)."""
     expected = _make_rollout()
 
     async def _fake_fetch(rollout_id: str) -> dict[str, Any]:
@@ -304,7 +329,7 @@ def test_cmd_rollout_status_prints_json(monkeypatch, capsys):
 
     monkeypatch.setattr("agent_gtd.cli._fetch_rollout_status", _fake_fetch)
 
-    _cmd_rollout_status(expected["id"])
+    _cmd_rollout_status(_rollout_status_args(rollout_id=expected["id"]))
 
     captured = capsys.readouterr()
     assert captured.err == ""
@@ -327,7 +352,7 @@ def test_cmd_rollout_status_not_found_exits_nonzero(monkeypatch, capsys):
     monkeypatch.setattr("agent_gtd.cli._fetch_rollout_status", _fake_fetch)
 
     with pytest.raises(SystemExit) as exc_info:
-        _cmd_rollout_status("nonexistent-id")
+        _cmd_rollout_status(_rollout_status_args(rollout_id="nonexistent-id"))
 
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
@@ -344,7 +369,7 @@ def test_cmd_rollout_status_generic_error_exits_nonzero(monkeypatch, capsys):
     monkeypatch.setattr("agent_gtd.cli._fetch_rollout_status", _fake_fetch)
 
     with pytest.raises(SystemExit) as exc_info:
-        _cmd_rollout_status("some-rollout-id")
+        _cmd_rollout_status(_rollout_status_args(rollout_id="some-rollout-id"))
 
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
@@ -1443,3 +1468,390 @@ async def test_http_post_create_item_error_non_json_body():
             "api-key",
             title="Test",
         )
+
+
+# ---------------------------------------------------------------------------
+# --wait flag tests for run-status and rollout-status
+# ---------------------------------------------------------------------------
+
+
+def test_cmd_run_status_no_wait_unchanged(monkeypatch, capsys):
+    """Explicit regression: without --wait, run-status behaves exactly as before."""
+    expected = _make_run(status="running")
+
+    async def _fake_fetch(run_id: str) -> dict[str, Any]:
+        return expected
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_run_status", _fake_fetch)
+
+    # No SystemExit expected for non-wait success.
+    _cmd_run_status(_run_status_args(run_id=expected["id"], wait=False))
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    data = json.loads(captured.out)
+    assert data["status"] == "running"
+    assert data["id"] == expected["id"]
+
+
+def test_cmd_run_status_wait_running_then_success(monkeypatch, capsys):
+    """--wait: running → running → success yields exit 0 and terminal JSON on stdout."""
+    results = [
+        _make_run(status="running"),
+        _make_run(status="running"),
+        _make_run(status="success"),
+    ]
+    call_count = 0
+
+    async def _fake_fetch(run_id: str) -> dict[str, Any]:
+        nonlocal call_count
+        r = results[min(call_count, len(results) - 1)]
+        call_count += 1
+        return r
+
+    async def _no_sleep(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_run_status", _fake_fetch)
+    monkeypatch.setattr("asyncio.sleep", _no_sleep)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_run_status(_run_status_args(run_id="run-1", wait=True, poll_interval=0))
+
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    data = json.loads(captured.out)
+    assert data["status"] == "success"
+
+
+def test_cmd_run_status_wait_to_failed(monkeypatch, capsys):
+    """--wait: failed terminal state yields exit 2 and final JSON on stdout."""
+    terminal = _make_run(status="failed")
+
+    async def _fake_fetch(run_id: str) -> dict[str, Any]:
+        return terminal
+
+    async def _no_sleep(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_run_status", _fake_fetch)
+    monkeypatch.setattr("asyncio.sleep", _no_sleep)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_run_status(_run_status_args(run_id="run-1", wait=True, poll_interval=0))
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    data = json.loads(captured.out)
+    assert data["status"] == "failed"
+
+
+def test_cmd_run_status_wait_exit_codes_non_success(monkeypatch, capsys):
+    """--wait: each non-success terminal run state maps to exit 2."""
+    for terminal_status in ("failed", "cancelled", "error", "timeout"):
+
+        async def _fake_fetch(run_id: str, _s: str = terminal_status) -> dict[str, Any]:
+            return _make_run(status=_s)
+
+        async def _no_sleep(*args: Any, **kwargs: Any) -> None:
+            return None
+
+        monkeypatch.setattr("agent_gtd.cli._fetch_run_status", _fake_fetch)
+        monkeypatch.setattr("asyncio.sleep", _no_sleep)
+
+        with pytest.raises(SystemExit) as exc_info:
+            _cmd_run_status(
+                _run_status_args(run_id="run-x", wait=True, poll_interval=0)
+            )
+
+        assert exc_info.value.code == 2, f"expected 2 for status={terminal_status}"
+
+
+def test_cmd_run_status_wait_timeout_exit_124(monkeypatch, capsys):
+    """--wait --timeout: exceeding client timeout exits 124 with last JSON on stderr."""
+    # Use a near-zero timeout so the deadline is guaranteed to expire after the
+    # first fetch (asyncio.sleep is patched to be instant).
+    running = _make_run(status="running")
+
+    async def _fake_fetch(run_id: str) -> dict[str, Any]:
+        return running
+
+    async def _advancing_sleep(delay: float, *args: Any, **kwargs: Any) -> None:
+        pass  # instant — real time passes, expiring the near-zero deadline
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_run_status", _fake_fetch)
+    monkeypatch.setattr("asyncio.sleep", _advancing_sleep)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_run_status(
+            _run_status_args(
+                run_id="run-1",
+                wait=True,
+                poll_interval=0,
+                timeout=1e-9,  # nearly zero — expires immediately after first fetch
+            )
+        )
+
+    assert exc_info.value.code == 124
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    # Last-fetched JSON must appear on stderr
+    assert captured.err.strip()
+    stderr_data = json.loads(captured.err.strip())
+    assert stderr_data["status"] == "running"
+
+
+def test_cmd_run_status_wait_transient_error_retried(monkeypatch, capsys):
+    """--wait: a single transient fetch error is retried; wait continues to terminal."""
+    results: list[Any] = [
+        RuntimeError("connection reset"),  # transient error on first poll
+        _make_run(status="success"),  # terminal on second poll
+    ]
+    call_count = 0
+
+    async def _fake_fetch(run_id: str) -> dict[str, Any]:
+        nonlocal call_count
+        r = results[min(call_count, len(results) - 1)]
+        call_count += 1
+        if isinstance(r, Exception):
+            raise r
+        return r  # type: ignore[return-value]
+
+    async def _no_sleep(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_run_status", _fake_fetch)
+    monkeypatch.setattr("asyncio.sleep", _no_sleep)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_run_status(_run_status_args(run_id="run-1", wait=True, poll_interval=0))
+
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    # Transient error message goes to stderr, final JSON to stdout.
+    assert "transient" in captured.err.lower()
+    data = json.loads(captured.out)
+    assert data["status"] == "success"
+
+
+def test_cmd_run_status_wait_not_found_aborts(monkeypatch, capsys):
+    """--wait: a NotFoundError in the wait loop aborts with exit 1."""
+
+    async def _fake_fetch(run_id: str) -> dict[str, Any]:
+        raise NotFoundError("Run", run_id)
+
+    async def _no_sleep(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_run_status", _fake_fetch)
+    monkeypatch.setattr("asyncio.sleep", _no_sleep)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_run_status(_run_status_args(run_id="missing", wait=True, poll_interval=0))
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Error:" in captured.err
+    assert captured.out == ""
+
+
+def test_cmd_rollout_status_no_wait_unchanged(monkeypatch, capsys):
+    """Explicit regression: without --wait, rollout-status behaves exactly as before."""
+    expected = _make_rollout(status="running")
+
+    async def _fake_fetch(rollout_id: str) -> dict[str, Any]:
+        return expected
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_rollout_status", _fake_fetch)
+
+    _cmd_rollout_status(_rollout_status_args(rollout_id=expected["id"], wait=False))
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    data = json.loads(captured.out)
+    assert data["status"] == "running"
+    assert data["id"] == expected["id"]
+
+
+def test_cmd_rollout_status_wait_running_then_completed(monkeypatch, capsys):
+    """--wait: running → planning → completed yields exit 0 and terminal JSON."""
+    results = [
+        _make_rollout(status="running"),
+        _make_rollout(status="planning"),
+        _make_rollout(status="completed"),
+    ]
+    call_count = 0
+
+    async def _fake_fetch(rollout_id: str) -> dict[str, Any]:
+        nonlocal call_count
+        r = results[min(call_count, len(results) - 1)]
+        call_count += 1
+        return r
+
+    async def _no_sleep(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_rollout_status", _fake_fetch)
+    monkeypatch.setattr("asyncio.sleep", _no_sleep)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_rollout_status(
+            _rollout_status_args(rollout_id="rollout-1", wait=True, poll_interval=0)
+        )
+
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    data = json.loads(captured.out)
+    assert data["status"] == "completed"
+
+
+def test_cmd_rollout_status_wait_exit_codes_non_success(monkeypatch, capsys):
+    """--wait: each non-success terminal rollout state maps to exit 2."""
+    for terminal_status in ("failed", "halted", "cancelled"):
+
+        async def _fake_fetch(
+            rollout_id: str, _s: str = terminal_status
+        ) -> dict[str, Any]:
+            return _make_rollout(status=_s)
+
+        async def _no_sleep(*args: Any, **kwargs: Any) -> None:
+            return None
+
+        monkeypatch.setattr("agent_gtd.cli._fetch_rollout_status", _fake_fetch)
+        monkeypatch.setattr("asyncio.sleep", _no_sleep)
+
+        with pytest.raises(SystemExit) as exc_info:
+            _cmd_rollout_status(
+                _rollout_status_args(rollout_id="rollout-x", wait=True, poll_interval=0)
+            )
+
+        assert exc_info.value.code == 2, f"expected 2 for status={terminal_status}"
+
+
+def test_cmd_rollout_status_wait_timeout_exit_124(monkeypatch, capsys):
+    """--wait --timeout: exceeding client timeout exits 124 with last JSON on stderr."""
+    pending = _make_rollout(status="running")
+
+    async def _fake_fetch(rollout_id: str) -> dict[str, Any]:
+        return pending
+
+    async def _advancing_sleep(delay: float, *args: Any, **kwargs: Any) -> None:
+        pass  # instant
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_rollout_status", _fake_fetch)
+    monkeypatch.setattr("asyncio.sleep", _advancing_sleep)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_rollout_status(
+            _rollout_status_args(
+                rollout_id="rollout-1",
+                wait=True,
+                poll_interval=0,
+                timeout=1e-9,
+            )
+        )
+
+    assert exc_info.value.code == 124
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    stderr_data = json.loads(captured.err.strip())
+    assert stderr_data["status"] == "running"
+
+
+def test_main_run_status_wait_flag_dispatches(monkeypatch, capsys):
+    """main() with 'run-status <id> --wait' passes wait=True to _cmd_run_status."""
+    called: dict[str, Any] = {}
+
+    def _fake_cmd(args: argparse.Namespace) -> None:
+        called["run_id"] = args.run_id
+        called["wait"] = args.wait
+        called["poll_interval"] = args.poll_interval
+        called["timeout"] = args.timeout
+
+    monkeypatch.setattr("agent_gtd.cli._cmd_run_status", _fake_cmd)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-gtd",
+            "run-status",
+            "my-run-id",
+            "--wait",
+            "--poll-interval",
+            "60",
+            "--timeout",
+            "300",
+        ],
+    )
+
+    main()
+
+    assert called["run_id"] == "my-run-id"
+    assert called["wait"] is True
+    assert called["poll_interval"] == 60
+    assert called["timeout"] == 300
+
+
+def test_main_rollout_status_wait_flag_dispatches(monkeypatch, capsys):
+    """main() with 'rollout-status --wait' passes wait=True to _cmd_rollout_status."""
+    called: dict[str, Any] = {}
+
+    def _fake_cmd(args: argparse.Namespace) -> None:
+        called["rollout_id"] = args.rollout_id
+        called["wait"] = args.wait
+
+    monkeypatch.setattr("agent_gtd.cli._cmd_rollout_status", _fake_cmd)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-gtd", "rollout-status", "my-rollout-id", "--wait"],
+    )
+
+    main()
+
+    assert called["rollout_id"] == "my-rollout-id"
+    assert called["wait"] is True
+
+
+def test_poll_interval_floor_clamped_to_five(monkeypatch, capsys):
+    """poll_interval values below 5 are clamped up to 5 inside _cmd_run_status."""
+    # We verify the clamping by checking the sleep duration passed to asyncio.sleep.
+    sleep_durations: list[float] = []
+    terminal = _make_run(status="success")
+
+    async def _fake_fetch(run_id: str) -> dict[str, Any]:
+        return terminal
+
+    async def _record_sleep(delay: float, *args: Any, **kwargs: Any) -> None:
+        sleep_durations.append(delay)
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_run_status", _fake_fetch)
+    monkeypatch.setattr("asyncio.sleep", _record_sleep)
+
+    # The first fetch is terminal, so asyncio.sleep is never called.  Use a
+    # non-terminal first result to force one sleep cycle.
+    results = [_make_run(status="running"), _make_run(status="success")]
+    call_count = 0
+
+    async def _two_shot_fetch(run_id: str) -> dict[str, Any]:
+        nonlocal call_count
+        r = results[min(call_count, len(results) - 1)]
+        call_count += 1
+        return r
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_run_status", _two_shot_fetch)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_run_status(
+            _run_status_args(run_id="run-1", wait=True, poll_interval=1)
+        )  # 1 < 5 → clamped to 5
+
+    assert exc_info.value.code == 0
+    # asyncio.sleep must have been called with ≥ 5 (clamped floor).
+    assert sleep_durations, "asyncio.sleep should have been called at least once"
+    assert all(d >= 5.0 for d in sleep_durations), (
+        f"expected all sleep durations ≥ 5, got {sleep_durations}"
+    )
