@@ -1,6 +1,7 @@
 """Unit tests for dispatch_worker pure helper functions."""
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -910,3 +911,205 @@ async def test_reconcile_brand_new_user_missing_host_fails_run() -> None:
     assert call["run_id"] == run_id
     assert call.get("status") == "failed"
     assert "no longer configured" in str(call.get("error_msg", "")).lower()
+
+
+# ---------------------------------------------------------------------------
+# engine_actual truthful forwarding — omit-when-None semantics
+# ---------------------------------------------------------------------------
+#
+# The worker records the engine the remote *actually* used, never mirroring the
+# requested engine. _update_run builds a dynamic UPDATE from every passed kwarg,
+# so passing engine_actual=None would clobber a set value with SQL NULL — the
+# call sites must OMIT the kwarg when the remote reports None.
+#
+# NOTE: the currently-pinned RemoteRunResponse (protocol github main @ 1.15.0)
+# has no engine_actual field, so any test that needs a *populated* engine_actual
+# uses a SimpleNamespace stub in place of the real RemoteRunResponse where the
+# worker only getattr()s the object. Once the protocol bump lands and
+# RunResponse carries engine_actual, these stubs become unnecessary — a real
+# RemoteRunResponse(engine_actual=...) can be constructed directly.
+
+
+def _remote_stub(
+    status: RemoteRunStatus,
+    *,
+    engine_actual: str | None,
+    error: str | None = None,
+) -> SimpleNamespace:
+    """Minimal stand-in for RemoteRunResponse carrying an engine_actual value.
+
+    The worker only reads ``.status``, ``.error`` and
+    ``getattr(remote, "engine_actual", None)`` off the remote object, so a
+    ``SimpleNamespace`` suffices. Needed because the pinned protocol's
+    ``RunResponse`` cannot carry ``engine_actual``.
+    """
+    return SimpleNamespace(status=status, error=error, engine_actual=engine_actual)
+
+
+def _make_ea_run_row() -> dict:
+    """A running run row for engine_actual reconcile tests."""
+    return {
+        "id": "run-ea",
+        "user_id": "user-ea",
+        "project_id": "proj-ea",
+        "item_id": "item-ea",
+        "remote_run_id": "remote-ea",
+        "status": "running",
+        "engine": "claude-code",
+    }
+
+
+_EA_HOSTS = [{"url": "http://dispatch", "api_key": "k", "id": "h1", "label": "default"}]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_forwards_reported_engine_actual() -> None:
+    """(a) reconcile path (:452): a reported engine_actual reaches _update_run.
+
+    Uses a stub remote because the pinned RemoteRunResponse cannot carry the
+    field. The reconcile terminal branch must forward the reported value verbatim.
+    """
+    from agent_gtd.dispatch_worker import reconcile_active_runs
+
+    db = _make_reconcile_db_mock([_make_ea_run_row()], project_owner_id="user-ea")
+    update_mock = AsyncMock()
+
+    with (
+        patch("agent_gtd.database.get_db", new=AsyncMock(return_value=db)),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(return_value=_EA_HOSTS),
+        ),
+        patch(
+            "agent_gtd.dispatch_worker._poll_remote_run",
+            new=AsyncMock(
+                return_value=_remote_stub(
+                    RemoteRunStatus.succeeded, engine_actual="claude-code-ollama"
+                )
+            ),
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=update_mock),
+        patch("agent_gtd.dispatch_worker._publish_run_event"),
+    ):
+        count = await reconcile_active_runs()
+
+    assert count == 1
+    assert update_mock.call_args.kwargs["engine_actual"] == "claude-code-ollama"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_omits_engine_actual_when_none() -> None:
+    """(b) reconcile path (:452): a None engine_actual is OMITTED from _update_run.
+
+    Uses a real RemoteRunResponse (the pinned class lacks engine_actual, so
+    getattr yields None). Passing engine_actual=None would write SQL NULL over a
+    possibly-set value, so the kwarg must be absent entirely.
+    """
+    from agent_gtd.dispatch_worker import reconcile_active_runs
+
+    db = _make_reconcile_db_mock([_make_ea_run_row()], project_owner_id="user-ea")
+    update_mock = AsyncMock()
+
+    with (
+        patch("agent_gtd.database.get_db", new=AsyncMock(return_value=db)),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(return_value=_EA_HOSTS),
+        ),
+        patch(
+            "agent_gtd.dispatch_worker._poll_remote_run",
+            new=AsyncMock(
+                return_value=_make_remote_run_response(RemoteRunStatus.succeeded)
+            ),
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=update_mock),
+        patch("agent_gtd.dispatch_worker._publish_run_event"),
+    ):
+        count = await reconcile_active_runs()
+
+    assert count == 1
+    assert "engine_actual" not in update_mock.call_args.kwargs
+
+
+@pytest.mark.asyncio
+async def test_resume_polling_omits_engine_actual_when_none() -> None:
+    """(c) poll-terminal path (:546): a None engine_actual is OMITTED from _update_run.
+
+    Real RemoteRunResponse (no field -> getattr None). The resumed poll loop's
+    terminal branch must not pass engine_actual at all.
+    """
+    from agent_gtd.dispatch_worker import _resume_polling
+
+    run = {
+        "id": "run-ea-resume",
+        "item_id": "item-ea-resume",
+        "user_id": "user-ea-resume",
+        "project_id": "proj-ea-resume",
+        "engine": "claude-code",
+    }
+    db = MagicMock()
+    db.execute = AsyncMock()
+    mock_client = MagicMock()
+    update_mock = AsyncMock()
+
+    with (
+        patch("agent_gtd.dispatch_worker.asyncio.sleep", new=AsyncMock()),
+        patch(
+            "agent_gtd.dispatch_worker._poll_remote_run",
+            new=AsyncMock(
+                return_value=_make_remote_run_response(RemoteRunStatus.succeeded)
+            ),
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=update_mock),
+        patch("agent_gtd.dispatch_worker._publish_run_event"),
+        patch("agent_gtd.dispatch_worker.httpx.AsyncClient") as mock_cls,
+    ):
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        await _resume_polling(db, run, "remote-ea-resume", url="http://t", api_key="k")
+
+    assert "engine_actual" not in update_mock.call_args.kwargs
+
+
+@pytest.mark.asyncio
+async def test_resume_polling_forwards_reported_engine_actual() -> None:
+    """Poll-terminal path (:546): a reported engine_actual reaches _update_run.
+
+    Stub remote (pinned RemoteRunResponse cannot carry the field). Confirms the
+    value branch of the omit-when-None guard at the resumed-poll site.
+    """
+    from agent_gtd.dispatch_worker import _resume_polling
+
+    run = {
+        "id": "run-ea-resume-2",
+        "item_id": "item-ea-resume-2",
+        "user_id": "user-ea-resume-2",
+        "project_id": "proj-ea-resume-2",
+        "engine": "claude-code",
+    }
+    db = MagicMock()
+    db.execute = AsyncMock()
+    mock_client = MagicMock()
+    update_mock = AsyncMock()
+
+    with (
+        patch("agent_gtd.dispatch_worker.asyncio.sleep", new=AsyncMock()),
+        patch(
+            "agent_gtd.dispatch_worker._poll_remote_run",
+            new=AsyncMock(
+                return_value=_remote_stub(
+                    RemoteRunStatus.succeeded, engine_actual="claude-code"
+                )
+            ),
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=update_mock),
+        patch("agent_gtd.dispatch_worker._publish_run_event"),
+        patch("agent_gtd.dispatch_worker.httpx.AsyncClient") as mock_cls,
+    ):
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        await _resume_polling(
+            db, run, "remote-ea-resume-2", url="http://t", api_key="k"
+        )
+
+    assert update_mock.call_args.kwargs["engine_actual"] == "claude-code"

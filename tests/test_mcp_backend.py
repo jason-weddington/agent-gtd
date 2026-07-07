@@ -373,6 +373,11 @@ async def test_list_runs_backend(authed_backend: HttpBackend):
     runs = await authed_backend.list_runs("")
     assert len(runs) == 1
     assert runs[0]["item_id"] == item_id
+    # The MCP list_runs passthrough surfaces engine + engine_actual verbatim;
+    # a freshly dispatched run has engine_actual unset -> null.
+    assert "engine" in runs[0]
+    assert "engine_actual" in runs[0]
+    assert runs[0]["engine_actual"] is None
 
 
 async def test_list_runs_filter_item(authed_backend: HttpBackend):

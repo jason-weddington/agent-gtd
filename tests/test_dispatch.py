@@ -2416,3 +2416,40 @@ async def test_run_response_includes_rollout_id(
     get_res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
     assert get_res.status_code == 200
     assert get_res.json()["rollout_id"] == wave_id
+
+
+async def test_runs_expose_engine_and_engine_actual(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """GET /api/runs list AND GET /api/runs/{id} bodies expose engine + engine_actual.
+
+    A freshly dispatched run has engine_actual unset -> serialized as null. This
+    pins that ``dispatch_routes._run_response`` emits BOTH keys (the truthful
+    end-to-end surface); coverage-only — no route change is expected.
+    """
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch", json={}, headers=auth_headers
+    )
+    assert res.status_code == 201, res.text
+    run_id = res.json()["id"]
+
+    # List body includes both keys; engine_actual is null for the unset row.
+    list_res = await client.get("/api/runs", headers=auth_headers)
+    assert list_res.status_code == 200
+    listed = {r["id"]: r for r in list_res.json()}
+    assert run_id in listed
+    row = listed[run_id]
+    assert "engine" in row
+    assert "engine_actual" in row
+    assert row["engine_actual"] is None
+
+    # Single-get body includes both keys; engine_actual is null for the unset row.
+    get_res = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
+    assert get_res.status_code == 200
+    body = get_res.json()
+    assert "engine" in body
+    assert "engine_actual" in body
+    assert body["engine_actual"] is None

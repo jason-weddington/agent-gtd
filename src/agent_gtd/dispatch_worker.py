@@ -449,17 +449,20 @@ async def reconcile_active_runs() -> int:
             # Already finished — sync local status
             local_status = LocalRunStatus.from_remote(remote.status)
             error_msg = remote.error or ""
-            engine_actual = getattr(remote, "engine_actual", None) or run.get(
-                "engine", ""
-            )
-            await _update_run(
-                db,
-                run_id,
-                status=local_status,
-                finished_at=now,
-                error_msg=error_msg[:500] if error_msg else "",
-                engine_actual=engine_actual,
-            )
+            # Truthful forwarding: record the engine the remote actually used.
+            # getattr keeps this working against the currently-pinned protocol
+            # (which lacks the field -> None). Never mirror the requested engine.
+            ea = getattr(remote, "engine_actual", None)
+            update_fields: dict[str, object] = {
+                "status": local_status,
+                "finished_at": now,
+                "error_msg": error_msg[:500] if error_msg else "",
+            }
+            # Omit when None: _update_run writes every passed kwarg, so passing
+            # engine_actual=None would overwrite a set value with SQL NULL.
+            if ea is not None:
+                update_fields["engine_actual"] = ea
+            await _update_run(db, run_id, **update_fields)
             event_type = (
                 "run_completed"
                 if local_status == LocalRunStatus.SUCCESS
@@ -542,17 +545,19 @@ async def _resume_polling(
         finished = datetime.now(UTC).isoformat()
         local_status = LocalRunStatus.from_remote(remote.status)
         error_msg = remote.error or ""
-        # Capture actual engine used (remote may differ from requested on fallback)
-        engine_actual = getattr(remote, "engine_actual", None) or run.get("engine", "")
-
-        await _update_run(
-            db,
-            run_id,
-            status=local_status,
-            finished_at=finished,
-            error_msg=error_msg[:500] if error_msg else "",
-            engine_actual=engine_actual,
-        )
+        # Truthful forwarding: capture the actual engine used (remote may differ
+        # from requested on fallback). getattr keeps this working against the
+        # currently-pinned protocol (None). Never mirror the requested engine.
+        ea = getattr(remote, "engine_actual", None)
+        update_fields: dict[str, object] = {
+            "status": local_status,
+            "finished_at": finished,
+            "error_msg": error_msg[:500] if error_msg else "",
+        }
+        # Omit when None so we never overwrite a set value with SQL NULL.
+        if ea is not None:
+            update_fields["engine_actual"] = ea
+        await _update_run(db, run_id, **update_fields)
 
         event_type = (
             "run_completed" if local_status == LocalRunStatus.SUCCESS else "run_failed"
@@ -819,17 +824,19 @@ async def execute_run(
         finished = datetime.now(UTC).isoformat()
         local_status = LocalRunStatus.from_remote(remote.status)
         error_msg = remote.error or ""
-        # Capture actual engine used (remote may differ from requested on fallback)
-        engine_actual = getattr(remote, "engine_actual", None) or engine
-
-        await _update_run(
-            db,
-            run_id,
-            status=local_status,
-            finished_at=finished,
-            error_msg=error_msg[:500] if error_msg else "",
-            engine_actual=engine_actual,
-        )
+        # Truthful forwarding: capture the actual engine used (remote may differ
+        # from requested on fallback). getattr keeps this working against the
+        # currently-pinned protocol (None). Never mirror the requested engine.
+        ea = getattr(remote, "engine_actual", None)
+        update_fields: dict[str, object] = {
+            "status": local_status,
+            "finished_at": finished,
+            "error_msg": error_msg[:500] if error_msg else "",
+        }
+        # Omit when None so we never overwrite a set value with SQL NULL.
+        if ea is not None:
+            update_fields["engine_actual"] = ea
+        await _update_run(db, run_id, **update_fields)
 
         event_type = (
             "run_completed" if local_status == LocalRunStatus.SUCCESS else "run_failed"

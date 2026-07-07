@@ -290,6 +290,35 @@ def test_cmd_list_runs_passes_filters_and_prints_json(monkeypatch, capsys):
     assert call["status"] == "pending"
 
 
+def test_cmd_list_runs_surfaces_engine_actual_verbatim(monkeypatch, capsys):
+    """_cmd_list_runs prints engine + engine_actual verbatim from the backend.
+
+    Pins the CLI passthrough for the truthful end-to-end surface: whatever the
+    backend returns for engine_actual (a real value, or None when unset) appears
+    unchanged in the emitted JSON.
+    """
+    fake = _FakeBackend()
+    fake._list_runs_result = [
+        _make_run(engine="claude-code", engine_actual="claude-code-ollama"),
+        _make_run(status="pending", engine="claude-code", engine_actual=None),
+    ]
+
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _make_session(fake)
+    )
+
+    _cmd_list_runs(_list_runs_args())
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    data = json.loads(captured.out)
+    assert len(data) == 2
+    assert data[0]["engine"] == "claude-code"
+    assert data[0]["engine_actual"] == "claude-code-ollama"
+    # None passes through unchanged (never coerced or dropped).
+    assert data[1]["engine_actual"] is None
+
+
 def test_cmd_list_runs_no_filters_passes_none(monkeypatch, capsys):
     """_cmd_list_runs passes None for both filters when none are supplied."""
     fake = _FakeBackend()
