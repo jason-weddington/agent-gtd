@@ -19,7 +19,7 @@ agent_gtd/
 │   ├── mcp_server.py           # FastMCP server: 40+ MCP tools for AI agents
 │   ├── mcp_backend.py          # HTTP backend adapter for MCP (for remote MCP mode)
 │   ├── db_types.py             # Type aliases for DB rows
-│   ├── cli.py                  # CLI entry point (agent-gtd command)
+│   ├── cli.py                  # CLI entry point (agent-gtd command); mirrors the full MCP tool set via the cli_commands/ package
 │   ├── util/                   # Pure utility modules
 │   ├── routes/                 # FastAPI routers (one file per resource)
 │   │   ├── auth_routes.py      # POST register/login/logout, GET me, API keys

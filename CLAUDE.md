@@ -136,7 +136,7 @@ agent_gtd/
 │   │                          #   local mode, no auth (fixed LOCAL_USER_ID)
 │   ├── sqlite_pool.py         # SQLite pool backing local single-user mode
 │   ├── models.py              # Pydantic v2 domain models + API request/response schemas
-│   ├── cli.py                 # `agent-gtd` CLI (run-status, rollout-status, add-item, ...)
+│   ├── cli.py                 # `agent-gtd` CLI — mirrors the full MCP tool surface via the cli_commands/ package
 │   ├── mcp_server.py          # MCP server entry point (tools for items/notes/dispatch/rollouts)
 │   ├── mcp_backend.py         # Shared MCP backend — local-DB or HTTP mode
 │   ├── dispatch_worker.py     # Executes dispatched runs against the dispatch service
@@ -335,6 +335,10 @@ The CLI provides `run-status` and `rollout-status` subcommands that print the
 relevant row as JSON to stdout.  Both support a `--wait` flag that blocks until
 the run or rollout reaches a terminal state, collapsing the old two-tool pattern
 (bash loop + Monitor) into a single call.
+
+The CLI is at full parity with the MCP tool surface (every non-`login` MCP tool
+has a matching `agent-gtd` subcommand via the `cli_commands/` package), enforced
+by `tests/test_cli_parity.py`.
 
 ### Preferred: `--wait` flag (native blocking waiter)
 

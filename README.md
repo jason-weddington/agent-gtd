@@ -238,7 +238,9 @@ installed copy.
 The CLI is the basis for the [event-driven monitoring](#event-driven-monitoring-dont-poll-on-a-timer)
 pattern below — `agent-gtd run-status <run_id>` returns the same dispatch status
 that the MCP `get_run_status` tool returns, so a lead agent can poll from the
-shell and wake on completion instead of burning context on a timer.
+shell and wake on completion instead of burning context on a timer. The CLI
+mirrors the full MCP tool surface (one subcommand per tool), a parity guaranteed
+by `tests/test_cli_parity.py`.
 
 ## Dispatch Service (Optional)
 
