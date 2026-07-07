@@ -305,6 +305,8 @@ The existing pages (`Inbox.tsx`, `ProjectDetail.tsx`, `GtdItemList.tsx`, etc.) d
 
 **GTD project for this repo:** `cee5e952-c7f4-4115-8d25-17fbb62066b9` (name `agent-gtd-dev`). Use this `project_id` when calling `add_item` / `list_items` for this codebase.
 
+**agent-gtd-dev is a WORKSPACE project** (`repo_mode=workspace`) spanning two repos: `agent_gtd` (this one) and `agent-gtd-dispatch`. Dispatched build agents get BOTH repos cloned side by side, so cross-repo work (protocol changes, worker/API seams) is dispatchable as a single item — don't scope specs to this repo alone. Workspace items use repo-dir-prefixed `files_to_modify` paths (`agent_gtd/src/...`, `agent-gtd-dispatch/src/...`).
+
 ### MANDATORY: Work out of Agent GTD
 
 Every session that involves implementation work MUST follow this workflow:
