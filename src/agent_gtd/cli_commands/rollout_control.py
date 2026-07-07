@@ -10,27 +10,19 @@ Exposes a :func:`register` function that adds six subparsers for the
 - ``replan-rollout``
 - ``update-rollout-state``
 
-Each handler follows the same shape as the existing handlers in
-:mod:`agent_gtd.cli`: a synchronous function that calls
-:func:`asyncio.run` on a module-private async implementation, wrapped
-in a broad ``except Exception`` catch that prints ``Error: <msg>`` to
-stderr and exits with code 1.
-
-The async implementations use :func:`agent_gtd.mcp_backend.create_backend`
-(bound in this module's namespace so tests can monkeypatch it) and
-replicate the local-vs-HTTP auth resolution from
-:func:`agent_gtd.cli._fetch_rollout_status`.
+Each handler follows the same shape as the sibling module
+:mod:`agent_gtd.cli_commands.rollout_planning`: a synchronous function that
+defines an inline ``async def _run()`` coroutine and runs it with
+:func:`asyncio.run`.  Backend acquisition is delegated to
+:func:`~agent_gtd.cli_commands._shared.backend_session`.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
-import sys
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
-from agent_gtd.cli_commands._shared import emit_json
-from agent_gtd.mcp_backend import create_backend
+from agent_gtd.cli_commands._shared import backend_session, emit_json, fail
 
 if TYPE_CHECKING:
     import argparse
@@ -39,65 +31,24 @@ __all__ = ["register"]
 
 
 # ---------------------------------------------------------------------------
-# Shared async auth helper (mirrors cli._fetch_rollout_status lines 330-345)
-# ---------------------------------------------------------------------------
-
-
-async def _get_backend_and_user() -> tuple[Any, str]:
-    """Return an authenticated ``(backend, user_id)`` pair.
-
-    Auth follows the same mechanism as :func:`agent_gtd.cli._fetch_rollout_status`:
-
-    - No ``AGENT_GTD_URL`` → LocalBackend (no auth; ``await init_db()`` then
-      ``user_id = LOCAL_USER_ID``).
-    - ``AGENT_GTD_URL`` set → HttpBackend; require ``AGENT_GTD_API_KEY``
-      (raises ``RuntimeError`` when absent), then resolve user id via
-      ``backend.login(api_key, "cli")``.
-
-    Returns:
-        A ``(backend, user_id)`` tuple. The caller is responsible for
-        calling ``await backend.close()`` in a ``finally`` block.
-
-    Raises:
-        RuntimeError: If ``AGENT_GTD_API_KEY`` is required but not set.
-    """
-    backend = create_backend()
-    if not os.environ.get("AGENT_GTD_URL", ""):
-        from agent_gtd.database import LOCAL_USER_ID, init_db
-
-        await init_db()
-        user_id: str = LOCAL_USER_ID
-    else:
-        api_key = os.environ.get("AGENT_GTD_API_KEY", "")
-        if not api_key:
-            raise RuntimeError("AGENT_GTD_API_KEY environment variable is required")
-        session = await backend.login(api_key, "cli")
-        user_id = session["user_id"]
-    return backend, user_id
-
-
-# ---------------------------------------------------------------------------
 # advance-rollout
 # ---------------------------------------------------------------------------
 
 
-async def _async_advance_rollout(rollout_id: str) -> None:
-    """Fetch the next ready item in a rollout."""
-    backend, user_id = await _get_backend_and_user()
-    try:
-        result: dict[str, Any] = await backend.advance_rollout(user_id, rollout_id)
-        emit_json(result)
-    finally:
-        await backend.close()
-
-
 def _cmd_advance_rollout(args: argparse.Namespace) -> None:
     """Synchronous handler for advance-rollout."""
+    rollout_id: str = args.rollout_id
+
+    async def _run() -> Any:
+        async with backend_session() as (backend, user_id):
+            return await backend.advance_rollout(user_id, rollout_id)
+
     try:
-        asyncio.run(_async_advance_rollout(args.rollout_id))
+        result: Any = asyncio.run(_run())
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        fail(e)
+
+    emit_json(result)
 
 
 # ---------------------------------------------------------------------------
@@ -105,46 +56,38 @@ def _cmd_advance_rollout(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _async_complete_item_in_rollout(
-    rollout_id: str,
-    item_id: str,
-    outcome: str,
-    merge_actor: str,
-    decision_rule: str,
-) -> None:
-    """Mark an item in a rollout as completed, halted, or skipped."""
-    backend, user_id = await _get_backend_and_user()
-    try:
-        result: dict[str, Any] = await backend.complete_item_in_rollout(
-            user_id,
-            rollout_id,
-            item_id,
-            outcome,
-            merge_actor=merge_actor,
-            decision_rule=decision_rule,
-        )
-        emit_json(result)
-    finally:
-        await backend.close()
-
-
 def _cmd_complete_item_in_rollout(args: argparse.Namespace) -> None:
     """Synchronous handler for complete-item-in-rollout."""
-    merge_actor: str = args.merge_actor if args.merge_actor is not None else ""
-    decision_rule: str = args.decision_rule if args.decision_rule is not None else ""
-    try:
-        asyncio.run(
-            _async_complete_item_in_rollout(
-                args.rollout_id,
-                args.item_id,
-                args.outcome,
-                merge_actor,
-                decision_rule,
+    rollout_id: str = args.rollout_id
+    item_id: str = args.item_id
+    # argparse validates choices; cast narrows str → Literal for the typed backend.
+    outcome = cast("Literal['completed', 'halted', 'skipped']", args.outcome)
+    merge_actor = cast(
+        "Literal['human', 'manager-allowlist', 'manager-autonomous', 'manager+human-fixup', '']",  # noqa: E501
+        args.merge_actor if args.merge_actor is not None else "",
+    )
+    decision_rule = cast(
+        "Literal['', 'agent-judgment']",
+        args.decision_rule if args.decision_rule is not None else "",
+    )
+
+    async def _run() -> Any:
+        async with backend_session() as (backend, user_id):
+            return await backend.complete_item_in_rollout(
+                user_id,
+                rollout_id,
+                item_id,
+                outcome,
+                merge_actor=merge_actor,
+                decision_rule=decision_rule,
             )
-        )
+
+    try:
+        result: Any = asyncio.run(_run())
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        fail(e)
+
+    emit_json(result)
 
 
 # ---------------------------------------------------------------------------
@@ -152,41 +95,29 @@ def _cmd_complete_item_in_rollout(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _async_halt_rollout(
-    rollout_id: str,
-    reason: str,
-    comment: str | None,
-    item_id: str | None,
-) -> None:
-    """Halt a running rollout."""
-    backend, user_id = await _get_backend_and_user()
-    try:
-        result: dict[str, Any] = await backend.halt_rollout(
-            user_id,
-            rollout_id,
-            reason,
-            comment=comment,
-            item_id=item_id,
-        )
-        emit_json(result)
-    finally:
-        await backend.close()
-
-
 def _cmd_halt_rollout(args: argparse.Namespace) -> None:
     """Synchronous handler for halt-rollout."""
-    try:
-        asyncio.run(
-            _async_halt_rollout(
-                args.rollout_id,
-                args.reason,
-                args.comment,
-                args.item_id,
+    rollout_id: str = args.rollout_id
+    reason: str = args.reason
+    comment: str | None = args.comment
+    item_id: str | None = args.item_id
+
+    async def _run() -> Any:
+        async with backend_session() as (backend, user_id):
+            return await backend.halt_rollout(
+                user_id,
+                rollout_id,
+                reason,
+                comment=comment,
+                item_id=item_id,
             )
-        )
+
+    try:
+        result: Any = asyncio.run(_run())
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        fail(e)
+
+    emit_json(result)
 
 
 # ---------------------------------------------------------------------------
@@ -194,25 +125,21 @@ def _cmd_halt_rollout(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _async_cancel_rollout(rollout_id: str, reason: str) -> None:
-    """Cancel a rollout."""
-    backend, user_id = await _get_backend_and_user()
-    try:
-        result: dict[str, Any] = await backend.cancel_rollout(
-            user_id, rollout_id, reason
-        )
-        emit_json(result)
-    finally:
-        await backend.close()
-
-
 def _cmd_cancel_rollout(args: argparse.Namespace) -> None:
     """Synchronous handler for cancel-rollout."""
+    rollout_id: str = args.rollout_id
+    reason: str = args.reason
+
+    async def _run() -> Any:
+        async with backend_session() as (backend, user_id):
+            return await backend.cancel_rollout(user_id, rollout_id, reason)
+
     try:
-        asyncio.run(_async_cancel_rollout(args.rollout_id, args.reason))
+        result: Any = asyncio.run(_run())
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        fail(e)
+
+    emit_json(result)
 
 
 # ---------------------------------------------------------------------------
@@ -220,30 +147,25 @@ def _cmd_cancel_rollout(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _async_replan_rollout(
-    rollout_id: str,
-    from_item: str | None,
-) -> None:
-    """Replan a rollout, optionally from a specific item."""
-    backend, user_id = await _get_backend_and_user()
-    try:
-        result: dict[str, Any] = await backend.replan_rollout(
-            user_id,
-            rollout_id,
-            from_item=from_item,
-        )
-        emit_json(result)
-    finally:
-        await backend.close()
-
-
 def _cmd_replan_rollout(args: argparse.Namespace) -> None:
     """Synchronous handler for replan-rollout."""
+    rollout_id: str = args.rollout_id
+    from_item: str | None = args.from_item
+
+    async def _run() -> Any:
+        async with backend_session() as (backend, user_id):
+            return await backend.replan_rollout(
+                user_id,
+                rollout_id,
+                from_item=from_item,
+            )
+
     try:
-        asyncio.run(_async_replan_rollout(args.rollout_id, args.from_item))
+        result: Any = asyncio.run(_run())
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        fail(e)
+
+    emit_json(result)
 
 
 # ---------------------------------------------------------------------------
@@ -251,41 +173,33 @@ def _cmd_replan_rollout(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _async_update_rollout_state(
-    rollout_id: str,
-    phase: str,
-    current_item_id: str | None,
-    current_step: str | None,
-) -> None:
-    """Update the internal state of a rollout."""
-    backend, user_id = await _get_backend_and_user()
-    try:
-        result: dict[str, Any] = await backend.update_rollout_state(
-            user_id,
-            rollout_id,
-            phase=phase,
-            current_item_id=current_item_id,
-            current_step=current_step,
-        )
-        emit_json(result)
-    finally:
-        await backend.close()
-
-
 def _cmd_update_rollout_state(args: argparse.Namespace) -> None:
     """Synchronous handler for update-rollout-state."""
-    try:
-        asyncio.run(
-            _async_update_rollout_state(
-                args.rollout_id,
-                args.phase,
-                args.current_item_id,
-                args.current_step,
+    rollout_id: str = args.rollout_id
+    # argparse validates choices; cast narrows str → Literal for the typed backend.
+    phase = cast(
+        "Literal['warm_up', 'dispatching', 'polling', 'reviewing', 'merging', 'reconciling_ac', 'halted']",  # noqa: E501
+        args.phase,
+    )
+    current_item_id: str | None = args.current_item_id
+    current_step: str | None = args.current_step
+
+    async def _run() -> Any:
+        async with backend_session() as (backend, user_id):
+            return await backend.update_rollout_state(
+                user_id,
+                rollout_id,
+                phase=phase,
+                current_item_id=current_item_id,
+                current_step=current_step,
             )
-        )
+
+    try:
+        result: Any = asyncio.run(_run())
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        fail(e)
+
+    emit_json(result)
 
 
 # ---------------------------------------------------------------------------

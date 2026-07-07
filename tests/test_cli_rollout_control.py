@@ -3,7 +3,7 @@
 Covers:
 1. PARSING  — local parser built from register(); positionals, required flags,
    choices validation, SystemExit on missing-required and bad-choices.
-2. HANDLER SUCCESS — _FakeBackend + monkeypatch on rollout_control.create_backend;
+2. HANDLER SUCCESS — _FakeBackend + monkeypatch on _shared.create_backend;
    correct backend method called with correct args; JSON output on stdout.
 3. OMITTED-OPTIONAL DEFAULTS — omitting optional flags passes the right defaults
    to the backend (merge_actor='', decision_rule='', comment=None, etc.).
@@ -478,9 +478,7 @@ def test_advance_rollout_success(
 ) -> None:
     """advance-rollout calls backend.advance_rollout and prints JSON."""
     fake = _FakeBackend()
-    monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend", lambda: fake
-    )
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
 
     rid = _ruid()
@@ -505,9 +503,7 @@ def test_complete_item_in_rollout_success(
 ) -> None:
     """complete-item-in-rollout calls backend with correct args and prints JSON."""
     fake = _FakeBackend()
-    monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend", lambda: fake
-    )
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
 
     rid, iid = _ruid(), _ruid()
@@ -548,9 +544,7 @@ def test_halt_rollout_success(
 ) -> None:
     """halt-rollout calls backend with correct args and prints JSON."""
     fake = _FakeBackend()
-    monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend", lambda: fake
-    )
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
 
     rid = _ruid()
@@ -579,9 +573,7 @@ def test_cancel_rollout_success(
 ) -> None:
     """cancel-rollout calls backend with correct args and prints JSON."""
     fake = _FakeBackend()
-    monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend", lambda: fake
-    )
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
 
     rid = _ruid()
@@ -607,9 +599,7 @@ def test_replan_rollout_success(
 ) -> None:
     """replan-rollout calls backend with correct args and prints JSON."""
     fake = _FakeBackend()
-    monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend", lambda: fake
-    )
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
 
     rid, iid = _ruid(), _ruid()
@@ -635,9 +625,7 @@ def test_update_rollout_state_success(
 ) -> None:
     """update-rollout-state calls backend with correct args and prints JSON."""
     fake = _FakeBackend()
-    monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend", lambda: fake
-    )
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
 
     rid, iid = _ruid(), _ruid()
@@ -681,9 +669,7 @@ def test_complete_item_defaults(
 ) -> None:
     """Omitting --merge-actor and --decision-rule passes '' to the backend."""
     fake = _FakeBackend()
-    monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend", lambda: fake
-    )
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
 
     p, _ = _make_parser()
@@ -702,9 +688,7 @@ def test_halt_rollout_defaults(
 ) -> None:
     """Omitting --comment and --item-id passes None to the backend."""
     fake = _FakeBackend()
-    monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend", lambda: fake
-    )
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
 
     p, _ = _make_parser()
@@ -721,9 +705,7 @@ def test_replan_rollout_defaults(
 ) -> None:
     """Omitting --from-item passes from_item=None to the backend."""
     fake = _FakeBackend()
-    monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend", lambda: fake
-    )
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
 
     p, _ = _make_parser()
@@ -739,9 +721,7 @@ def test_update_rollout_state_defaults(
 ) -> None:
     """Omitting --current-item-id and --current-step passes None to the backend."""
     fake = _FakeBackend()
-    monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend", lambda: fake
-    )
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
 
     p, _ = _make_parser()
@@ -763,7 +743,7 @@ def test_advance_rollout_error_path(
 ) -> None:
     """Backend raises → 'Error:' on stderr + SystemExit(1)."""
     monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend",
+        "agent_gtd.cli_commands._shared.create_backend",
         lambda: _ErrorBackend(),
     )
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
@@ -785,7 +765,7 @@ def test_complete_item_error_path(
 ) -> None:
     """Backend raises → 'Error:' on stderr + SystemExit(1)."""
     monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend",
+        "agent_gtd.cli_commands._shared.create_backend",
         lambda: _ErrorBackend(),
     )
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
@@ -808,7 +788,7 @@ def test_halt_rollout_error_path(
 ) -> None:
     """Backend raises → 'Error:' on stderr + SystemExit(1)."""
     monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend",
+        "agent_gtd.cli_commands._shared.create_backend",
         lambda: _ErrorBackend(),
     )
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
@@ -829,7 +809,7 @@ def test_cancel_rollout_error_path(
 ) -> None:
     """Backend raises → 'Error:' on stderr + SystemExit(1)."""
     monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend",
+        "agent_gtd.cli_commands._shared.create_backend",
         lambda: _ErrorBackend(),
     )
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
@@ -850,7 +830,7 @@ def test_replan_rollout_error_path(
 ) -> None:
     """Backend raises → 'Error:' on stderr + SystemExit(1)."""
     monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend",
+        "agent_gtd.cli_commands._shared.create_backend",
         lambda: _ErrorBackend(),
     )
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
@@ -871,7 +851,7 @@ def test_update_rollout_state_error_path(
 ) -> None:
     """Backend raises → 'Error:' on stderr + SystemExit(1)."""
     monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend",
+        "agent_gtd.cli_commands._shared.create_backend",
         lambda: _ErrorBackend(),
     )
     monkeypatch.delenv("AGENT_GTD_URL", raising=False)
@@ -888,7 +868,7 @@ def test_update_rollout_state_error_path(
 
 
 # ---------------------------------------------------------------------------
-# 5. HTTP MODE TESTS (covers the AGENT_GTD_URL branch in _get_backend_and_user)
+# 5. HTTP MODE TESTS (covers the AGENT_GTD_URL branch in backend_session)
 # ---------------------------------------------------------------------------
 
 
@@ -897,9 +877,7 @@ def test_advance_rollout_http_mode_success(
 ) -> None:
     """HTTP mode: AGENT_GTD_URL + AGENT_GTD_API_KEY set; login() resolves user_id."""
     fake = _FakeBackend()
-    monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend", lambda: fake
-    )
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
     monkeypatch.setenv("AGENT_GTD_URL", "http://example.test")
     monkeypatch.setenv("AGENT_GTD_API_KEY", "test-api-key")
 
@@ -924,9 +902,7 @@ def test_advance_rollout_http_mode_missing_api_key(
 ) -> None:
     """HTTP mode: missing AGENT_GTD_API_KEY → RuntimeError → Error: stderr + exit 1."""
     fake = _FakeBackend()
-    monkeypatch.setattr(
-        "agent_gtd.cli_commands.rollout_control.create_backend", lambda: fake
-    )
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
     monkeypatch.setenv("AGENT_GTD_URL", "http://example.test")
     monkeypatch.delenv("AGENT_GTD_API_KEY", raising=False)
 
