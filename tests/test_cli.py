@@ -939,6 +939,535 @@ def test_cmd_update_item_invalid_build_engine_exits_nonzero(monkeypatch, capsys)
 
 
 # ---------------------------------------------------------------------------
+# (f2) build_engine via JSON payload persists + invalid value errors
+# ---------------------------------------------------------------------------
+
+
+async def test_do_update_item_build_engine_via_json_persists(monkeypatch):
+    """(f2) build_engine in JSON payload is forwarded with build_engine_set=True."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    row = await item_service.create_item(
+        db, LOCAL_USER_ID, title="BE Test", status="inbox"
+    )
+    item_id = str(row["id"])
+
+    # No --build-engine flag; value comes from JSON payload.
+    await _do_update_item(
+        item_id,
+        {"build_engine": "claude-code-sonnet"},
+        status=None,
+        build_engine=None,
+        explicit_version=1,
+    )
+
+    updated = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    assert updated is not None
+    assert updated["build_engine"] == "claude-code-sonnet"
+
+
+async def test_do_update_item_invalid_build_engine_via_json_raises(monkeypatch):
+    """(f2) invalid build_engine in JSON payload raises ValidationError."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.exceptions import ValidationError
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    row = await item_service.create_item(
+        db, LOCAL_USER_ID, title="BE Invalid", status="inbox"
+    )
+    item_id = str(row["id"])
+
+    with pytest.raises(ValidationError, match="build_engine must be one of"):
+        await _do_update_item(
+            item_id,
+            {"build_engine": "bogus"},
+            status=None,
+            build_engine=None,
+            explicit_version=1,
+        )
+
+
+def test_cmd_update_item_invalid_build_engine_via_json_exits_nonzero(
+    monkeypatch, capsys
+):
+    """(f2) _cmd_update_item exits 1 with 'build_engine must be one of'."""
+    from agent_gtd.exceptions import ValidationError
+
+    async def _fake_do(  # type: ignore[misc]
+        item_id: str, payload: Any, status: Any, be: Any, ver: Any
+    ) -> None:
+        raise ValidationError("build_engine must be one of [...]")
+
+    monkeypatch.setattr("agent_gtd.cli._do_update_item", _fake_do)
+    import io
+
+    monkeypatch.setattr(
+        sys, "stdin", io.StringIO(json.dumps({"build_engine": "bogus"}))
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-gtd", "update-item", "item-id", "--stdin"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "build_engine must be one of" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# (f3) unknown payload key errors loudly, no write
+# ---------------------------------------------------------------------------
+
+
+def test_do_update_item_unknown_key_raises_before_write(monkeypatch):
+    """(f3) unknown payload key raises ValueError, backend.update_item not called."""
+    update_calls: list[Any] = []
+
+    class _FakeBackend:
+        async def login(self, api_key: str, agent_name: str) -> dict[str, Any]:
+            return {"user_id": "fake-user"}
+
+        async def get_item(self, user_id: str, item_id: str) -> dict[str, Any]:
+            return _make_item(id=item_id, version=1)
+
+        async def update_item(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            update_calls.append(kwargs)
+            return _make_item(id="item-uuid", version=2)
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("AGENT_GTD_URL", "http://example.com")
+    monkeypatch.setenv("AGENT_GTD_API_KEY", "test-key")
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: _FakeBackend())
+
+    with pytest.raises(ValueError, match="unknown field\\(s\\): bogus_field"):
+        import asyncio
+
+        asyncio.run(
+            _do_update_item(
+                "item-uuid",
+                {"title": "x", "bogus_field": 1},
+                status=None,
+                build_engine=None,
+                explicit_version=1,
+            )
+        )
+
+    assert len(update_calls) == 0, "backend.update_item must NOT be called"
+
+
+def test_cmd_update_item_unknown_key_exits_nonzero(monkeypatch, capsys):
+    """(f3) _cmd_update_item exits 1 with 'unknown field(s)' error for unknown key."""
+    import io
+
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(json.dumps({"title": "x", "bogus_field": 1})),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-gtd", "update-item", "item-id", "--stdin"],
+    )
+    # We need _do_update_item to actually run (not mocked) to test the ValueError path,
+    # but we need the backend mock to avoid real DB calls.
+    update_calls: list[Any] = []
+
+    class _FakeBackend:
+        async def login(self, api_key: str, agent_name: str) -> dict[str, Any]:
+            return {"user_id": "fake-user"}
+
+        async def get_item(self, user_id: str, item_id: str) -> dict[str, Any]:
+            return _make_item(id="item-id", version=1)
+
+        async def update_item(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            update_calls.append(kwargs)
+            return _make_item(id="item-id", version=2)
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("AGENT_GTD_URL", "http://example.com")
+    monkeypatch.setenv("AGENT_GTD_API_KEY", "test-key")
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: _FakeBackend())
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "unknown field(s): bogus_field" in captured.err
+    assert len(update_calls) == 0, "backend.update_item must NOT be called"
+
+
+def test_cmd_update_item_version_in_payload_rejected(monkeypatch, capsys):
+    """(f3) `version` in payload is rejected as an unknown field."""
+    import io
+
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(json.dumps({"title": "x", "version": 2})),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-gtd", "update-item", "item-id", "--stdin"],
+    )
+    update_calls: list[Any] = []
+
+    class _FakeBackend:
+        async def login(self, api_key: str, agent_name: str) -> dict[str, Any]:
+            return {"user_id": "fake-user"}
+
+        async def get_item(self, user_id: str, item_id: str) -> dict[str, Any]:
+            return _make_item(id="item-id", version=1)
+
+        async def update_item(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            update_calls.append(kwargs)
+            return _make_item(id="item-id", version=2)
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("AGENT_GTD_URL", "http://example.com")
+    monkeypatch.setenv("AGENT_GTD_API_KEY", "test-key")
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: _FakeBackend())
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "unknown field(s): version" in captured.err
+    assert len(update_calls) == 0, "backend.update_item must NOT be called"
+
+
+# ---------------------------------------------------------------------------
+# (f4) previously-dropped fields now forward correctly
+# ---------------------------------------------------------------------------
+
+
+async def test_do_update_item_previously_dropped_fields_forward(monkeypatch):
+    """(f4) status, priority, assigned_to, due_date now reach backend.update_item."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    row = await item_service.create_item(
+        db, LOCAL_USER_ID, title="Dropped Fields", status="inbox"
+    )
+    item_id = str(row["id"])
+
+    await _do_update_item(
+        item_id,
+        {
+            "status": "ready",
+            "priority": "high",
+            "assigned_to": "alice",
+            "due_date": "2026-12-31",
+        },
+        status=None,
+        build_engine=None,
+        explicit_version=1,
+    )
+
+    updated = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    assert updated is not None
+    assert updated["status"] == "ready"
+    assert updated["priority"] == "high"
+    assert updated["assigned_to"] == "alice"
+    assert updated["due_date"] is not None  # date was set
+
+
+async def test_do_update_item_due_date_clear_sentinel(monkeypatch):
+    """(f4) due_date="" clears the field (due_date_set=True, due_date=None)."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    # Create item with a due_date set.
+    row = await item_service.create_item(
+        db, LOCAL_USER_ID, title="Due Date Clear", status="inbox", due_date="2026-06-01"
+    )
+    item_id = str(row["id"])
+    assert row["due_date"] is not None
+
+    # Empty string clears the due_date.
+    await _do_update_item(
+        item_id,
+        {"due_date": ""},
+        status=None,
+        build_engine=None,
+        explicit_version=1,
+    )
+
+    updated = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    assert updated is not None
+    assert updated["due_date"] is None
+
+
+async def test_do_update_item_project_id_detach_sentinel(monkeypatch):
+    """(f4) project_id="" detaches item from project (project_id_set=True)."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service, project_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    project = await project_service.create_project(
+        db, LOCAL_USER_ID, name="Test Project"
+    )
+    project_id = str(project["id"])
+    row = await item_service.create_item(
+        db, LOCAL_USER_ID, title="Attached Item", status="inbox", project_id=project_id
+    )
+    item_id = str(row["id"])
+    assert row["project_id"] is not None
+
+    # Empty string detaches the item.
+    await _do_update_item(
+        item_id,
+        {"project_id": ""},
+        status=None,
+        build_engine=None,
+        explicit_version=1,
+    )
+
+    updated = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    assert updated is not None
+    assert updated["project_id"] is None
+
+
+async def test_do_update_item_build_engine_clear_sentinel(monkeypatch):
+    """(f4) build_engine="" clears the field (build_engine_set=True)."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    row = await item_service.create_item(
+        db,
+        LOCAL_USER_ID,
+        title="BE Clear",
+        status="inbox",
+        build_engine="claude-code",
+    )
+    item_id = str(row["id"])
+    assert row["build_engine"] == "claude-code"
+
+    # Empty string clears the build_engine.
+    await _do_update_item(
+        item_id,
+        {"build_engine": ""},
+        status=None,
+        build_engine=None,
+        explicit_version=1,
+    )
+
+    updated = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    assert updated is not None
+    assert updated["build_engine"] is None
+
+
+async def test_do_update_item_project_id_move_sentinel(monkeypatch):
+    """(f4) project_id=<uuid> moves item to that project (project_id_set=True)."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service, project_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    project = await project_service.create_project(
+        db, LOCAL_USER_ID, name="Target Project"
+    )
+    project_id = str(project["id"])
+    row = await item_service.create_item(
+        db, LOCAL_USER_ID, title="Unattached Item", status="inbox"
+    )
+    item_id = str(row["id"])
+    assert row["project_id"] is None
+
+    # Non-empty UUID moves the item to the project.
+    await _do_update_item(
+        item_id,
+        {"project_id": project_id},
+        status=None,
+        build_engine=None,
+        explicit_version=1,
+    )
+
+    updated = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    assert updated is not None
+    assert str(updated["project_id"]) == project_id
+
+
+# ---------------------------------------------------------------------------
+# (f5) JSON null = unchanged
+# ---------------------------------------------------------------------------
+
+
+async def test_do_update_item_json_null_means_unchanged(monkeypatch):
+    """(f5) JSON null values are treated identically to absent keys (unchanged)."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    row = await item_service.create_item(
+        db,
+        LOCAL_USER_ID,
+        title="Null Test",
+        status="inbox",
+        due_date="2026-06-01",
+    )
+    item_id = str(row["id"])
+
+    # Both null values should leave the fields unchanged.
+    await _do_update_item(
+        item_id,
+        {"due_date": None, "title": None},
+        status=None,
+        build_engine=None,
+        explicit_version=1,
+    )
+
+    updated = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    assert updated is not None
+    # title should remain "Null Test" (null → unchanged)
+    assert updated["title"] == "Null Test"
+    # due_date should remain set (null → due_date_set=False → unchanged)
+    assert updated["due_date"] is not None
+
+
+# ---------------------------------------------------------------------------
+# (f6) flag wins over payload
+# ---------------------------------------------------------------------------
+
+
+async def test_do_update_item_flag_status_wins_over_payload(monkeypatch):
+    """(f6) --status flag takes precedence over payload['status']."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    row = await item_service.create_item(
+        db, LOCAL_USER_ID, title="Flag Wins", status="inbox"
+    )
+    item_id = str(row["id"])
+
+    # Flag status="done" wins over payload status="ready".
+    await _do_update_item(
+        item_id,
+        {"status": "ready"},
+        status="done",
+        build_engine=None,
+        explicit_version=1,
+    )
+
+    updated = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    assert updated is not None
+    assert updated["status"] == "done"
+
+
+async def test_do_update_item_flag_build_engine_wins_over_payload(monkeypatch):
+    """(f6) --build-engine flag takes precedence over payload['build_engine']."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    row = await item_service.create_item(
+        db, LOCAL_USER_ID, title="BE Flag Wins", status="inbox"
+    )
+    item_id = str(row["id"])
+
+    # Flag build_engine="claude-code" wins over payload build_engine="kiro".
+    await _do_update_item(
+        item_id,
+        {"build_engine": "kiro"},
+        status=None,
+        build_engine="claude-code",
+        explicit_version=1,
+    )
+
+    updated = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    assert updated is not None
+    assert updated["build_engine"] == "claude-code"
+
+
+async def test_do_update_item_no_flag_payload_status_used(monkeypatch):
+    """(f6) When flag is absent (None), payload['status'] is forwarded."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    row = await item_service.create_item(
+        db, LOCAL_USER_ID, title="Payload Status", status="inbox"
+    )
+    item_id = str(row["id"])
+
+    # No flag (None) → payload status is used.
+    await _do_update_item(
+        item_id,
+        {"status": "ready"},
+        status=None,
+        build_engine=None,
+        explicit_version=1,
+    )
+
+    updated = await db.fetchrow("SELECT * FROM items WHERE id = $1", item_id)
+    assert updated is not None
+    assert updated["status"] == "ready"
+
+
+# ---------------------------------------------------------------------------
 # (g) add-item prints new UUID to stdout and persists heavy fields
 # ---------------------------------------------------------------------------
 

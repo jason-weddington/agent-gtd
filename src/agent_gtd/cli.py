@@ -36,6 +36,26 @@ _ROLLOUT_TERMINAL_STATES: frozenset[str] = frozenset(
     {"completed", "failed", "halted", "cancelled"}
 )
 
+#: Payload keys accepted by ``update-item --from-json`` / ``--stdin``.
+#: Matches the 12 content fields in McpBackend.update_item (mcp_backend.py).
+#: ``version`` and any other key are rejected as unknown.
+_UPDATE_ITEM_FIELDS: frozenset[str] = frozenset(
+    {
+        "title",
+        "description",
+        "status",
+        "priority",
+        "assigned_to",
+        "labels",
+        "due_date",
+        "build_engine",
+        "acceptance_criteria",
+        "files_to_modify",
+        "scope_out",
+        "project_id",
+    }
+)
+
 
 async def _http_post_create_item(
     base_url: str,
@@ -459,21 +479,30 @@ async def _do_update_item(
 
     Args:
         item_id: UUID of the item to update.
-        payload: JSON dict with any of: title, description,
-            acceptance_criteria, files_to_modify, scope_out, labels. Keys
-            absent from this dict are not modified on the item.
-        status: New status value, or None to leave unchanged.
-        build_engine: New build engine value, or None to leave unchanged.
+        payload: JSON dict with any of the 12 accepted content fields (see
+            ``_UPDATE_ITEM_FIELDS``). Keys absent from this dict (or present
+            with JSON null) are left unchanged on the item. Unknown keys cause
+            a ``ValueError`` before any backend call.
+        status: New status value from the ``--status`` flag, or None to use
+            the payload value (or leave unchanged if also absent from payload).
+        build_engine: New build-engine value from the ``--build-engine`` flag,
+            or None to use the payload value (with sentinel translation).
         explicit_version: Explicit optimistic-lock version, or None for
             auto-fetch + single retry.
 
     Raises:
+        ValueError: If the payload contains keys not in ``_UPDATE_ITEM_FIELDS``.
         RuntimeError: If AGENT_GTD_API_KEY is required but not set.
         VersionConflictError: (LocalBackend) If two consecutive attempts both
             conflict.
         ToolError: (HttpBackend) For non-conflict API errors, or if two
             consecutive version-conflict responses occur.
     """
+    # --- Validate payload keys BEFORE any backend call (no-partial-write guarantee) ---
+    unknown = sorted(set(payload.keys()) - _UPDATE_ITEM_FIELDS)
+    if unknown:
+        raise ValueError(f"unknown field(s): {', '.join(unknown)}")
+
     from fastmcp.exceptions import ToolError
 
     from agent_gtd.exceptions import VersionConflictError
@@ -492,14 +521,70 @@ async def _do_update_item(
             session = await backend.login(api_key, "cli")
             user_id = session["user_id"]
 
-        # Pass only keys present in payload — absent key → argument stays None
-        # → item_service.update_item leaves that column unchanged.
+        # Extract all 12 accepted content fields from the payload.
+        # payload.get(key) returns None for both absent keys and JSON null,
+        # which the backend treats identically as "leave unchanged".
         title: str | None = payload.get("title")
         description: str | None = payload.get("description")
+        priority: str | None = payload.get("priority")
+        assigned_to: str | None = payload.get("assigned_to")
+        labels: list[str] | None = payload.get("labels")
         acceptance_criteria: list[str] | None = payload.get("acceptance_criteria")
         files_to_modify: list[dict[str, Any]] | None = payload.get("files_to_modify")
         scope_out: list[str] | None = payload.get("scope_out")
-        labels: list[str] | None = payload.get("labels")
+
+        # Flag-over-payload precedence for status: explicit flag wins.
+        effective_status: str | None = (
+            status if status is not None else payload.get("status")
+        )
+
+        # due_date sentinel translation (payload only; no flag equivalent).
+        # None/absent → unchanged; "" → clear (due_date=None, due_date_set=True);
+        # non-empty string → set (due_date_set=True).
+        raw_due_date: str | None = payload.get("due_date")
+        if raw_due_date is None:
+            backend_due_date: str | None = None
+            due_date_set = False
+        elif raw_due_date == "":
+            backend_due_date = None
+            due_date_set = True
+        else:
+            backend_due_date = raw_due_date
+            due_date_set = True
+
+        # build_engine: flag-over-payload precedence.
+        # When flag is provided (not None), use it directly with original
+        # semantics (build_engine_set = True since it is not None).
+        # When flag is absent (None), apply sentinel translation to payload value.
+        if build_engine is not None:
+            # Flag wins: use today's exact semantics unchanged.
+            backend_build_engine: str | None = build_engine
+            build_engine_set = True
+        else:
+            raw_be: str | None = payload.get("build_engine")
+            if raw_be is None:
+                backend_build_engine = None
+                build_engine_set = False
+            elif raw_be == "":
+                backend_build_engine = None
+                build_engine_set = True
+            else:
+                backend_build_engine = raw_be
+                build_engine_set = True
+
+        # project_id sentinel translation (payload only; no flag equivalent).
+        # None/absent → unchanged; "" → detach (project_id=None, project_id_set=True);
+        # non-empty UUID → move (project_id_set=True).
+        raw_project_id: str | None = payload.get("project_id")
+        if raw_project_id is None:
+            backend_project_id: str | None = None
+            project_id_set = False
+        elif raw_project_id == "":
+            backend_project_id = None
+            project_id_set = True
+        else:
+            backend_project_id = raw_project_id
+            project_id_set = True
 
         def _is_conflict(exc: Exception) -> bool:
             """Return True if *exc* represents a version-conflict error."""
@@ -514,13 +599,19 @@ async def _do_update_item(
                 version=version,
                 title=title,
                 description=description,
-                status=status,
+                status=effective_status,
+                priority=priority,
+                assigned_to=assigned_to,
                 labels=labels,
-                build_engine=build_engine,
-                build_engine_set=build_engine is not None,
+                due_date=backend_due_date,
+                due_date_set=due_date_set,
+                build_engine=backend_build_engine,
+                build_engine_set=build_engine_set,
                 acceptance_criteria=acceptance_criteria,
                 files_to_modify=files_to_modify,
                 scope_out=scope_out,
+                project_id=backend_project_id,
+                project_id_set=project_id_set,
             )
 
         if explicit_version is not None:
