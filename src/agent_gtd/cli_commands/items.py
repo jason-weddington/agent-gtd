@@ -68,6 +68,15 @@ def register(
         default=None,
         help="Filter by assignee.",
     )
+    p.add_argument(
+        "--detail",
+        action="store_true",
+        default=False,
+        help=(
+            "Return full item rows (description, acceptance_criteria,"
+            " files_to_modify). Default is compact."
+        ),
+    )
     p.set_defaults(func=_cmd_list_items)
 
     # ------------------------------------------------------------------
@@ -163,7 +172,7 @@ def _cmd_list_items(args: argparse.Namespace) -> None:
 
     Args:
         args: Parsed namespace; may have optional attributes ``status``,
-            ``project_id``, ``priority``, ``assigned_to``.
+            ``project_id``, ``priority``, ``assigned_to``, ``detail``.
     """
     try:
         result = asyncio.run(
@@ -172,6 +181,7 @@ def _cmd_list_items(args: argparse.Namespace) -> None:
                 project_id=args.project_id,
                 priority=args.priority,
                 assigned_to=args.assigned_to,
+                detail=args.detail,
             )
         )
         emit_json(result)
@@ -185,6 +195,7 @@ async def _fetch_list_items(
     project_id: str | None,
     priority: str | None,
     assigned_to: str | None,
+    detail: bool = False,
 ) -> dict[str, Any]:
     """Fetch items from the backend using optional filters.
 
@@ -193,6 +204,7 @@ async def _fetch_list_items(
         project_id: Optional project UUID filter.
         priority: Optional priority filter string (no client-side validation).
         assigned_to: Optional assignee filter.
+        detail: If True, request full item rows from the backend.
 
     Returns:
         The dict returned by the backend (shape: ``{"items": [...], ...}``).
@@ -204,6 +216,7 @@ async def _fetch_list_items(
             project_id=project_id,
             priority=priority,
             assigned_to=assigned_to,
+            detail=detail,
         )
 
 

@@ -507,3 +507,263 @@ async def test_local_backend_owner_repo_mode_succeeds():
     )
     assert result["repo_mode"] == "workspace"
     assert result["workspace_repos"] == ["https://github.com/org/r.git"]
+
+
+# --- list_items compact-by-default (HttpBackend) ---
+
+_EXPECTED_COMPACT_KEYS = {
+    "id",
+    "title",
+    "status",
+    "priority",
+    "build_engine",
+    "project_id",
+    "project_name",
+    "labels",
+    "assigned_to",
+    "created_by",
+    "created_at",
+    "updated_at",
+    "ac_count",
+    "files_count",
+    "description_snippet",
+}
+
+_HEAVY_KEYS = {
+    "description",
+    "acceptance_criteria",
+    "files_to_modify",
+    "blockers",
+    "user_id",
+}
+
+
+async def test_http_list_items_compact_keys(
+    authed_backend: HttpBackend, project_id: str
+):
+    """Default list_items returns exactly the 15 compact keys."""
+    await authed_backend.create_item(
+        "", title="Compact item", status="active", project_id=project_id
+    )
+    result = await authed_backend.list_items("")
+    items = result["items"]
+    assert len(items) >= 1
+    for item in items:
+        assert set(item.keys()) == _EXPECTED_COMPACT_KEYS
+
+
+async def test_http_list_items_compact_excludes_heavy_fields(
+    authed_backend: HttpBackend, project_id: str
+):
+    """Compact list_items excludes heavy fields."""
+    await authed_backend.create_item(
+        "", title="Heavy item", status="active", project_id=project_id
+    )
+    result = await authed_backend.list_items("")
+    items = result["items"]
+    for item in items:
+        for key in _HEAVY_KEYS:
+            assert key not in item
+
+
+async def test_http_list_items_ac_count_and_files_count(authed_backend: HttpBackend):
+    """ac_count and files_count equal the source list lengths."""
+    item = await authed_backend.create_item("", title="Counted", status="active")
+    await authed_backend.update_item(
+        "",
+        item["id"],
+        version=item["version"],
+        acceptance_criteria=["AC one", "AC two"],
+        files_to_modify=[{"path": "a.py", "change": "x"}],
+    )
+    result = await authed_backend.list_items("")
+    found = next(i for i in result["items"] if i["id"] == item["id"])
+    assert found["ac_count"] == 2
+    assert found["files_count"] == 1
+
+
+async def test_http_list_items_description_snippet_truncation(
+    authed_backend: HttpBackend,
+):
+    """description_snippet truncates to 140 chars + ellipsis for long descriptions."""
+    long_desc = "A" * 200
+    item = await authed_backend.create_item(
+        "", title="Long desc", status="active", description=long_desc
+    )
+    result = await authed_backend.list_items("")
+    found = next(i for i in result["items"] if i["id"] == item["id"])
+    assert found["description_snippet"] == "A" * 140 + "…"
+
+
+async def test_http_list_items_description_snippet_short(authed_backend: HttpBackend):
+    """description_snippet passes through short descriptions unchanged."""
+    item = await authed_backend.create_item(
+        "", title="Short desc", status="active", description="short"
+    )
+    result = await authed_backend.list_items("")
+    found = next(i for i in result["items"] if i["id"] == item["id"])
+    assert found["description_snippet"] == "short"
+
+
+async def test_http_list_items_detail_true_returns_full_rows(
+    authed_backend: HttpBackend, project_id: str
+):
+    """detail=True returns full rows including description/ac/files_to_modify."""
+    item = await authed_backend.create_item(
+        "",
+        title="Full item",
+        status="active",
+        project_id=project_id,
+        description="Full description",
+    )
+    await authed_backend.update_item(
+        "",
+        item["id"],
+        version=item["version"],
+        acceptance_criteria=["AC one"],
+        files_to_modify=[{"path": "b.py", "change": "y"}],
+    )
+    result = await authed_backend.list_items("", detail=True)
+    found = next(i for i in result["items"] if i["id"] == item["id"])
+    assert "description" in found
+    assert "acceptance_criteria" in found
+    assert "files_to_modify" in found
+
+
+async def test_http_list_items_inbox_pending_count_compact(authed_backend: HttpBackend):
+    """inbox_pending_count is present when project_id is None (compact mode)."""
+    result = await authed_backend.list_items("")
+    assert "inbox_pending_count" in result
+
+
+async def test_http_list_items_inbox_pending_count_detail(authed_backend: HttpBackend):
+    """inbox_pending_count is present when project_id is None (detail mode)."""
+    result = await authed_backend.list_items("", detail=True)
+    assert "inbox_pending_count" in result
+
+
+async def test_http_list_items_projectless_item_project_name_none(
+    authed_backend: HttpBackend,
+):
+    """A project-less item has project_name=None in compact mode with exact 15 keys."""
+    await authed_backend.create_item("", title="Inbox item", status="inbox")
+    result = await authed_backend.list_items("", status="inbox")
+    items = result["items"]
+    assert len(items) >= 1
+    for item in items:
+        assert item["project_id"] is None
+        assert item["project_name"] is None
+        assert set(item.keys()) == _EXPECTED_COMPACT_KEYS
+
+
+# --- list_items compact-by-default (LocalBackend) ---
+
+
+async def test_local_list_items_compact_keys():
+    """LocalBackend default list_items returns exactly the 15 compact keys."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.mcp_backend import LocalBackend
+
+    user = await register_user("lb_compact@example.com", "pass123")
+    lb = LocalBackend()
+    await lb.create_item(user.id, title="LB Compact", status="active")
+    result = await lb.list_items(user.id)
+    items = result["items"]
+    assert len(items) >= 1
+    for item in items:
+        assert set(item.keys()) == _EXPECTED_COMPACT_KEYS
+
+
+async def test_local_list_items_compact_excludes_heavy_fields():
+    """LocalBackend compact list_items excludes heavy fields including user_id."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.mcp_backend import LocalBackend
+
+    user = await register_user("lb_heavy@example.com", "pass123")
+    lb = LocalBackend()
+    await lb.create_item(user.id, title="LB Heavy", status="active")
+    result = await lb.list_items(user.id)
+    for item in result["items"]:
+        for key in _HEAVY_KEYS:
+            assert key not in item
+        assert "user_id" not in item
+
+
+async def test_local_list_items_ac_count_and_files_count():
+    """LocalBackend ac_count and files_count correct when stored as raw JSON strings."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.mcp_backend import LocalBackend
+
+    user = await register_user("lb_counts@example.com", "pass123")
+    lb = LocalBackend()
+
+    # create_item does NOT accept acceptance_criteria; seed via update_item
+    item = await lb.create_item(user.id, title="LB Counts", status="active")
+    item_id = item["id"]
+    await lb.update_item(
+        user.id,
+        item_id,
+        version=1,
+        acceptance_criteria=["AC one", "AC two"],
+        files_to_modify=[{"path": "a.py", "change": "x"}],
+    )
+
+    result = await lb.list_items(user.id)
+    found = next(i for i in result["items"] if i["id"] == item_id)
+    assert found["ac_count"] == 2
+    assert found["files_count"] == 1
+
+
+async def test_local_list_items_description_snippet_truncation():
+    """LocalBackend description_snippet truncates correctly."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.mcp_backend import LocalBackend
+
+    user = await register_user("lb_snippet@example.com", "pass123")
+    lb = LocalBackend()
+    long_desc = "B" * 200
+    item = await lb.create_item(
+        user.id, title="LB Snippet", status="active", description=long_desc
+    )
+    result = await lb.list_items(user.id)
+    found = next(i for i in result["items"] if i["id"] == item["id"])
+    assert found["description_snippet"] == "B" * 140 + "…"
+
+
+async def test_local_list_items_detail_true_returns_full_rows():
+    """LocalBackend detail=True returns full rows including description."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.mcp_backend import LocalBackend
+
+    user = await register_user("lb_detail@example.com", "pass123")
+    lb = LocalBackend()
+    item = await lb.create_item(
+        user.id, title="LB Detail", status="active", description="Full desc"
+    )
+    await lb.update_item(
+        user.id,
+        item["id"],
+        version=1,
+        acceptance_criteria=["AC one"],
+    )
+    result = await lb.list_items(user.id, detail=True)
+    found = next(i for i in result["items"] if i["id"] == item["id"])
+    assert "description" in found
+    assert "acceptance_criteria" in found
+
+
+async def test_local_list_items_projectless_item_project_name_none():
+    """LocalBackend project-less item has project_name=None with exact 15 keys."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.mcp_backend import LocalBackend
+
+    user = await register_user("lb_projectless@example.com", "pass123")
+    lb = LocalBackend()
+    await lb.create_item(user.id, title="LB Inbox", status="inbox")
+    result = await lb.list_items(user.id, status="inbox")
+    items = result["items"]
+    assert len(items) >= 1
+    for item in items:
+        assert item["project_id"] is None
+        assert item["project_name"] is None
+        assert set(item.keys()) == _EXPECTED_COMPACT_KEYS

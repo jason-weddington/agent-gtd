@@ -1826,3 +1826,45 @@ async def test_list_dispatch_hosts(registered_client, user_id):
     assert "api_key" not in returned
     assert "api_key_preview" not in returned
     assert set(returned.keys()) == {"id", "label", "url"}
+
+
+async def test_list_items_compact_by_default(registered_client, project_id):
+    """list_items returns compact items by default (no heavy fields)."""
+    # Add an item with a description
+    await registered_client.call_tool(
+        "add_item",
+        {
+            "title": "Compact Task",
+            "description": "Full description here",
+            "status": "active",
+        },
+    )
+    result = await registered_client.call_tool("list_items")
+    data = _parse_result(result)
+    items = data["items"]
+    assert len(items) >= 1
+    for item in items:
+        assert "description" not in item
+        assert "acceptance_criteria" not in item
+        assert "files_to_modify" not in item
+        assert "description_snippet" in item
+
+
+async def test_list_items_detail_true_returns_full_body(registered_client, project_id):
+    """list_items with detail=True returns full-body items."""
+    await registered_client.call_tool(
+        "add_item",
+        {
+            "title": "Detail Task",
+            "description": "Full description here",
+            "status": "active",
+        },
+    )
+    result = await registered_client.call_tool("list_items", {"detail": True})
+    data = _parse_result(result)
+    items = data["items"]
+    assert len(items) >= 1
+    for item in items:
+        assert "description" in item
+        assert "acceptance_criteria" in item
+        assert "files_to_modify" in item

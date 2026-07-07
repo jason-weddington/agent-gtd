@@ -87,6 +87,7 @@ def _list_items_args(**overrides: Any) -> argparse.Namespace:
         "project_id": None,
         "priority": None,
         "assigned_to": None,
+        "detail": False,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -153,6 +154,7 @@ class _FakeBackend:
         project_id: str | None = None,
         priority: str | None = None,
         assigned_to: str | None = None,
+        detail: bool = False,
     ) -> dict[str, Any]:
         """Return the canned list_items result."""
         return self._results["list_items"]  # type: ignore[no-any-return]
@@ -287,6 +289,7 @@ def test_cmd_list_items_passes_filters(
             project_id: str | None = None,
             priority: str | None = None,
             assigned_to: str | None = None,
+            detail: bool = False,
         ) -> dict[str, Any]:
             received.update(
                 status=status,
@@ -311,6 +314,58 @@ def test_cmd_list_items_passes_filters(
     assert received["project_id"] == "proj-1"
     assert received["priority"] == "high"
     assert received["assigned_to"] == "alice"
+
+
+def test_cmd_list_items_emits_compact_result(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """_cmd_list_items with default args forwards detail=False to backend."""
+    received: dict[str, Any] = {}
+
+    class _RecordingBackend(_FakeBackend):
+        async def list_items(
+            self,
+            user_id: str,
+            *,
+            status: str | None = None,
+            project_id: str | None = None,
+            priority: str | None = None,
+            assigned_to: str | None = None,
+            detail: bool = False,
+        ) -> dict[str, Any]:
+            received["detail"] = detail
+            return _CANNED_LIST
+
+    _patch_session(monkeypatch, _RecordingBackend())
+    _cmd_list_items(_list_items_args())
+    assert received["detail"] is False
+
+
+def test_cmd_list_items_detail_flag_forwarded(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """_cmd_list_items with detail=True forwards detail=True to backend."""
+    received: dict[str, Any] = {}
+
+    class _RecordingBackend(_FakeBackend):
+        async def list_items(
+            self,
+            user_id: str,
+            *,
+            status: str | None = None,
+            project_id: str | None = None,
+            priority: str | None = None,
+            assigned_to: str | None = None,
+            detail: bool = False,
+        ) -> dict[str, Any]:
+            received["detail"] = detail
+            return _CANNED_LIST
+
+    _patch_session(monkeypatch, _RecordingBackend())
+    _cmd_list_items(_list_items_args(detail=True))
+    assert received["detail"] is True
 
 
 # ---------------------------------------------------------------------------

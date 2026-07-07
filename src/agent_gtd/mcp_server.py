@@ -782,8 +782,23 @@ async def list_items(
     assigned_to: str | None = None,
     priority: str | None = None,
     project_id: str | None = None,
+    detail: bool = False,
 ) -> dict[str, Any]:
     """List items, optionally filtered by project and/or status.
+
+    By default, returns a **compact** list intended for scanning and finding
+    items.  Each compact item has exactly 15 keys: id, title, status,
+    priority, build_engine, project_id, project_name, labels, assigned_to,
+    created_by, created_at, updated_at, ac_count, files_count, and
+    description_snippet.  Heavy fields (description, acceptance_criteria,
+    files_to_modify, blockers, etc.) are omitted to avoid context blowout.
+
+    To read an item's full body (description, acceptance_criteria,
+    files_to_modify), either:
+    - Call ``get_item`` with the item's UUID (recommended — always
+      full-fidelity), or
+    - Pass ``detail=True`` to this tool to receive full rows for all
+      matched items (use sparingly on large lists).
 
     Without project_id, lists items across all projects and includes
     ``inbox_pending_count`` in the response.
@@ -794,6 +809,9 @@ async def list_items(
         assigned_to: Optional filter by assignee.
         priority: Optional filter by priority.
         project_id: Optional project filter. Omit to list cross-project.
+        detail: If True, return full item rows including description,
+            acceptance_criteria, and files_to_modify.  Default False
+            (compact list).
 
     Returns:
         Dict with ``items`` list and optional ``inbox_pending_count``.
@@ -805,6 +823,7 @@ async def list_items(
         project_id=project_id,
         priority=priority,
         assigned_to=assigned_to,
+        detail=detail,
     )
 
 

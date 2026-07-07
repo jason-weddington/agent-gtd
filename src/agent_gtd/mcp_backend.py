@@ -77,6 +77,68 @@ def _format_board_snapshot(
     return snapshot
 
 
+_COMPACT_ITEM_KEYS = (
+    "id",
+    "title",
+    "status",
+    "priority",
+    "build_engine",
+    "project_id",
+    "project_name",
+    "labels",
+    "assigned_to",
+    "created_by",
+    "created_at",
+    "updated_at",
+)
+_DESCRIPTION_SNIPPET_LEN = 140
+
+
+def _compact_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Return a compact representation of an item with a 15-key whitelist.
+
+    Computes ac_count, files_count, and description_snippet from the full
+    item dict.  Accepts acceptance_criteria and files_to_modify as either
+    raw JSON strings (LocalBackend) or already-decoded lists (HttpBackend).
+
+    Args:
+        item: Full item dict from _format_item or _enrich_item.
+
+    Returns:
+        Dict with exactly 15 keys: the 12 whitelist columns plus ac_count,
+        files_count, and description_snippet.
+    """
+    import json as _json
+
+    def _count_json_or_list(val: Any) -> int:
+        if val is None:
+            return 0
+        if isinstance(val, list):
+            return len(val)
+        if isinstance(val, str):
+            try:
+                parsed = _json.loads(val)
+                return len(parsed) if isinstance(parsed, list) else 0
+            except (ValueError, TypeError):
+                return 0
+        return 0
+
+    ac_count = _count_json_or_list(item.get("acceptance_criteria"))
+    files_count = _count_json_or_list(item.get("files_to_modify"))
+
+    raw_desc = item.get("description") or ""
+    if len(raw_desc) > _DESCRIPTION_SNIPPET_LEN:
+        description_snippet = raw_desc[:_DESCRIPTION_SNIPPET_LEN] + "…"
+    else:
+        description_snippet = raw_desc
+
+    compact: dict[str, Any] = {k: item.get(k) for k in _COMPACT_ITEM_KEYS}
+    compact["ac_count"] = ac_count
+    compact["files_count"] = files_count
+    compact["description_snippet"] = description_snippet
+    return compact
+
+
 class McpBackend(Protocol):
     """Protocol for MCP backend implementations."""
 
@@ -137,6 +199,7 @@ class McpBackend(Protocol):
         project_id: str | None = None,
         priority: str | None = None,
         assigned_to: str | None = None,
+        detail: bool = False,
     ) -> dict[str, Any]: ...
 
     async def get_item(self, user_id: str, item_id: str) -> dict[str, Any]: ...
@@ -625,6 +688,7 @@ class LocalBackend:
         project_id: str | None = None,
         priority: str | None = None,
         assigned_to: str | None = None,
+        detail: bool = False,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import item_service
@@ -639,7 +703,8 @@ class LocalBackend:
             assigned_to=assigned_to,
         )
         pm = await self._build_project_map(user_id)
-        items = [self._format_item(r, pm) for r in rows]
+        formatted = [self._format_item(r, pm) for r in rows]
+        items = formatted if detail else [_compact_item(x) for x in formatted]
         result: dict[str, Any] = {"items": items}
         if project_id is None:
             result["inbox_pending_count"] = await self._inbox_pending_count(db, user_id)
@@ -1545,6 +1610,7 @@ class HttpBackend:
         project_id: str | None = None,
         priority: str | None = None,
         assigned_to: str | None = None,
+        detail: bool = False,
     ) -> dict[str, Any]:
         params: dict[str, str] = {}
         if status:
@@ -1562,7 +1628,8 @@ class HttpBackend:
         items = resp.json()
         pm = await self._get_project_map()
         enriched = [self._enrich_item(i, pm) for i in items]
-        result: dict[str, Any] = {"items": enriched}
+        formatted_items = enriched if detail else [_compact_item(x) for x in enriched]
+        result: dict[str, Any] = {"items": formatted_items}
         if project_id is None:
             result["inbox_pending_count"] = await self._inbox_pending_count()
         return result
