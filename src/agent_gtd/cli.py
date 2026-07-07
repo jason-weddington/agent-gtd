@@ -8,7 +8,15 @@ import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from agent_gtd.cli_commands import register_all
+from agent_gtd.cli_commands._shared import load_json_payload as _load_json_payload
 from agent_gtd.mcp_backend import create_backend
+
+# ``_load_json_payload`` is re-exported here (aliased from the canonical
+# implementation in ``cli_commands._shared.load_json_payload``) so existing
+# importers — ``from agent_gtd.cli import _load_json_payload`` — keep working
+# while exactly one implementation of the logic exists.
+__all__ = ["_load_json_payload", "build_parser", "main"]
 
 # ---------------------------------------------------------------------------
 # Terminal-state definitions (client-only; do not change server semantics)
@@ -27,35 +35,6 @@ _ROLLOUT_SUCCESS_STATES: frozenset[str] = frozenset({"completed"})
 _ROLLOUT_TERMINAL_STATES: frozenset[str] = frozenset(
     {"completed", "failed", "halted", "cancelled"}
 )
-
-
-def _load_json_payload(from_json: str | None, use_stdin: bool) -> dict[str, Any]:
-    """Load a JSON object from a file or stdin, validated as a dict.
-
-    Args:
-        from_json: File path to read JSON from. None if not provided.
-        use_stdin: If True, read from stdin.
-
-    Returns:
-        The parsed JSON dict. Returns ``{}`` when neither source is specified.
-
-    Raises:
-        ValueError: If the parsed JSON value is not a dict.
-        json.JSONDecodeError: If the input is not valid JSON.
-        OSError: If the file at *from_json* cannot be opened.
-    """
-    if from_json is not None:
-        with open(from_json) as fh:
-            data = json.load(fh)
-    elif use_stdin:
-        data = json.load(sys.stdin)
-    else:
-        return {}
-    if not isinstance(data, dict):
-        raise ValueError(
-            f"JSON payload must be an object (dict), not {type(data).__name__}"
-        )
-    return data
 
 
 async def _http_post_create_item(
@@ -743,8 +722,22 @@ def _cmd_add_item(args: argparse.Namespace) -> None:
     print(new_id)
 
 
-def main() -> None:
-    """Entry point for the agent-gtd CLI."""
+def build_parser() -> argparse.ArgumentParser:
+    """Construct and return the fully-populated ``agent-gtd`` argument parser.
+
+    Builds the top-level :class:`argparse.ArgumentParser`, the five inline
+    subcommands (run-status, rollout-status, promote-admin, update-item,
+    add-item), and then registers every per-resource command module discovered
+    by :func:`agent_gtd.cli_commands.register_all`.
+
+    This factory is the introspection surface used by the wave-final parity
+    test (which imports ``build_parser`` and reads the subparser registry), so
+    parser construction must live here rather than being reachable only through
+    :func:`main`.
+
+    Returns:
+        The fully-populated argument parser.
+    """
     parser = argparse.ArgumentParser(
         prog="agent-gtd",
         description="Agent GTD command-line interface.",
@@ -906,6 +899,17 @@ def main() -> None:
         help="Labels (repeatable; comma-separated values accepted per flag).",
     )
 
+    # Register per-resource command modules (items 2-7) discovered from the
+    # cli_commands package. Each attaches its handler via set_defaults(func=...).
+    register_all(subparsers)
+
+    return parser
+
+
+def main() -> None:
+    """Entry point for the agent-gtd CLI."""
+    parser = build_parser()
+
     args = parser.parse_args()
 
     if args.command == "run-status":
@@ -918,6 +922,8 @@ def main() -> None:
         _cmd_update_item(args)
     elif args.command == "add-item":
         _cmd_add_item(args)
+    elif getattr(args, "func", None) is not None:
+        args.func(args)
     else:
         parser.print_help(sys.stderr)
         sys.exit(1)
