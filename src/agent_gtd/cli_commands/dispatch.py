@@ -22,14 +22,19 @@ def _cmd_dispatch_item(args: argparse.Namespace) -> None:
     """Dispatch an item for autonomous build or plan execution.
 
     Calls ``backend.dispatch_item`` with the provided ``item_id``, ``mode``,
-    ``max_turns``, and ``dispatch_host_id``; prints the resulting run dict as
-    JSON to stdout.  Does NOT call ``enqueue_run`` — in a one-shot CLI process
-    no dispatch worker is running; in local mode the created run row remains
-    ``status=pending``.
+    ``max_turns``, ``rollout_id``, and ``dispatch_host_id``; prints the
+    resulting run dict as JSON to stdout.
+
+    **Local-mode limitation:** in local SQLite mode (no ``AGENT_GTD_URL``),
+    the CLI creates the run row in the database but does *not* enqueue it for
+    execution — there is no in-process dispatch worker in a short-lived CLI
+    process, so the run remains ``status=pending`` until an external worker
+    picks it up.  In HTTP mode the server enqueues the run immediately
+    server-side after creation.
 
     Args:
         args: Parsed namespace with ``item_id``, ``mode``, ``max_turns``,
-            and ``dispatch_host_id``.
+            ``rollout_id``, and ``dispatch_host_id``.
     """
 
     async def _run() -> dict[str, Any]:
@@ -39,6 +44,7 @@ def _cmd_dispatch_item(args: argparse.Namespace) -> None:
                 args.item_id,
                 max_turns=args.max_turns,
                 mode=args.mode,
+                rollout_id=args.rollout_id,
                 dispatch_host_id=args.dispatch_host_id,
             )
 
@@ -143,6 +149,17 @@ def register(
         default=None,
         dest="dispatch_host_id",
         help="Pin execution to a specific dispatch host by ID.",
+    )
+    di.add_argument(
+        "--rollout-id",
+        type=str,
+        default=None,
+        dest="rollout_id",
+        metavar="ROLLOUT_ID",
+        help=(
+            "Associate this dispatch with an existing rollout by ID"
+            " (permitted with build and plan modes)."
+        ),
     )
     di.set_defaults(func=_cmd_dispatch_item)
 

@@ -62,6 +62,7 @@ def _dispatch_item_args(**overrides: Any) -> argparse.Namespace:
         "mode": "build",
         "max_turns": None,
         "dispatch_host_id": None,
+        "rollout_id": None,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -111,6 +112,7 @@ class _FakeBackend:
                 "item_id": item_id,
                 "max_turns": max_turns,
                 "mode": mode,
+                "rollout_id": rollout_id,
                 "dispatch_host_id": dispatch_host_id,
             }
         )
@@ -394,6 +396,7 @@ def test_build_parser_dispatch_item_resolves_to_handler():
     assert args.mode == "build"
     assert args.max_turns is None
     assert args.dispatch_host_id is None
+    assert args.rollout_id is None
 
 
 def test_build_parser_list_runs_resolves_to_handler():
@@ -461,3 +464,70 @@ def test_main_dispatches_dispatch_item_via_func_branch(monkeypatch, capsys):
     assert data["id"] == run["id"]
     assert len(fake.dispatch_item_calls) == 1
     assert fake.dispatch_item_calls[0]["item_id"] == item_id
+
+
+# ---------------------------------------------------------------------------
+# Tests for --rollout-id flag
+# ---------------------------------------------------------------------------
+
+
+def test_build_parser_dispatch_item_rollout_id_parsed():
+    """--rollout-id <uuid> is parsed and placed in args.rollout_id."""
+    item_id = str(uuid.uuid4())
+    rollout_id = str(uuid.uuid4())
+    parser = build_parser()
+    args = parser.parse_args(["dispatch-item", item_id, "--rollout-id", rollout_id])
+
+    assert args.rollout_id == rollout_id
+
+
+def test_cmd_dispatch_item_rollout_id_forwarded(monkeypatch, capsys):
+    """_cmd_dispatch_item forwards rollout_id to backend.dispatch_item."""
+    fake = _FakeBackend()
+    rollout_id = str(uuid.uuid4())
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _make_session(fake)
+    )
+
+    _cmd_dispatch_item(_dispatch_item_args(rollout_id=rollout_id))
+
+    assert len(fake.dispatch_item_calls) == 1
+    assert fake.dispatch_item_calls[0]["rollout_id"] == rollout_id
+
+
+def test_cmd_dispatch_item_no_rollout_id_passes_none(monkeypatch, capsys):
+    """Omitting --rollout-id passes rollout_id=None to backend.dispatch_item."""
+    fake = _FakeBackend()
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _make_session(fake)
+    )
+
+    _cmd_dispatch_item(_dispatch_item_args())  # rollout_id defaults to None
+
+    assert len(fake.dispatch_item_calls) == 1
+    assert fake.dispatch_item_calls[0]["rollout_id"] is None
+
+
+def test_main_dispatch_item_rollout_id_forwarded_end_to_end(monkeypatch, capsys):
+    """main() with --rollout-id forwards the value to the backend call."""
+    fake = _FakeBackend()
+    run = _make_run()
+    fake._dispatch_item_result = run
+    item_id = str(uuid.uuid4())
+    rollout_id = str(uuid.uuid4())
+
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _make_session(fake)
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-gtd", "dispatch-item", item_id, "--rollout-id", rollout_id],
+    )
+
+    main()
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["id"] == run["id"]
+    assert fake.dispatch_item_calls[0]["rollout_id"] == rollout_id
