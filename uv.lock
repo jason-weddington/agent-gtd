@@ -62,7 +62,7 @@ dev = [
 [[package]]
 name = "agent-gtd-dispatch-protocol"
 version = "0.1.0"
-source = { git = "https://github.com/jason-weddington/agent-gtd-dispatch?subdirectory=packages%2Fprotocol&rev=main#60c72612d20a22a8674db498a1969deed6533569" }
+source = { git = "https://github.com/jason-weddington/agent-gtd-dispatch?subdirectory=packages%2Fprotocol&rev=main#ad94947681d3cdfb524238cef4b3818987c1919d" }
 dependencies = [
     { name = "pydantic" },
 ]
