@@ -524,6 +524,7 @@ _EXPECTED_COMPACT_KEYS = {
     "build_engine",
     "project_id",
     "project_name",
+    "project_repo_mode",
     "labels",
     "assigned_to",
     "created_by",
@@ -546,7 +547,7 @@ _HEAVY_KEYS = {
 async def test_http_list_items_compact_keys(
     authed_backend: HttpBackend, project_id: str
 ):
-    """Default list_items returns exactly the 15 compact keys."""
+    """Default list_items returns exactly the 16 compact keys."""
     await authed_backend.create_item(
         "", title="Compact item", status="active", project_id=project_id
     )
@@ -650,7 +651,7 @@ async def test_http_list_items_inbox_pending_count_detail(authed_backend: HttpBa
 async def test_http_list_items_projectless_item_project_name_none(
     authed_backend: HttpBackend,
 ):
-    """A project-less item has project_name=None in compact mode with exact 15 keys."""
+    """A project-less item has project_name=None in compact mode with exact 16 keys."""
     await authed_backend.create_item("", title="Inbox item", status="inbox")
     result = await authed_backend.list_items("", status="inbox")
     items = result["items"]
@@ -665,7 +666,7 @@ async def test_http_list_items_projectless_item_project_name_none(
 
 
 async def test_local_list_items_compact_keys():
-    """LocalBackend default list_items returns exactly the 15 compact keys."""
+    """LocalBackend default list_items returns exactly the 16 compact keys."""
     from agent_gtd.auth import register_user
     from agent_gtd.mcp_backend import LocalBackend
 
@@ -758,7 +759,7 @@ async def test_local_list_items_detail_true_returns_full_rows():
 
 
 async def test_local_list_items_projectless_item_project_name_none():
-    """LocalBackend project-less item has project_name=None with exact 15 keys."""
+    """LocalBackend project-less item has project_name=None with exact 16 keys."""
     from agent_gtd.auth import register_user
     from agent_gtd.mcp_backend import LocalBackend
 
@@ -772,3 +773,197 @@ async def test_local_list_items_projectless_item_project_name_none():
         assert item["project_id"] is None
         assert item["project_name"] is None
         assert set(item.keys()) == _EXPECTED_COMPACT_KEYS
+
+
+# --- project_repo_mode / workspace_repos (HttpBackend) ---
+
+
+async def test_http_get_item_monorepo_project_repo_mode(
+    authed_backend: HttpBackend, project_id: str
+):
+    """HttpBackend get_item mono: project_repo_mode='monorepo', no workspace_repos."""
+    item = await authed_backend.create_item(
+        "", title="Mono item", status="active", project_id=project_id
+    )
+    fetched = await authed_backend.get_item("", item["id"])
+    assert fetched["project_repo_mode"] == "monorepo"
+    assert "workspace_repos" not in fetched
+
+
+async def test_http_get_item_workspace_project_repo_mode(authed_backend: HttpBackend):
+    """HttpBackend get_item ws: project_repo_mode='workspace' + workspace_repos."""
+    project = await authed_backend.create_project(
+        "",
+        name="WS Item Project",
+        repo_mode="workspace",
+        workspace_repos=[
+            "https://github.com/org/a.git",
+            "https://github.com/org/b.git",
+        ],
+    )
+    item = await authed_backend.create_item(
+        "", title="WS item", status="active", project_id=project["id"]
+    )
+    fetched = await authed_backend.get_item("", item["id"])
+    assert fetched["project_repo_mode"] == "workspace"
+    assert fetched["workspace_repos"] == [
+        "https://github.com/org/a.git",
+        "https://github.com/org/b.git",
+    ]
+
+
+async def test_http_get_item_projectless_repo_mode_none(authed_backend: HttpBackend):
+    """HttpBackend get_item projectless: project_repo_mode None, no workspace_repos."""
+    item = await authed_backend.create_item("", title="Inbox", status="inbox")
+    fetched = await authed_backend.get_item("", item["id"])
+    assert fetched["project_repo_mode"] is None
+    assert "workspace_repos" not in fetched
+
+
+async def test_http_list_items_compact_carries_project_repo_mode(
+    authed_backend: HttpBackend, project_id: str
+):
+    """HttpBackend compact list_items carries project_repo_mode for mono/ws/None."""
+    ws = await authed_backend.create_project(
+        "",
+        name="WS Compact Project",
+        repo_mode="workspace",
+        workspace_repos=["https://github.com/org/x.git"],
+    )
+    await authed_backend.create_item(
+        "", title="Mono item", status="active", project_id=project_id
+    )
+    await authed_backend.create_item(
+        "", title="WS item", status="active", project_id=ws["id"]
+    )
+    await authed_backend.create_item("", title="Floater", status="inbox")
+
+    result = await authed_backend.list_items("")
+    by_title = {i["title"]: i for i in result["items"]}
+    assert by_title["Mono item"]["project_repo_mode"] == "monorepo"
+    assert by_title["WS item"]["project_repo_mode"] == "workspace"
+    assert by_title["Floater"]["project_repo_mode"] is None
+    # workspace_repos never lands on list rows — get_item only.
+    for item in result["items"]:
+        assert "workspace_repos" not in item
+
+
+async def test_http_list_items_detail_has_repo_mode_no_workspace_repos(
+    authed_backend: HttpBackend,
+):
+    """HttpBackend detail=True rows carry project_repo_mode but not workspace_repos."""
+    ws = await authed_backend.create_project(
+        "",
+        name="WS Detail Project",
+        repo_mode="workspace",
+        workspace_repos=["https://github.com/org/y.git"],
+    )
+    await authed_backend.create_item(
+        "", title="WS detail item", status="active", project_id=ws["id"]
+    )
+    result = await authed_backend.list_items("", detail=True)
+    found = next(i for i in result["items"] if i["title"] == "WS detail item")
+    assert found["project_repo_mode"] == "workspace"
+    assert "workspace_repos" not in found
+
+
+# --- project_repo_mode / workspace_repos (LocalBackend) ---
+
+
+async def test_local_get_item_monorepo_project_repo_mode():
+    """LocalBackend get_item mono: project_repo_mode='monorepo', no workspace_repos."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import project_service
+
+    user = await register_user("lb_mono_get@example.com", "pass123")
+    db = await get_db()
+    proj = await project_service.create_project(db, user.id, name="LB Mono")
+
+    lb = LocalBackend()
+    item = await lb.create_item(
+        user.id, title="LB mono item", status="active", project_id=proj["id"]
+    )
+    fetched = await lb.get_item(user.id, item["id"])
+    assert fetched["project_repo_mode"] == "monorepo"
+    assert "workspace_repos" not in fetched
+
+
+async def test_local_get_item_workspace_project_repo_mode():
+    """LocalBackend get_item ws: project_repo_mode='workspace' + workspace_repos."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import project_service
+
+    user = await register_user("lb_ws_get@example.com", "pass123")
+    db = await get_db()
+    proj = await project_service.create_project(
+        db,
+        user.id,
+        name="LB WS",
+        repo_mode="workspace",
+        workspace_repos=[
+            "https://github.com/org/a.git",
+            "https://github.com/org/b.git",
+        ],
+    )
+
+    lb = LocalBackend()
+    item = await lb.create_item(
+        user.id, title="LB ws item", status="active", project_id=proj["id"]
+    )
+    fetched = await lb.get_item(user.id, item["id"])
+    assert fetched["project_repo_mode"] == "workspace"
+    assert fetched["workspace_repos"] == [
+        "https://github.com/org/a.git",
+        "https://github.com/org/b.git",
+    ]
+
+
+async def test_local_get_item_projectless_repo_mode_none():
+    """LocalBackend get_item projectless: project_repo_mode None, no workspace_repos."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.mcp_backend import LocalBackend
+
+    user = await register_user("lb_pless_get@example.com", "pass123")
+    lb = LocalBackend()
+    item = await lb.create_item(user.id, title="LB inbox", status="inbox")
+    fetched = await lb.get_item(user.id, item["id"])
+    assert fetched["project_repo_mode"] is None
+    assert "workspace_repos" not in fetched
+
+
+async def test_local_list_items_compact_carries_project_repo_mode():
+    """LocalBackend compact list_items carries project_repo_mode for mono/ws/None."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import project_service
+
+    user = await register_user("lb_compact_rm@example.com", "pass123")
+    db = await get_db()
+    mono = await project_service.create_project(db, user.id, name="LB M")
+    ws = await project_service.create_project(
+        db,
+        user.id,
+        name="LB W",
+        repo_mode="workspace",
+        workspace_repos=["https://github.com/org/x.git"],
+    )
+
+    lb = LocalBackend()
+    await lb.create_item(
+        user.id, title="Mono item", status="active", project_id=mono["id"]
+    )
+    await lb.create_item(user.id, title="WS item", status="active", project_id=ws["id"])
+    await lb.create_item(user.id, title="Floater", status="inbox")
+
+    result = await lb.list_items(user.id)
+    by_title = {i["title"]: i for i in result["items"]}
+    assert by_title["Mono item"]["project_repo_mode"] == "monorepo"
+    assert by_title["WS item"]["project_repo_mode"] == "workspace"
+    assert by_title["Floater"]["project_repo_mode"] is None
+    for item in result["items"]:
+        assert "workspace_repos" not in item

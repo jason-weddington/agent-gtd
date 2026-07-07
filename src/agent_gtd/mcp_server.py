@@ -787,11 +787,18 @@ async def list_items(
     """List items, optionally filtered by project and/or status.
 
     By default, returns a **compact** list intended for scanning and finding
-    items.  Each compact item has exactly 15 keys: id, title, status,
-    priority, build_engine, project_id, project_name, labels, assigned_to,
-    created_by, created_at, updated_at, ac_count, files_count, and
-    description_snippet.  Heavy fields (description, acceptance_criteria,
-    files_to_modify, blockers, etc.) are omitted to avoid context blowout.
+    items.  Each compact item has exactly 16 keys: id, title, status,
+    priority, build_engine, project_id, project_name, project_repo_mode,
+    labels, assigned_to, created_by, created_at, updated_at, ac_count,
+    files_count, and description_snippet.  Heavy fields (description,
+    acceptance_criteria, files_to_modify, blockers, etc.) are omitted to
+    avoid context blowout.
+
+    ``project_repo_mode`` carries the parent project's repo_mode string
+    (``"monorepo"`` or ``"workspace"``) so groom-time callers can see the
+    workspace context without a second lookup; it is ``null`` when the
+    item has no project or the project is not accessible.  Agents should
+    check it before scoping cross-repo work.
 
     To read an item's full body (description, acceptance_criteria,
     files_to_modify), either:
@@ -835,6 +842,14 @@ async def get_item(
     ctx: Context,
 ) -> dict[str, Any]:
     """Get a single item by ID.
+
+    The returned dict always carries ``project_repo_mode`` (str|null): the
+    parent project's repo_mode when the item belongs to an accessible
+    project, else ``null``.  When ``project_repo_mode == "workspace"``, the
+    dict additionally carries ``workspace_repos`` — the ordered list of
+    repo URLs that a workspace build agent receives cloned side by side.
+    Groom-time callers should check these before scoping cross-repo work;
+    the key is absent for monorepo items and project-less items.
 
     Args:
         item_id: ID of the item to retrieve.

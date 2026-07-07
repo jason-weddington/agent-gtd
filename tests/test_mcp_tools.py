@@ -1868,3 +1868,113 @@ async def test_list_items_detail_true_returns_full_body(registered_client, proje
         assert "description" in item
         assert "acceptance_criteria" in item
         assert "files_to_modify" in item
+
+
+# --- project_repo_mode / workspace_repos (LocalBackend via MCP client) ---
+
+
+async def test_get_item_monorepo_project_repo_mode(registered_client, project_id):
+    """get_item mono-project: project_repo_mode='monorepo', no workspace_repos."""
+    created = await registered_client.call_tool(
+        "add_item",
+        {
+            "title": "Mono item",
+            "status": "active",
+            "project_id": project_id,
+        },
+    )
+    item_id = _parse_result(created)["id"]
+
+    result = await registered_client.call_tool("get_item", {"item_id": item_id})
+    data = _parse_result(result)
+    assert data["project_repo_mode"] == "monorepo"
+    assert "workspace_repos" not in data
+
+
+async def test_get_item_workspace_project_repo_mode(registered_client, user_id):
+    """get_item ws-project: project_repo_mode='workspace' + workspace_repos."""
+    db = await get_db()
+    ws_project = await project_service.create_project(
+        db,
+        user_id,
+        name="MCP WS Project",
+        repo_mode="workspace",
+        workspace_repos=[
+            "https://github.com/org/one.git",
+            "https://github.com/org/two.git",
+        ],
+    )
+    created = await registered_client.call_tool(
+        "add_item",
+        {
+            "title": "WS item",
+            "status": "active",
+            "project_id": ws_project["id"],
+        },
+    )
+    item_id = _parse_result(created)["id"]
+
+    result = await registered_client.call_tool("get_item", {"item_id": item_id})
+    data = _parse_result(result)
+    assert data["project_repo_mode"] == "workspace"
+    assert data["workspace_repos"] == [
+        "https://github.com/org/one.git",
+        "https://github.com/org/two.git",
+    ]
+
+
+async def test_get_item_projectless_repo_mode_none(registered_client):
+    """get_item on a project-less item: project_repo_mode=None, no workspace_repos."""
+    created = await registered_client.call_tool(
+        "inbox_capture", {"title": "Inbox no project"}
+    )
+    item_id = _parse_result(created)["id"]
+
+    result = await registered_client.call_tool("get_item", {"item_id": item_id})
+    data = _parse_result(result)
+    assert data["project_id"] is None
+    assert data["project_repo_mode"] is None
+    assert "workspace_repos" not in data
+
+
+async def test_list_items_compact_carries_project_repo_mode(
+    registered_client, user_id, project_id
+):
+    """Compact list_items exposes project_repo_mode for mono/ws/project-less items."""
+    db = await get_db()
+    ws_project = await project_service.create_project(
+        db,
+        user_id,
+        name="MCP WS List Project",
+        repo_mode="workspace",
+        workspace_repos=["https://github.com/org/only.git"],
+    )
+    await registered_client.call_tool(
+        "add_item",
+        {
+            "title": "Mono compact item",
+            "status": "active",
+            "project_id": project_id,
+        },
+    )
+    await registered_client.call_tool(
+        "add_item",
+        {
+            "title": "WS compact item",
+            "status": "active",
+            "project_id": ws_project["id"],
+        },
+    )
+    await registered_client.call_tool(
+        "inbox_capture", {"title": "Floating compact item"}
+    )
+
+    result = await registered_client.call_tool("list_items")
+    data = _parse_result(result)
+    by_title = {i["title"]: i for i in data["items"]}
+    assert by_title["Mono compact item"]["project_repo_mode"] == "monorepo"
+    assert by_title["WS compact item"]["project_repo_mode"] == "workspace"
+    assert by_title["Floating compact item"]["project_repo_mode"] is None
+    # workspace_repos never appears on list rows (get_item only).
+    for item in data["items"]:
+        assert "workspace_repos" not in item

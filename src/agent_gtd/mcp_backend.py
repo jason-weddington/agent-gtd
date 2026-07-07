@@ -85,6 +85,7 @@ _COMPACT_ITEM_KEYS = (
     "build_engine",
     "project_id",
     "project_name",
+    "project_repo_mode",
     "labels",
     "assigned_to",
     "created_by",
@@ -95,7 +96,7 @@ _DESCRIPTION_SNIPPET_LEN = 140
 
 
 def _compact_item(item: dict[str, Any]) -> dict[str, Any]:
-    """Return a compact representation of an item with a 15-key whitelist.
+    """Return a compact representation of an item with a 16-key whitelist.
 
     Computes ac_count, files_count, and description_snippet from the full
     item dict.  Accepts acceptance_criteria and files_to_modify as either
@@ -105,7 +106,7 @@ def _compact_item(item: dict[str, Any]) -> dict[str, Any]:
         item: Full item dict from _format_item or _enrich_item.
 
     Returns:
-        Dict with exactly 15 keys: the 12 whitelist columns plus ac_count,
+        Dict with exactly 16 keys: the 13 whitelist columns plus ac_count,
         files_count, and description_snippet.
     """
     import json as _json
@@ -644,9 +645,16 @@ class LocalBackend:
             clear_build_dispatch_agent=clear_build_dispatch_agent,
         )
 
-    async def _build_project_map(self, user_id: str) -> dict[str, str]:
+    async def _build_project_map(self, user_id: str) -> dict[str, dict[str, Any]]:
         result = await self.list_projects(user_id)
-        return {p["id"]: p["name"] for p in result}
+        return {
+            p["id"]: {
+                "name": p["name"],
+                "repo_mode": p.get("repo_mode"),
+                "workspace_repos": p.get("workspace_repos") or [],
+            }
+            for p in result
+        }
 
     async def _board_snapshot(
         self, db: Any, user_id: str, project_id: str
@@ -661,23 +669,30 @@ class LocalBackend:
         return await item_service.inbox_pending_count(db, user_id)
 
     def _format_item(
-        self, row: dict[str, Any], project_map: dict[str, str]
+        self, row: dict[str, Any], project_map: dict[str, dict[str, Any]]
     ) -> dict[str, Any]:
         from agent_gtd.database import decode_json_list
 
         result = {**row, "labels": decode_json_list(str(row["labels"]))}
-        if row.get("project_id"):
-            result["project_name"] = project_map.get(row["project_id"], "")
+        pid = row.get("project_id")
+        if pid:
+            entry = project_map.get(pid)
+            result["project_name"] = entry["name"] if entry else ""
+            result["project_repo_mode"] = entry["repo_mode"] if entry else None
+        else:
+            result["project_repo_mode"] = None
         return result
 
     def _format_note(
-        self, row: dict[str, Any], project_map: dict[str, str]
+        self, row: dict[str, Any], project_map: dict[str, dict[str, Any]]
     ) -> dict[str, Any]:
         from agent_gtd.database import decode_json_list
 
         result = {**row, "labels": decode_json_list(str(row["labels"]))}
-        if row.get("project_id"):
-            result["project_name"] = project_map.get(row["project_id"], "")
+        pid = row.get("project_id")
+        if pid:
+            entry = project_map.get(pid)
+            result["project_name"] = entry["name"] if entry else ""
         return result
 
     async def list_items(
@@ -720,7 +735,11 @@ class LocalBackend:
         pm = await self._build_project_map(user_id)
         result = self._format_item(row, pm)
         result["blockers"] = blocker_rows
-        if row.get("project_id"):
+        pid = row.get("project_id")
+        if pid:
+            entry = pm.get(str(pid))
+            if entry and entry.get("repo_mode") == "workspace":
+                result["workspace_repos"] = list(entry.get("workspace_repos") or [])
             result["board_state"] = await self._board_snapshot(
                 db, user_id, str(row["project_id"])
             )
@@ -1373,7 +1392,7 @@ class HttpBackend:
             timeout=30.0,
             verify=truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT),
         )
-        self._project_cache: dict[str, str] | None = None
+        self._project_cache: dict[str, dict[str, Any]] | None = None
 
     def _headers(self) -> dict[str, str]:
         if not self._api_key:
@@ -1390,23 +1409,41 @@ class HttpBackend:
             detail = resp.text
         raise ToolError(f"{detail}")
 
-    async def _get_project_map(self) -> dict[str, str]:
+    async def _get_project_map(self) -> dict[str, dict[str, Any]]:
         if self._project_cache is not None:
             return self._project_cache
         resp = await self._client.get("/api/projects", headers=self._headers())
         self._check(resp)
         projects = resp.json()
-        self._project_cache = {p["id"]: p["name"] for p in projects}
+        self._project_cache = {
+            p["id"]: {
+                "name": p["name"],
+                "repo_mode": p.get("repo_mode"),
+                "workspace_repos": p.get("workspace_repos") or [],
+            }
+            for p in projects
+        }
         return self._project_cache
 
-    def _enrich_item(self, item: dict[str, Any], pm: dict[str, str]) -> dict[str, Any]:
-        if item.get("project_id"):
-            item["project_name"] = pm.get(item["project_id"], "")
+    def _enrich_item(
+        self, item: dict[str, Any], pm: dict[str, dict[str, Any]]
+    ) -> dict[str, Any]:
+        pid = item.get("project_id")
+        if pid:
+            entry = pm.get(pid)
+            item["project_name"] = entry["name"] if entry else ""
+            item["project_repo_mode"] = entry["repo_mode"] if entry else None
+        else:
+            item["project_repo_mode"] = None
         return item
 
-    def _enrich_note(self, note: dict[str, Any], pm: dict[str, str]) -> dict[str, Any]:
-        if note.get("project_id"):
-            note["project_name"] = pm.get(note["project_id"], "")
+    def _enrich_note(
+        self, note: dict[str, Any], pm: dict[str, dict[str, Any]]
+    ) -> dict[str, Any]:
+        pid = note.get("project_id")
+        if pid:
+            entry = pm.get(pid)
+            note["project_name"] = entry["name"] if entry else ""
         return note
 
     async def _board_snapshot(self, project_id: str) -> dict[str, Any]:
@@ -1640,7 +1677,11 @@ class HttpBackend:
         item = resp.json()
         pm = await self._get_project_map()
         result = self._enrich_item(item, pm)
-        if item.get("project_id"):
+        pid = item.get("project_id")
+        if pid:
+            entry = pm.get(str(pid))
+            if entry and entry.get("repo_mode") == "workspace":
+                result["workspace_repos"] = list(entry.get("workspace_repos") or [])
             result["board_state"] = await self._board_snapshot(str(item["project_id"]))
         return result
 
