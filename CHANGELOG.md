@@ -2,6 +2,74 @@
 
 <!-- version list -->
 
+## v1.94.0 (2026-07-07)
+
+### Chores
+
+- Ratchet coverage fail_under to 97.1 after CLI parity wave
+  ([`d27c6bd`](https://github.com/jason-weddington/agent-gtd/commit/d27c6bde833bd61637a8862715413a290f1a85f5))
+
+- **test**: Cap vitest worker pool to 4 (prevent dispatch-build OOM)
+  ([`b5413ae`](https://github.com/jason-weddington/agent-gtd/commit/b5413ae166c3fa80ff7093f3592efd39e1828645))
+
+### Documentation
+
+- Note agent-gtd-dev is a workspace project spanning both repos
+  ([`4f8ef76`](https://github.com/jason-weddington/agent-gtd/commit/4f8ef76c5cc789c1a916c0fbbb902a0e9cdb6b5c))
+
+### Features
+
+- **176502fa**: Persist engine_actual on claude_runs and surface via API
+  ([`39a2d4c`](https://github.com/jason-weddington/agent-gtd/commit/39a2d4c40b6aaa0203fe75a5f99cfbc162fa563b))
+
+- **3901ad2c**: CLI update-item --from-json forwards all 12 fields and errors on unknown keys
+  ([`8af02b8`](https://github.com/jason-weddington/agent-gtd/commit/8af02b8cb285277eb327bdb2df190384dd9d37a9))
+
+- **5a3f1cfd**: Surface project_repo_mode on item read paths
+  ([`1da2975`](https://github.com/jason-weddington/agent-gtd/commit/1da2975e714c1b1cca3323e849686f4199607501))
+
+- **5f9552d7**: Engine_actual truthful end-to-end (agent_gtd fallback drop + tests)
+  ([`dda5a1b`](https://github.com/jason-weddington/agent-gtd/commit/dda5a1b9c8c2a42f1a5e8906928c7e4e23a071c7))
+
+- **7831bf28**: MCP list_items compact-by-default with detail flag
+  ([`9621468`](https://github.com/jason-weddington/agent-gtd/commit/9621468bab4762d655dc9051299be6a4a95d1117))
+
+- **a067aa59**: Add first-class --wait flag to run-status / rollout-status
+  ([`f8d2852`](https://github.com/jason-weddington/agent-gtd/commit/f8d2852342fda7fdbb8935f953ac40216e5f3ca7))
+
+- **cli**: Dispatch + run commands (parity 5/8)
+  ([`7c64f78`](https://github.com/jason-weddington/agent-gtd/commit/7c64f781231a721700b299ba89a05891acefa347))
+
+- **cli**: Item lifecycle + blocker commands (parity 2/8)
+  ([`b573d34`](https://github.com/jason-weddington/agent-gtd/commit/b573d347af8e18c01da178008e3a129437327496))
+
+- **cli**: MCP-to-CLI parity test + docs (parity 8/8)
+  ([`44f0102`](https://github.com/jason-weddington/agent-gtd/commit/44f010255cab1ebd283e1ca8330435606e3b2ee9))
+
+- **cli**: Note + comment commands (parity 3/8)
+  ([`a3490ec`](https://github.com/jason-weddington/agent-gtd/commit/a3490ecf1891c669a87107878a371d3c3edd6a78))
+
+- **cli**: Per-resource subcommand registration convention + shared helpers
+  ([`6e71aae`](https://github.com/jason-weddington/agent-gtd/commit/6e71aae881fa825f28fd62ec390057beb6bd335e))
+
+- **cli**: Project + sharing commands (parity 4/8)
+  ([`a5c909a`](https://github.com/jason-weddington/agent-gtd/commit/a5c909aaf493f8e541da04ccbcdf7ae01b14b416))
+
+- **cli**: Rollout control commands (parity 7/8)
+  ([`e5c83f3`](https://github.com/jason-weddington/agent-gtd/commit/e5c83f3d9f3b67292f5dc57db2f33ad8f59add64))
+
+- **cli**: Rollout planning commands (parity 6/8)
+  ([`748b4f5`](https://github.com/jason-weddington/agent-gtd/commit/748b4f52a11e6ba0bfc3b013566ff8c1cf3b9f7c))
+
+- **e5475f54**: CLI parity follow-up: dispatch-item --rollout-id flag + local-mode enqueue note
+  ([`b7cc759`](https://github.com/jason-weddington/agent-gtd/commit/b7cc75986929ef43607b1a1a9128e1ce16546276))
+
+### Refactoring
+
+- **01bca9e8**: CLI parity follow-up: rollout_control.py uses shared backend_session()
+  ([`3cf832f`](https://github.com/jason-weddington/agent-gtd/commit/3cf832f579839ca39f6944b4d44c30fe882ca5a2))
+
+
 ## v1.93.0 (2026-06-15)
 
 ### Bug Fixes
