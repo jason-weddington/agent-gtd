@@ -1291,6 +1291,7 @@ async def test_execute_run_success(
         attribution="",
         rollout_id=None,
         timeout_minutes=30,
+        callback_token=None,
     ):
         return _remote_run(RemoteRunStatus.pending)
 
@@ -1367,6 +1368,7 @@ async def test_execute_run_remote_failure(
         attribution="",
         rollout_id=None,
         timeout_minutes=30,
+        callback_token=None,
     ):
         return _remote_run(RemoteRunStatus.pending, run_id="remote-456")
 
@@ -1526,6 +1528,7 @@ async def test_configure_and_dispatch(
         attribution="",
         rollout_id=None,
         timeout_minutes=30,
+        callback_token=None,
     ):
         return _remote_run(RemoteRunStatus.pending, run_id="remote-ok")
 
@@ -1816,6 +1819,7 @@ async def test_dispatch_uses_project_agent_override(
         attribution="",
         rollout_id=None,
         timeout_minutes=30,
+        callback_token=None,
     ):
         dispatched_agent.append(agent_name)
         return {"id": "remote-x", "status": "pending"}
@@ -1889,6 +1893,7 @@ async def test_dispatch_falls_back_to_global_agent_when_project_unset(
         attribution="",
         rollout_id=None,
         timeout_minutes=30,
+        callback_token=None,
     ):
         dispatched_agent.append(agent_name)
         return {"id": "remote-y", "status": "pending"}
@@ -1961,6 +1966,7 @@ async def test_dispatch_omits_agent_when_neither_set(
         attribution="",
         rollout_id=None,
         timeout_minutes=30,
+        callback_token=None,
     ):
         dispatched_agent.append(agent_name)
         return {"id": "remote-z", "status": "pending"}
@@ -2357,6 +2363,7 @@ async def test_create_run_forwards_rollout_id_to_dispatch_worker(
         agent_name="",
         attribution="",
         timeout_minutes=30,
+        callback_token=None,
     ):
         captured_body["rollout_id"] = rollout_id
         return {"id": "remote-wave-123", "status": "pending"}

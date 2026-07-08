@@ -16,6 +16,7 @@ from agent_gtd_dispatch_protocol import DispatchMode, DispatchRequest
 from agent_gtd_dispatch_protocol import RunResponse as RemoteRunResponse
 from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 
+from agent_gtd.auth import create_token
 from agent_gtd.exceptions import HostFullError
 from agent_gtd.identity import compute_run_attribution
 from agent_gtd.models import LocalRunStatus
@@ -254,6 +255,7 @@ async def _dispatch_to_remote(
     agent_name: str = "",
     attribution: str = "",
     timeout_minutes: int = 30,
+    callback_token: str | None = None,
 ) -> RemoteRunResponse:
     """POST /dispatch to the remote service. Returns the validated remote run."""
     req = DispatchRequest(
@@ -265,6 +267,7 @@ async def _dispatch_to_remote(
         agent_name=agent_name or None,
         attribution=attribution or None,
         rollout_id=rollout_id,
+        callback_token=callback_token,
     )
     resp = await client.post(
         f"{url}/dispatch",
@@ -747,6 +750,7 @@ async def execute_run(
                     agent_name=agent_name,
                     attribution=attribution,
                     timeout_minutes=effective_timeout_minutes,
+                    callback_token=create_token(user_id),
                 )
                 remote_run_id = remote_run.id
                 break  # success — exit retry loop

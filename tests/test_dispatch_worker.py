@@ -293,6 +293,7 @@ async def test_execute_run_manage_mode_uses_manager_timeout() -> None:
         agent_name: str = "",
         attribution: str = "",
         timeout_minutes: int = 30,
+        callback_token: str | None = None,
     ) -> object:
         dispatched_timeouts.append(timeout_minutes)
         raise RuntimeError("stop after dispatch")
@@ -359,6 +360,7 @@ async def test_execute_run_build_mode_uses_worker_timeout() -> None:
         agent_name: str = "",
         attribution: str = "",
         timeout_minutes: int = 30,
+        callback_token: str | None = None,
     ) -> object:
         dispatched_timeouts.append(timeout_minutes)
         raise RuntimeError("stop after dispatch")
@@ -1113,3 +1115,133 @@ async def test_resume_polling_forwards_reported_engine_actual() -> None:
         )
 
     assert update_mock.call_args.kwargs["engine_actual"] == "claude-code"
+
+
+# ---------------------------------------------------------------------------
+# callback_token forwarding — _dispatch_to_remote and execute_run
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_to_remote_includes_callback_token() -> None:
+    """Supplying callback_token causes _dispatch_to_remote to POST it in the JSON body.
+
+    The token must be non-empty and must decode via agent_gtd.auth.decode_token
+    back to the originating user_id.
+    """
+    from agent_gtd.auth import create_token, decode_token
+    from agent_gtd.dispatch_worker import _dispatch_to_remote
+
+    user_id = "user-cb-1"
+    token = create_token(user_id)
+
+    # A minimal valid remote-run response body
+    remote_run_body = {
+        "id": "remote-cb-1",
+        "item_id": None,
+        "project_name": "test-project",
+        "branch_name": None,
+        "engine": "claude-code",
+        "agent_name": None,
+        "mode": "build",
+        "rollout_id": None,
+        "status": "pending",
+        "started_at": None,
+        "completed_at": None,
+        "exit_code": None,
+        "error": None,
+        "created_at": "2026-01-01T00:00:00Z",
+    }
+
+    posted_json: list[dict] = []
+
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = remote_run_body
+
+    async def fake_post(
+        url: str, *, json: dict, headers: dict, timeout: float
+    ) -> object:
+        posted_json.append(json)
+        return mock_response
+
+    mock_client = MagicMock()
+    mock_client.post = fake_post
+
+    await _dispatch_to_remote(
+        mock_client,
+        "item-cb-1",
+        50,
+        "build",
+        url="http://dispatch-host",
+        api_key="test-key",
+        callback_token=token,
+    )
+
+    assert len(posted_json) == 1, "Expected exactly one POST"
+    body = posted_json[0]
+    assert "callback_token" in body, "callback_token must be present in POST JSON"
+    cb_token = body["callback_token"]
+    assert cb_token, "callback_token must be non-empty"
+    decoded_user_id = decode_token(cb_token)
+    assert decoded_user_id == user_id, (
+        f"Decoded user_id {decoded_user_id!r} != originating user_id {user_id!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_to_remote_none_callback_token_omits_key() -> None:
+    """When callback_token=None, model_dump(exclude_none=True) must omit the key.
+
+    This preserves back-compat: callers that don't set a token produce a JSON
+    body with no callback_token field at all.
+    """
+    from agent_gtd.dispatch_worker import _dispatch_to_remote
+
+    remote_run_body = {
+        "id": "remote-cb-2",
+        "item_id": None,
+        "project_name": "test-project",
+        "branch_name": None,
+        "engine": "claude-code",
+        "agent_name": None,
+        "mode": "build",
+        "rollout_id": None,
+        "status": "pending",
+        "started_at": None,
+        "completed_at": None,
+        "exit_code": None,
+        "error": None,
+        "created_at": "2026-01-01T00:00:00Z",
+    }
+
+    posted_json: list[dict] = []
+
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = remote_run_body
+
+    async def fake_post(
+        url: str, *, json: dict, headers: dict, timeout: float
+    ) -> object:
+        posted_json.append(json)
+        return mock_response
+
+    mock_client = MagicMock()
+    mock_client.post = fake_post
+
+    await _dispatch_to_remote(
+        mock_client,
+        "item-cb-2",
+        50,
+        "build",
+        url="http://dispatch-host",
+        api_key="test-key",
+        callback_token=None,  # explicit None — must be omitted from JSON
+    )
+
+    assert len(posted_json) == 1, "Expected exactly one POST"
+    body = posted_json[0]
+    assert "callback_token" not in body, (
+        "callback_token must NOT be present in JSON when None (exclude_none=True)"
+    )
