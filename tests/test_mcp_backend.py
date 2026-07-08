@@ -775,6 +775,72 @@ async def test_local_list_items_projectless_item_project_name_none():
         assert set(item.keys()) == _EXPECTED_COMPACT_KEYS
 
 
+async def test_local_list_items_description_snippet_short():
+    """LocalBackend description_snippet passes through short descriptions unchanged."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.mcp_backend import LocalBackend
+
+    user = await register_user("lb_snippet_short@example.com", "pass123")
+    lb = LocalBackend()
+    item = await lb.create_item(
+        user.id, title="LB Short Snippet", status="active", description="short"
+    )
+    result = await lb.list_items(user.id)
+    found = next(i for i in result["items"] if i["id"] == item["id"])
+    assert found["description_snippet"] == "short"
+
+
+async def test_local_list_items_detail_true_files_to_modify():
+    """LocalBackend detail=True includes files_to_modify when seeded.
+
+    NOTE: LocalBackend returns files_to_modify as a raw JSON string (not a
+    parsed list) because _format_item only decodes 'labels'.  HttpBackend
+    returns a parsed list via the REST layer.  This divergence is intentional
+    in _compact_item (which decodes on the fly) but surfaces in detail mode.
+    See item b770ed3d for the finding.
+    """
+    from agent_gtd.auth import register_user
+    from agent_gtd.mcp_backend import LocalBackend
+
+    user = await register_user("lb_detail_files@example.com", "pass123")
+    lb = LocalBackend()
+    item = await lb.create_item(user.id, title="LB Detail Files", status="active")
+    await lb.update_item(
+        user.id,
+        item["id"],
+        version=1,
+        files_to_modify=[{"path": "b.py", "change": "y"}],
+    )
+    result = await lb.list_items(user.id, detail=True)
+    found = next(i for i in result["items"] if i["id"] == item["id"])
+    # Field is present and non-empty (value is a raw JSON string in LocalBackend,
+    # not a parsed list — divergence vs HttpBackend noted above).
+    assert "files_to_modify" in found
+    assert found["files_to_modify"]
+
+
+async def test_local_list_items_inbox_pending_count_compact():
+    """LocalBackend inbox_pending_count present when project_id is None (compact)."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.mcp_backend import LocalBackend
+
+    user = await register_user("lb_inbox_count_compact@example.com", "pass123")
+    lb = LocalBackend()
+    result = await lb.list_items(user.id)
+    assert "inbox_pending_count" in result
+
+
+async def test_local_list_items_inbox_pending_count_detail():
+    """LocalBackend inbox_pending_count present when project_id is None (detail)."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.mcp_backend import LocalBackend
+
+    user = await register_user("lb_inbox_count_detail@example.com", "pass123")
+    lb = LocalBackend()
+    result = await lb.list_items(user.id, detail=True)
+    assert "inbox_pending_count" in result
+
+
 # --- project_repo_mode / workspace_repos (HttpBackend) ---
 
 
