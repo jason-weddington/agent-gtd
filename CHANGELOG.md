@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.96.0 (2026-07-09)
+
+### Features
+
+- Add first-class gate_command field to GTD projects
+  ([`e988f18`](https://github.com/jason-weddington/agent-gtd/commit/e988f1822030b4eef596ddfd4d5e29f553682a25))
+
+
 ## v1.95.0 (2026-07-08)
 
 ### Chores
