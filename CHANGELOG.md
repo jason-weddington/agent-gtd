@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v1.95.0 (2026-07-08)
+
+### Chores
+
+- Bump agent-gtd-dispatch-protocol to ad949476 (RunResponse.engine_actual)
+  ([`2966934`](https://github.com/jason-weddington/agent-gtd/commit/296693478b1568b270e92a18e6bfe5d914dbf845))
+
+### Features
+
+- Forward per-run user JWT as dispatch callback token (Phase 2 of 2)
+  ([`230a0ed`](https://github.com/jason-weddington/agent-gtd/commit/230a0ed6ad1b929177bb47d43d1fda17247c780b))
+
+### Testing
+
+- Add three LocalBackend list_items compaction test twins
+  ([`c7118e0`](https://github.com/jason-weddington/agent-gtd/commit/c7118e0ad4509cd6811ad5150122925797a15f99))
+
+
 ## v1.94.0 (2026-07-07)
 
 ### Chores
