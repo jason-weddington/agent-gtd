@@ -3,7 +3,36 @@
 import pytest
 from httpx import AsyncClient
 
+from agent_gtd.routes.project_routes import _DISPATCH_ONLY_FIELDS
 from agent_gtd.services.project_service import workspace_repo_dir
+
+# ---------------------------------------------------------------------------
+# Owner-guard parametrization helpers
+# ---------------------------------------------------------------------------
+
+# Maps each field in _DISPATCH_ONLY_FIELDS to a representative valid PATCH
+# value.  The module-level assertion below ensures this dict stays in sync with
+# the set — add a new field to _DISPATCH_ONLY_FIELDS without adding a value
+# here and the test module fails to load with a clear error message.
+_REPRESENTATIVE_VALUES: dict[str, object] = {
+    "build_dispatch_agent": "some-agent",
+    "dispatch_max_turns": 42,
+    "dispatch_timeout_minutes": 30,
+    "gate_command": "uv run pytest",
+    "git_origin": "git@host:repos/x",
+    "plan_dispatch_agent": "some-agent",
+    "repo_mode": "workspace",
+    "workspace_repos": ["git@host:repos/x"],
+}
+
+_missing = _DISPATCH_ONLY_FIELDS - set(_REPRESENTATIVE_VALUES)
+_extra = set(_REPRESENTATIVE_VALUES) - _DISPATCH_ONLY_FIELDS
+assert not _missing and not _extra, (
+    "_REPRESENTATIVE_VALUES keys must match _DISPATCH_ONLY_FIELDS exactly.\n"
+    f"  Missing: {_missing!r}\n"
+    f"  Extra: {_extra!r}\n"
+    "Add a representative PATCH value for every newly guarded field."
+)
 
 
 async def test_create_project(client: AsyncClient, auth_headers: dict[str, str]):
@@ -508,13 +537,7 @@ async def test_update_dispatch_fields_member_rejected(
 
 @pytest.mark.parametrize(
     "field,value",
-    [
-        ("dispatch_max_turns", 42),
-        ("dispatch_timeout_minutes", 30),
-        ("plan_dispatch_agent", "some-agent"),
-        ("build_dispatch_agent", "some-agent"),
-        ("gate_command", "uv run pytest"),
-    ],
+    [(f, _REPRESENTATIVE_VALUES[f]) for f in sorted(_DISPATCH_ONLY_FIELDS)],
 )
 async def test_update_dispatch_fields_member_rejected_each_field(
     client: AsyncClient,
@@ -1369,45 +1392,6 @@ async def _make_owner_and_member(client: AsyncClient):
         headers=owner_headers,
     )
     return pid, owner_headers, member_headers
-
-
-async def test_non_owner_member_patch_repo_mode_gets_403(client: AsyncClient):
-    """A non-owner member PATCHing repo_mode (owner-only) gets 403."""
-    pid, _owner_headers, member_headers = await _make_owner_and_member(client)
-
-    res = await client.patch(
-        f"/api/projects/{pid}",
-        json={
-            "repo_mode": "workspace",
-            "workspace_repos": ["https://github.com/org/repo.git"],
-        },
-        headers=member_headers,
-    )
-    assert res.status_code == 403
-
-
-async def test_non_owner_member_patch_git_origin_gets_403(client: AsyncClient):
-    """A non-owner member PATCHing git_origin (owner-only) gets 403."""
-    pid, _owner_headers, member_headers = await _make_owner_and_member(client)
-
-    res = await client.patch(
-        f"/api/projects/{pid}",
-        json={"git_origin": "https://github.com/org/repo.git"},
-        headers=member_headers,
-    )
-    assert res.status_code == 403
-
-
-async def test_non_owner_member_patch_workspace_repos_gets_403(client: AsyncClient):
-    """A non-owner member PATCHing workspace_repos (owner-only) gets 403."""
-    pid, _owner_headers, member_headers = await _make_owner_and_member(client)
-
-    res = await client.patch(
-        f"/api/projects/{pid}",
-        json={"workspace_repos": ["https://github.com/org/repo.git"]},
-        headers=member_headers,
-    )
-    assert res.status_code == 403
 
 
 async def test_non_owner_member_patch_name_description_succeeds(client: AsyncClient):
