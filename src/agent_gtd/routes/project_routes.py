@@ -34,6 +34,7 @@ _DISPATCH_ONLY_FIELDS = {
     "dispatch_timeout_minutes",
     "plan_dispatch_agent",
     "build_dispatch_agent",
+    "gate_command",
     # Clone-target fields: repo_mode, workspace_repos, and git_origin control which
     # repos headless agents clone/push to.  Owner-only closes the pre-existing gap
     # where a member could repoint git_origin.
@@ -52,6 +53,7 @@ def _project_response(
     raw_timeout = row.get("dispatch_timeout_minutes")
     raw_plan_agent = row.get("plan_dispatch_agent")
     raw_build_agent = row.get("build_dispatch_agent")
+    raw_gate = row.get("gate_command")
     raw_owner_email = row.get("owner_email")
     raw_member_count = row.get("member_count")
     raw_total_items = row.get("total_items")
@@ -87,6 +89,7 @@ def _project_response(
         build_dispatch_agent=str(raw_build_agent)
         if raw_build_agent is not None
         else None,
+        gate_command=str(raw_gate) if raw_gate is not None else None,
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
         is_owner=is_owner,
@@ -142,6 +145,7 @@ async def create_project(
             kb_project_ref=body.kb_project_ref,
             repo_mode=body.repo_mode.value,
             workspace_repos=body.workspace_repos,
+            gate_command=body.gate_command,
         )
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=e.detail) from None
@@ -230,6 +234,9 @@ async def update_project(
         "build_dispatch_agent" in body.model_fields_set
         and body.build_dispatch_agent is None
     )
+    clear_gate_command = (
+        "gate_command" in body.model_fields_set and body.gate_command is None
+    )
 
     db = await get_db()
     try:
@@ -253,6 +260,8 @@ async def update_project(
             clear_plan_dispatch_agent=clear_plan_dispatch_agent,
             build_dispatch_agent=body.build_dispatch_agent,
             clear_build_dispatch_agent=clear_build_dispatch_agent,
+            gate_command=body.gate_command,
+            clear_gate_command=clear_gate_command,
         )
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None

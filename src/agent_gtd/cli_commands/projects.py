@@ -127,6 +127,15 @@ def _register_add_project(subparsers: argparse._SubParsersAction[Any]) -> None:
         default=None,
         help="Build-mode dispatch agent name.",
     )
+    parser.add_argument(
+        "--gate-command",
+        default=None,
+        dest="gate_command",
+        help=(
+            "Shell command that is the repo's quality gate"
+            " (runs from repo root; exit 0 = green)."
+        ),
+    )
     parser.set_defaults(func=_cmd_add_project)
 
 
@@ -214,6 +223,23 @@ def _register_update_project(subparsers: argparse._SubParsersAction[Any]) -> Non
         "--clear-build-dispatch-agent",
         action="store_true",
         help="Clear the build-dispatch-agent override.",
+    )
+
+    grp_gate = parser.add_mutually_exclusive_group()
+    grp_gate.add_argument(
+        "--gate-command",
+        default=None,
+        dest="gate_command",
+        help=(
+            "Shell command that is the repo's quality gate"
+            " (runs from repo root; exit 0 = green)."
+        ),
+    )
+    grp_gate.add_argument(
+        "--clear-gate-command",
+        action="store_true",
+        dest="clear_gate_command",
+        help="Clear the gate_command back to NULL.",
     )
 
     parser.set_defaults(func=_cmd_update_project)
@@ -332,6 +358,7 @@ def _cmd_add_project(args: argparse.Namespace) -> None:
                 dispatch_timeout_minutes=args.dispatch_timeout_minutes,
                 plan_dispatch_agent=args.plan_dispatch_agent,
                 build_dispatch_agent=args.build_dispatch_agent,
+                gate_command=getattr(args, "gate_command", None),
             )
 
     try:
@@ -371,6 +398,8 @@ def _cmd_update_project(args: argparse.Namespace) -> None:
                 clear_plan_dispatch_agent=args.clear_plan_dispatch_agent,
                 build_dispatch_agent=args.build_dispatch_agent,
                 clear_build_dispatch_agent=args.clear_build_dispatch_agent,
+                gate_command=getattr(args, "gate_command", None),
+                clear_gate_command=getattr(args, "clear_gate_command", False),
             )
 
     try:

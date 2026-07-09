@@ -167,6 +167,7 @@ class McpBackend(Protocol):
         dispatch_timeout_minutes: int | None = None,
         plan_dispatch_agent: str | None = None,
         build_dispatch_agent: str | None = None,
+        gate_command: str | None = None,
     ) -> dict[str, Any]: ...
 
     async def update_project(
@@ -190,6 +191,8 @@ class McpBackend(Protocol):
         clear_plan_dispatch_agent: bool = False,
         build_dispatch_agent: str | None = None,
         clear_build_dispatch_agent: bool = False,
+        gate_command: str | None = None,
+        clear_gate_command: bool = False,
     ) -> dict[str, Any]: ...
 
     async def list_items(
@@ -531,6 +534,7 @@ class LocalBackend:
         dispatch_timeout_minutes: int | None = None,
         plan_dispatch_agent: str | None = None,
         build_dispatch_agent: str | None = None,
+        gate_command: str | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import project_service
@@ -547,6 +551,7 @@ class LocalBackend:
             kb_project_ref=kb_project_ref,
             repo_mode=repo_mode,
             workspace_repos=workspace_repos,
+            gate_command=gate_command,
         )
         # Apply dispatch overrides immediately after creation if any are provided.
         if any(
@@ -591,6 +596,8 @@ class LocalBackend:
         clear_plan_dispatch_agent: bool = False,
         build_dispatch_agent: str | None = None,
         clear_build_dispatch_agent: bool = False,
+        gate_command: str | None = None,
+        clear_gate_command: bool = False,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.exceptions import ValidationError
@@ -610,6 +617,8 @@ class LocalBackend:
             or clear_plan_dispatch_agent
             or build_dispatch_agent is not None
             or clear_build_dispatch_agent
+            or gate_command is not None
+            or clear_gate_command
             or git_origin is not None
             or repo_mode is not None
             or workspace_repos is not None
@@ -643,6 +652,8 @@ class LocalBackend:
             clear_plan_dispatch_agent=clear_plan_dispatch_agent,
             build_dispatch_agent=build_dispatch_agent,
             clear_build_dispatch_agent=clear_build_dispatch_agent,
+            gate_command=gate_command,
+            clear_gate_command=clear_gate_command,
         )
 
     async def _build_project_map(self, user_id: str) -> dict[str, dict[str, Any]]:
@@ -1525,6 +1536,7 @@ class HttpBackend:
         dispatch_timeout_minutes: int | None = None,
         plan_dispatch_agent: str | None = None,
         build_dispatch_agent: str | None = None,
+        gate_command: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "name": name,
@@ -1542,6 +1554,8 @@ class HttpBackend:
             body["repo_mode"] = repo_mode
         if workspace_repos is not None:
             body["workspace_repos"] = workspace_repos
+        if gate_command is not None:
+            body["gate_command"] = gate_command
         resp = await self._client.post(
             "/api/projects",
             json=body,
@@ -1591,6 +1605,8 @@ class HttpBackend:
         clear_plan_dispatch_agent: bool = False,
         build_dispatch_agent: str | None = None,
         clear_build_dispatch_agent: bool = False,
+        gate_command: str | None = None,
+        clear_gate_command: bool = False,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {}
         if name is not None:
@@ -1629,6 +1645,10 @@ class HttpBackend:
             body["build_dispatch_agent"] = build_dispatch_agent
         elif clear_build_dispatch_agent:
             body["build_dispatch_agent"] = None
+        if gate_command is not None:
+            body["gate_command"] = gate_command
+        elif clear_gate_command:
+            body["gate_command"] = None
         resp = await self._client.patch(
             f"/api/projects/{project_id}",
             json=body,

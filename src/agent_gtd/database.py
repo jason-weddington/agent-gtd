@@ -42,6 +42,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         kb_project_ref TEXT NOT NULL DEFAULT '',
         repo_mode TEXT NOT NULL DEFAULT 'monorepo',
         workspace_repos TEXT NOT NULL DEFAULT '[]',
+        gate_command TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )
@@ -508,6 +509,8 @@ _MIGRATIONS: list[str] = [
     # Workspace project support: repo_mode and ordered list of clone URLs.
     "ALTER TABLE projects ADD COLUMN repo_mode TEXT NOT NULL DEFAULT 'monorepo'",
     "ALTER TABLE projects ADD COLUMN workspace_repos TEXT NOT NULL DEFAULT '[]'",
+    # Quality-gate command: single nullable shell string, runs from repo root.
+    "ALTER TABLE projects ADD COLUMN gate_command TEXT",
     # Per-run engine attribution: requested engine and actual engine used.
     "ALTER TABLE claude_runs ADD COLUMN engine TEXT NOT NULL DEFAULT 'claude-code'",
     "ALTER TABLE claude_runs ADD COLUMN engine_actual TEXT",

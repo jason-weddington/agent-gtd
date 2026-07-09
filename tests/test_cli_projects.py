@@ -209,6 +209,7 @@ def test_add_project_happy_path(monkeypatch, capsys):
         dispatch_timeout_minutes=None,
         plan_dispatch_agent=None,
         build_dispatch_agent=None,
+        gate_command=None,
     )
 
 
@@ -422,6 +423,8 @@ def test_update_project_happy_path(monkeypatch, capsys):
         clear_plan_dispatch_agent=False,
         build_dispatch_agent=None,
         clear_build_dispatch_agent=False,
+        gate_command=None,
+        clear_gate_command=False,
     )
 
 
@@ -673,3 +676,203 @@ def test_register_adds_six_subcommands():
     ]:
         ns = parser.parse_args(cmd)
         assert callable(ns.func), f"{cmd[0]} handler not set"
+
+
+# ---------------------------------------------------------------------------
+# gate_command — add-project and update-project
+# ---------------------------------------------------------------------------
+
+
+def test_add_project_gate_command_forwarded(monkeypatch, capsys):
+    """add-project passes gate_command to backend.create_project."""
+    proj = _make_project(gate_command="uv run pytest")
+    fake_backend = AsyncMock()
+    fake_backend.create_project.return_value = proj
+
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.projects.backend_session",
+        _fake_session(fake_backend),
+    )
+
+    args = argparse.Namespace(
+        name="Gate Proj",
+        description="",
+        area="",
+        status="active",
+        git_origin="",
+        kb_project_ref="",
+        repo_mode="monorepo",
+        workspace_repos=None,
+        dispatch_max_turns=None,
+        dispatch_timeout_minutes=None,
+        plan_dispatch_agent=None,
+        build_dispatch_agent=None,
+        gate_command="uv run pytest",
+    )
+    _cmd_add_project(args)
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    _, kwargs = fake_backend.create_project.call_args
+    assert kwargs["gate_command"] == "uv run pytest"
+
+
+def test_add_project_gate_command_default_none(monkeypatch, capsys):
+    """add-project gate_command defaults to None when not provided."""
+    proj = _make_project()
+    fake_backend = AsyncMock()
+    fake_backend.create_project.return_value = proj
+
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.projects.backend_session",
+        _fake_session(fake_backend),
+    )
+
+    args = argparse.Namespace(
+        name="No Gate",
+        description="",
+        area="",
+        status="active",
+        git_origin="",
+        kb_project_ref="",
+        repo_mode="monorepo",
+        workspace_repos=None,
+        dispatch_max_turns=None,
+        dispatch_timeout_minutes=None,
+        plan_dispatch_agent=None,
+        build_dispatch_agent=None,
+        # gate_command intentionally absent (tests getattr fallback)
+    )
+    _cmd_add_project(args)
+
+    _, kwargs = fake_backend.create_project.call_args
+    assert kwargs["gate_command"] is None
+
+
+def test_update_project_gate_command_forwarded(monkeypatch, capsys):
+    """update-project passes gate_command to backend.update_project."""
+    proj = _make_project(gate_command="cargo test")
+    fake_backend = AsyncMock()
+    fake_backend.update_project.return_value = proj
+    project_id = str(uuid.uuid4())
+
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.projects.backend_session",
+        _fake_session(fake_backend),
+    )
+
+    args = argparse.Namespace(
+        project_id=project_id,
+        name=None,
+        description=None,
+        status=None,
+        area=None,
+        git_origin=None,
+        kb_project_ref=None,
+        repo_mode=None,
+        workspace_repos=None,
+        dispatch_max_turns=None,
+        clear_dispatch_max_turns=False,
+        dispatch_timeout_minutes=None,
+        clear_dispatch_timeout_minutes=False,
+        plan_dispatch_agent=None,
+        clear_plan_dispatch_agent=False,
+        build_dispatch_agent=None,
+        clear_build_dispatch_agent=False,
+        gate_command="cargo test",
+        clear_gate_command=False,
+    )
+    _cmd_update_project(args)
+
+    _, kwargs = fake_backend.update_project.call_args
+    assert kwargs["gate_command"] == "cargo test"
+    assert kwargs["clear_gate_command"] is False
+
+
+def test_update_project_clear_gate_command_forwarded(monkeypatch, capsys):
+    """update-project --clear-gate-command forwards True to backend."""
+    proj = _make_project(gate_command=None)
+    fake_backend = AsyncMock()
+    fake_backend.update_project.return_value = proj
+    project_id = str(uuid.uuid4())
+
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.projects.backend_session",
+        _fake_session(fake_backend),
+    )
+
+    args = argparse.Namespace(
+        project_id=project_id,
+        name=None,
+        description=None,
+        status=None,
+        area=None,
+        git_origin=None,
+        kb_project_ref=None,
+        repo_mode=None,
+        workspace_repos=None,
+        dispatch_max_turns=None,
+        clear_dispatch_max_turns=False,
+        dispatch_timeout_minutes=None,
+        clear_dispatch_timeout_minutes=False,
+        plan_dispatch_agent=None,
+        clear_plan_dispatch_agent=False,
+        build_dispatch_agent=None,
+        clear_build_dispatch_agent=False,
+        gate_command=None,
+        clear_gate_command=True,
+    )
+    _cmd_update_project(args)
+
+    _, kwargs = fake_backend.update_project.call_args
+    assert kwargs["gate_command"] is None
+    assert kwargs["clear_gate_command"] is True
+
+
+def test_add_project_parser_gate_command():
+    """--gate-command is parsed correctly by add-project subparser."""
+    parser = _make_parser()
+    args = parser.parse_args(["add-project", "Proj", "--gate-command", "make test"])
+    assert args.gate_command == "make test"
+
+
+def test_add_project_parser_gate_command_default():
+    """--gate-command defaults to None when not provided to add-project."""
+    parser = _make_parser()
+    args = parser.parse_args(["add-project", "Proj"])
+    assert args.gate_command is None
+
+
+def test_update_project_parser_gate_command():
+    """--gate-command is parsed correctly by update-project subparser."""
+    parser = _make_parser()
+    args = parser.parse_args(
+        ["update-project", "pid-123", "--gate-command", "uv run pytest"]
+    )
+    assert args.gate_command == "uv run pytest"
+    assert args.clear_gate_command is False
+
+
+def test_update_project_parser_clear_gate_command():
+    """--clear-gate-command is parsed correctly by update-project subparser."""
+    parser = _make_parser()
+    args = parser.parse_args(["update-project", "pid-123", "--clear-gate-command"])
+    assert args.gate_command is None
+    assert args.clear_gate_command is True
+
+
+def test_update_project_parser_gate_and_clear_mutually_exclusive():
+    """--gate-command and --clear-gate-command are mutually exclusive."""
+    parser = _make_parser()
+    project_id = str(uuid.uuid4())
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args(
+            [
+                "update-project",
+                project_id,
+                "--gate-command",
+                "make test",
+                "--clear-gate-command",
+            ]
+        )
+    assert exc_info.value.code == 2

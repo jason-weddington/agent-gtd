@@ -232,6 +232,10 @@ class Project(BaseModel):
     dispatch_timeout_minutes: int | None = None
     plan_dispatch_agent: str | None = None
     build_dispatch_agent: str | None = None
+    # Per-repo/per-workspace-repo gate commands are DEFERRED to ~0.5.0
+    # (workspace_repos stays a plain URL list until then); gate_command is a
+    # single project-level nullable shell string.
+    gate_command: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -497,6 +501,7 @@ class CreateProjectRequest(BaseModel):
     kb_project_ref: str = ""
     repo_mode: RepoMode = RepoMode.MONOREPO
     workspace_repos: list[str] = []
+    gate_command: str | None = None
 
 
 class UpdateProjectRequest(BaseModel):
@@ -525,6 +530,7 @@ class UpdateProjectRequest(BaseModel):
     dispatch_timeout_minutes: int | None = None
     plan_dispatch_agent: str | None = None
     build_dispatch_agent: str | None = None
+    gate_command: str | None = None
 
 
 class ProjectResponse(BaseModel):
@@ -543,6 +549,7 @@ class ProjectResponse(BaseModel):
     dispatch_timeout_minutes: int | None = None
     plan_dispatch_agent: str | None = None
     build_dispatch_agent: str | None = None
+    gate_command: str | None = None
     created_at: datetime
     updated_at: datetime
     is_owner: bool | None = None

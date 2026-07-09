@@ -170,7 +170,7 @@ export const api = {
       const qs = query.toString()
       return request<Project[]>('GET', `/projects${qs ? `?${qs}` : ''}`)
     },
-    create: (data: { name: string; description?: string; status?: string; area?: string; gitOrigin?: string; kbProjectRef?: string; repoMode?: string; workspaceRepos?: string[] }) =>
+    create: (data: { name: string; description?: string; status?: string; area?: string; gitOrigin?: string; kbProjectRef?: string; repoMode?: string; workspaceRepos?: string[]; gateCommand?: string }) =>
       request<Project>('POST', '/projects', data),
     get: (id: string) => request<Project>('GET', `/projects/${id}`),
     update: (id: string, data: Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>) =>

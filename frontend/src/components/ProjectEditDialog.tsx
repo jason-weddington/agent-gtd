@@ -48,6 +48,7 @@ export default function ProjectEditDialog({
   const [workspaceRepos, setWorkspaceRepos] = useState<string[]>([''])
   const [planDispatchAgent, setPlanDispatchAgent] = useState<string | null>(null)
   const [buildDispatchAgent, setBuildDispatchAgent] = useState<string | null>(null)
+  const [gateCommand, setGateCommand] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
@@ -98,6 +99,7 @@ export default function ProjectEditDialog({
       setWorkspaceRepos(editing.workspaceRepos && editing.workspaceRepos.length > 0 ? editing.workspaceRepos : [''])
       setPlanDispatchAgent(editing.planDispatchAgent ?? null)
       setBuildDispatchAgent(editing.buildDispatchAgent ?? null)
+      setGateCommand(editing.gateCommand ?? null)
     } else {
       setName('')
       setDescription('')
@@ -109,6 +111,7 @@ export default function ProjectEditDialog({
       setWorkspaceRepos([''])
       setPlanDispatchAgent(null)
       setBuildDispatchAgent(null)
+      setGateCommand(null)
     }
     setSaveError(null)
   }, [open, editing])
@@ -148,6 +151,7 @@ export default function ProjectEditDialog({
           workspaceRepos: trimmedRepos,
           planDispatchAgent,
           buildDispatchAgent,
+          gateCommand,
         } : {}
         saved = await api.projects.update(editing.id, {
           name,
@@ -167,6 +171,7 @@ export default function ProjectEditDialog({
           kbProjectRef,
           repoMode,
           workspaceRepos: trimmedRepos,
+          gateCommand: gateCommand ?? undefined,
         })
       }
       onSaved(saved)
@@ -420,6 +425,15 @@ export default function ProjectEditDialog({
             />
           </span>
         </Tooltip>
+        <TextField
+          label="Gate Command"
+          value={gateCommand ?? ''}
+          onChange={(e) => setGateCommand(e.target.value || null)}
+          size="small"
+          margin="normal"
+          fullWidth
+          helperText="Shell command that is the repo's quality gate (runs from repo root; exit 0 = green)"
+        />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>

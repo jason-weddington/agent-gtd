@@ -513,6 +513,7 @@ async def test_update_dispatch_fields_member_rejected(
         ("dispatch_timeout_minutes", 30),
         ("plan_dispatch_agent", "some-agent"),
         ("build_dispatch_agent", "some-agent"),
+        ("gate_command", "uv run pytest"),
     ],
 )
 async def test_update_dispatch_fields_member_rejected_each_field(
@@ -1464,3 +1465,153 @@ def test_decode_project_workspace_repos_none_becomes_empty_list():
     data = {"workspace_repos": None}
     out = _decode_project_workspace_repos(data)
     assert out["workspace_repos"] == []
+
+
+# ---------------------------------------------------------------------------
+# gate_command — model defaults
+# ---------------------------------------------------------------------------
+
+
+def test_project_model_gate_command_defaults_to_none():
+    """Project domain model defaults gate_command to None."""
+    from datetime import UTC, datetime
+
+    from agent_gtd.models import Project
+
+    p = Project(
+        id="pid",
+        user_id="uid",
+        name="P",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    assert p.gate_command is None
+
+
+def test_update_project_request_gate_command_defaults_to_none():
+    """UpdateProjectRequest defaults gate_command to None."""
+    from agent_gtd.models import UpdateProjectRequest
+
+    req = UpdateProjectRequest()
+    assert req.gate_command is None
+
+
+# ---------------------------------------------------------------------------
+# gate_command — service round-trip (create / update / clear)
+# ---------------------------------------------------------------------------
+
+
+async def test_service_create_project_with_gate_command(client: AsyncClient):
+    """create_project stores gate_command and returns it."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.services import project_service
+
+    user = await register_user("gate_create@example.com", "pass")
+    db = await get_db()
+
+    result = await project_service.create_project(
+        db, user.id, name="Gate Project", gate_command="uv run pytest"
+    )
+    assert result["gate_command"] == "uv run pytest"
+
+    # Verify via get
+    got = await project_service.get_project(db, user.id, result["id"])
+    assert got["gate_command"] == "uv run pytest"
+
+
+async def test_service_update_project_gate_command(client: AsyncClient):
+    """update_project sets and clears gate_command correctly."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.services import project_service
+
+    user = await register_user("gate_update@example.com", "pass")
+    db = await get_db()
+
+    row = await project_service.create_project(db, user.id, name="Gate Upd")
+    pid = row["id"]
+
+    # Set gate_command
+    updated = await project_service.update_project(
+        db, user.id, pid, gate_command="cargo test"
+    )
+    assert updated["gate_command"] == "cargo test"
+
+    # Clear gate_command
+    cleared = await project_service.update_project(
+        db, user.id, pid, clear_gate_command=True
+    )
+    assert cleared["gate_command"] is None
+
+
+# ---------------------------------------------------------------------------
+# gate_command — REST API round-trip and owner-only guard
+# ---------------------------------------------------------------------------
+
+
+async def test_create_project_gate_command_via_api(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """POST /api/projects with gate_command stores and returns it."""
+    res = await client.post(
+        "/api/projects",
+        json={"name": "GC API", "gate_command": "uv run pytest"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["gate_command"] == "uv run pytest"
+
+    # Verify via GET
+    res2 = await client.get(f"/api/projects/{data['id']}", headers=auth_headers)
+    assert res2.json()["gate_command"] == "uv run pytest"
+
+
+async def test_update_project_gate_command_via_api(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """PATCH /api/projects sets and clears gate_command."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"gate_command": "make test"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["gate_command"] == "make test"
+
+    # Clear with explicit null
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"gate_command": None},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["gate_command"] is None
+
+
+async def test_gate_command_member_patch_gets_403(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Non-owner member PATCHing gate_command receives 403."""
+    member_headers = await _make_member(client, auth_headers, project_id)
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"gate_command": "uv run pytest"},
+        headers=member_headers,
+    )
+    assert res.status_code == 403
+    assert "dispatch settings" in res.json()["detail"].lower()
+
+
+async def test_gate_command_owner_patch_succeeds(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Project owner can PATCH gate_command."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"gate_command": "npm test"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["gate_command"] == "npm test"

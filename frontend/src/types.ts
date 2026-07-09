@@ -98,6 +98,8 @@ export interface Project {
   planDispatchAgent?: string | null
   /** Per-project build-mode agent override. Null = inherit from global build agent. */
   buildDispatchAgent?: string | null
+  /** Quality-gate command for this project (shell string, runs from repo root; exit 0 = green). Null = not set. */
+  gateCommand?: string | null
   /** Dispatch mode: 'monorepo' (single git_origin) or 'workspace' (multiple repos). Undefined = monorepo. */
   repoMode?: RepoMode
   /** Workspace repo URLs. Only used when repoMode === 'workspace'. */

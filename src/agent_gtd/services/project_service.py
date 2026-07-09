@@ -264,6 +264,7 @@ async def create_project(
     kb_project_ref: str = "",
     repo_mode: str = "monorepo",
     workspace_repos: list[str] | None = None,
+    gate_command: str | None = None,
 ) -> dict[str, Any]:
     """Create a new project and return its row data.
 
@@ -278,6 +279,7 @@ async def create_project(
         kb_project_ref: Optional KB project reference.
         repo_mode: Repository mode — 'monorepo' (default) or 'workspace'.
         workspace_repos: Ordered list of git clone URLs for workspace mode.
+        gate_command: Optional shell command for quality gate (runs from repo root).
 
     Returns:
         The created project row as a dict (workspace_repos decoded to list[str]).
@@ -302,8 +304,9 @@ async def create_project(
     await db.execute(
         "INSERT INTO projects "
         "(id, user_id, name, description, status, area, git_origin,"
-        " kb_project_ref, repo_mode, workspace_repos, created_at, updated_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+        " kb_project_ref, repo_mode, workspace_repos, gate_command,"
+        " created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         project_id,
         user_id,
         name,
@@ -314,6 +317,7 @@ async def create_project(
         kb_project_ref,
         repo_mode,
         encode_json_list(stripped_repos),
+        gate_command,
         now,
         now,
     )
@@ -392,6 +396,8 @@ async def update_project(
     clear_plan_dispatch_agent: bool = False,
     build_dispatch_agent: str | None = None,
     clear_build_dispatch_agent: bool = False,
+    gate_command: str | None = None,
+    clear_gate_command: bool = False,
 ) -> dict[str, Any]:
     """Update a project. Only non-None fields are changed.
 
@@ -496,6 +502,12 @@ async def update_project(
     elif clear_build_dispatch_agent:
         params.append(None)
         updates.append(f"build_dispatch_agent = ${len(params)}")
+    if gate_command is not None:
+        params.append(gate_command)
+        updates.append(f"gate_command = ${len(params)}")
+    elif clear_gate_command:
+        params.append(None)
+        updates.append(f"gate_command = ${len(params)}")
 
     if updates:
         params.append(datetime.now(UTC).isoformat())

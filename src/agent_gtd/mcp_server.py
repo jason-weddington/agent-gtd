@@ -225,6 +225,7 @@ async def add_project(
     dispatch_timeout_minutes: int | None = None,
     plan_dispatch_agent: str | None = None,
     build_dispatch_agent: str | None = None,
+    gate_command: str | None = None,
 ) -> dict[str, Any]:
     """Create a new project.
 
@@ -250,6 +251,8 @@ async def add_project(
             mode dispatches. None = use server default.
         build_dispatch_agent: Optional override for the agent name used in
             build mode dispatches. None = use server default.
+        gate_command: Shell command that is the repo's quality gate
+            (runs from repo root; exit 0 = green). None = not set.
 
     Returns:
         The created project dict.
@@ -283,6 +286,7 @@ async def add_project(
             dispatch_timeout_minutes=dispatch_timeout_minutes,
             plan_dispatch_agent=plan_dispatch_agent,
             build_dispatch_agent=build_dispatch_agent,
+            gate_command=gate_command,
         )
     except ValidationError as e:
         raise ToolError(e.detail) from None
@@ -310,6 +314,8 @@ async def update_project(
     clear_plan_dispatch_agent: bool = False,
     build_dispatch_agent: str | None = None,
     clear_build_dispatch_agent: bool = False,
+    gate_command: str | None = None,
+    clear_gate_command: bool = False,
 ) -> dict[str, Any]:
     """Update an existing project. None on any field = unchanged.
 
@@ -352,6 +358,10 @@ async def update_project(
             None = unchanged.
         clear_build_dispatch_agent: Set True to reset build_dispatch_agent to
             NULL. Mutually exclusive with build_dispatch_agent.
+        gate_command: Shell command that is the repo's quality gate
+            (runs from repo root; exit 0 = green). None = unchanged.
+        clear_gate_command: Set True to reset gate_command to NULL.
+            Mutually exclusive with gate_command.
 
     Returns:
         The updated project dict.
@@ -392,6 +402,8 @@ async def update_project(
             clear_plan_dispatch_agent=clear_plan_dispatch_agent,
             build_dispatch_agent=build_dispatch_agent,
             clear_build_dispatch_agent=clear_build_dispatch_agent,
+            gate_command=gate_command,
+            clear_gate_command=clear_gate_command,
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None

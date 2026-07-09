@@ -1033,3 +1033,57 @@ async def test_local_list_items_compact_carries_project_repo_mode():
     assert by_title["Floater"]["project_repo_mode"] is None
     for item in result["items"]:
         assert "workspace_repos" not in item
+
+
+# --- gate_command round-trips (LocalBackend) ---
+
+
+async def test_local_backend_create_project_gate_command():
+    """LocalBackend.create_project passes gate_command through to the service."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.mcp_backend import LocalBackend
+
+    user = await register_user("lb_gc_create@example.com", "pass")
+    lb = LocalBackend()
+    result = await lb.create_project(
+        user.id,
+        name="Gate Create",
+        gate_command="uv run pytest",
+    )
+    assert result["gate_command"] == "uv run pytest"
+
+
+async def test_local_backend_update_project_gate_command():
+    """LocalBackend.update_project sets gate_command."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import project_service
+
+    user = await register_user("lb_gc_upd@example.com", "pass")
+    db = await get_db()
+    row = await project_service.create_project(db, user.id, name="Gate Upd LB")
+    pid = row["id"]
+
+    lb = LocalBackend()
+    updated = await lb.update_project(user.id, pid, gate_command="cargo nextest run")
+    assert updated["gate_command"] == "cargo nextest run"
+
+
+async def test_local_backend_clear_gate_command():
+    """LocalBackend.update_project clears gate_command back to None."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.database import get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import project_service
+
+    user = await register_user("lb_gc_clear@example.com", "pass")
+    db = await get_db()
+    row = await project_service.create_project(
+        db, user.id, name="Gate Clear LB", gate_command="npm test"
+    )
+    pid = row["id"]
+
+    lb = LocalBackend()
+    cleared = await lb.update_project(user.id, pid, clear_gate_command=True)
+    assert cleared["gate_command"] is None
