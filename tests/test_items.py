@@ -642,6 +642,72 @@ async def test_update_item_build_engine_new_tiers_accepted(
     assert res.json()["build_engine"] == engine
 
 
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "talos-haiku",
+        "talos-sonnet",
+        "talos-opus",
+        "talos-qwen",
+        "talos-glm",
+    ],
+)
+async def test_create_item_talos_engines_accepted(
+    client: AsyncClient, auth_headers: dict[str, str], engine: str
+):
+    """All five talos-* build_engine values are valid.
+
+    Added via item 2f79463d to register the talos engine family in
+    agent-gtd-dispatch. The BuildEngine StrEnum + ALLOWED_BUILD_ENGINES
+    (frozenset(BuildEngine)) must include them so item.build_engine=talos-*
+    round-trips through both create and update without ValidationError.
+    """
+    res = await client.post(
+        "/api/items",
+        json={"title": "T", "build_engine": engine},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["build_engine"] == engine
+
+
+async def test_update_item_rejects_unknown_talos_engine(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """A talos-* string outside the enum still 422s — the family is not open-ended."""
+    create = await client.post("/api/items", json={"title": "T"}, headers=auth_headers)
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"build_engine": "talos-bogus", "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+def test_item_response_carries_dispatch_consumed_fields():
+    """Producer-side contract: ItemResponse.model_fields must include the fields
+    the dispatch-side talos serializer consumes.
+
+    The dispatch service does NOT depend on agent_gtd (cannot import
+    ItemResponse), so the serialization contract is verified via a committed
+    fixture on the dispatch side.  Renaming any of these here would silently
+    drift the fixture — this test fails agent_gtd's OWN suite in that case,
+    closing the drift window.  See item 2f79463d for the full rationale.
+    """
+    from agent_gtd.models import ItemResponse
+
+    fields = set(ItemResponse.model_fields.keys())
+    required = {"title", "description", "acceptance_criteria", "files_to_modify"}
+    missing = required - fields
+    assert not missing, (
+        f"ItemResponse missing dispatch-consumed fields {missing}; "
+        f"renaming here breaks the talos TaskSpec contract "
+        f"(agent-gtd-dispatch/tests/fixtures/item_response.json)."
+    )
+
+
 @pytest.mark.parametrize("engine", ["claude-code-sonnet", "claude-code-haiku", "kiro"])
 async def test_create_item_settings_engines_now_valid(
     client: AsyncClient, auth_headers: dict[str, str], engine: str

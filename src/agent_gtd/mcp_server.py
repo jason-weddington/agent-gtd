@@ -604,6 +604,11 @@ async def update_item(
         "claude-code-sonnet",
         "claude-code-haiku",
         "kiro",
+        "talos-haiku",
+        "talos-sonnet",
+        "talos-opus",
+        "talos-qwen",
+        "talos-glm",
         "",
     ]
     | None = None,

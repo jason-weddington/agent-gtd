@@ -156,6 +156,14 @@ class BuildEngine(StrEnum):
     CLAUDE_CODE_SONNET = "claude-code-sonnet"
     CLAUDE_CODE_HAIKU = "claude-code-haiku"
     KIRO = "kiro"
+    # Talos engine family (dispatched via the agent-gtd-dispatch talos.py
+    # subprocess path; see kb-* + item 2f79463d). BUILD-mode only — plan/manage
+    # dispatches swap talos-* to claude-code at the dispatch worker.
+    TALOS_HAIKU = "talos-haiku"
+    TALOS_SONNET = "talos-sonnet"
+    TALOS_OPUS = "talos-opus"
+    TALOS_QWEN = "talos-qwen"
+    TALOS_GLM = "talos-glm"
 
 
 class DispatchMode(StrEnum):
