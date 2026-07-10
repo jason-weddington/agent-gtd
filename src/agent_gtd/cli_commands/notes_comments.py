@@ -25,6 +25,32 @@ if TYPE_CHECKING:
     import argparse
 
 # ---------------------------------------------------------------------------
+# Allow-set constants for JSON payload validation.
+#
+# Each constant freezes the keys that a --from-json / --stdin payload may
+# contain for its command.  Any key not in the set is rejected loudly
+# (exit 1, "unknown key(s)") BEFORE any backend call, mirroring the
+# _ADD_ITEM_FIELDS / _UPDATE_ITEM_FIELDS guards in cli.py.
+#
+# Defining a separate frozenset per command (rather than sharing one) means
+# a future divergence — e.g. update-note gaining a "pinned" field that
+# add-note does not support — is a deliberate edit rather than an accident.
+# ---------------------------------------------------------------------------
+
+#: Keys accepted by ``add-note --from-json / --stdin``.
+_ADD_NOTE_FIELDS: frozenset[str] = frozenset({"title", "content_markdown", "labels"})
+
+#: Keys accepted by ``update-note --from-json / --stdin``.
+_UPDATE_NOTE_FIELDS: frozenset[str] = frozenset({"title", "content_markdown", "labels"})
+
+#: Keys accepted by ``add-comment --from-json / --stdin``.
+#: ``project_id`` and ``item_id`` are CLI-flag-only (not JSON payload keys).
+_ADD_COMMENT_FIELDS: frozenset[str] = frozenset({"content_markdown"})
+
+#: Keys accepted by ``update-comment --from-json / --stdin``.
+_UPDATE_COMMENT_FIELDS: frozenset[str] = frozenset({"content_markdown"})
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -246,6 +272,11 @@ def _handle_add_note(args: argparse.Namespace) -> None:
     except Exception as exc:
         fail(exc)
 
+    # Reject unknown payload keys BEFORE any field extraction or backend call.
+    unknown = sorted(set(payload.keys()) - _ADD_NOTE_FIELDS)
+    if unknown:
+        fail(f"unknown key(s) in payload: {', '.join(unknown)}")
+
     # Scalar flags override the same key in the JSON payload.
     title: str
     if args.title is not None:
@@ -317,6 +348,11 @@ def _handle_update_note(args: argparse.Namespace) -> None:
         payload = load_json_payload(args.from_json, args.stdin)
     except Exception as exc:
         fail(exc)
+
+    # Reject unknown payload keys BEFORE any field extraction or backend call.
+    unknown = sorted(set(payload.keys()) - _UPDATE_NOTE_FIELDS)
+    if unknown:
+        fail(f"unknown key(s) in payload: {', '.join(unknown)}")
 
     # Scalar flags override payload keys when both present.
     title: str | None
@@ -393,6 +429,11 @@ def _handle_add_comment(args: argparse.Namespace) -> None:
     except Exception as exc:
         fail(exc)
 
+    # Reject unknown payload keys BEFORE any field extraction or backend call.
+    unknown = sorted(set(payload.keys()) - _ADD_COMMENT_FIELDS)
+    if unknown:
+        fail(f"unknown key(s) in payload: {', '.join(unknown)}")
+
     # Resolve content_markdown: flag wins over payload key.
     content_markdown: str
     if args.content_markdown is not None:
@@ -451,6 +492,11 @@ def _handle_update_comment(args: argparse.Namespace) -> None:
         payload = load_json_payload(args.from_json, args.stdin)
     except Exception as exc:
         fail(exc)
+
+    # Reject unknown payload keys BEFORE any field extraction or backend call.
+    unknown = sorted(set(payload.keys()) - _UPDATE_COMMENT_FIELDS)
+    if unknown:
+        fail(f"unknown key(s) in payload: {', '.join(unknown)}")
 
     content_markdown: str | None
     if args.content_markdown is not None:
