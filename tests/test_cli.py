@@ -1902,6 +1902,285 @@ async def test_do_add_item_http_missing_api_key(monkeypatch):
         )
 
 
+# ---------------------------------------------------------------------------
+# add-item --from-json parity fix (78a7d774):
+#   (a) project_id + status honored from payload when no flags
+#   (b) --project / --status flags override payload (flag-wins)
+#   (c) priority / due_date / assigned_to threaded from payload (no drop)
+#   (d) unknown payload keys → error + no create
+# ---------------------------------------------------------------------------
+
+
+async def test_do_add_item_honors_project_id_and_status_from_payload(monkeypatch):
+    """(a) payload project_id + status are honored when no --project/--status flags."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services.project_service import create_project
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    project = await create_project(db, LOCAL_USER_ID, name="Payload Project")
+    project_id = str(project["id"])
+
+    new_id = await _do_add_item(
+        project_id=None,  # no --project flag
+        payload={
+            "title": "Payload wins",
+            "project_id": project_id,
+            "status": "ready",
+        },
+        status=None,  # no --status flag
+        labels_cli=None,
+    )
+
+    row = await db.fetchrow("SELECT * FROM items WHERE id = $1", new_id)
+    assert row is not None
+    assert row["project_id"] == project_id
+    assert row["status"] == "ready"
+
+
+async def test_do_add_item_flags_override_payload(monkeypatch):
+    """(b) --project and --status CLI flags override payload values (flag-wins)."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services.project_service import create_project
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    p_payload = await create_project(db, LOCAL_USER_ID, name="Payload Project")
+    p_flag = await create_project(db, LOCAL_USER_ID, name="Flag Project")
+
+    new_id = await _do_add_item(
+        project_id=str(p_flag["id"]),  # --project flag
+        payload={
+            "title": "Flag wins",
+            "project_id": str(p_payload["id"]),
+            "status": "ready",  # will be overridden
+        },
+        status="active",  # --status flag
+        labels_cli=None,
+    )
+
+    row = await db.fetchrow("SELECT * FROM items WHERE id = $1", new_id)
+    assert row is not None
+    # Flag wins over payload for both project_id and status.
+    assert row["project_id"] == str(p_flag["id"])
+    assert row["status"] == "active"
+
+
+async def test_do_add_item_persists_priority_due_date_assigned_to(monkeypatch):
+    """(c) payload priority/due_date/assigned_to are persisted (previously dropped)."""
+    from agent_gtd.database import get_db
+    from agent_gtd.mcp_backend import LocalBackend
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+
+    new_id = await _do_add_item(
+        project_id=None,
+        payload={
+            "title": "Full payload",
+            "priority": "high",
+            "due_date": "2026-12-31",
+            "assigned_to": "alice",
+        },
+        status=None,
+        labels_cli=None,
+    )
+
+    row = await db.fetchrow("SELECT * FROM items WHERE id = $1", new_id)
+    assert row is not None
+    assert row["priority"] == "high"
+    assert row["due_date"] == "2026-12-31"
+    assert row["assigned_to"] == "alice"
+
+
+async def test_do_add_item_unknown_key_raises_and_creates_nothing(monkeypatch):
+    """(d) unknown payload key raises ValueError and creates NO item."""
+    from agent_gtd.database import get_db
+    from agent_gtd.mcp_backend import LocalBackend
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    db = await get_db()
+    before_count_row = await db.fetchrow("SELECT COUNT(*) AS c FROM items")
+    assert before_count_row is not None
+    before_count = int(before_count_row["c"])
+
+    with pytest.raises(ValueError, match="unknown key"):
+        await _do_add_item(
+            project_id=None,
+            payload={
+                "title": "should not persist",
+                "foo": "bar",  # unknown key
+            },
+            status=None,
+            labels_cli=None,
+        )
+
+    # No item was inserted.
+    after_count_row = await db.fetchrow(
+        "SELECT COUNT(*) AS c FROM items WHERE title = $1", "should not persist"
+    )
+    assert after_count_row is not None
+    assert int(after_count_row["c"]) == 0
+
+    total_after_row = await db.fetchrow("SELECT COUNT(*) AS c FROM items")
+    assert total_after_row is not None
+    assert int(total_after_row["c"]) == before_count
+
+
+def test_cmd_add_item_unknown_key_exits_nonzero(monkeypatch, capsys):
+    """(d) _cmd_add_item exits 1 with 'Error: unknown key' and lists allowed fields."""
+    import io
+
+    # Use real _do_add_item — validation runs there before any backend call, and
+    # payload validation aborts before backend creation.
+    from agent_gtd.mcp_backend import LocalBackend
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(json.dumps({"title": "T", "bogus": 1, "also_bad": "x"})),
+    )
+    monkeypatch.setattr(sys, "argv", ["agent-gtd", "add-item", "--stdin"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""  # UUID NOT printed
+    assert "Error:" in captured.err
+    assert "unknown key" in captured.err
+    assert "also_bad" in captured.err
+    assert "bogus" in captured.err
+    # Allowed set is surfaced so operators can fix the payload.
+    assert "Allowed:" in captured.err
+    assert "acceptance_criteria" in captured.err
+
+
+async def test_do_add_item_http_mode_threads_priority_due_date_assigned_to(monkeypatch):
+    """HTTP mode: priority / due_date / assigned_to flow into the POST body."""
+    fake_id = str(uuid.uuid4())
+    http_called: dict[str, Any] = {}
+
+    async def _fake_http_post(
+        base_url: str,
+        api_key: str,
+        *,
+        title: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        http_called["title"] = title
+        http_called["kwargs"] = kwargs
+        return {"id": fake_id}
+
+    class _FakeBackend:
+        async def login(self, api_key: str, agent_name: str) -> dict[str, Any]:
+            return {"user_id": "fake-user"}
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("AGENT_GTD_URL", "http://example.com")
+    monkeypatch.setenv("AGENT_GTD_API_KEY", "test-key")
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: _FakeBackend())
+    monkeypatch.setattr("agent_gtd.cli._http_post_create_item", _fake_http_post)
+
+    result_id = await _do_add_item(
+        project_id=None,
+        payload={
+            "title": "HTTP full",
+            "project_id": "proj-from-payload",
+            "priority": "urgent",
+            "due_date": "2026-08-15",
+            "assigned_to": "bob",
+        },
+        status=None,
+        labels_cli=None,
+    )
+
+    assert result_id == fake_id
+    # project_id from payload (flag was None) reached the POST kwargs.
+    assert http_called["kwargs"]["project_id"] == "proj-from-payload"
+    assert http_called["kwargs"]["priority"] == "urgent"
+    assert http_called["kwargs"]["due_date"] == "2026-08-15"
+    assert http_called["kwargs"]["assigned_to"] == "bob"
+
+
+async def test_http_post_create_item_includes_priority_due_date_assigned_to():
+    """_http_post_create_item includes priority/due_date/assigned_to in the body."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from agent_gtd.cli import _http_post_create_item
+
+    fake_item = {"id": str(uuid.uuid4()), "title": "Test Item"}
+
+    mock_resp = MagicMock()
+    mock_resp.is_success = True
+    mock_resp.json.return_value = fake_item
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        await _http_post_create_item(
+            "http://example.com",
+            "api-key",
+            title="Test Item",
+            priority="high",
+            due_date="2026-11-01",
+            assigned_to="carol",
+        )
+
+    body = mock_client.post.call_args.kwargs["json"]
+    assert body["priority"] == "high"
+    assert body["due_date"] == "2026-11-01"
+    assert body["assigned_to"] == "carol"
+
+
+async def test_http_post_create_item_omits_priority_due_date_assigned_to_when_none():
+    """Omits priority/due_date/assigned_to from body when None (server default)."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from agent_gtd.cli import _http_post_create_item
+
+    fake_item = {"id": str(uuid.uuid4()), "title": "Test Item"}
+
+    mock_resp = MagicMock()
+    mock_resp.is_success = True
+    mock_resp.json.return_value = fake_item
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        await _http_post_create_item(
+            "http://example.com",
+            "api-key",
+            title="Test Item",
+        )
+
+    body = mock_client.post.call_args.kwargs["json"]
+    assert "priority" not in body
+    assert "due_date" not in body
+    assert "assigned_to" not in body
+
+
 async def test_http_post_create_item_success():
     """_http_post_create_item posts to /api/items and returns the item dict."""
     from unittest.mock import AsyncMock, MagicMock, patch

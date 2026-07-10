@@ -56,6 +56,15 @@ _UPDATE_ITEM_FIELDS: frozenset[str] = frozenset(
     }
 )
 
+#: Payload keys accepted by ``add-item --from-json`` / ``--stdin``.
+#:
+#: Intentionally identical to :data:`_UPDATE_ITEM_FIELDS` today — both commands
+#: accept the same 12 content fields that :func:`item_service.create_item`
+#: understands. Defining a separate name (rather than aliasing) so a future
+#: divergence — a field valid on create but not on update, or vice versa —
+#: becomes a deliberate edit rather than an accidental coupling.
+_ADD_ITEM_FIELDS: frozenset[str] = _UPDATE_ITEM_FIELDS
+
 
 async def _http_post_create_item(
     base_url: str,
@@ -70,6 +79,9 @@ async def _http_post_create_item(
     files_to_modify: list[dict[str, Any]] | None = None,
     scope_out: list[str] | None = None,
     project_id: str | None = None,
+    priority: str | None = None,
+    due_date: str | None = None,
+    assigned_to: str | None = None,
 ) -> dict[str, Any]:
     """POST /api/items with full structured fields via a direct httpx call.
 
@@ -89,6 +101,12 @@ async def _http_post_create_item(
         files_to_modify: Optional list of ``{path, change}`` dicts.
         scope_out: Optional list of scope-out strings.
         project_id: Optional project UUID to associate the item with.
+        priority: Optional priority string (e.g. ``"high"``); omitted from the
+            POST body when None so the server default applies.
+        due_date: Optional due-date string (``YYYY-MM-DD``); omitted from the
+            POST body when None.
+        assigned_to: Optional assignee string; omitted from the POST body when
+            None so the server default applies.
 
     Returns:
         Created item dict as returned by the API.
@@ -120,6 +138,12 @@ async def _http_post_create_item(
         body["files_to_modify"] = files_to_modify
     if scope_out is not None:
         body["scope_out"] = scope_out
+    if priority is not None:
+        body["priority"] = priority
+    if due_date is not None:
+        body["due_date"] = due_date
+    if assigned_to is not None:
+        body["assigned_to"] = assigned_to
 
     async with httpx.AsyncClient(
         base_url=base_url,
@@ -690,24 +714,50 @@ async def _do_add_item(
     In HTTP mode issues a direct POST /api/items (also bypasses
     HttpBackend.create_item for the same reason).
 
+    Payload keys are validated against :data:`_ADD_ITEM_FIELDS` BEFORE any
+    backend call — an unknown key aborts with :class:`ValueError` and creates
+    nothing. This mirrors the loud-failure guard on ``update-item`` (see
+    :func:`_do_update_item`).
+
+    ``project_id`` and ``status`` follow FLAG-WINS precedence: the ``--project``
+    / ``--status`` CLI flags override the payload values when supplied; when
+    absent, the payload values are used (with ``inbox`` as the ultimate default
+    for status).
+
+    ``priority``, ``due_date``, and ``assigned_to`` have no flag equivalents
+    and are threaded straight through from the payload — previously they were
+    silently dropped.
+
     Args:
-        project_id: Optional project UUID to associate the new item with.
-        payload: JSON dict that MUST contain ``title`` plus any of:
-            description, acceptance_criteria, files_to_modify, scope_out,
-            labels, build_engine.
-        status: Override status (defaults to ``inbox`` when None).
-        labels_cli: Labels from the CLI ``--labels`` flag (takes precedence
-            over ``labels`` in the JSON payload).
+        project_id: Project UUID from the ``--project`` CLI flag, or None to
+            fall back to ``payload["project_id"]`` (and finally to ``None``).
+        payload: JSON dict that MUST contain ``title`` plus any subset of the
+            keys in :data:`_ADD_ITEM_FIELDS`. Any other key aborts with
+            :class:`ValueError`.
+        status: New status from the ``--status`` CLI flag; wins over
+            ``payload["status"]`` when supplied. Defaults to ``inbox`` when
+            neither flag nor payload supplies a value.
+        labels_cli: Labels from the CLI ``--labels`` flag; wins over
+            ``payload["labels"]`` when supplied.
 
     Returns:
         UUID string of the newly created item.
 
     Raises:
-        ValueError: If ``title`` is absent from *payload*.
+        ValueError: If ``payload`` contains keys not in
+            :data:`_ADD_ITEM_FIELDS`, or if ``title`` is absent.
         RuntimeError: If AGENT_GTD_API_KEY is required but not set.
         ValidationError: (LocalBackend) If build_engine or status is invalid.
         ToolError: (HttpBackend) If the API returns an error.
     """
+    # --- Validate payload keys BEFORE any backend call (no-partial-write guarantee) ---
+    unknown = sorted(set(payload.keys()) - _ADD_ITEM_FIELDS)
+    if unknown:
+        raise ValueError(
+            f"unknown key(s) in payload: {', '.join(unknown)}. "
+            f"Allowed: {', '.join(sorted(_ADD_ITEM_FIELDS))}"
+        )
+
     if "title" not in payload:
         raise ValueError("JSON payload must include 'title'")
 
@@ -723,7 +773,28 @@ async def _do_add_item(
     labels: list[str] | None = (
         labels_cli if labels_cli is not None else payload.get("labels")
     )
-    final_status = status or "inbox"
+    # Flag-wins: --project overrides payload["project_id"] when supplied.
+    effective_project_id: str | None = (
+        project_id if project_id is not None else payload.get("project_id")
+    )
+    # Flag-wins: --status overrides payload["status"]; final fallback is "inbox".
+    final_status: str = status or payload.get("status") or "inbox"
+
+    # Payload-only fields with no flag equivalent — previously dropped silently.
+    priority: str | None = payload.get("priority")
+    due_date: str | None = payload.get("due_date")
+    assigned_to: str | None = payload.get("assigned_to")
+
+    # Build kwargs conditionally so create_item's typed defaults apply when the
+    # payload omits a value (create_item's ``priority`` and ``assigned_to`` are
+    # non-Optional ``str`` with defaults, so we must not pass ``None``).
+    extra_create_kwargs: dict[str, Any] = {}
+    if priority is not None:
+        extra_create_kwargs["priority"] = priority
+    if due_date is not None:
+        extra_create_kwargs["due_date"] = due_date
+    if assigned_to is not None:
+        extra_create_kwargs["assigned_to"] = assigned_to
 
     backend = create_backend()
     try:
@@ -746,7 +817,8 @@ async def _do_add_item(
                 acceptance_criteria=acceptance_criteria,
                 files_to_modify=files_to_modify,
                 scope_out=scope_out,
-                project_id=project_id,
+                project_id=effective_project_id,
+                **extra_create_kwargs,
             )
             return str(row["id"])
         else:
@@ -768,7 +840,10 @@ async def _do_add_item(
                 acceptance_criteria=acceptance_criteria,
                 files_to_modify=files_to_modify,
                 scope_out=scope_out,
-                project_id=project_id,
+                project_id=effective_project_id,
+                priority=priority,
+                due_date=due_date,
+                assigned_to=assigned_to,
             )
             return str(item["id"])
     finally:
