@@ -2259,7 +2259,7 @@ async def test_http_post_create_item_error_non_json_body():
 
     mock_resp = MagicMock()
     mock_resp.is_success = False
-    mock_resp.json.side_effect = ValueError("not JSON")
+    mock_resp.json.side_effect = json.JSONDecodeError("not JSON", "", 0)
     mock_resp.text = "Internal Server Error"
 
     mock_client = AsyncMock()

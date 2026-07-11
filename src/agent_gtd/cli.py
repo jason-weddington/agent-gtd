@@ -158,7 +158,7 @@ async def _http_post_create_item(
         if not resp.is_success:
             try:
                 detail: str = resp.json().get("detail", resp.text)
-            except Exception:
+            except (json.JSONDecodeError, AttributeError):
                 detail = resp.text
             raise ToolError(f"{detail}")
         result: dict[str, Any] = resp.json()
