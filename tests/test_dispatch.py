@@ -2460,3 +2460,8 @@ async def test_runs_expose_engine_and_engine_actual(
     assert "engine" in body
     assert "engine_actual" in body
     assert body["engine_actual"] is None
+
+    # dispatch_host_url is also exposed; null for a fresh run (never reached running).
+    assert row.get("dispatch_host_url") is None
+    assert "dispatch_host_url" in body
+    assert body["dispatch_host_url"] is None

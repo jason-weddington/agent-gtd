@@ -348,3 +348,99 @@ async def test_dispatch_targeted_host_full(client, auth_headers, project_id):
 
     assert res.status_code == 409
     assert "capacity" in res.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for builder functions — dispatch_host_url passthrough
+# ---------------------------------------------------------------------------
+
+_BASE_ROW: dict[str, object] = {
+    "id": "run-abc",
+    "item_id": None,
+    "project_id": "proj-1",
+    "status": "failed",
+    "feature_branch": "feat/test",
+    "workspace_dir": "/tmp/ws",  # noqa: S108
+    "max_turns": 50,
+    "mode": "build",
+    "rollout_id": None,
+    "started_at": None,
+    "finished_at": None,
+    "error_msg": "",
+    "engine": None,
+    "engine_actual": None,
+    "dispatch_host_url": None,
+    "created_at": "2026-01-01T00:00:00",
+    "updated_at": "2026-01-01T00:00:00",
+    "dispatched_by_email": None,
+}
+
+_FAILED_ROW: dict[str, object] = {
+    **_BASE_ROW,
+    "item_title": None,
+    "project_name": "Proj",
+}
+_STALE_ROW: dict[str, object] = {**_FAILED_ROW, "item_status": "active"}
+
+
+def test_run_response_dispatch_host_url_value():
+    """_run_response propagates a non-empty dispatch_host_url."""
+    row = {**_BASE_ROW, "dispatch_host_url": "http://pironman01:8001"}
+    resp = dr._run_response(row)
+    assert resp.dispatch_host_url == "http://pironman01:8001"
+
+
+def test_run_response_dispatch_host_url_empty_string():
+    """_run_response maps empty-string dispatch_host_url to None."""
+    row = {**_BASE_ROW, "dispatch_host_url": ""}
+    resp = dr._run_response(row)
+    assert resp.dispatch_host_url is None
+
+
+def test_run_response_dispatch_host_url_absent():
+    """_run_response maps absent dispatch_host_url key to None."""
+    row = {k: v for k, v in _BASE_ROW.items() if k != "dispatch_host_url"}
+    resp = dr._run_response(row)
+    assert resp.dispatch_host_url is None
+
+
+def test_failed_run_response_dispatch_host_url_value():
+    """_failed_run_response propagates a non-empty dispatch_host_url."""
+    row = {**_FAILED_ROW, "dispatch_host_url": "http://pironman01:8001"}
+    resp = dr._failed_run_response(row)
+    assert resp.dispatch_host_url == "http://pironman01:8001"
+
+
+def test_failed_run_response_dispatch_host_url_empty_string():
+    """_failed_run_response maps empty-string dispatch_host_url to None."""
+    row = {**_FAILED_ROW, "dispatch_host_url": ""}
+    resp = dr._failed_run_response(row)
+    assert resp.dispatch_host_url is None
+
+
+def test_failed_run_response_dispatch_host_url_absent():
+    """_failed_run_response maps absent dispatch_host_url key to None."""
+    row = {k: v for k, v in _FAILED_ROW.items() if k != "dispatch_host_url"}
+    resp = dr._failed_run_response(row)
+    assert resp.dispatch_host_url is None
+
+
+def test_stale_run_response_dispatch_host_url_value():
+    """_stale_run_response propagates a non-empty dispatch_host_url."""
+    row = {**_STALE_ROW, "dispatch_host_url": "http://pironman01:8001"}
+    resp = dr._stale_run_response(row)
+    assert resp.dispatch_host_url == "http://pironman01:8001"
+
+
+def test_stale_run_response_dispatch_host_url_empty_string():
+    """_stale_run_response maps empty-string dispatch_host_url to None."""
+    row = {**_STALE_ROW, "dispatch_host_url": ""}
+    resp = dr._stale_run_response(row)
+    assert resp.dispatch_host_url is None
+
+
+def test_stale_run_response_dispatch_host_url_absent():
+    """_stale_run_response maps absent dispatch_host_url key to None."""
+    row = {k: v for k, v in _STALE_ROW.items() if k != "dispatch_host_url"}
+    resp = dr._stale_run_response(row)
+    assert resp.dispatch_host_url is None

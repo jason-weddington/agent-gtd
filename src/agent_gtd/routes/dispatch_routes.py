@@ -75,6 +75,9 @@ def _run_response(row: dict[str, object]) -> RunResponse:
         error_msg=str(row.get("error_msg", "")),
         engine=str(row["engine"]) if row.get("engine") else None,
         engine_actual=str(row["engine_actual"]) if row.get("engine_actual") else None,
+        dispatch_host_url=(
+            str(row["dispatch_host_url"]) if row.get("dispatch_host_url") else None
+        ),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
         dispatched_by_email=(
@@ -111,6 +114,9 @@ def _failed_run_response(row: dict[str, object]) -> FailedRunResponse:
         error_msg=str(row.get("error_msg", "")),
         engine=str(row["engine"]) if row.get("engine") else None,
         engine_actual=str(row["engine_actual"]) if row.get("engine_actual") else None,
+        dispatch_host_url=(
+            str(row["dispatch_host_url"]) if row.get("dispatch_host_url") else None
+        ),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
         dispatched_by_email=(
@@ -149,6 +155,9 @@ def _stale_run_response(row: dict[str, object]) -> StaleRunResponse:
         error_msg=str(row.get("error_msg", "")),
         engine=str(row["engine"]) if row.get("engine") else None,
         engine_actual=str(row["engine_actual"]) if row.get("engine_actual") else None,
+        dispatch_host_url=(
+            str(row["dispatch_host_url"]) if row.get("dispatch_host_url") else None
+        ),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
         dispatched_by_email=(

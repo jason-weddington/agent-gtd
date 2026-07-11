@@ -65,6 +65,7 @@ function FailedRunsTable({ runs }: FailedRunsTableProps) {
             <TableCell>Project</TableCell>
             <TableCell>Mode</TableCell>
             <TableCell>Error</TableCell>
+            <TableCell>Host</TableCell>
             <TableCell>Finished</TableCell>
           </TableRow>
         </TableHead>
@@ -94,6 +95,15 @@ function FailedRunsTable({ runs }: FailedRunsTableProps) {
                   title={run.errorMsg}
                 >
                   {run.errorMsg || <em style={{ opacity: 0.5 }}>—</em>}
+                </Typography>
+              </TableCell>
+              <TableCell>
+                <Typography
+                  variant="body2"
+                  noWrap
+                  sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
+                >
+                  {run.dispatchHostUrl || <em style={{ opacity: 0.5 }}>—</em>}
                 </Typography>
               </TableCell>
               <TableCell>
@@ -130,6 +140,7 @@ function StaleRunsTable({ runs }: StaleRunsTableProps) {
             <TableCell>Item Status</TableCell>
             <TableCell>Project</TableCell>
             <TableCell>Branch</TableCell>
+            <TableCell>Host</TableCell>
             <TableCell>Finished</TableCell>
           </TableRow>
         </TableHead>
@@ -158,6 +169,15 @@ function StaleRunsTable({ runs }: StaleRunsTableProps) {
                   title={run.featureBranch}
                 >
                   {run.featureBranch}
+                </Typography>
+              </TableCell>
+              <TableCell>
+                <Typography
+                  variant="body2"
+                  noWrap
+                  sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
+                >
+                  {run.dispatchHostUrl || <em style={{ opacity: 0.5 }}>—</em>}
                 </Typography>
               </TableCell>
               <TableCell>

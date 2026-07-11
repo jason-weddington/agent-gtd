@@ -187,6 +187,7 @@ export interface Run {
   updatedAt: string
   dispatchedByEmail?: string
   rolloutId: string | null
+  dispatchHostUrl?: string
 }
 
 // --- Failure Feed ---

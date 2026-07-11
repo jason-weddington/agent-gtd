@@ -808,6 +808,7 @@ class RunResponse(BaseModel):
     rollout_id: str | None = None
     engine: str | None = None
     engine_actual: str | None = None
+    dispatch_host_url: str | None = None
     created_at: datetime
     updated_at: datetime
     dispatched_by_email: str | None = None

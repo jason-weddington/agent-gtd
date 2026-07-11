@@ -59,6 +59,7 @@ function makeFailedRun(overrides: Partial<FailedRun> = {}): FailedRun {
     rolloutId: null,
     itemTitle: 'Fix login bug',
     projectName: 'My Project',
+    dispatchHostUrl: undefined,
     ...overrides,
   }
 }
@@ -82,6 +83,7 @@ function makeStaleRun(overrides: Partial<StaleRun> = {}): StaleRun {
     itemTitle: 'Add dark mode',
     projectName: 'My Project',
     itemStatus: 'active',
+    dispatchHostUrl: undefined,
     ...overrides,
   }
 }
@@ -197,5 +199,63 @@ describe('Runs page', () => {
       // The chip shows the count
       expect(screen.getByText('2')).toBeInTheDocument()
     })
+  })
+
+  it('renders dispatch host URL in failed runs table when present', async () => {
+    const api = await getApi()
+    const run = makeFailedRun({ dispatchHostUrl: 'http://pironman01:8001' })
+    vi.mocked(api.runs.failures).mockResolvedValue([run])
+    vi.mocked(api.runs.stale).mockResolvedValue([])
+
+    render(<Runs />)
+
+    await waitFor(() => {
+      expect(screen.getByText('http://pironman01:8001')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('undefined')).not.toBeInTheDocument()
+  })
+
+  it('renders em-dash placeholder in failed runs table when host is absent', async () => {
+    const api = await getApi()
+    const run = makeFailedRun({ dispatchHostUrl: undefined })
+    vi.mocked(api.runs.failures).mockResolvedValue([run])
+    vi.mocked(api.runs.stale).mockResolvedValue([])
+
+    render(<Runs />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed Runs')).toBeInTheDocument()
+    })
+    // em-dash placeholder rendered; literal 'undefined' must not appear
+    expect(screen.queryByText('undefined')).not.toBeInTheDocument()
+  })
+
+  it('renders dispatch host URL in stale runs table when present', async () => {
+    const api = await getApi()
+    const run = makeStaleRun({ dispatchHostUrl: 'http://pironman01:8001' })
+    vi.mocked(api.runs.failures).mockResolvedValue([])
+    vi.mocked(api.runs.stale).mockResolvedValue([run])
+
+    render(<Runs />)
+
+    await waitFor(() => {
+      expect(screen.getByText('http://pironman01:8001')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('undefined')).not.toBeInTheDocument()
+  })
+
+  it('renders em-dash placeholder in stale runs table when host is absent', async () => {
+    const api = await getApi()
+    const run = makeStaleRun({ dispatchHostUrl: undefined })
+    vi.mocked(api.runs.failures).mockResolvedValue([])
+    vi.mocked(api.runs.stale).mockResolvedValue([run])
+
+    render(<Runs />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Stale — Completed but Not Advanced/)).toBeInTheDocument()
+    })
+    // em-dash placeholder rendered; literal 'undefined' must not appear
+    expect(screen.queryByText('undefined')).not.toBeInTheDocument()
   })
 })
