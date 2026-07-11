@@ -708,7 +708,9 @@ def test_item_response_carries_dispatch_consumed_fields():
     )
 
 
-@pytest.mark.parametrize("engine", ["claude-code-sonnet", "claude-code-haiku", "kiro"])
+@pytest.mark.parametrize(
+    "engine", ["claude-code-sonnet", "claude-code-haiku", "claude-code-glm", "kiro"]
+)
 async def test_create_item_settings_engines_now_valid(
     client: AsyncClient, auth_headers: dict[str, str], engine: str
 ):

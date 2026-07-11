@@ -67,6 +67,7 @@ export type Priority = 'low' | 'normal' | 'high' | 'urgent'
 export type BuildEngine =
   | 'claude-code'
   | 'claude-code-ollama'
+  | 'claude-code-glm'
   | 'claude-code-sonnet'
   | 'claude-code-haiku'
   | 'kiro'

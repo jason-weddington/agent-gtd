@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { ENGINE_LABELS, BUILD_ENGINE_OPTIONS } from '../engineLabels'
 
 describe('BUILD_ENGINE_OPTIONS', () => {
-  it('has exactly 5 entries', () => {
-    expect(BUILD_ENGINE_OPTIONS).toHaveLength(5)
+  it('has exactly 6 entries', () => {
+    expect(BUILD_ENGINE_OPTIONS).toHaveLength(6)
   })
 
   it('has no duplicate values', () => {
@@ -23,7 +23,7 @@ describe('BUILD_ENGINE_OPTIONS', () => {
     const claudeCodeOptions = BUILD_ENGINE_OPTIONS.filter((o) =>
       o.value.startsWith('claude-code')
     )
-    expect(claudeCodeOptions.length).toBe(4)
+    expect(claudeCodeOptions.length).toBe(5)
     for (const opt of claudeCodeOptions) {
       expect(opt.displayLabel).toMatch(/^Claude Code \(.+\)$/)
     }
@@ -40,14 +40,18 @@ describe('BUILD_ENGINE_OPTIONS', () => {
     expect(BUILD_ENGINE_OPTIONS.find((o) => o.value === 'claude-code-ollama')?.displayLabel).toBe(
       'Claude Code (Ollama)'
     )
+    expect(BUILD_ENGINE_OPTIONS.find((o) => o.value === 'claude-code-glm')?.displayLabel).toBe(
+      'Claude Code (GLM)'
+    )
   })
 })
 
 describe('ENGINE_LABELS', () => {
-  it('covers all 5 BuildEngine values', () => {
+  it('covers all 6 BuildEngine values', () => {
     const expectedEngines = [
       'claude-code',
       'claude-code-ollama',
+      'claude-code-glm',
       'claude-code-sonnet',
       'claude-code-haiku',
       'kiro',

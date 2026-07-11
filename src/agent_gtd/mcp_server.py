@@ -601,6 +601,7 @@ async def update_item(
     build_engine: Literal[
         "claude-code",
         "claude-code-ollama",
+        "claude-code-glm",
         "claude-code-sonnet",
         "claude-code-haiku",
         "kiro",
@@ -642,7 +643,8 @@ async def update_item(
             - None (default) → unchanged
             - Empty string "" → clear the preference (use global default)
             - "claude-code" → Anthropic Claude Code
-            - "claude-code-ollama" → Claude Code via Ollama
+            - "claude-code-ollama" → Claude Code via local Ollama
+            - "claude-code-glm" → Claude Code driving glm-5.2 via Ollama Cloud
             - "claude-code-sonnet" → Claude Code Sonnet model
             - "claude-code-haiku" → Claude Code Haiku model
             - "kiro" → Kiro engine
