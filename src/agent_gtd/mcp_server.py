@@ -543,6 +543,21 @@ async def add_item(
     labels: list[str] | None = None,
     project_id: str | None = None,
     due_date: str | None = None,
+    build_engine: Literal[
+        "claude-code",
+        "claude-code-ollama",
+        "claude-code-glm",
+        "claude-code-sonnet",
+        "claude-code-haiku",
+        "kiro",
+        "talos-haiku",
+        "talos-sonnet",
+        "talos-opus",
+        "talos-qwen",
+        "talos-glm",
+        "",
+    ]
+    | None = None,
 ) -> dict[str, Any]:
     """Create a new item.
 
@@ -560,6 +575,17 @@ async def add_item(
         labels: Optional list of labels/tags.
         project_id: Optional project to assign to. Ignored for inbox items.
         due_date: Optional due date in YYYY-MM-DD format. Default: None (no due date).
+        build_engine: Optional build engine preference (build-mode dispatch only).
+            - None (default) → no engine set (inherits global default)
+            - Empty string "" → no engine set (inherits global default)
+            - "claude-code" → Anthropic Claude Code
+            - "claude-code-ollama" → Claude Code via local Ollama
+            - "claude-code-glm" → Claude Code driving glm-5.2 via Ollama Cloud
+            - "claude-code-sonnet" → Claude Code Sonnet model
+            - "claude-code-haiku" → Claude Code Haiku model
+            - "kiro" → Kiro engine
+            - "talos-haiku"/"talos-sonnet"/"talos-opus"/"talos-qwen"/"talos-glm"
+              → Talos engine variants
 
     Returns:
         The created item dict.
@@ -580,6 +606,7 @@ async def add_item(
             created_by=session["agent_name"],
             labels=labels,
             due_date=due_date,
+            build_engine=build_engine,
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None

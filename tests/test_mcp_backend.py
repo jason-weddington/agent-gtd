@@ -123,6 +123,52 @@ async def test_create_and_get_item(authed_backend: HttpBackend, project_id: str)
     assert fetched["id"] == item["id"]
 
 
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "talos-glm",
+        "claude-code-glm",
+        "talos-sonnet",
+        "kiro",
+    ],
+)
+async def test_create_item_with_build_engine(
+    authed_backend: HttpBackend, project_id: str, engine: str
+):
+    """MCP backend create_item accepts + round-trips build_engine.
+
+    Mirrors tests/test_items.py::test_create_item_settings_engines_now_valid
+    but exercises the MCP add_item -> mcp_backend.create_item path (HTTP
+    backend -> POST /api/items).
+    """
+    item = await authed_backend.create_item(
+        "",
+        title="Engine item",
+        status="active",
+        project_id=project_id,
+        build_engine=engine,
+    )
+    assert item["build_engine"] == engine
+
+    fetched = await authed_backend.get_item("", item["id"])
+    assert fetched["build_engine"] == engine
+
+
+@pytest.mark.parametrize("engine", [None, ""])
+async def test_create_item_without_build_engine(
+    authed_backend: HttpBackend, project_id: str, engine: str | None
+):
+    """None or "" creates an item with no engine (inherits global default)."""
+    item = await authed_backend.create_item(
+        "",
+        title="No engine",
+        status="active",
+        project_id=project_id,
+        build_engine=engine,
+    )
+    assert not item["build_engine"]
+
+
 async def test_list_items_with_filters(authed_backend: HttpBackend, project_id: str):
     await authed_backend.create_item(
         "", title="Active", status="active", project_id=project_id

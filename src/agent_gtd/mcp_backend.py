@@ -219,6 +219,8 @@ class McpBackend(Protocol):
         labels: list[str] | None = None,
         project_id: str | None = None,
         created_by: str = "human",
+        due_date: str | None = None,
+        build_engine: str | None = None,
     ) -> dict[str, Any]: ...
 
     async def update_item(
@@ -768,11 +770,14 @@ class LocalBackend:
         project_id: str | None = None,
         created_by: str = "human",
         due_date: str | None = None,
+        build_engine: str | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import item_service
 
         db = await get_db()
+        # Treat "" (clear/no-engine sentinel) the same as None so the item is
+        # created with no engine (inherits global default).
         row = await item_service.create_item(
             db,
             user_id,
@@ -784,6 +789,7 @@ class LocalBackend:
             created_by=created_by,
             labels=labels,
             due_date=due_date,
+            build_engine=build_engine or None,
         )
         pm = await self._build_project_map(user_id)
         result = self._format_item(row, pm)
@@ -1717,6 +1723,7 @@ class HttpBackend:
         project_id: str | None = None,
         created_by: str = "human",
         due_date: str | None = None,
+        build_engine: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "title": title,
@@ -1731,6 +1738,10 @@ class HttpBackend:
             body["project_id"] = project_id
         if due_date is not None:
             body["due_date"] = due_date
+        # Treat "" (clear/no-engine sentinel) the same as None: omit from the
+        # body so the item is created with no engine (inherits global default).
+        if build_engine:
+            body["build_engine"] = build_engine
         resp = await self._client.post(
             "/api/items",
             json=body,
