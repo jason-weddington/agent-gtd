@@ -5,6 +5,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal, assert_never
 
+from agent_gtd_dispatch_protocol import DispatchMode as DispatchMode
 from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 from pydantic import BaseModel, Field, field_validator
 
@@ -164,14 +165,6 @@ class BuildEngine(StrEnum):
     TALOS_OPUS = "talos-opus"
     TALOS_QWEN = "talos-qwen"
     TALOS_GLM = "talos-glm"
-
-
-class DispatchMode(StrEnum):
-    """Agent dispatch mode."""
-
-    BUILD = "build"
-    PLAN = "plan"
-    MANAGE = "manage"
 
 
 class RolloutEventKind(StrEnum):
