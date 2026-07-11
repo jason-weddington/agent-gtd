@@ -626,6 +626,7 @@ async def init_db() -> None:
         for stmt in _SCHEMA_STATEMENTS:
             await conn.execute(stmt)
         for stmt in _MIGRATIONS:
+            # broad-suppress-ok: idempotent migration replay (item 1b1b79de)
             with contextlib.suppress(Exception):
                 await conn.execute(stmt)
 
