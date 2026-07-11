@@ -1,6 +1,5 @@
 """Async database with connection pool (PostgreSQL or SQLite fallback)."""
 
-import contextlib
 import json
 import logging
 import os
@@ -515,8 +514,8 @@ _MIGRATIONS: list[str] = [
     "ALTER TABLE claude_runs ADD COLUMN engine TEXT NOT NULL DEFAULT 'claude-code'",
     "ALTER TABLE claude_runs ADD COLUMN engine_actual TEXT",
     # Make engine nullable with no default on existing Postgres deployments.
-    # These are no-ops on SQLite (ALTER COLUMN unsupported, suppressed by
-    # contextlib.suppress in init_db) and idempotent on Postgres.
+    # These are no-ops on SQLite (ALTER COLUMN unsupported, suppressed with
+    # a logged warning in init_db) and idempotent on Postgres.
     "ALTER TABLE claude_runs ALTER COLUMN engine DROP DEFAULT",
     "ALTER TABLE claude_runs ALTER COLUMN engine DROP NOT NULL",
 ]
@@ -626,9 +625,14 @@ async def init_db() -> None:
         for stmt in _SCHEMA_STATEMENTS:
             await conn.execute(stmt)
         for stmt in _MIGRATIONS:
-            # broad-suppress-ok: idempotent migration replay (item 1b1b79de)
-            with contextlib.suppress(Exception):
+            try:
                 await conn.execute(stmt)
+            except Exception as exc:  # broad-suppress-ok: logs warning (item 1b1b79de)
+                logger.warning(
+                    "Migration suppressed (replay/SQLite no-op): %r — %r",
+                    stmt[:120],
+                    exc,
+                )
 
     await _sweep_cross_project_blockers(pool)
 

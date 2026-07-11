@@ -214,3 +214,36 @@ async def test_ensure_local_user_idempotent():
     assert len(rows) == 1
 
     await pool.close()
+
+
+async def test_failing_migration_is_logged_and_loop_continues(monkeypatch, caplog):
+    """Failing migration logs a WARNING; subsequent migrations still run.
+
+    Regression guard for item 1b1b79de: suppress must log, not swallow silently.
+    """
+    import logging
+
+    from agent_gtd.database import get_db, init_db
+
+    bad_stmt = "INVALID SQL THAT WILL DEFINITELY FAIL"
+    sentinel_col = "_test_migration_sentinel_col"
+    good_stmt = f"ALTER TABLE items ADD COLUMN {sentinel_col} TEXT"
+
+    monkeypatch.setattr(db_mod, "_MIGRATIONS", [bad_stmt, good_stmt])
+
+    with caplog.at_level(logging.WARNING, logger="agent_gtd.database"):
+        await init_db()
+
+    # The bad statement must appear in a WARNING record from agent_gtd.database.
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelname == "WARNING" and r.name == "agent_gtd.database"
+    ]
+    assert warnings, "Expected at least one WARNING from the failing migration"
+    assert bad_stmt in warnings[0].getMessage()
+
+    # The loop must have continued — sentinel column was added by the good statement.
+    pool = await get_db()
+    rows = await pool.fetch(f"SELECT {sentinel_col} FROM items LIMIT 1")  # noqa: S608
+    assert rows is not None  # query did not raise → column exists
