@@ -2,6 +2,53 @@
 
 <!-- version list -->
 
+## v1.97.0 (2026-07-11)
+
+### Bug Fixes
+
+- Honor project_id/status and reject unknown keys in add-item --from-json
+  ([`450ff34`](https://github.com/jason-weddington/agent-gtd/commit/450ff34eb379b3f2fba79334963119f69da1c235))
+
+- LocalBackend returns parsed lists for ac/files/scope_out (match HttpBackend)
+  ([`3c695ac`](https://github.com/jason-weddington/agent-gtd/commit/3c695ac3f4725c84b11f503f9d7d678d6db26634))
+
+- Log-not-swallow the migration replay suppress (keep broad for SQLite safety)
+  ([`742ad1c`](https://github.com/jason-weddington/agent-gtd/commit/742ad1c6e5999a8bb8d7bd5992b0b90e2b226067))
+
+- Narrow broad except in _http_post_create_item error parsing
+  ([`52a2c23`](https://github.com/jason-weddington/agent-gtd/commit/52a2c23c43c96e9eb0b2b207c3026f606fad885f))
+
+### Features
+
+- Add talos-* build engines to the roster (enum + MCP literal + producer contract test)
+  ([`604a66b`](https://github.com/jason-weddington/agent-gtd/commit/604a66b753e02f5757f4c47f55dea00243a400c8))
+
+- Explicit dispatch engine selection — Sonnet default, manage pinned to Opus, no silent base default
+  ([`bd01ff8`](https://github.com/jason-weddington/agent-gtd/commit/bd01ff869679fde28a2b3b3b4bd3268bdfb04bdd))
+
+- Register claude-code-glm build engine (glm-5.2 via Ollama Cloud)
+  ([`372931c`](https://github.com/jason-weddington/agent-gtd/commit/372931cad7594028cc1aeda6544d4659c0c86d2e))
+
+- Surface the executing dispatch host on run rows (Runs API + UI)
+  ([`a1cfd7a`](https://github.com/jason-weddington/agent-gtd/commit/a1cfd7acc8504de42f99900ea316326180ead26f))
+
+### Refactoring
+
+- Import DispatchMode from the protocol package (dedup local copy)
+  ([`ce319b1`](https://github.com/jason-weddington/agent-gtd/commit/ce319b18845d4ae53a9e37f4a0c6d41e6512395b))
+
+### Testing
+
+- AST-walk guard against broad exception-swallowing (suppress(Exception) / blind except)
+  ([`284886b`](https://github.com/jason-weddington/agent-gtd/commit/284886be81f1f49cd067829de75b4af0cc149a3f))
+
+- Derive project owner-guard test from _DISPATCH_ONLY_FIELDS
+  ([`f4dde98`](https://github.com/jason-weddington/agent-gtd/commit/f4dde989d37c00c224a9ce74c3d1e5f56577af27))
+
+- Guard the --from-json payload-command family against silent key drops
+  ([`3fd270d`](https://github.com/jason-weddington/agent-gtd/commit/3fd270de1baf5e67bb9e5bd33f40b86fec6442bd))
+
+
 ## v1.96.0 (2026-07-09)
 
 ### Features
