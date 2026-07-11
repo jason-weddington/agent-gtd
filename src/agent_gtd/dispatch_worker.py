@@ -31,6 +31,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_TURNS = int(os.environ.get("DISPATCH_DEFAULT_MAX_TURNS", "100"))
 POLL_INTERVAL = 15  # seconds between status polls
 
+# Manage-mode is always pinned to Opus (claude-code), regardless of the global engine.
+# This ensures the manage-mode rollout driver never accidentally downgrades to a
+# cheaper model when the global is set to claude-code-sonnet.
+MANAGE_ENGINE = "claude-code"
+
 # Terminal statuses from the shared dispatch-protocol package.
 # When the remote run reaches one of these, we stop polling and map to a
 # local status via LocalRunStatus.from_remote().
@@ -107,23 +112,39 @@ def resolve_max_turns(
 def resolve_engine(
     mode: str,
     item_build_engine: str | None,
-    global_engine: str,
+    global_engine: str | None,
 ) -> str:
     """Resolve effective dispatch engine.
 
-    Resolution order for build mode:
-        item.build_engine → global dispatch.engine setting
-    Plan and manage modes always use the global engine.
+    Resolution order:
+        manage → always MANAGE_ENGINE (Opus / claude-code), ignores the global
+        build   → item.build_engine if set, else global
+        plan    → global
+
+    The global engine must be explicitly set for build and plan modes.  An unset
+    global raises ``ValueError`` rather than silently falling back to a hardcoded
+    literal, making misconfiguration loud.
 
     Args:
         mode: Dispatch mode ("build", "plan", or "manage").
         item_build_engine: The item's ``build_engine`` field value, or ``None``
             if the item inherits the global engine.
-        global_engine: The deployment-wide engine from app_settings.
+        global_engine: The deployment-wide engine from app_settings, or ``None``
+            if the global is not yet configured.
 
     Returns:
         The resolved engine string.
+
+    Raises:
+        ValueError: If ``global_engine`` is unset and ``mode`` is not "manage".
     """
+    if mode == "manage":
+        return MANAGE_ENGINE  # pinned to Opus; never raises on unset global
+    if not global_engine:
+        raise ValueError(
+            "dispatch.engine global setting is unset; configure a global dispatch"
+            " engine in Settings before dispatching"
+        )
     if mode == "build" and item_build_engine:
         return item_build_engine
     return global_engine
@@ -251,7 +272,7 @@ async def _dispatch_to_remote(
     rollout_id: str | None = None,
     url: str,
     api_key: str,
-    engine: str = "claude-code",
+    engine: str,
     agent_name: str = "",
     attribution: str = "",
     timeout_minutes: int = 30,
@@ -609,7 +630,7 @@ async def execute_run(
         owner_id = user_id
 
     # Resolve deployment-wide engine + agent names (app_settings, not user_settings)
-    global_engine = await get_setting(db, "dispatch.engine") or "claude-code"
+    global_engine = await get_setting(db, "dispatch.engine")
     item_build_engine = (
         str(item.get("build_engine")) if item and item.get("build_engine") else None
     )

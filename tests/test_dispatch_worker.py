@@ -137,12 +137,19 @@ def test_resolve_agent(
 
 
 def _make_db_mock(project_owner_id: str | None = None) -> MagicMock:
-    """Create a minimal DB mock for execute_run tests."""
+    """Create a minimal DB mock for execute_run tests.
+
+    Returns a ``claude-code-sonnet`` app_settings row for ``dispatch.engine``
+    so that ``resolve_engine`` does not raise when mode is not ``manage``.
+    """
     db = MagicMock()
 
     async def fetchrow(sql: str, *args: object) -> dict[str, object] | None:
         if "FROM projects" in sql and project_owner_id is not None:
             return {"user_id": project_owner_id}
+        # Seed dispatch.engine so resolve_engine does not raise on build/plan mode.
+        if "app_settings" in sql and args and args[0] == "dispatch.engine":
+            return {"value": "claude-code-sonnet"}
         return None
 
     db.fetchrow = AsyncMock(side_effect=fetchrow)
@@ -376,10 +383,17 @@ async def test_execute_run_build_mode_uses_worker_timeout() -> None:
     project: dict[str, object] = {}  # no dispatch_timeout_minutes override
     db = _make_db_mock(project_owner_id="user-1")
 
+    async def fake_get_setting(db_arg: object, key: str) -> str | None:
+        # Provide an explicit engine so resolve_engine does not raise; return
+        # None for everything else so the hard-coded defaults kick in.
+        if key == "dispatch.engine":
+            return "claude-code-sonnet"
+        return None
+
     with (
         patch(
             "agent_gtd.services.settings_service.get_setting",
-            new=AsyncMock(return_value=None),  # no DB rows → use hard-coded defaults
+            new=fake_get_setting,
         ),
         patch(
             "agent_gtd.services.settings_service.get_dispatch_hosts",
@@ -415,25 +429,49 @@ async def test_execute_run_build_mode_uses_worker_timeout() -> None:
 @pytest.mark.parametrize(
     "mode,item_engine,global_engine,expected",
     [
-        # build mode: item engine wins
-        ("build", "claude-code-ollama", "claude-code", "claude-code-ollama"),
+        # build mode: item engine wins over global
+        ("build", "claude-code-ollama", "claude-code-sonnet", "claude-code-ollama"),
         # build mode: item engine None → fallback to global
-        ("build", None, "claude-code", "claude-code"),
+        ("build", None, "claude-code-sonnet", "claude-code-sonnet"),
         # build mode: item engine "" (falsy) → fallback to global
-        ("build", "", "claude-code", "claude-code"),
+        ("build", "", "claude-code-sonnet", "claude-code-sonnet"),
         # plan mode: item engine is ignored → always use global
-        ("plan", "claude-code-ollama", "claude-code", "claude-code"),
-        # manage mode: item engine is ignored → always use global
-        ("manage", "claude-code-ollama", "claude-code", "claude-code"),
+        ("plan", "claude-code-ollama", "claude-code-sonnet", "claude-code-sonnet"),
+        # manage mode: MUST pin to MANAGE_ENGINE (claude-code / Opus) even when
+        # the global is sonnet and the item has a different engine — this case
+        # proves the sonnet global does NOT downgrade the manager.
+        ("manage", "claude-code-ollama", "claude-code-sonnet", "claude-code"),
+        # manage mode with None global: must still return MANAGE_ENGINE without raising
+        ("manage", None, None, "claude-code"),
     ],
 )
 def test_resolve_engine(
     mode: str,
     item_engine: str | None,
-    global_engine: str,
+    global_engine: str | None,
     expected: str,
 ) -> None:
     assert resolve_engine(mode, item_engine, global_engine) == expected
+
+
+def test_resolve_engine_raises_on_unset_global_build() -> None:
+    """resolve_engine raises ValueError for build mode when global_engine is None."""
+    with pytest.raises(ValueError, match=r"dispatch\.engine global setting is unset"):
+        resolve_engine("build", None, None)
+
+
+def test_resolve_engine_raises_on_unset_global_plan() -> None:
+    """resolve_engine raises ValueError for plan mode when global_engine is None."""
+    with pytest.raises(ValueError, match=r"dispatch\.engine global setting is unset"):
+        resolve_engine("plan", "claude-code-ollama", None)
+
+
+def test_resolve_engine_manage_never_raises_on_unset_global() -> None:
+    """resolve_engine manage mode returns MANAGE_ENGINE even when global is None."""
+    from agent_gtd.dispatch_worker import MANAGE_ENGINE
+
+    result = resolve_engine("manage", None, None)
+    assert result == MANAGE_ENGINE == "claude-code"
 
 
 # ---------------------------------------------------------------------------
@@ -1175,6 +1213,7 @@ async def test_dispatch_to_remote_includes_callback_token() -> None:
         "build",
         url="http://dispatch-host",
         api_key="test-key",
+        engine="claude-code-sonnet",
         callback_token=token,
     )
 
@@ -1237,6 +1276,7 @@ async def test_dispatch_to_remote_none_callback_token_omits_key() -> None:
         "build",
         url="http://dispatch-host",
         api_key="test-key",
+        engine="claude-code-sonnet",
         callback_token=None,  # explicit None — must be omitted from JSON
     )
 

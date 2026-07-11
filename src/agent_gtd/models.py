@@ -806,7 +806,7 @@ class RunResponse(BaseModel):
     finished_at: datetime | None
     error_msg: str
     rollout_id: str | None = None
-    engine: str = "claude-code"
+    engine: str | None = None
     engine_actual: str | None = None
     created_at: datetime
     updated_at: datetime

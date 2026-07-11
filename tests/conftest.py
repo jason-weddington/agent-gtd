@@ -21,12 +21,18 @@ def _clear_agent_name_env(monkeypatch):
 async def _setup_db(monkeypatch):
     """Init a fresh in-memory SQLite database for each test."""
     import agent_gtd.database as db_mod
+    from agent_gtd.services.settings_service import set_setting
     from agent_gtd.sqlite_pool import SqlitePool
 
     sqlite_pool = SqlitePool()
     monkeypatch.setattr(db_mod, "_pool", sqlite_pool)
 
     await init_db()
+
+    # Seed an explicit global engine so resolve_engine never raises in tests that
+    # don't specifically test the unset-global path.  Mirrors the prod
+    # _migrate_engine_default_to_sonnet seed that runs at startup.
+    await set_setting(sqlite_pool, "dispatch.engine", "claude-code-sonnet")
 
     yield
 

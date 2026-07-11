@@ -46,7 +46,7 @@ def _mask_key(api_key: str) -> str:
 
 async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsResponse:
     """Construct a DispatchSettingsResponse from DB state."""
-    engine = await settings_service.get_setting(db, _ENGINE_KEY) or "claude-code"
+    engine = await settings_service.get_setting(db, _ENGINE_KEY) or "claude-code-sonnet"
     plan_agent_name = await settings_service.get_setting(db, _PLAN_AGENT_NAME_KEY) or ""
     build_agent_name = (
         await settings_service.get_setting(db, _BUILD_AGENT_NAME_KEY) or ""

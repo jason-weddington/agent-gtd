@@ -19,7 +19,7 @@ async def test_get_dispatch_settings_defaults(
     res = await client.get("/api/settings/dispatch", headers=auth_headers)
     assert res.status_code == 200
     data = res.json()
-    assert data["engine"] == "claude-code"
+    assert data["engine"] == "claude-code-sonnet"
     assert "agent_name" not in data
     assert data["plan_agent_name"] == ""
     assert data["build_agent_name"] == ""
@@ -255,6 +255,13 @@ async def test_get_dispatch_settings_preview_not_in_full_key(
     res = await client.get("/api/settings/dispatch", headers=auth_headers)
     assert res.status_code == 200
     assert fake_key not in str(res.json())
+
+
+def test_mask_key_empty_string_returns_empty() -> None:
+    """_mask_key('') returns '' (exercises the empty-key early-return branch)."""
+    from agent_gtd.routes.settings_routes import _mask_key
+
+    assert _mask_key("") == ""
 
 
 @pytest.mark.asyncio
@@ -801,19 +808,20 @@ async def test_engine_migration_leaves_other_engines_untouched() -> None:
 
 
 @pytest.mark.asyncio
-async def test_engine_migration_new_user_gets_claude_code_default(
+async def test_engine_migration_new_user_gets_sonnet_default(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    """New users (no dispatch.engine row) get 'claude-code' as the engine default."""
+    """New users (no dispatch.engine row) get 'claude-code-sonnet' as the
+    display default."""
     from agent_gtd.database import get_db
 
     db = await get_db()
-    # Ensure no global engine setting exists
+    # Ensure no global engine setting exists (clear the conftest seed)
     await db.execute("DELETE FROM app_settings WHERE key = 'dispatch.engine'")
 
     res = await client.get("/api/settings/dispatch", headers=auth_headers)
     assert res.status_code == 200
-    assert res.json()["engine"] == "claude-code"
+    assert res.json()["engine"] == "claude-code-sonnet"
 
 
 @pytest.mark.asyncio
@@ -831,6 +839,79 @@ async def test_engine_migration_idempotent() -> None:
 
     engine = await get_setting(db, "dispatch.engine")
     assert engine == "claude-code"
+
+
+# ---------------------------------------------------------------------------
+# _migrate_engine_default_to_sonnet — startup migration tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_migrate_engine_default_to_sonnet_seeds_absent_row() -> None:
+    """_migrate_engine_default_to_sonnet seeds sonnet when the row is absent."""
+    from agent_gtd.database import get_db
+    from agent_gtd.main import _migrate_engine_default_to_sonnet
+    from agent_gtd.services.settings_service import get_setting
+
+    db = await get_db()
+    # Remove the conftest seed so the row is absent
+    await db.execute("DELETE FROM app_settings WHERE key = 'dispatch.engine'")
+
+    await _migrate_engine_default_to_sonnet()
+
+    engine = await get_setting(db, "dispatch.engine")
+    assert engine == "claude-code-sonnet"
+
+
+@pytest.mark.asyncio
+async def test_migrate_engine_default_to_sonnet_preserves_existing_claude_code() -> (
+    None
+):
+    """_migrate_engine_default_to_sonnet preserves an explicit 'claude-code'."""
+    from agent_gtd.database import get_db
+    from agent_gtd.main import _migrate_engine_default_to_sonnet
+    from agent_gtd.services.settings_service import get_setting, set_setting
+
+    db = await get_db()
+    await set_setting(db, "dispatch.engine", "claude-code")
+
+    await _migrate_engine_default_to_sonnet()
+
+    engine = await get_setting(db, "dispatch.engine")
+    assert engine == "claude-code"
+
+
+@pytest.mark.asyncio
+async def test_migrate_engine_default_to_sonnet_preserves_existing_kiro() -> None:
+    """_migrate_engine_default_to_sonnet does not overwrite an explicit 'kiro'."""
+    from agent_gtd.database import get_db
+    from agent_gtd.main import _migrate_engine_default_to_sonnet
+    from agent_gtd.services.settings_service import get_setting, set_setting
+
+    db = await get_db()
+    await set_setting(db, "dispatch.engine", "kiro")
+
+    await _migrate_engine_default_to_sonnet()
+
+    engine = await get_setting(db, "dispatch.engine")
+    assert engine == "kiro"
+
+
+@pytest.mark.asyncio
+async def test_migrate_engine_default_to_sonnet_idempotent() -> None:
+    """Running _migrate_engine_default_to_sonnet twice is a no-op on the second run."""
+    from agent_gtd.database import get_db
+    from agent_gtd.main import _migrate_engine_default_to_sonnet
+    from agent_gtd.services.settings_service import get_setting
+
+    db = await get_db()
+    await db.execute("DELETE FROM app_settings WHERE key = 'dispatch.engine'")
+
+    await _migrate_engine_default_to_sonnet()
+    await _migrate_engine_default_to_sonnet()  # second run — no-op
+
+    engine = await get_setting(db, "dispatch.engine")
+    assert engine == "claude-code-sonnet"
 
 
 # ---------------------------------------------------------------------------

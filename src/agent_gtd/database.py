@@ -175,7 +175,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         remote_run_id TEXT NOT NULL DEFAULT '',
         error_msg TEXT NOT NULL DEFAULT '',
         rollout_id TEXT REFERENCES autonomous_rollouts(id),
-        engine TEXT NOT NULL DEFAULT 'claude-code',
+        engine TEXT,
         engine_actual TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -514,6 +514,11 @@ _MIGRATIONS: list[str] = [
     # Per-run engine attribution: requested engine and actual engine used.
     "ALTER TABLE claude_runs ADD COLUMN engine TEXT NOT NULL DEFAULT 'claude-code'",
     "ALTER TABLE claude_runs ADD COLUMN engine_actual TEXT",
+    # Make engine nullable with no default on existing Postgres deployments.
+    # These are no-ops on SQLite (ALTER COLUMN unsupported, suppressed by
+    # contextlib.suppress in init_db) and idempotent on Postgres.
+    "ALTER TABLE claude_runs ALTER COLUMN engine DROP DEFAULT",
+    "ALTER TABLE claude_runs ALTER COLUMN engine DROP NOT NULL",
 ]
 
 

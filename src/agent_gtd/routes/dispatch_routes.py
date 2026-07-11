@@ -73,7 +73,7 @@ def _run_response(row: dict[str, object]) -> RunResponse:
             else None
         ),
         error_msg=str(row.get("error_msg", "")),
-        engine=str(row.get("engine", "claude-code")),
+        engine=str(row["engine"]) if row.get("engine") else None,
         engine_actual=str(row["engine_actual"]) if row.get("engine_actual") else None,
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
@@ -109,7 +109,7 @@ def _failed_run_response(row: dict[str, object]) -> FailedRunResponse:
             else None
         ),
         error_msg=str(row.get("error_msg", "")),
-        engine=str(row.get("engine", "claude-code")),
+        engine=str(row["engine"]) if row.get("engine") else None,
         engine_actual=str(row["engine_actual"]) if row.get("engine_actual") else None,
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
@@ -147,7 +147,7 @@ def _stale_run_response(row: dict[str, object]) -> StaleRunResponse:
             else None
         ),
         error_msg=str(row.get("error_msg", "")),
-        engine=str(row.get("engine", "claude-code")),
+        engine=str(row["engine"]) if row.get("engine") else None,
         engine_actual=str(row["engine_actual"]) if row.get("engine_actual") else None,
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),

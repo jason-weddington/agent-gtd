@@ -44,7 +44,7 @@ export default function Settings() {
   const [dispatchMaxTurns, setDispatchMaxTurns] = useState<number>(100)
   const [dispatchTimeoutMinutes, setDispatchTimeoutMinutes] = useState<number>(90)
   const [dispatchManagerTimeoutMinutes, setDispatchManagerTimeoutMinutes] = useState<number>(240)
-  const [engine, setEngine] = useState<string>('claude-code')
+  const [engine, setEngine] = useState<string>('claude-code-sonnet')
   const [planAgentName, setPlanAgentName] = useState<string>('')
   const [buildAgentName, setBuildAgentName] = useState<string>('')
   const [savingDispatch, setSavingDispatch] = useState(false)
