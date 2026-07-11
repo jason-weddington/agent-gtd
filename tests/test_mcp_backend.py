@@ -791,14 +791,7 @@ async def test_local_list_items_description_snippet_short():
 
 
 async def test_local_list_items_detail_true_files_to_modify():
-    """LocalBackend detail=True includes files_to_modify when seeded.
-
-    NOTE: LocalBackend returns files_to_modify as a raw JSON string (not a
-    parsed list) because _format_item only decodes 'labels'.  HttpBackend
-    returns a parsed list via the REST layer.  This divergence is intentional
-    in _compact_item (which decodes on the fly) but surfaces in detail mode.
-    See item b770ed3d for the finding.
-    """
+    """LocalBackend detail=True includes files_to_modify as a parsed list."""
     from agent_gtd.auth import register_user
     from agent_gtd.mcp_backend import LocalBackend
 
@@ -813,10 +806,54 @@ async def test_local_list_items_detail_true_files_to_modify():
     )
     result = await lb.list_items(user.id, detail=True)
     found = next(i for i in result["items"] if i["id"] == item["id"])
-    # Field is present and non-empty (value is a raw JSON string in LocalBackend,
-    # not a parsed list — divergence vs HttpBackend noted above).
-    assert "files_to_modify" in found
-    assert found["files_to_modify"]
+    assert found["files_to_modify"] == [{"path": "b.py", "change": "y"}]
+
+
+async def test_local_get_item_json_list_fields_parsed():
+    """LocalBackend.get_item returns JSON-list fields as parsed lists."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.mcp_backend import LocalBackend
+
+    user = await register_user("lb_get_item_parity@example.com", "pass123")
+    lb = LocalBackend()
+    # create_item does NOT accept acceptance_criteria; seed via update_item
+    item = await lb.create_item(user.id, title="LB Get Item Parity", status="active")
+    await lb.update_item(
+        user.id,
+        item["id"],
+        version=1,
+        acceptance_criteria=["AC one", "AC two"],
+        files_to_modify=[{"path": "a.py", "change": "x"}],
+        scope_out=["drop this"],
+    )
+    found = await lb.get_item(user.id, item["id"])
+    assert found["acceptance_criteria"] == ["AC one", "AC two"]
+    assert found["files_to_modify"] == [{"path": "a.py", "change": "x"}]
+    assert found["scope_out"] == ["drop this"]
+
+
+async def test_local_list_items_detail_json_list_fields_parsed():
+    """LocalBackend list_items(detail=True) returns JSON-list fields as parsed lists."""
+    from agent_gtd.auth import register_user
+    from agent_gtd.mcp_backend import LocalBackend
+
+    user = await register_user("lb_detail_parity@example.com", "pass123")
+    lb = LocalBackend()
+    # create_item does NOT accept acceptance_criteria; seed via update_item
+    item = await lb.create_item(user.id, title="LB Detail Parity", status="active")
+    await lb.update_item(
+        user.id,
+        item["id"],
+        version=1,
+        acceptance_criteria=["AC one", "AC two"],
+        files_to_modify=[{"path": "a.py", "change": "x"}],
+        scope_out=["drop this"],
+    )
+    result = await lb.list_items(user.id, detail=True)
+    found = next(i for i in result["items"] if i["id"] == item["id"])
+    assert found["acceptance_criteria"] == ["AC one", "AC two"]
+    assert found["files_to_modify"] == [{"path": "a.py", "change": "x"}]
+    assert found["scope_out"] == ["drop this"]
 
 
 async def test_local_list_items_inbox_pending_count_compact():

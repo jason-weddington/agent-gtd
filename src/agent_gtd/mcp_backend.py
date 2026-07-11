@@ -682,9 +682,9 @@ class LocalBackend:
     def _format_item(
         self, row: dict[str, Any], project_map: dict[str, dict[str, Any]]
     ) -> dict[str, Any]:
-        from agent_gtd.database import decode_json_list
+        from agent_gtd.services.item_service import item_row_to_response_dict
 
-        result = {**row, "labels": decode_json_list(str(row["labels"]))}
+        result = item_row_to_response_dict(row)
         pid = row.get("project_id")
         if pid:
             entry = project_map.get(pid)
