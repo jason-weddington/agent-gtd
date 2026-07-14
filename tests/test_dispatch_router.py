@@ -480,3 +480,27 @@ async def test_targeted_host_timeout_reports_saturated() -> None:
     exc = exc_info.value
     assert len(exc.hosts_checked) == 1
     assert "saturated" in exc.hosts_checked[0]["reason"]
+
+
+@pytest.mark.parametrize(
+    ("exc", "expect"),
+    [
+        (httpx.TimeoutException("t"), "saturated"),
+        (httpx.ConnectError("c"), "connection refused"),
+        (
+            httpx.HTTPStatusError(
+                "h",
+                request=httpx.Request("GET", "http://x"),
+                response=httpx.Response(503),
+            ),
+            "HTTP 503",
+        ),
+        (httpx.RequestError("r"), "request error"),
+        (ValueError("bad json"), "invalid /info response"),
+    ],
+)
+def test_classify_info_failure_discriminates(exc, expect):
+    """Every branch of _classify_info_failure returns its discriminated reason."""
+    from agent_gtd.services.dispatch_router import _classify_info_failure
+
+    assert expect in _classify_info_failure(exc)
