@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v1.98.0 (2026-07-14)
+
+### Features
+
+- Accept build_engine on MCP add_item (thread through mcp_backend)
+  ([`0daf587`](https://github.com/jason-weddington/agent-gtd/commit/0daf587b083532b0653fa4e3e3c0e0535db10cf3))
+
+- Discriminate dispatch-router /info fetch-failure reasons
+  ([`fd9bd9e`](https://github.com/jason-weddington/agent-gtd/commit/fd9bd9efd4a4d47f4a5e6b3cf93fd8e6dcc4bb2f))
+
+### Testing
+
+- Cover all _classify_info_failure branches
+  ([`1b3180a`](https://github.com/jason-weddington/agent-gtd/commit/1b3180af5cb5f735616c31323807c983e1ddadcc))
+
+
 ## v1.97.0 (2026-07-11)
 
 ### Bug Fixes
