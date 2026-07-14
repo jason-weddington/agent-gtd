@@ -51,7 +51,7 @@ async def test_one_down_picks_responding_host() -> None:
         results = []
         for h in hosts:
             if h["url"] == HOST_A["url"]:
-                results.append(None)
+                results.append("unreachable (connection refused)")
             else:
                 results.append(INFO_ALL_UP_B)
         return results
@@ -115,7 +115,10 @@ async def test_all_incompatible_raises_no_compatible_host() -> None:
     )
 
     async def fake_gather(hosts):
-        return [None, None]
+        return [
+            "unreachable (connection refused)",
+            "unreachable (connection refused)",
+        ]
 
     with (
         patch(
@@ -130,7 +133,7 @@ async def test_all_incompatible_raises_no_compatible_host() -> None:
     exc = exc_info.value
     assert exc.engine == "claude-code"
     assert len(exc.hosts_checked) == 2
-    assert all(h["reason"] == "unreachable" for h in exc.hosts_checked)
+    assert all("connection refused" in h["reason"] for h in exc.hosts_checked)
 
 
 @pytest.mark.asyncio
@@ -204,8 +207,8 @@ async def test_fetch_host_info_success() -> None:
 
 
 @pytest.mark.asyncio
-async def test_gather_host_info_fetch_error_returns_none() -> None:
-    """_gather_host_info returns None for hosts where _fetch_host_info raises."""
+async def test_gather_host_info_fetch_error_returns_reason() -> None:
+    """_gather_host_info returns a discriminated reason str on fetch failure."""
     from agent_gtd.services.dispatch_router import _gather_host_info
 
     with patch(
@@ -214,7 +217,9 @@ async def test_gather_host_info_fetch_error_returns_none() -> None:
     ):
         results = await _gather_host_info([HOST_A])
 
-    assert results == [None]
+    assert len(results) == 1
+    assert isinstance(results[0], str)
+    assert "connection refused" in results[0]
 
 
 # ---------------------------------------------------------------------------
@@ -364,3 +369,114 @@ async def test_all_excluded_raises_no_compatible() -> None:
     exc = exc_info.value
     assert len(exc.hosts_checked) == 2
     assert all(h["reason"] == "at capacity" for h in exc.hosts_checked)
+
+
+# ---------------------------------------------------------------------------
+# /info fetch-failure discrimination tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_timeout_reports_saturated() -> None:
+    """Auto mode: a host whose /info times out reports the saturated reason."""
+    from agent_gtd.services.dispatch_router import (
+        NoCompatibleHostError,
+        pick_dispatch_host,
+    )
+
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            side_effect=httpx.TimeoutException("timed out"),
+        ),
+        pytest.raises(NoCompatibleHostError) as exc_info,
+    ):
+        await pick_dispatch_host([HOST_A], engine="claude-code", agent_name=None)
+    exc = exc_info.value
+    assert len(exc.hosts_checked) == 1
+    assert "saturated" in exc.hosts_checked[0]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_connect_error_reports_connection_refused() -> None:
+    """Auto mode: a host refusing connection reports the connection-refused reason."""
+    from agent_gtd.services.dispatch_router import (
+        NoCompatibleHostError,
+        pick_dispatch_host,
+    )
+
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            side_effect=httpx.ConnectError("connection refused"),
+        ),
+        pytest.raises(NoCompatibleHostError) as exc_info,
+    ):
+        await pick_dispatch_host([HOST_A], engine="claude-code", agent_name=None)
+    exc = exc_info.value
+    assert len(exc.hosts_checked) == 1
+    assert "connection refused" in exc.hosts_checked[0]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_mixed_failures_distinct_reasons() -> None:
+    """Mixed two-host case: timeout vs connect-refused produce distinct reasons.
+
+    Pins the ordering hazard — a saturated host must be distinguishable from a
+    down host, not collapsed into the generic 'request error' wording.
+    """
+    from agent_gtd.services.dispatch_router import (
+        NoCompatibleHostError,
+        pick_dispatch_host,
+    )
+
+    async def fake_fetch(url, timeout=5.0):
+        if url == HOST_A["url"]:
+            raise httpx.TimeoutException("timed out")
+        raise httpx.ConnectError("connection refused")
+
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            new=fake_fetch,
+        ),
+        pytest.raises(NoCompatibleHostError) as exc_info,
+    ):
+        await pick_dispatch_host(
+            [HOST_A, HOST_B], engine="claude-code", agent_name=None
+        )
+    exc = exc_info.value
+    assert len(exc.hosts_checked) == 2
+    reasons = {h["host"]: h["reason"] for h in exc.hosts_checked}
+    assert "saturated" in reasons["host-a"]
+    assert "connection refused" in reasons["host-b"]
+    # The two reasons are distinct.
+    assert reasons["host-a"] != reasons["host-b"]
+    # The timeout reason must NOT be the generic 'request error' wording.
+    assert "request error" not in reasons["host-a"]
+
+
+@pytest.mark.asyncio
+async def test_targeted_host_timeout_reports_saturated() -> None:
+    """Targeted path: a saturated/slow target reports the timeout reason."""
+    from agent_gtd.services.dispatch_router import (
+        NoCompatibleHostError,
+        pick_dispatch_host,
+    )
+
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            side_effect=httpx.TimeoutException("timed out"),
+        ),
+        pytest.raises(NoCompatibleHostError) as exc_info,
+    ):
+        await pick_dispatch_host(
+            [HOST_A, HOST_B],
+            engine="claude-code",
+            agent_name=None,
+            target_host_id="a",
+        )
+    exc = exc_info.value
+    assert len(exc.hosts_checked) == 1
+    assert "saturated" in exc.hosts_checked[0]["reason"]

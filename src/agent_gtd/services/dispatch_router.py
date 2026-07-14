@@ -104,12 +104,39 @@ async def _fetch_host_info(url: str, timeout: float = 5.0) -> dict[str, Any]:
     return data
 
 
+def _classify_info_failure(exc: Exception) -> str:
+    """Classify a caught /info-fetch exception into a discriminated skip reason.
+
+    The wording strings are a soft value; the DISCRIMINATION and the isinstance
+    branch ORDER are load-bearing. Branches are ordered most-specific-first
+    because httpx.TimeoutException and httpx.ConnectError are both subclasses
+    of httpx.RequestError (via TransportError), and httpx.HTTPStatusError
+    derives from httpx.HTTPError (NOT RequestError) — so the specific
+    TimeoutException/ConnectError/HTTPStatusError branches MUST precede the
+    generic httpx.RequestError branch, and the bare-Exception catch-all MUST be
+    strictly last. A RequestError-first ordering would silently collapse every
+    timeout and connect-refused into the generic bucket and defeat the entire
+    discrimination.
+    """
+    if isinstance(exc, httpx.TimeoutException):
+        return "no /info response within 5s (host may be at capacity / saturated)"
+    if isinstance(exc, httpx.ConnectError):
+        return "unreachable (connection refused)"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"/info returned HTTP {exc.response.status_code}"
+    if isinstance(exc, httpx.RequestError):
+        return "unreachable (request error)"
+    return "invalid /info response"
+
+
 async def _gather_host_info(
     hosts: list[dict[str, Any]],
-) -> list[dict[str, Any] | None]:
+) -> list[dict[str, Any] | str]:
     """Poll /info on all hosts concurrently. No caching — see commit message.
 
-    Returns a list parallel to hosts; entry is None if host is unreachable/errored.
+    Returns a list parallel to ``hosts``: each entry is the parsed /info dict on
+    success, or a discriminated failure-reason string (the output of
+    ``_classify_info_failure``) on error — parallel to the hosts list.
 
     The /info call is cheap (~15ms over LAN, ~200 bytes, no auth) and dispatch is
     not high-frequency. Caching here previously caused burst dispatches to pile
@@ -117,13 +144,13 @@ async def _gather_host_info(
     Real-time fetch is correct by construction.
     """
 
-    async def _get_info(host: dict[str, Any]) -> dict[str, Any] | None:
+    async def _get_info(host: dict[str, Any]) -> dict[str, Any] | str:
         url = host["url"]
         try:
             return await _fetch_host_info(url)
-        except Exception:
+        except Exception as exc:
             logger.warning("Failed to fetch /info from %s", url)
-            return None
+            return _classify_info_failure(exc)
 
     results = await asyncio.gather(*[_get_info(h) for h in hosts])
     return list(results)
@@ -186,11 +213,13 @@ async def pick_dispatch_host(
         # Fetch /info from the targeted host
         try:
             target_info: dict[str, Any] = await _fetch_host_info(target["url"])
-        except Exception:
+        except Exception as exc:
             raise NoCompatibleHostError(
                 engine=engine,
                 agent_name=agent_name,
-                hosts_checked=[{"host": host_label, "reason": "unreachable"}],
+                hosts_checked=[
+                    {"host": host_label, "reason": _classify_info_failure(exc)}
+                ],
             ) from None
 
         # Validate engine
@@ -242,8 +271,8 @@ async def pick_dispatch_host(
         if exclude_urls and host.get("url") in exclude_urls:
             skipped.append({"host": host_label, "reason": "at capacity"})
             continue
-        if info is None:
-            skipped.append({"host": host_label, "reason": "unreachable"})
+        if isinstance(info, str):
+            skipped.append({"host": host_label, "reason": info})
             continue
         engines_list: list[str] = info.get("engines", [])
         if engine not in engines_list:
