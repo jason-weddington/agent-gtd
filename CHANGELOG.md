@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.99.0 (2026-08-10)
+
+### Features
+
+- Audit-log project sharing via project_member_added/removed events
+  ([`60d893d`](https://github.com/jason-weddington/agent-gtd/commit/60d893d2f5cd733fc5b79a0be625e5ab0094c083))
+
+
 ## v1.98.0 (2026-07-14)
 
 ### Features
