@@ -659,12 +659,31 @@ async def add_project_member(
                 project_id,
             )
 
-    return {
+    result = {
         "user_id": member_user_id,
         "email": member_email_str,
         "added_at": now,
         "blockers_purged": blockers_purged,
     }
+
+    try:
+        await get_event_bus().publish(
+            db,
+            user_id=owner_user_id,
+            event_type="project_member_added",
+            entity_type="project_member",
+            entity_id=member_user_id,
+            project_id=project_id,
+            payload={
+                "project_id": project_id,
+                "member_user_id": member_user_id,
+                "member_email": member_email_str,
+            },
+        )
+    except Exception:
+        logger.exception("Failed to publish project_member_added event")
+
+    return result
 
 
 async def remove_project_member(
@@ -685,11 +704,41 @@ async def remove_project_member(
         NotFoundError: If the project doesn't exist or caller isn't owner.
     """
     await verify_project_ownership(db, project_id, owner_user_id)
+
+    # Fetch member email before deleting so we can include it in the audit event.
+    member_row = await db.fetchrow(
+        "SELECT u.email FROM project_members pm"
+        " JOIN users u ON u.id = pm.user_id"
+        " WHERE pm.project_id = $1 AND pm.user_id = $2",
+        project_id,
+        member_user_id,
+    )
+
     await db.execute(
         "DELETE FROM project_members WHERE project_id = $1 AND user_id = $2",
         project_id,
         member_user_id,
     )
+
+    # Only emit an event when we actually removed someone (not a no-op).
+    if member_row is not None:
+        member_email = str(member_row["email"])
+        try:
+            await get_event_bus().publish(
+                db,
+                user_id=owner_user_id,
+                event_type="project_member_removed",
+                entity_type="project_member",
+                entity_id=member_user_id,
+                project_id=project_id,
+                payload={
+                    "project_id": project_id,
+                    "member_user_id": member_user_id,
+                    "member_email": member_email,
+                },
+            )
+        except Exception:
+            logger.exception("Failed to publish project_member_removed event")
 
 
 async def list_project_members(
