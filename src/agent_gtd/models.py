@@ -166,6 +166,7 @@ class BuildEngine(StrEnum):
     TALOS_OPUS = "talos-opus"
     TALOS_QWEN = "talos-qwen"
     TALOS_GLM = "talos-glm"
+    TALOS_GLM_FLASH = "talos-glm-flash"
 
 
 class RolloutEventKind(StrEnum):

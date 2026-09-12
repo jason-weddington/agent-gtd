@@ -127,6 +127,7 @@ async def test_create_and_get_item(authed_backend: HttpBackend, project_id: str)
     "engine",
     [
         "talos-glm",
+        "talos-glm-flash",
         "claude-code-glm",
         "talos-sonnet",
         "kiro",

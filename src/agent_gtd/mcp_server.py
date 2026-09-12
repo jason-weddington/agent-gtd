@@ -555,6 +555,7 @@ async def add_item(
         "talos-opus",
         "talos-qwen",
         "talos-glm",
+        "talos-glm-flash",
         "",
     ]
     | None = None,
@@ -580,12 +581,13 @@ async def add_item(
             - Empty string "" → no engine set (inherits global default)
             - "claude-code" → Anthropic Claude Code
             - "claude-code-ollama" → Claude Code via local Ollama
-            - "claude-code-glm" → Claude Code driving glm-5.2 via Ollama Cloud
+            - "claude-code-glm" → Claude Code driving glm-5.3 via Ollama Cloud
             - "claude-code-sonnet" → Claude Code Sonnet model
             - "claude-code-haiku" → Claude Code Haiku model
             - "kiro" → Kiro engine
             - "talos-haiku"/"talos-sonnet"/"talos-opus"/"talos-qwen"/"talos-glm"
               → Talos engine variants
+            - "talos-glm-flash" → Talos engine via glm-5.3-flash:cloud (Ollama Cloud)
 
     Returns:
         The created item dict.
@@ -637,6 +639,7 @@ async def update_item(
         "talos-opus",
         "talos-qwen",
         "talos-glm",
+        "talos-glm-flash",
         "",
     ]
     | None = None,
@@ -671,10 +674,11 @@ async def update_item(
             - Empty string "" → clear the preference (use global default)
             - "claude-code" → Anthropic Claude Code
             - "claude-code-ollama" → Claude Code via local Ollama
-            - "claude-code-glm" → Claude Code driving glm-5.2 via Ollama Cloud
+            - "claude-code-glm" → Claude Code driving glm-5.3 via Ollama Cloud
             - "claude-code-sonnet" → Claude Code Sonnet model
             - "claude-code-haiku" → Claude Code Haiku model
             - "kiro" → Kiro engine
+            - "talos-glm-flash" → Talos engine via glm-5.3-flash:cloud (Ollama Cloud)
         acceptance_criteria: Structured acceptance criteria list (None = unchanged,
             empty list [] = clear, non-empty list = set).
         files_to_modify: Structured files-to-modify list of dicts with "path" and

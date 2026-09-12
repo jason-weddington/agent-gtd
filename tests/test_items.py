@@ -619,7 +619,9 @@ async def test_update_item_build_engine(
     assert res.json()["build_engine"] == "claude-code-ollama"
 
 
-@pytest.mark.parametrize("engine", ["claude-code-sonnet", "claude-code-haiku"])
+@pytest.mark.parametrize(
+    "engine", ["claude-code-sonnet", "claude-code-haiku", "talos-glm-flash"]
+)
 async def test_update_item_build_engine_new_tiers_accepted(
     client: AsyncClient, auth_headers: dict[str, str], engine: str
 ):
@@ -650,6 +652,7 @@ async def test_update_item_build_engine_new_tiers_accepted(
         "talos-opus",
         "talos-qwen",
         "talos-glm",
+        "talos-glm-flash",
     ],
 )
 async def test_create_item_talos_engines_accepted(
@@ -709,7 +712,14 @@ def test_item_response_carries_dispatch_consumed_fields():
 
 
 @pytest.mark.parametrize(
-    "engine", ["claude-code-sonnet", "claude-code-haiku", "claude-code-glm", "kiro"]
+    "engine",
+    [
+        "claude-code-sonnet",
+        "claude-code-haiku",
+        "claude-code-glm",
+        "kiro",
+        "talos-glm-flash",
+    ],
 )
 async def test_create_item_settings_engines_now_valid(
     client: AsyncClient, auth_headers: dict[str, str], engine: str
