@@ -46,8 +46,9 @@ service env file when one is absent. Single-user mode is the right starting poin
 fresh machine outside this homelab; everything below describes the two-user production
 setup — adapt usernames/paths accordingly.
 
-Dispatch runs on two hosts: `pironman01` and `r7-research` (`ubuntu-pi-01` was
-removed from the rotation 2026-06-10 — too slow). On
+Dispatch runs on three hosts: `pironman01`, `r7-research`, and `r7-server` (added
+2026-09-13; provisioning runbook incl. the manual steps the setup script skips:
+**`kb-01537`**). `ubuntu-pi-01` was removed from the rotation 2026-06-10 — too slow. On
 each host the dispatch API runs as user **`dispatch-svc`**, and it launches Claude
 Code as user **`dispatch`** (the two-user split). The dispatch code lives in the
 separate `agent-gtd-dispatch` repo, not here.
