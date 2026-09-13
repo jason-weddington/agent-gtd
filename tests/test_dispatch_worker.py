@@ -435,12 +435,25 @@ async def test_execute_run_build_mode_uses_worker_timeout() -> None:
         ("build", None, "claude-code-sonnet", "claude-code-sonnet"),
         # build mode: item engine "" (falsy) → fallback to global
         ("build", "", "claude-code-sonnet", "claude-code-sonnet"),
-        # plan mode: item engine is ignored → always use global
-        ("plan", "claude-code-ollama", "claude-code-sonnet", "claude-code-sonnet"),
+        # plan mode: non-talos item engine wins over global (mirrors build)
+        ("plan", "claude-code-ollama", "claude-code-sonnet", "claude-code-ollama"),
+        ("plan", "claude-code-sonnet", "claude-code", "claude-code-sonnet"),
+        ("plan", "claude-code-glm", "claude-code", "claude-code-glm"),
+        # plan mode: item engine None → fallback to global
+        ("plan", None, "claude-code-sonnet", "claude-code-sonnet"),
+        # plan mode: item engine "" (falsy) → fallback to global
+        ("plan", "", "claude-code-sonnet", "claude-code-sonnet"),
+        # plan mode: talos item engine is NOT honored (build-only) → global fallback
+        ("plan", "talos-glm", "claude-code-sonnet", "claude-code-sonnet"),
+        ("plan", "talos-glm-flash", "claude-code-sonnet", "claude-code-sonnet"),
+        # build mode: talos item engine IS honored (build-only path)
+        ("build", "talos-glm", "claude-code-sonnet", "talos-glm"),
         # manage mode: MUST pin to MANAGE_ENGINE (claude-code / Opus) even when
         # the global is sonnet and the item has a different engine — this case
         # proves the sonnet global does NOT downgrade the manager.
         ("manage", "claude-code-ollama", "claude-code-sonnet", "claude-code"),
+        # manage mode: item engine ignored regardless of value
+        ("manage", "claude-code-sonnet", "claude-code-sonnet", "claude-code"),
         # manage mode with None global: must still return MANAGE_ENGINE without raising
         ("manage", None, None, "claude-code"),
     ],
@@ -466,12 +479,34 @@ def test_resolve_engine_raises_on_unset_global_plan() -> None:
         resolve_engine("plan", "claude-code-ollama", None)
 
 
+def test_resolve_engine_raises_on_unset_global_plan_non_talos() -> None:
+    """Even a usable (non-talos) item engine doesn't bypass the unset-global check.
+
+    The unset-global guard runs before any item-engine return, so plan mode
+    still raises when the global is unset — regardless of whether the item's
+    build_engine would otherwise be honored.
+    """
+    with pytest.raises(ValueError, match=r"dispatch\.engine global setting is unset"):
+        resolve_engine("plan", "claude-code-sonnet", None)
+
+
 def test_resolve_engine_manage_never_raises_on_unset_global() -> None:
     """resolve_engine manage mode returns MANAGE_ENGINE even when global is None."""
     from agent_gtd.dispatch_worker import MANAGE_ENGINE
 
     result = resolve_engine("manage", None, None)
     assert result == MANAGE_ENGINE == "claude-code"
+
+
+def test_talos_engines_matches_enum_members_starting_with_talos_prefix() -> None:
+    """TALOS_ENGINES is exactly the BuildEngine values starting with 'talos-'."""
+    from agent_gtd.models import TALOS_ENGINES, BuildEngine
+
+    expected = {
+        member.value for member in BuildEngine if member.value.startswith("talos-")
+    }
+    assert frozenset(expected) == TALOS_ENGINES
+    assert TALOS_ENGINES  # non-empty sanity check
 
 
 # ---------------------------------------------------------------------------

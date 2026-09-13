@@ -576,7 +576,9 @@ async def add_item(
         labels: Optional list of labels/tags.
         project_id: Optional project to assign to. Ignored for inbox items.
         due_date: Optional due date in YYYY-MM-DD format. Default: None (no due date).
-        build_engine: Optional build engine preference (build-mode dispatch only).
+        build_engine: Optional build engine preference (applies to build- and
+            plan-mode dispatch; talos-* engines apply to build mode only —
+            a plan dispatch on a talos-* item falls back to the global engine).
             - None (default) → no engine set (inherits global default)
             - Empty string "" → no engine set (inherits global default)
             - "claude-code" → Anthropic Claude Code
@@ -586,8 +588,9 @@ async def add_item(
             - "claude-code-haiku" → Claude Code Haiku model
             - "kiro" → Kiro engine
             - "talos-haiku"/"talos-sonnet"/"talos-opus"/"talos-qwen"/"talos-glm"
-              → Talos engine variants
-            - "talos-glm-flash" → Talos engine via glm-5.3-flash:cloud (Ollama Cloud)
+              → Talos engine variants (build mode only)
+            - "talos-glm-flash" → Talos engine via glm-5.3-flash:cloud (Ollama
+              Cloud) (build mode only)
 
     Returns:
         The created item dict.
@@ -669,7 +672,9 @@ async def update_item(
             - None (default) → unchanged
             - Empty string "" → clear the due date
             - Non-empty string → set to that date
-        build_engine: New build engine preference (build-mode dispatch only).
+        build_engine: New build engine preference (applies to build- and
+            plan-mode dispatch; talos-* engines apply to build mode only —
+            a plan dispatch on a talos-* item falls back to the global engine).
             - None (default) → unchanged
             - Empty string "" → clear the preference (use global default)
             - "claude-code" → Anthropic Claude Code
@@ -678,7 +683,8 @@ async def update_item(
             - "claude-code-sonnet" → Claude Code Sonnet model
             - "claude-code-haiku" → Claude Code Haiku model
             - "kiro" → Kiro engine
-            - "talos-glm-flash" → Talos engine via glm-5.3-flash:cloud (Ollama Cloud)
+            - "talos-glm-flash" → Talos engine via glm-5.3-flash:cloud (Ollama
+              Cloud) (build mode only)
         acceptance_criteria: Structured acceptance criteria list (None = unchanged,
             empty list [] = clear, non-empty list = set).
         files_to_modify: Structured files-to-modify list of dicts with "path" and

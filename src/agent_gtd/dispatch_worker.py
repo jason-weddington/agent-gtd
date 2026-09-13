@@ -19,7 +19,7 @@ from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 from agent_gtd.auth import create_token
 from agent_gtd.exceptions import HostFullError
 from agent_gtd.identity import compute_run_attribution
-from agent_gtd.models import LocalRunStatus
+from agent_gtd.models import TALOS_ENGINES, LocalRunStatus
 from agent_gtd.util.tasks import supervise_task
 
 logger = logging.getLogger(__name__)
@@ -119,11 +119,20 @@ def resolve_engine(
     Resolution order:
         manage → always MANAGE_ENGINE (Opus / claude-code), ignores the global
         build   → item.build_engine if set, else global
-        plan    → global
+        plan    → item.build_engine if set and NOT a talos-* engine, else global
+
+    Plan honors the item's build engine, same as build, with one exception:
+    talos engines are build-mode only (talos has no GTD/MCP access and the
+    dispatch worker commits + pushes its own output — a plan run handed a
+    talos engine would try to build and commit code instead of writing a
+    spec). So when the item's build_engine is a talos engine (see
+    ``TALOS_ENGINES``), plan falls back to the global engine instead.
 
     The global engine must be explicitly set for build and plan modes.  An unset
     global raises ``ValueError`` rather than silently falling back to a hardcoded
-    literal, making misconfiguration loud.
+    literal, making misconfiguration loud — this check runs before any
+    item-engine return, so an unset global still raises even when the item has
+    a usable (non-talos) build_engine.
 
     Args:
         mode: Dispatch mode ("build", "plan", or "manage").
@@ -146,6 +155,8 @@ def resolve_engine(
             " engine in Settings before dispatching"
         )
     if mode == "build" and item_build_engine:
+        return item_build_engine
+    if mode == "plan" and item_build_engine and item_build_engine not in TALOS_ENGINES:
         return item_build_engine
     return global_engine
 

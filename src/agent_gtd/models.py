@@ -159,14 +159,26 @@ class BuildEngine(StrEnum):
     CLAUDE_CODE_HAIKU = "claude-code-haiku"
     KIRO = "kiro"
     # Talos engine family (dispatched via the agent-gtd-dispatch talos.py
-    # subprocess path; see kb-* + item 2f79463d). BUILD-mode only — plan/manage
-    # dispatches swap talos-* to claude-code at the dispatch worker.
+    # subprocess path; see kb-* + item 2f79463d). BUILD-mode only: talos has no
+    # GTD/MCP access, so a plan dispatch on an item with a talos build_engine
+    # falls back to the global dispatch engine at the dispatch worker instead of
+    # attempting to run talos in plan mode. Manage-mode stays pinned to
+    # MANAGE_ENGINE regardless of item build_engine.
     TALOS_HAIKU = "talos-haiku"
     TALOS_SONNET = "talos-sonnet"
     TALOS_OPUS = "talos-opus"
     TALOS_QWEN = "talos-qwen"
     TALOS_GLM = "talos-glm"
     TALOS_GLM_FLASH = "talos-glm-flash"
+
+
+TALOS_ENGINES: frozenset[str] = frozenset(
+    member.value for member in BuildEngine if member.value.startswith("talos-")
+)
+"""Build engines that are build-mode only (see `BuildEngine` docstring above).
+
+Derived from the enum so a future `talos-*` member is automatically included.
+"""
 
 
 class RolloutEventKind(StrEnum):
