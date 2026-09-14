@@ -53,6 +53,12 @@ each host the dispatch API runs as user **`dispatch-svc`**, and it launches Clau
 Code as user **`dispatch`** (the two-user split). The dispatch code lives in the
 separate `agent-gtd-dispatch` repo, not here.
 
+**Dispatched agents are unprivileged and cannot install tooling.** Any tool a
+dispatched repo's hooks or gate needs (lefthook, pre-commit, cargo tools, gitleaks,
+…) is provisioned per host by `agent-gtd-dispatch/setup-dispatch-host.sh` and refreshed
+by its `deploy.sh`. Never design a fix that has the agent, a prompt, or a per-repo
+script install software at run time.
+
 **Canonical env file is `/home/dispatch-svc/.env`** — it is the systemd
 `EnvironmentFile` (read by the running service) *and* the file `setup-dispatch-host.sh`
 reads at provision time to inject KB secrets into the agent's MCP config.
