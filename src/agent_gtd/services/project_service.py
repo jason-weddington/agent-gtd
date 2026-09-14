@@ -279,7 +279,11 @@ async def create_project(
         kb_project_ref: Optional KB project reference.
         repo_mode: Repository mode — 'monorepo' (default) or 'workspace'.
         workspace_repos: Ordered list of git clone URLs for workspace mode.
-        gate_command: Optional shell command for quality gate (runs from repo root).
+        gate_command: Optional shell command that is the project's quality
+            gate, run from the repo root (the workspace root for workspace
+            projects); exit 0 = green. Dispatch runs it after each build run
+            that pushes a branch and marks the run failed if it exits
+            non-zero.
 
     Returns:
         The created project row as a dict (workspace_repos decoded to list[str]).

@@ -432,7 +432,7 @@ export default function ProjectEditDialog({
           size="small"
           margin="normal"
           fullWidth
-          helperText="Shell command that is the repo's quality gate (runs from repo root; exit 0 = green)"
+          helperText="Shell command that is the project's quality gate, run from the repo root (the workspace root for workspace projects); exit 0 = green. Dispatch runs it after each build run that pushes a branch and marks the run failed if it exits non-zero."
         />
       </DialogContent>
       <DialogActions>

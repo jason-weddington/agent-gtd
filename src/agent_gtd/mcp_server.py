@@ -251,8 +251,11 @@ async def add_project(
             mode dispatches. None = use server default.
         build_dispatch_agent: Optional override for the agent name used in
             build mode dispatches. None = use server default.
-        gate_command: Shell command that is the repo's quality gate
-            (runs from repo root; exit 0 = green). None = not set.
+        gate_command: Shell command that is the project's quality gate, run
+            from the repo root (the workspace root for workspace projects);
+            exit 0 = green. Dispatch runs it after each build run that
+            pushes a branch and marks the run failed if it exits non-zero.
+            None = not set.
 
     Returns:
         The created project dict.
@@ -358,8 +361,11 @@ async def update_project(
             None = unchanged.
         clear_build_dispatch_agent: Set True to reset build_dispatch_agent to
             NULL. Mutually exclusive with build_dispatch_agent.
-        gate_command: Shell command that is the repo's quality gate
-            (runs from repo root; exit 0 = green). None = unchanged.
+        gate_command: Shell command that is the project's quality gate, run
+            from the repo root (the workspace root for workspace projects);
+            exit 0 = green. Dispatch runs it after each build run that
+            pushes a branch and marks the run failed if it exits non-zero.
+            None = unchanged.
         clear_gate_command: Set True to reset gate_command to NULL.
             Mutually exclusive with gate_command.
 

@@ -132,8 +132,10 @@ def _register_add_project(subparsers: argparse._SubParsersAction[Any]) -> None:
         default=None,
         dest="gate_command",
         help=(
-            "Shell command that is the repo's quality gate"
-            " (runs from repo root; exit 0 = green)."
+            "Shell command that is the project's quality gate, run from the"
+            " repo root (the workspace root for workspace projects); exit 0"
+            " = green. Dispatch runs it after each build run that pushes a"
+            " branch and marks the run failed if it exits non-zero."
         ),
     )
     parser.set_defaults(func=_cmd_add_project)
@@ -231,8 +233,10 @@ def _register_update_project(subparsers: argparse._SubParsersAction[Any]) -> Non
         default=None,
         dest="gate_command",
         help=(
-            "Shell command that is the repo's quality gate"
-            " (runs from repo root; exit 0 = green)."
+            "Shell command that is the project's quality gate, run from the"
+            " repo root (the workspace root for workspace projects); exit 0"
+            " = green. Dispatch runs it after each build run that pushes a"
+            " branch and marks the run failed if it exits non-zero."
         ),
     )
     grp_gate.add_argument(
