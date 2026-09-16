@@ -71,14 +71,25 @@ to edit `agent-gtd-dispatch/templates/mcp-servers.sh` and re-register (setup scr
 `claude mcp add --scope user`), not to hand-jq the JSON. The four registered servers:
 `agent-gtd`, `personal-kb`, `team-kb`, `aws-documentation-mcp-server`.
 
-Both KB servers carry `ANTHROPIC_API_KEY` in their *per-server* MCP `env` block (they
-make their own LLM calls); it is injected from `KB_ANTHROPIC_API_KEY` in
-`/home/dispatch-svc/.env` and must **never** reach the agent's own process env, or
-Claude Code billing flips off the Max subscription (`kb-01512`). `team-kb` also carries
-its own `KB_DATABASE_URL` (team DB) + `KB_INSTANCE_ROLE=team`/`KB_TEAM=grit-mile`/
-`KB_CONTRIBUTOR=jason`; `personal-kb` inherits the personal `KB_DATABASE_URL` via the
-worker passthrough. How env crosses the `dispatch-svc → dispatch` sudo boundary:
+**Both KB servers are thin clients of the hosted KB web services** (as of 2026-09-16 —
+the old DB-direct mode is retired and its config makes the servers refuse to start).
+Each carries `PERSONAL_KB_URL` + `PERSONAL_KB_API_KEY` in its *per-server* MCP `env`
+block: `personal-kb` → `https://kb.lab.jasonweddington.com` (plus `KB_CONTRIBUTOR=jason`,
+`KB_AUTO_EXPLORE=FALSE`), `team-kb` → `https://team-kb.lab.jasonweddington.com` (plus
+`KB_TEAM=grit-mile`, `KB_INSTANCE_ROLE=team`). Both services are LAN-only. The values
+live in `/home/dispatch-svc/.env` as `PERSONAL_KB_URL` / `PERSONAL_KB_API_KEY` /
+`TEAM_KB_URL` / `TEAM_KB_API_KEY` for the setup script to inject. `KB_ANTHROPIC_API_KEY`
+and `KB_DATABASE_URL` no longer drive the KB servers; an `ANTHROPIC_API_KEY` must still
+**never** reach the agent's own process env, or Claude Code billing flips off the Max
+subscription (`kb-01512`). How env crosses the `dispatch-svc → dispatch` sudo boundary:
 **`kb-01583`**.
+
+**Verify an MCP server by driving it, not by `claude mcp list`** — that command reports
+every server as failed when run from a shell whose cwd or PATH differs from the agent's,
+which has caused a real misdiagnosis. Pipe an `initialize` request into the registered
+command as the agent user instead. A cold first launch builds the package from git
+(minutes on the Pi), so pre-warm `~/.cache/uv` on a new host or the first run sees the
+server time out.
 
 **Workspace (multi-repo) projects.** GTD projects have a `repo_mode`
 (`monorepo` | `workspace`). Workspace projects carry a `workspace_repos` list
