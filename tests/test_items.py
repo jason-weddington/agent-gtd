@@ -1,9 +1,13 @@
 """Tests for items CRUD API."""
 
+import json
+import logging
 import uuid
 
 import pytest
 from httpx import AsyncClient
+
+_PLAN_RUN_ID = "11111111-2222-3333-4444-555555555555"
 
 
 async def test_create_item(client: AsyncClient, auth_headers: dict[str, str]):
@@ -763,6 +767,244 @@ async def test_clear_item_build_engine(
     )
     assert res.status_code == 200
     assert res.json()["build_engine"] is None
+
+
+# --- plan-mode build_engine override guard ---
+
+
+def _run_headers(uid: str, mode: str, run_id: str = _PLAN_RUN_ID) -> dict[str, str]:
+    """Authorization header for a run-scoped callback token."""
+    from agent_gtd.auth import create_token
+
+    token = create_token(uid, run_id=run_id, run_mode=mode)
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def _make_item(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    project_id: str,
+    engine: str | None,
+) -> dict:
+    body: dict = {"title": "ORIGINAL", "project_id": project_id}
+    if engine is not None:
+        body["build_engine"] = engine
+    res = await client.post("/api/items", json=body, headers=auth_headers)
+    assert res.status_code == 201
+    return res.json()
+
+
+async def test_local_mode_patch_without_auth_header_succeeds(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+):
+    """The optional run-context scheme must never reject a credential-less request.
+
+    Local single-user mode (main.py overrides get_current_user with get_local_user)
+    sends no Authorization header at all.
+    """
+    from agent_gtd.auth import get_current_user
+    from agent_gtd.database import get_db, row_to_dict
+    from agent_gtd.main import app
+    from agent_gtd.models import User
+
+    create = await client.post("/api/items", json={"title": "T"}, headers=auth_headers)
+    assert create.status_code == 201
+    item = create.json()
+
+    db = await get_db()
+    row = await db.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
+    assert row is not None
+    user = User(**row_to_dict(row))
+
+    async def _override() -> User:
+        return user
+
+    app.dependency_overrides[get_current_user] = _override
+    try:
+        res = await client.patch(
+            f"/api/items/{item['id']}",
+            json={"title": "local-mode-edit", "version": item["version"]},
+        )
+        assert res.status_code == 200
+        assert res.json()["title"] == "local-mode-edit"
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+async def test_plan_run_cannot_override_existing_build_engine(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str, user_id: str
+):
+    """A plan-mode run PATCHing build_engine on an already-set item gets 403."""
+    item = await _make_item(client, auth_headers, project_id, "claude-code-sonnet")
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={
+            "title": "CHANGED",
+            "build_engine": "claude-code",
+            "version": item["version"],
+        },
+        headers=_run_headers(user_id, "plan"),
+    )
+    assert res.status_code == 403
+    assert "may not change build_engine" in res.json()["detail"]
+
+    after = await client.get(f"/api/items/{item['id']}", headers=auth_headers)
+    assert after.status_code == 200
+    data = after.json()
+    assert data["build_engine"] == "claude-code-sonnet"
+    assert data["title"] == "ORIGINAL"
+    assert data["version"] == item["version"]
+
+
+async def test_plan_run_override_block_logs_warning(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    project_id: str,
+    user_id: str,
+    caplog,
+):
+    """The blocked branch emits exactly one WARNING naming both engines."""
+    item = await _make_item(client, auth_headers, project_id, "claude-code-sonnet")
+    with caplog.at_level(logging.WARNING, logger="agent_gtd.services.item_service"):
+        res = await client.patch(
+            f"/api/items/{item['id']}",
+            json={
+                "title": "CHANGED",
+                "build_engine": "claude-code",
+                "version": item["version"],
+            },
+            headers=_run_headers(user_id, "plan"),
+        )
+    assert res.status_code == 403
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and r.name == "agent_gtd.services.item_service"
+    ]
+    assert len(warnings) == 1
+    msg = warnings[0].getMessage()
+    assert item["id"] in msg
+    assert "claude-code-sonnet" in msg
+    assert "claude-code" in msg
+
+
+async def test_plan_run_override_block_publishes_event(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str, user_id: str
+):
+    """The blocked branch records an item_engine_override_blocked event."""
+    from agent_gtd.database import get_db
+
+    item = await _make_item(client, auth_headers, project_id, "claude-code-sonnet")
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"build_engine": "claude-code", "version": item["version"]},
+        headers=_run_headers(user_id, "plan"),
+    )
+    assert res.status_code == 403
+
+    db = await get_db()
+    rows = await db.fetch(
+        "SELECT * FROM events WHERE event_type = 'item_engine_override_blocked'"
+    )
+    assert len(rows) == 1
+    payload = json.loads(str(rows[0]["payload"]))
+    assert payload["run_id"] == _PLAN_RUN_ID
+    assert payload["current_engine"] == "claude-code-sonnet"
+    assert payload["attempted_engine"] == "claude-code"
+
+
+async def test_plan_run_clearing_build_engine_is_blocked(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str, user_id: str
+):
+    """build_engine=null from a plan run is rejected, rendering 'attempted: null'."""
+    item = await _make_item(client, auth_headers, project_id, "claude-code-sonnet")
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"build_engine": None, "version": item["version"]},
+        headers=_run_headers(user_id, "plan"),
+    )
+    assert res.status_code == 403
+    assert "attempted: null" in res.json()["detail"]
+
+
+async def test_plan_run_empty_string_build_engine_is_422(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str, user_id: str
+):
+    """An empty-string build_engine fails request validation before the guard."""
+    item = await _make_item(client, auth_headers, project_id, "claude-code-sonnet")
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"build_engine": "", "version": item["version"]},
+        headers=_run_headers(user_id, "plan"),
+    )
+    assert res.status_code == 422
+
+
+async def test_plan_run_may_set_build_engine_when_unset(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str, user_id: str
+):
+    """A plan run may still SET an engine on an item that has none."""
+    item = await _make_item(client, auth_headers, project_id, None)
+    assert item["build_engine"] is None
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"build_engine": "claude-code", "version": item["version"]},
+        headers=_run_headers(user_id, "plan"),
+    )
+    assert res.status_code == 200
+    assert res.json()["build_engine"] == "claude-code"
+
+
+async def test_plan_run_idempotent_rewrite_is_allowed(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str, user_id: str
+):
+    """Re-writing the same engine is a no-op and the rest of the body applies."""
+    item = await _make_item(client, auth_headers, project_id, "claude-code-sonnet")
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={
+            "title": "CHANGED",
+            "build_engine": "claude-code-sonnet",
+            "version": item["version"],
+        },
+        headers=_run_headers(user_id, "plan"),
+    )
+    assert res.status_code == 200
+    assert res.json()["build_engine"] == "claude-code-sonnet"
+    assert res.json()["title"] == "CHANGED"
+
+
+@pytest.mark.parametrize("mode", ["build", "manage"])
+async def test_non_plan_runs_may_change_build_engine(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    project_id: str,
+    user_id: str,
+    mode: str,
+):
+    """The guard keys strictly on plan mode — build and manage runs are unaffected."""
+    item = await _make_item(client, auth_headers, project_id, "claude-code-sonnet")
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"build_engine": "claude-code", "version": item["version"]},
+        headers=_run_headers(user_id, mode),
+    )
+    assert res.status_code == 200
+    assert res.json()["build_engine"] == "claude-code"
+
+
+async def test_human_jwt_may_change_build_engine(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """The lead's own (claimless) JWT keeps full control of build_engine."""
+    item = await _make_item(client, auth_headers, project_id, "claude-code-sonnet")
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"build_engine": "claude-code", "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["build_engine"] == "claude-code"
 
 
 async def test_update_item_invalid_build_engine(

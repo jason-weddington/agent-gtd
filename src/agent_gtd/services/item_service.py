@@ -19,6 +19,7 @@ from agent_gtd.exceptions import (
     AlreadyClaimedError,
     BlockersUnresolvedError,
     NotFoundError,
+    PlanEngineOverrideError,
     RolloutItemLockedError,
     ValidationError,
     VersionConflictError,
@@ -217,6 +218,8 @@ async def update_item(
     files_to_modify: list[dict[str, Any]] | None = None,
     scope_out: list[str] | None = None,
     version: int | None = None,
+    actor_run_id: str | None = None,
+    actor_run_mode: str | None = None,
 ) -> dict[str, Any]:
     """Update an item. Only non-None fields are changed.
 
@@ -246,6 +249,8 @@ async def update_item(
         scope_out: New scope-out list (None = unchanged, empty list = clear).
         version: If provided, enforces optimistic locking — update fails
             if the current DB version doesn't match.
+        actor_run_id: ID of the dispatch run making this call, if any.
+        actor_run_mode: Mode of the dispatch run making this call, if any.
 
     Raises:
         NotFoundError: If the item doesn't exist or isn't owned by user.
@@ -255,6 +260,8 @@ async def update_item(
         RolloutItemLockedError: If project_id_set is True and the item is
             locked by an active rollout. Move is refused while locked; caller
             must wait for the rollout to complete or cancel it.
+        PlanEngineOverrideError: If a plan-mode run tries to change a
+            build_engine that is already set on the item.
     """
     if (
         build_engine_set
@@ -266,6 +273,60 @@ async def update_item(
         )
 
     existing = await get_item(db, user_id, item_id)
+
+    if build_engine_set:
+        current = str(existing["build_engine"]) if existing.get("build_engine") else ""
+        attempted = str(build_engine) if build_engine is not None else None
+        blocked = actor_run_mode == "plan" and current != "" and attempted != current
+        if blocked:
+            decision = "blocked-plan-override"
+        elif actor_run_mode == "plan" and current == "":
+            decision = "allowed-set-on-unset"
+        elif actor_run_mode == "plan":
+            decision = "allowed-noop"
+        else:
+            decision = "allowed-non-plan"
+        logger.info(
+            "build_engine write item=%s run=%s mode=%s current=%s "
+            "attempted=%s decision=%s",
+            item_id,
+            actor_run_id or "-",
+            actor_run_mode or "-",
+            current or "-",
+            attempted or "-",
+            decision,
+        )
+        if blocked:
+            logger.warning(
+                "build_engine write item=%s run=%s mode=%s current=%s "
+                "attempted=%s decision=%s",
+                item_id,
+                actor_run_id or "-",
+                actor_run_mode or "-",
+                current or "-",
+                attempted or "-",
+                decision,
+            )
+            await best_effort_publish(
+                get_event_bus(),
+                db,
+                user_id=user_id,
+                event_type="item_engine_override_blocked",
+                entity_type="item",
+                entity_id=item_id,
+                project_id=str(existing["project_id"])
+                if existing["project_id"]
+                else None,
+                payload={
+                    "item_id": item_id,
+                    "run_id": actor_run_id,
+                    "run_mode": actor_run_mode,
+                    "current_engine": current,
+                    "attempted_engine": attempted,
+                },
+                context={"item_id": item_id, "run_id": actor_run_id or ""},
+            )
+            raise PlanEngineOverrideError(item_id, current, attempted)
 
     # Optimistic locking
     if version is not None:

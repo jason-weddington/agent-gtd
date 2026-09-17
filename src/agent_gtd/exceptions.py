@@ -92,6 +92,22 @@ class RolloutItemLockedError(AgentGTDError):
         )
 
 
+class PlanEngineOverrideError(AgentGTDError):
+    """A plan-mode run tried to change an item's already-set build_engine."""
+
+    def __init__(self, item_id: str, current: str, attempted: str | None) -> None:
+        """Initialize with the item ID and the current/attempted engines."""
+        self.item_id = item_id
+        self.current = current
+        self.attempted = attempted
+        super().__init__(
+            f"Plan-mode run may not change build_engine on item {item_id} "
+            f"(current: {current}, attempted: "
+            f"{attempted if attempted is not None else 'null'}) — "
+            "put the engine recommendation in your groom comment instead."
+        )
+
+
 # Backward-compatible alias (remove after all consumers updated)
 WaveItemLockedError = RolloutItemLockedError
 

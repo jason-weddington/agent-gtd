@@ -782,7 +782,13 @@ async def execute_run(
                     agent_name=agent_name,
                     attribution=attribution,
                     timeout_minutes=effective_timeout_minutes,
-                    callback_token=create_token(user_id),
+                    callback_token=create_token(user_id, run_id=run_id, run_mode=mode),
+                )
+                logger.info(
+                    "minted run-scoped callback token run=%s mode=%s host=%s",
+                    run_id,
+                    mode,
+                    dispatch_url,
                 )
                 remote_run_id = remote_run.id
                 break  # success — exit retry loop

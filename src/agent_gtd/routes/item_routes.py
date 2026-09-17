@@ -6,12 +6,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
-from agent_gtd.auth import get_current_user
+from agent_gtd.auth import RunTokenContext, get_current_user, get_run_context
 from agent_gtd.database import decode_file_specs, decode_json_list, get_db
 from agent_gtd.exceptions import (
     AlreadyClaimedError,
     BlockersUnresolvedError,
     NotFoundError,
+    PlanEngineOverrideError,
     RolloutItemLockedError,
     ValidationError,
     VersionConflictError,
@@ -192,6 +193,7 @@ async def update_item(
     item_id: str,
     body: UpdateItemRequest,
     user: Annotated[User, Depends(get_current_user)],
+    run_ctx: Annotated[RunTokenContext | None, Depends(get_run_context)],
 ) -> ItemResponse | Response:
     """Update an existing item."""
     db = await get_db()
@@ -218,6 +220,8 @@ async def update_item(
             files_to_modify=body.files_to_modify,
             scope_out=body.scope_out,
             version=body.version,
+            actor_run_id=run_ctx.run_id if run_ctx else None,
+            actor_run_mode=run_ctx.mode if run_ctx else None,
         )
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.detail) from None
@@ -232,6 +236,8 @@ async def update_item(
         raise HTTPException(status_code=409, detail=e.detail) from None
     except RolloutItemLockedError as e:
         raise HTTPException(status_code=409, detail=e.detail) from None
+    except PlanEngineOverrideError as e:
+        raise HTTPException(status_code=403, detail=e.detail) from None
     return _item_response(row)
 
 

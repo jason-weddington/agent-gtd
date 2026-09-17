@@ -1264,6 +1264,79 @@ async def test_dispatch_to_remote_includes_callback_token() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("run_mode", ["plan", "build"])
+async def test_dispatch_to_remote_callback_token_carries_run_claims(
+    run_mode: str,
+) -> None:
+    """A run-scoped callback token POSTs its run_id/run_mode claims intact.
+
+    This is the producer end of the claim seam the GTD server's
+    ``get_run_context`` dependency consumes.
+    """
+    import jwt
+
+    import agent_gtd.auth
+    from agent_gtd.auth import create_token
+    from agent_gtd.dispatch_worker import _dispatch_to_remote
+
+    user_id = "user-cb-2"
+    token = create_token(user_id, run_id="run-plan-1", run_mode=run_mode)
+
+    remote_run_body = {
+        "id": "remote-cb-3",
+        "item_id": None,
+        "project_name": "test-project",
+        "branch_name": None,
+        "engine": "claude-code",
+        "agent_name": None,
+        "mode": run_mode,
+        "rollout_id": None,
+        "status": "pending",
+        "started_at": None,
+        "completed_at": None,
+        "exit_code": None,
+        "error": None,
+        "created_at": "2026-01-01T00:00:00Z",
+    }
+
+    posted_json: list[dict] = []
+
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = remote_run_body
+
+    async def fake_post(
+        url: str, *, json: dict, headers: dict, timeout: float
+    ) -> object:
+        posted_json.append(json)
+        return mock_response
+
+    mock_client = MagicMock()
+    mock_client.post = fake_post
+
+    await _dispatch_to_remote(
+        mock_client,
+        "item-cb-2",
+        50,
+        run_mode,
+        url="http://dispatch-host",
+        api_key="test-key",
+        engine="claude-code-sonnet",
+        callback_token=token,
+    )
+
+    assert len(posted_json) == 1, "Expected exactly one POST"
+    body = posted_json[0]
+    payload = jwt.decode(
+        body["callback_token"],
+        agent_gtd.auth.SECRET_KEY,
+        algorithms=[agent_gtd.auth.ALGORITHM],
+    )
+    assert payload["run_id"] == "run-plan-1"
+    assert payload["run_mode"] == run_mode
+
+
+@pytest.mark.asyncio
 async def test_dispatch_to_remote_none_callback_token_omits_key() -> None:
     """When callback_token=None, model_dump(exclude_none=True) must omit the key.
 

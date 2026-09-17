@@ -1,9 +1,11 @@
 """Authentication utilities: password hashing, JWT, API keys, and FastAPI dependency."""
 
 import hashlib
+import logging
 import os
 import secrets
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -20,11 +22,22 @@ from agent_gtd.database import (
 )
 from agent_gtd.models import User
 
+logger = logging.getLogger(__name__)
+
 SECRET_KEY = os.environ.get("JWT_SECRET", "dev-secret-change-me")
 ALGORITHM = "HS256"
 TOKEN_EXPIRY_HOURS = 72
 
 _bearer = HTTPBearer()
+_bearer_optional = HTTPBearer(auto_error=False)
+
+
+@dataclass(frozen=True)
+class RunTokenContext:
+    """Identity of the dispatch run that minted the calling token."""
+
+    run_id: str
+    mode: str
 
 
 def generate_api_key() -> str:
@@ -47,14 +60,59 @@ def verify_password(password: str, hashed: str) -> bool:
     return _bcrypt.checkpw(password.encode(), hashed.encode())
 
 
-def create_token(user_id: str) -> str:
-    """Create a JWT token for the given user ID."""
-    payload = {
+def create_token(
+    user_id: str,
+    *,
+    run_id: str | None = None,
+    run_mode: str | None = None,
+) -> str:
+    """Create a JWT token for the given user ID.
+
+    Args:
+        user_id: Subject of the token.
+        run_id: Optional dispatch run ID to embed as a ``run_id`` claim.
+        run_mode: Optional dispatch run mode to embed as a ``run_mode`` claim.
+
+    Both ``run_id`` and ``run_mode`` must be non-empty for the claims to be
+    written; otherwise neither is included and the payload is unchanged.
+    """
+    payload: dict[str, object] = {
         "sub": user_id,
         "exp": datetime.now(UTC) + timedelta(hours=TOKEN_EXPIRY_HOURS),
         "iat": datetime.now(UTC),
     }
+    if run_id and run_mode:
+        payload["run_id"] = run_id
+        payload["run_mode"] = run_mode
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+async def get_run_context(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(_bearer_optional)
+    ],
+) -> RunTokenContext | None:
+    """FastAPI dependency: extract the run identity from a callback JWT.
+
+    Returns ``None`` — never raises — for every request that is not carrying a
+    valid run-scoped JWT: no credentials at all, a static API key, a JWT with
+    no run claims, or an expired/invalid JWT.
+    """
+    if credentials is None:
+        return None
+    token = credentials.credentials
+    if token.startswith("agtd_"):
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.InvalidTokenError as exc:
+        logger.debug("run-context decode failed: %s", exc.__class__.__name__)
+        return None
+    run_id = payload.get("run_id")
+    run_mode = payload.get("run_mode")
+    if not run_id or not run_mode:
+        return None
+    return RunTokenContext(run_id=str(run_id), mode=str(run_mode))
 
 
 def decode_token(token: str) -> str:

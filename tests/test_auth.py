@@ -4,6 +4,7 @@ import time
 
 import jwt as pyjwt
 import pytest
+from fastapi.security import HTTPAuthorizationCredentials
 from httpx import AsyncClient
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -11,9 +12,11 @@ from hypothesis import strategies as st
 from agent_gtd.auth import (
     ALGORITHM,
     SECRET_KEY,
+    RunTokenContext,
     create_token,
     decode_token,
     generate_api_key,
+    get_run_context,
     hash_api_key,
     hash_password,
     verify_password,
@@ -57,6 +60,73 @@ def test_decode_invalid_token():
     with pytest.raises(Exception) as exc_info:
         decode_token("garbage.token.here")
     assert exc_info.value.status_code == 401  # type: ignore[union-attr]
+
+
+# --- Run-scoped callback token claims ---
+
+
+def _creds(token: str) -> HTTPAuthorizationCredentials:
+    return HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+
+def test_create_token_embeds_run_claims():
+    token = create_token("user-9", run_id="run-abc", run_mode="plan")
+    payload = pyjwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    assert payload["run_id"] == "run-abc"
+    assert payload["run_mode"] == "plan"
+    assert payload["sub"] == "user-9"
+
+
+def test_create_token_without_run_claims_omits_keys():
+    payload = pyjwt.decode(create_token("user-9"), SECRET_KEY, algorithms=[ALGORITHM])
+    assert "run_id" not in payload
+    assert "run_mode" not in payload
+
+
+@pytest.mark.parametrize(
+    ("run_id", "run_mode"),
+    [("run-abc", None), (None, "plan"), ("", "plan"), ("run-abc", "")],
+)
+def test_create_token_partial_run_claims_omits_keys(run_id, run_mode):
+    token = create_token("user-9", run_id=run_id, run_mode=run_mode)
+    payload = pyjwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    assert "run_id" not in payload
+    assert "run_mode" not in payload
+
+
+async def test_get_run_context_returns_none_without_credentials():
+    assert await get_run_context(credentials=None) is None
+
+
+async def test_get_run_context_returns_none_for_api_key():
+    assert await get_run_context(credentials=_creds("agtd_" + "x" * 20)) is None
+
+
+async def test_get_run_context_returns_none_for_claimless_jwt():
+    assert await get_run_context(credentials=_creds(create_token("user-9"))) is None
+
+
+async def test_get_run_context_returns_none_for_expired_jwt():
+    payload = {
+        "sub": "user-9",
+        "exp": time.time() - 10,
+        "iat": time.time() - 100,
+        "run_id": "run-abc",
+        "run_mode": "plan",
+    }
+    token = pyjwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    assert await get_run_context(credentials=_creds(token)) is None
+
+
+async def test_get_run_context_returns_none_for_garbage_jwt():
+    assert await get_run_context(credentials=_creds("garbage.token.here")) is None
+
+
+async def test_get_run_context_returns_context_for_claim_bearing_jwt():
+    token = create_token("user-9", run_id="run-abc", run_mode="plan")
+    assert await get_run_context(credentials=_creds(token)) == RunTokenContext(
+        run_id="run-abc", mode="plan"
+    )
 
 
 # --- Property-based ---
