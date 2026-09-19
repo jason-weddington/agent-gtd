@@ -35,6 +35,11 @@ def _cmd_plan_rollout(args: argparse.Namespace) -> None:
     generic ``Exception`` handler and emits a structured per-item failure
     report to stderr.
 
+    Wave ordering is derived from the items themselves — the blockers recorded
+    on them (both endpoints must be inside the wave) plus automatic
+    serialisation of any two items whose ``files_to_modify`` paths overlap.  No
+    language model is involved.
+
     Args:
         args: Parsed namespace containing ``item_ids`` (``list[str]``).
     """
@@ -175,7 +180,11 @@ def register(subparsers: argparse._SubParsersAction[Any]) -> None:
     # --- plan-rollout ---
     pr = subparsers.add_parser(
         "plan-rollout",
-        help="Plan a new autonomous rollout from a set of item UUIDs.",
+        help=(
+            "Plan a new autonomous rollout from a set of item UUIDs. "
+            "Ordering comes from the items' own blockers plus automatic "
+            "serialisation of items with overlapping files_to_modify paths."
+        ),
     )
     pr.add_argument(
         "item_ids",

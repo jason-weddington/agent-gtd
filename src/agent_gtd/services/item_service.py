@@ -860,6 +860,63 @@ async def get_unresolved_blockers(db: DbPool, item_id: str) -> list[dict[str, st
     ]
 
 
+def dependency_pairs_sql(count: int) -> str:
+    """Build the bulk dependency query for *count* item IDs.
+
+    Both endpoints are restricted to the supplied ID set.  The restriction on
+    ``blocker_item_id`` is **not** an optimisation: an edge pointing at an item
+    outside the set produces a predecessor that never becomes terminal, which
+    leaves the dependent item blocked forever.
+
+    The ``IN (...)`` list is rendered with PostgreSQL-style ``$n`` placeholders
+    and one bind value per ID, so the statement is valid asyncpg SQL and is
+    also rewritten to ``?`` placeholders by
+    :func:`agent_gtd.sqlite_pool._pg_to_sqlite` without losing the 1:1
+    placeholder-to-argument mapping.  A ``= ANY($1)`` array form would work on
+    asyncpg only.
+
+    Args:
+        count: Number of item IDs that will be bound (must be >= 1).
+
+    Returns:
+        SQL text with ``2 * count`` positional placeholders.
+    """
+    first = ", ".join(f"${i + 1}" for i in range(count))
+    second = ", ".join(f"${count + i + 1}" for i in range(count))
+    return (
+        "SELECT item_id, blocker_item_id FROM item_dependencies "  # noqa: S608
+        f"WHERE item_id IN ({first}) AND blocker_item_id IN ({second})"
+    )
+
+
+async def fetch_dependency_pairs(
+    db: DbPool, item_ids: list[str]
+) -> list[tuple[str, str]]:
+    """Fetch every blocker relationship with **both** endpoints inside *item_ids*.
+
+    A single bulk query — the per-item blocker readers elsewhere in this module
+    would issue one round trip per item and would additionally return edges
+    pointing outside the set.
+
+    Args:
+        db: Database pool.
+        item_ids: Item IDs to restrict both endpoints to.
+
+    Returns:
+        List of ``(item_id, blocker_item_id)`` tuples.  Empty when *item_ids*
+        is empty.
+    """
+    unique_ids = list(dict.fromkeys(item_ids))
+    if not unique_ids:
+        return []
+    rows = await db.fetch(
+        dependency_pairs_sql(len(unique_ids)),
+        *unique_ids,
+        *unique_ids,
+    )
+    return [(str(r["item_id"]), str(r["blocker_item_id"])) for r in rows]
+
+
 # ---------------------------------------------------------------------------
 # Board snapshot helpers
 # ---------------------------------------------------------------------------

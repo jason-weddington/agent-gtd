@@ -636,6 +636,25 @@ class TestPlanRolloutErrorBranches:
             )
         assert resp.status_code == 502
 
+    async def test_plan_rollout_422_on_cyclic_dag(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        """plan_rollout raises ValueError (cyclic blockers) → HTTP 422."""
+        from unittest.mock import AsyncMock, patch
+
+        with patch(
+            "agent_gtd.routes.rollout_routes.rollout_service.plan_rollout",
+            new_callable=AsyncMock,
+            side_effect=ValueError("cyclic dependency detected in rollout plan"),
+        ):
+            resp = await client.post(
+                "/api/rollouts",
+                json={"item_ids": ["some-id"]},
+                headers=auth_headers,
+            )
+        assert resp.status_code == 422
+        assert "cyclic dependency detected" in resp.json()["detail"]
+
 
 # ---------------------------------------------------------------------------
 # AC-3: POST /api/rollouts/{id}/cancel — 404 branch (lines 252-261)

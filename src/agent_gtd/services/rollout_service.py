@@ -1,4 +1,4 @@
-"""Rollout manager service: legality validation, planner call, DAG persistence."""
+"""Rollout manager service: legality validation, DAG derivation, DAG persistence."""
 
 import asyncio
 import json
@@ -14,6 +14,7 @@ from agent_gtd.db_types import DbPool
 from agent_gtd.exceptions import LegalityContractError, NotFoundError, ValidationError
 from agent_gtd.models import ManagerPhase, RolloutItemOutcome
 from agent_gtd.services.item_service import get_item, get_unresolved_blockers
+from agent_gtd.services.rollout_dag import DERIVED_PLANNER_MODEL, derive_edges
 from agent_gtd.services.settings_service import get_dispatch_config
 from agent_gtd.util.tasks import supervise_task
 
@@ -155,6 +156,11 @@ async def call_planner(
 ) -> dict[str, Any]:
     """Call the remote planner endpoint and return the DAG.
 
+    .. deprecated::
+        ``plan_rollout`` no longer calls this — it derives the DAG locally via
+        :mod:`agent_gtd.services.rollout_dag`.  Kept until in-flight rollouts
+        have drained and the remote planner is removed entirely.
+
     Sends ``{"item_ids": [...]}`` to ``POST {dispatch_url}/plan`` and returns
     the parsed response body.
 
@@ -209,15 +215,20 @@ async def plan_rollout(
     """Orchestrate the full plan_rollout flow.
 
     Validates the legality contract, checks dispatch configuration, creates a
-    rollout, calls the remote planner, persists the DAG, and returns a plan
-    summary for the lead to confirm before execution begins.
+    rollout, derives the DAG locally, persists it, and returns a plan summary
+    for the lead to confirm before execution begins.
+
+    Ordering comes from the items themselves, not from a language model: an
+    edge is emitted for every ``item_dependencies`` blocker whose two endpoints
+    are both inside ``item_ids``, and additionally for every pair of items
+    whose ``files_to_modify`` paths overlap (see
+    :mod:`agent_gtd.services.rollout_dag`).
 
     Workspace projects are supported.  For workspace items,
     ``files_to_modify`` paths are workspace-relative and repo-dir-prefixed
-    (e.g. ``'agent_gtd/src/...'``, ``'agent-gtd-dispatch/src/...'``); the DAG
-    planner's overlap detection compares these path strings as-is, so identical
-    prefixed paths across items produce dependency edges with no special
-    handling.
+    (e.g. ``'agent_gtd/src/...'``, ``'agent-gtd-dispatch/src/...'``); the
+    overlap detection compares these path strings as-is, so identical prefixed
+    paths across items produce dependency edges with no special handling.
 
     Args:
         db: Database connection pool.
@@ -232,8 +243,8 @@ async def plan_rollout(
         ValidationError: If ``item_ids`` is empty or dispatch service is not
             configured for the project owner.
         LegalityContractError: If any item fails the legality contract.
-        RuntimeError: If the planner HTTP call fails.  The rollout is updated
-            to ``status='failed'`` before the exception propagates.
+        ValueError: If the derived graph contains a cycle.  The rollout is
+            updated to ``status='failed'`` before the exception propagates.
     """
     if not item_ids:
         raise ValidationError("item_ids must not be empty")
@@ -250,7 +261,10 @@ async def plan_rollout(
 
     project_id = str(items[0].get("project_id") or "")
 
-    # Step 3: Look up dispatch config for the project owner.
+    # Step 3: Look up dispatch config for the project owner.  No HTTP call is
+    # made at plan time any more, but dispatch still has to be configured for
+    # the rollout to ever run — failing here keeps that a clean early error
+    # instead of a late one after a rollout row and N rollout_items exist.
     project_row = await db.fetchrow(
         "SELECT user_id FROM projects WHERE id = $1", project_id
     )
@@ -262,7 +276,9 @@ async def plan_rollout(
     if dispatch_config is None:
         raise ValidationError("Dispatch service not configured")
 
-    # Step 4: Create the rollout with status='planning'.
+    # Step 4: Create the rollout with status='planning'.  Deriving the DAG is
+    # now instantaneous so this state is transient, but rows can still be found
+    # sitting in 'planning' after a service bounce — keep tolerating it.
     rollout_id = str(uuid.uuid4())
     now = datetime.now(UTC).isoformat()
     await db.execute(
@@ -278,14 +294,12 @@ async def plan_rollout(
         now,
     )
 
-    # Step 5: Call the remote planner.
+    # Step 5: Derive the DAG locally from blockers + file-path overlap.
+    nodes: list[str] = list(item_ids)
+    planner_model: str = DERIVED_PLANNER_MODEL
     try:
-        planner_result = await call_planner(
-            dispatch_config["url"],
-            dispatch_config["api_key"],
-            item_ids,
-        )
-    except RuntimeError as exc:
+        edges: list[dict[str, str]] = await derive_edges(db, items, item_ids)
+    except (ValueError, RuntimeError) as exc:
         error_detail = str(exc)
         err_now = datetime.now(UTC).isoformat()
         await db.execute(
@@ -299,11 +313,9 @@ async def plan_rollout(
         )
         raise
 
-    nodes: list[str] = planner_result["nodes"]
-    edges: list[dict[str, str]] = planner_result["edges"]
-    planner_model: str = planner_result["planner_model"]
-
-    # Step 6: Persist the rollout_plans row.
+    # Step 6: Persist the rollout_plans row.  Always written, even when the
+    # derived edge list is empty — get_rollout_plan 404s when the row is
+    # missing.
     plan_id = str(uuid.uuid4())
     plan_now = datetime.now(UTC).isoformat()
     await db.execute(

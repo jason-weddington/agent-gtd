@@ -848,8 +848,8 @@ async def test_plan_rollout_workspace_project_succeeds(db):
     """plan_rollout succeeds for workspace projects (rejection guard removed).
 
     Inserts a workspace project directly, configures dispatch settings for the
-    owner, patches call_planner, and asserts the returned dict and persisted
-    row both have status='pending'.
+    owner, and asserts the returned dict and persisted row both have
+    status='pending'.
     """
     from agent_gtd.services.rollout_service import plan_rollout
 
@@ -889,24 +889,212 @@ async def test_plan_rollout_workspace_project_succeeds(db):
             NOW,
         )
 
-    planner_return = {
-        "nodes": [item_id],
-        "edges": [],
-        "planner_model": "claude-sonnet-4-6",
-    }
-    with patch(
-        "agent_gtd.services.rollout_service.call_planner",
-        new_callable=AsyncMock,
-        return_value=planner_return,
-    ):
-        result = await plan_rollout(db, user_id, [item_id])
+    result = await plan_rollout(db, user_id, [item_id])
 
     assert result["status"] == "pending"
+    assert result["planner_model"] == "derived-from-blockers"
 
     # Exactly one autonomous_rollouts row with status='pending'
     rows = await db.fetch("SELECT status FROM autonomous_rollouts")
     assert len(rows) == 1
     assert rows[0]["status"] == "pending"
+
+
+# ---------------------------------------------------------------------------
+# plan_rollout — the planner is genuinely out of the path
+# ---------------------------------------------------------------------------
+
+
+async def _configure_dispatch_for(db, user_id: str) -> None:
+    """Write dispatch settings for *user_id*."""
+    for key, value in [
+        ("dispatch.service_url", "http://dispatch.test:8100"),
+        ("dispatch.service_api_key", "test-api-key"),
+    ]:
+        await db.execute(
+            "INSERT INTO user_settings (user_id, key, value, updated_at) "
+            "VALUES ($1, $2, $3, $4) "
+            "ON CONFLICT (user_id, key) DO UPDATE "
+            "SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
+            user_id,
+            key,
+            value,
+            NOW,
+        )
+
+
+async def test_plan_rollout_makes_no_outbound_http_call(db):
+    """plan_rollout must not touch the network — the DAG is derived locally.
+
+    Any httpx request (and the legacy ``call_planner`` helper) blows up, so the
+    test fails loudly if the remote planner creeps back into this path.
+    """
+    from agent_gtd.services.rollout_service import plan_rollout
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_a = await _make_item(
+        db,
+        user_id,
+        project_id,
+        title="A",
+        files_to_modify=[{"path": "src/a.py", "change": "x"}],
+    )
+    item_b = await _make_item(
+        db,
+        user_id,
+        project_id,
+        title="B",
+        files_to_modify=[{"path": "src/b.py", "change": "y"}],
+    )
+    await _add_blocker(db, item_b, item_a)
+    await _configure_dispatch_for(db, user_id)
+
+    no_http = AssertionError("plan_rollout made an outbound HTTP call")
+    planner_mock = AsyncMock(side_effect=AssertionError("call_planner was invoked"))
+    with (
+        patch.object(httpx.AsyncClient, "send", side_effect=no_http),
+        patch.object(httpx.AsyncClient, "request", side_effect=no_http),
+        patch("agent_gtd.services.rollout_service.call_planner", planner_mock),
+    ):
+        result = await plan_rollout(db, user_id, [item_a, item_b])
+
+    planner_mock.assert_not_awaited()
+    assert result["status"] == "pending"
+    assert result["planner_model"] == "derived-from-blockers"
+    assert result["plan"]["edges"] == [{"from_item_id": item_a, "to_item_id": item_b}]
+
+
+async def test_plan_rollout_nodes_preserve_caller_order(db):
+    """``nodes`` is list(item_ids) verbatim — several call sites iterate in order."""
+    from agent_gtd.services.rollout_service import plan_rollout
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    ids = [
+        await _make_item(
+            db,
+            user_id,
+            project_id,
+            title=f"Item {i}",
+            files_to_modify=[{"path": f"src/f{i}.py", "change": "x"}],
+        )
+        for i in range(3)
+    ]
+    await _configure_dispatch_for(db, user_id)
+    ordered = [ids[2], ids[0], ids[1]]
+
+    result = await plan_rollout(db, user_id, ordered)
+
+    assert result["plan"]["nodes"] == ordered
+    assert [p["item_id"] for p in result["per_item"]] == ordered
+
+
+async def test_plan_rollout_writes_plan_row_when_no_edges(db):
+    """A rollout_plans row is written even when the derived edge list is empty."""
+    from agent_gtd.services.rollout_service import get_rollout_plan, plan_rollout
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id)
+    await _configure_dispatch_for(db, user_id)
+
+    result = await plan_rollout(db, user_id, [item_id])
+
+    # No NotFoundError → no 404 on GET /api/rollouts/{id}/plan
+    plan = await get_rollout_plan(db, user_id, result["rollout_id"])
+    assert plan["edges"] == []
+    assert plan["planner_model"] == "derived-from-blockers"
+
+
+async def test_plan_rollout_serialises_file_overlap_without_blockers(db):
+    """Two items touching the same file are serialised with no blocker recorded."""
+    from agent_gtd.services.rollout_service import plan_rollout
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    shared = [{"path": "agent_gtd/src/agent_gtd/main.py", "change": "x"}]
+    item_a = await _make_item(
+        db, user_id, project_id, title="A", files_to_modify=shared
+    )
+    item_b = await _make_item(
+        db, user_id, project_id, title="B", files_to_modify=shared
+    )
+    await _configure_dispatch_for(db, user_id)
+
+    result = await plan_rollout(db, user_id, [item_a, item_b])
+
+    assert result["plan"]["edges"] == [{"from_item_id": item_a, "to_item_id": item_b}]
+    # In-degree drives readiness: A ready, B pending.
+    rows = await db.fetch(
+        "SELECT item_id, status FROM rollout_items WHERE rollout_id = $1",
+        result["rollout_id"],
+    )
+    statuses = {str(r["item_id"]): str(r["status"]) for r in rows}
+    assert statuses == {item_a: "ready", item_b: "pending"}
+
+
+async def test_plan_rollout_ignores_blocker_outside_the_wave(db):
+    """A blocker pointing outside the wave produces no edge (and no stuck item).
+
+    The out-of-set blocker is resolved so the legality contract still passes;
+    what matters is that no edge naming a non-node is persisted.
+    """
+    from agent_gtd.services.rollout_service import plan_rollout
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    inside = await _make_item(db, user_id, project_id, title="inside")
+    outside = await _make_item(db, user_id, project_id, title="outside", status="done")
+    await _add_blocker(db, inside, outside)
+    await _configure_dispatch_for(db, user_id)
+
+    result = await plan_rollout(db, user_id, [inside])
+
+    assert result["plan"]["edges"] == []
+    row = await db.fetchrow(
+        "SELECT status FROM rollout_items WHERE rollout_id = $1 AND item_id = $2",
+        result["rollout_id"],
+        inside,
+    )
+    assert row is not None
+    assert row["status"] == "ready"
+
+
+async def test_plan_rollout_cycle_marks_rollout_failed(db):
+    """A cyclic blocker graph fails the rollout instead of persisting a bad plan."""
+    from agent_gtd.services.rollout_service import plan_rollout
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_a = await _make_item(
+        db,
+        user_id,
+        project_id,
+        title="A",
+        files_to_modify=[{"path": "src/a.py", "change": "x"}],
+    )
+    item_b = await _make_item(
+        db,
+        user_id,
+        project_id,
+        title="B",
+        files_to_modify=[{"path": "src/b.py", "change": "y"}],
+    )
+    await _add_blocker(db, item_b, item_a)
+    await _add_blocker(db, item_a, item_b)
+    await _configure_dispatch_for(db, user_id)
+
+    with pytest.raises(ValueError, match="cyclic dependency detected"):
+        await plan_rollout(db, user_id, [item_a, item_b])
+
+    rows = await db.fetch("SELECT status, halt_reason FROM autonomous_rollouts")
+    assert len(rows) == 1
+    assert rows[0]["status"] == "failed"
+    assert "cyclic dependency detected" in str(rows[0]["halt_reason"])
+    # Nothing downstream of the failure was written.
+    assert await db.fetch("SELECT id FROM rollout_plans") == []
+    assert await db.fetch("SELECT item_id FROM rollout_items") == []
 
 
 # ---------------------------------------------------------------------------

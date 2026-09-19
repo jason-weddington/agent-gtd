@@ -121,8 +121,8 @@ async def plan_rollout(
 ) -> dict[str, Any]:
     """Validate, plan, and persist a new wave run.
 
-    Validates the legality contract, calls the dispatch service planner,
-    persists the resulting DAG, and returns a plan summary.
+    Validates the legality contract, derives the DAG from the items' blockers
+    plus file-overlap serialisation, persists it, and returns a plan summary.
 
     Args:
         body: item_ids to include in the wave.
@@ -134,8 +134,8 @@ async def plan_rollout(
 
     Raises:
         HTTPException 422: Legality contract failure (detail includes per-item
-            failures) or another validation error.
-        HTTPException 502: Planner subroutine raised (network, planner error).
+            failures), another validation error, or a cyclic dependency graph.
+        HTTPException 502: A subroutine raised RuntimeError.
     """
     db = await get_db()
     try:
@@ -152,8 +152,10 @@ async def plan_rollout(
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.detail) from exc
     except RuntimeError as exc:
-        # wave_service raises RuntimeError on planner HTTP failure
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        # Derived DAG contained a cycle — the items' blockers need fixing.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/{rollout_id}/advance")

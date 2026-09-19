@@ -1566,7 +1566,7 @@ async def plan_rollout(
     item_ids: list[str],
     ctx: Context,
 ) -> dict[str, Any]:
-    """Plan a rollout: validate items, call the remote planner, and return the DAG.
+    """Plan a rollout: validate items, derive the dependency DAG, and return it.
 
     Validates the legality contract for every item before touching the
     database:
@@ -1575,19 +1575,30 @@ async def plan_rollout(
     - Each item must have a non-empty ``files_to_modify`` structured field.
     - Each item must have ``build_engine`` set.
     - Each item must have no unresolved blockers outside the rollout's own item
-      set (internal blockers are fine — the planner handles ordering).
+      set (internal blockers are fine — they become the ordering).
     - All items must belong to the same project.
 
-    On success, inserts an ``autonomous_rollouts`` row, calls the dispatch
-    service planner (``POST {dispatch_url}/plan``), persists the resulting
+    Ordering is derived from the items themselves, not from a language model:
+    - **Blockers.** Every ``item_dependencies`` blocker whose blocker and
+      blocked item are *both* inside ``item_ids`` becomes an edge
+      ``blocker → blocked``.  Blockers pointing outside the set are rejected by
+      the legality contract above, so record the dependencies you want honoured
+      with ``add_blocker`` at grooming time.
+    - **File overlap.** Any two items whose ``files_to_modify`` paths overlap
+      are additionally serialised in the order they appear in ``item_ids``, so
+      two build agents are never handed the same file concurrently.  A
+      directory entry overlaps files nested beneath it.
+    Both sources are unioned and deduplicated, and the result is checked for
+    cycles before anything is persisted.
+
+    On success, inserts an ``autonomous_rollouts`` row, persists the derived
     DAG, and returns a plan summary for the lead to confirm.
 
     Workspace projects are supported.  For workspace items,
     ``files_to_modify`` paths are workspace-relative and repo-dir-prefixed
-    (e.g. ``'agent_gtd/src/...'``, ``'agent-gtd-dispatch/src/...'``); the DAG
-    planner's overlap detection compares these path strings as-is, so identical
-    prefixed paths across items produce dependency edges with no special
-    handling.
+    (e.g. ``'agent_gtd/src/...'``, ``'agent-gtd-dispatch/src/...'``); overlap
+    detection compares these path strings as-is, so identical prefixed paths
+    across items produce dependency edges with no special handling.
 
     Args:
         item_ids: IDs of the items to include in the rollout (minimum 1).
@@ -1595,8 +1606,9 @@ async def plan_rollout(
 
     Returns:
         Dict with ``rollout_id``, ``status``, ``plan`` (nodes + edges),
-        ``planner_model``, ``item_count``, and ``per_item`` list
-        (each entry has ``item_id``, ``title``, ``predecessors``).
+        ``planner_model`` (the sentinel ``'derived-from-blockers'``),
+        ``item_count``, and ``per_item`` list (each entry has ``item_id``,
+        ``title``, ``predecessors``).
     """
     import json
 
@@ -1611,6 +1623,9 @@ async def plan_rollout(
     except ValidationError as exc:
         raise ToolError(exc.detail) from None
     except RuntimeError as exc:
+        raise ToolError(str(exc)) from None
+    except ValueError as exc:
+        # Derived DAG contained a cycle — the items' blockers need fixing.
         raise ToolError(str(exc)) from None
 
 

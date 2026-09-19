@@ -42,12 +42,26 @@ function actorColor(actor: string): PillColor {
 // Event description mapping
 // ---------------------------------------------------------------------------
 
+// Sentinel written to the NOT NULL rollout_plans.planner_model column now that
+// the DAG is derived from blockers instead of produced by a planner model.
+// Mirrors agent_gtd.services.rollout_dag.DERIVED_PLANNER_MODEL.
+const DERIVED_PLANNER_MODEL = 'derived-from-blockers'
+
 function describeEvent(event: ActivityEvent): string {
   const { eventType, payload, itemTitle, itemId } = event
   const label = itemTitle ?? itemId ?? ''
   switch (eventType) {
-    case 'wave_planned':
-      return `Wave planned: ${String(payload.item_count ?? '')} items, model ${String(payload.planner_model ?? '')}`
+    case 'wave_planned': {
+      const itemCount = String(payload.item_count ?? '')
+      const plannerModel = String(payload.planner_model ?? '')
+      // The DAG is derived locally from blockers + file overlap; the sentinel
+      // (and any empty value) must not render as a dangling "model ".
+      const source =
+        plannerModel === '' || plannerModel === DERIVED_PLANNER_MODEL
+          ? 'DAG derived from blockers'
+          : `model ${plannerModel}`
+      return `Wave planned: ${itemCount} items, ${source}`
+    }
     case 'wave_started':
       return 'Wave started (manage agent dispatched)'
     case 'item_dispatched':

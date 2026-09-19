@@ -1024,22 +1024,13 @@ async def test_plan_rollout_route_happy_path_returns_dag(
     item_b = await _make_ready_item(db, user_id, project_id, "Task B")
     await _configure_dispatch(db, user_id, "http://dispatch.test:8100", "k")
 
-    mock_plan = {
-        "nodes": [item_a, item_b],
-        "edges": [{"from_item_id": item_a, "to_item_id": item_b}],
-        "planner_model": "claude-sonnet-4-6",
-    }
-
-    with patch(
-        "agent_gtd.services.rollout_service.call_planner",
-        new_callable=AsyncMock,
-        return_value=mock_plan,
-    ):
-        resp = await client.post(
-            "/api/rollouts",
-            json={"item_ids": [item_a, item_b]},
-            headers={"Authorization": f"Bearer {create_token(user_id)}"},
-        )
+    # Both items are created with the same files_to_modify path, so the
+    # derived DAG serialises them A → B via a file-overlap edge.
+    resp = await client.post(
+        "/api/rollouts",
+        json={"item_ids": [item_a, item_b]},
+        headers={"Authorization": f"Bearer {create_token(user_id)}"},
+    )
 
     assert resp.status_code == 200, resp.text
     body = resp.json()

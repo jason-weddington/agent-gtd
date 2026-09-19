@@ -4,7 +4,6 @@ import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastmcp import Client
@@ -135,9 +134,12 @@ async def _create_ready_item(
     user_id: str,
     project_id: str,
     title: str = "Wave item",
+    files_to_modify: list[dict] | None = None,
 ) -> str:
     """Insert a ready item with valid structured fields and return its ID."""
     db = await get_db()
+    if files_to_modify is None:
+        files_to_modify = [{"path": "src/agent_gtd/main.py", "change": "Update logic"}]
     item_id = str(uuid.uuid4())
     await db.execute(
         "INSERT INTO items "
@@ -153,9 +155,7 @@ async def _create_ready_item(
         "ready",
         encode_json_list([]),
         encode_json_list(["AC-1: The feature works correctly."]),
-        encode_file_specs(
-            [{"path": "src/agent_gtd/main.py", "change": "Update logic"}]
-        ),
+        encode_file_specs(files_to_modify),
         encode_json_list([]),
         "claude-code",
         NOW,
@@ -164,38 +164,38 @@ async def _create_ready_item(
     return item_id
 
 
+async def _add_blocker(item_id: str, blocker_item_id: str) -> None:
+    """Insert an item_dependencies row: *item_id* is blocked by *blocker_item_id*."""
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO item_dependencies (id, item_id, blocker_item_id, created_at) "
+        "VALUES ($1, $2, $3, $4)",
+        str(uuid.uuid4()),
+        item_id,
+        blocker_item_id,
+        NOW,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Happy path — single item, no edges
 # ---------------------------------------------------------------------------
 
 
 async def test_plan_rollout_happy_path_single_item(mcp_client_authed, user_id):
-    """plan_rollout with one valid item and mocked planner returns a pending rollout."""
+    """plan_rollout with one valid item returns a pending rollout and no edges."""
     project_id = await _create_project(user_id)
     item_id = await _create_ready_item(user_id, project_id)
     await _configure_dispatch(user_id, "http://dispatch.test:8100", "test-api-key")
 
-    mock_plan_response = {
-        "nodes": [item_id],
-        "edges": [],
-        "planner_model": "claude-sonnet-4-6",
-    }
-
-    with patch(
-        "agent_gtd.services.rollout_service.call_planner",
-        new_callable=AsyncMock,
-        return_value=mock_plan_response,
-    ):
-        result = await mcp_client_authed.call_tool(
-            "plan_rollout", {"item_ids": [item_id]}
-        )
+    result = await mcp_client_authed.call_tool("plan_rollout", {"item_ids": [item_id]})
 
     data = _parse_result(result)
 
     assert data["status"] == "pending"
     assert data["rollout_id"] is not None
     assert data["item_count"] == 1
-    assert data["planner_model"] == "claude-sonnet-4-6"
+    assert data["planner_model"] == "derived-from-blockers"
     assert data["plan"]["nodes"] == [item_id]
     assert data["plan"]["edges"] == []
     assert len(data["per_item"]) == 1
@@ -207,29 +207,31 @@ async def test_plan_rollout_happy_path_single_item(mcp_client_authed, user_id):
 
 
 async def test_plan_rollout_happy_path_two_items_with_edge(mcp_client_authed, user_id):
-    """plan_rollout with two items and an edge correctly sets in-degree statuses."""
+    """A blocker between two items becomes the edge and sets in-degree statuses."""
     project_id = await _create_project(user_id)
-    item_a = await _create_ready_item(user_id, project_id, title="Item A")
-    item_b = await _create_ready_item(user_id, project_id, title="Item B")
+    item_a = await _create_ready_item(
+        user_id,
+        project_id,
+        title="Item A",
+        files_to_modify=[{"path": "src/agent_gtd/a.py", "change": "x"}],
+    )
+    item_b = await _create_ready_item(
+        user_id,
+        project_id,
+        title="Item B",
+        files_to_modify=[{"path": "src/agent_gtd/b.py", "change": "y"}],
+    )
+    # B is blocked by A → edge A → B.  Disjoint file paths, so the edge is
+    # purely blocker-derived.
+    await _add_blocker(item_b, item_a)
     await _configure_dispatch(user_id, "http://dispatch.test:8100", "test-api-key")
 
-    # A → B: B depends on A  (from_item_id / to_item_id keys per reconciled spec)
-    mock_plan_response = {
-        "nodes": [item_a, item_b],
-        "edges": [{"from_item_id": item_a, "to_item_id": item_b}],
-        "planner_model": "claude-sonnet-4-6",
-    }
-
-    with patch(
-        "agent_gtd.services.rollout_service.call_planner",
-        new_callable=AsyncMock,
-        return_value=mock_plan_response,
-    ):
-        result = await mcp_client_authed.call_tool(
-            "plan_rollout", {"item_ids": [item_a, item_b]}
-        )
+    result = await mcp_client_authed.call_tool(
+        "plan_rollout", {"item_ids": [item_a, item_b]}
+    )
 
     data = _parse_result(result)
+    assert data["plan"]["edges"] == [{"from_item_id": item_a, "to_item_id": item_b}]
     assert data["status"] == "pending"
     assert data["item_count"] == 2
 
@@ -268,20 +270,7 @@ async def test_plan_rollout_inserts_wave_run_as_pending(mcp_client_authed, user_
     item_id = await _create_ready_item(user_id, project_id)
     await _configure_dispatch(user_id, "http://dispatch.test:8100", "test-api-key")
 
-    mock_plan = {
-        "nodes": [item_id],
-        "edges": [],
-        "planner_model": "claude-sonnet-4-6",
-    }
-
-    with patch(
-        "agent_gtd.services.rollout_service.call_planner",
-        new_callable=AsyncMock,
-        return_value=mock_plan,
-    ):
-        result = await mcp_client_authed.call_tool(
-            "plan_rollout", {"item_ids": [item_id]}
-        )
+    result = await mcp_client_authed.call_tool("plan_rollout", {"item_ids": [item_id]})
 
     data = _parse_result(result)
     rollout_id = data["rollout_id"]
@@ -304,20 +293,7 @@ async def test_plan_rollout_inserts_wave_plan(mcp_client_authed, user_id):
     item_id = await _create_ready_item(user_id, project_id)
     await _configure_dispatch(user_id, "http://dispatch.test:8100", "test-api-key")
 
-    mock_plan = {
-        "nodes": [item_id],
-        "edges": [],
-        "planner_model": "claude-sonnet-4-6",
-    }
-
-    with patch(
-        "agent_gtd.services.rollout_service.call_planner",
-        new_callable=AsyncMock,
-        return_value=mock_plan,
-    ):
-        result = await mcp_client_authed.call_tool(
-            "plan_rollout", {"item_ids": [item_id]}
-        )
+    result = await mcp_client_authed.call_tool("plan_rollout", {"item_ids": [item_id]})
 
     data = _parse_result(result)
     rollout_id = data["rollout_id"]
@@ -328,11 +304,13 @@ async def test_plan_rollout_inserts_wave_plan(mcp_client_authed, user_id):
         "FROM rollout_plans WHERE rollout_id = $1",
         rollout_id,
     )
+    # The row is written even though the derived edge list is empty —
+    # get_rollout_plan 404s when it is absent.
     assert plan_row is not None
     assert plan_row["version"] == 1
     assert json.loads(plan_row["nodes"]) == [item_id]
     assert json.loads(plan_row["edges"]) == []
-    assert plan_row["planner_model"] == "claude-sonnet-4-6"
+    assert plan_row["planner_model"] == "derived-from-blockers"
 
 
 # ---------------------------------------------------------------------------
@@ -385,23 +363,33 @@ async def test_plan_rollout_mcp_dispatch_not_configured_raises_tool_error(
         await mcp_client_authed.call_tool("plan_rollout", {"item_ids": [item_id]})
 
 
-async def test_plan_rollout_mcp_planner_failure_updates_wave_run_failed(
+async def test_plan_rollout_mcp_cyclic_blockers_update_wave_run_failed(
     mcp_client_authed, user_id
 ):
-    """When the planner HTTP call fails, wave run is set to 'failed'."""
+    """When the derived DAG is cyclic, the wave run is set to 'failed'."""
     project_id = await _create_project(user_id)
-    item_id = await _create_ready_item(user_id, project_id)
+    item_a = await _create_ready_item(
+        user_id,
+        project_id,
+        title="A",
+        files_to_modify=[{"path": "src/agent_gtd/a.py", "change": "x"}],
+    )
+    item_b = await _create_ready_item(
+        user_id,
+        project_id,
+        title="B",
+        files_to_modify=[{"path": "src/agent_gtd/b.py", "change": "y"}],
+    )
+    # add_blocker would reject the second row; inserting directly simulates an
+    # edge that reached item_dependencies by some other route.
+    await _add_blocker(item_b, item_a)
+    await _add_blocker(item_a, item_b)
     await _configure_dispatch(user_id, "http://dispatch.test:8100", "test-api-key")
 
-    with (
-        patch(
-            "agent_gtd.services.rollout_service.call_planner",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("Connection refused"),
-        ),
-        pytest.raises(ToolError),
-    ):
-        await mcp_client_authed.call_tool("plan_rollout", {"item_ids": [item_id]})
+    with pytest.raises(ToolError):
+        await mcp_client_authed.call_tool(
+            "plan_rollout", {"item_ids": [item_a, item_b]}
+        )
 
     db = await get_db()
     rows = await db.fetch(
@@ -410,7 +398,7 @@ async def test_plan_rollout_mcp_planner_failure_updates_wave_run_failed(
     )
     assert len(rows) == 1
     assert rows[0]["status"] == "failed"
-    assert "Connection refused" in str(rows[0]["halt_reason"])
+    assert "cyclic dependency detected" in str(rows[0]["halt_reason"])
 
 
 # ---------------------------------------------------------------------------
