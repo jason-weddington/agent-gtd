@@ -17,6 +17,7 @@ from agent_gtd_dispatch_protocol import RunResponse as RemoteRunResponse
 from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 
 from agent_gtd.auth import create_token
+from agent_gtd.dispatch_constants import MANAGER_DEFAULT_TIMEOUT_MINUTES
 from agent_gtd.exceptions import HostFullError
 from agent_gtd.identity import compute_run_attribution
 from agent_gtd.models import (
@@ -34,6 +35,19 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TURNS = int(os.environ.get("DISPATCH_DEFAULT_MAX_TURNS", "100"))
 POLL_INTERVAL = 15  # seconds between status polls
+
+# Mode-specific turn budget for manage runs.
+#
+# ``None`` means "manage resolves its budget exactly as build and plan do" —
+# which is today's behaviour, so leaving this at None changes nothing.  The
+# point of the seam is that a four-hour resident manager and a thirty-minute
+# builder currently share a single 100-turn budget, and the short-lived merge
+# reviewer that replaces the resident manager will need a much smaller one.
+# That change should get to set a number, not have to invent the plumbing.
+#
+# A project-level ``dispatch_max_turns`` override still wins over this value —
+# an operator who set an explicit per-project budget meant it for every mode.
+MANAGE_MAX_TURNS: int | None = None
 
 # Cap on the remote `error` text mirrored onto a local run's `error_msg`.
 # This is the SECOND of two truncation layers (the dispatch service applies its
@@ -107,23 +121,35 @@ def resolve_agent(
 def resolve_max_turns(
     project_dispatch_max_turns: int | None,
     global_default_max_turns: int,
+    mode: str = "build",
 ) -> int:
     """Resolve the effective max_turns for a dispatch run.
 
-    Project-level override wins if set (non-None); otherwise falls back to
-    the deployment-wide ``dispatch.default_max_turns`` setting.
+    Resolution order:
+        project ``dispatch_max_turns`` → mode-specific default (manage only,
+        when ``MANAGE_MAX_TURNS`` is set) → deployment-wide
+        ``dispatch.default_max_turns``.
+
+    The mode branch exists so a manage run can carry a budget that differs from
+    a build run's.  ``MANAGE_MAX_TURNS`` defaults to ``None``, which makes manage
+    resolve exactly as build and plan do — i.e. no behavioural change until
+    someone deliberately sets a manage-specific number.
 
     Args:
         project_dispatch_max_turns: The project's ``dispatch_max_turns``
             value, or ``None`` if the project inherits the global default.
         global_default_max_turns: The deployment-wide default from
             app_settings (or the env-var fallback).
+        mode: The run mode — ``"build"``, ``"plan"`` or ``"manage"``.  Only
+            ``"manage"`` has a mode-specific branch today.
 
     Returns:
         The resolved max_turns integer.
     """
     if project_dispatch_max_turns is not None:
         return project_dispatch_max_turns
+    if mode == "manage" and MANAGE_MAX_TURNS is not None:
+        return MANAGE_MAX_TURNS
     return global_default_max_turns
 
 
@@ -747,7 +773,7 @@ async def execute_run(
     global_manager_timeout_minutes = (
         int(raw_global_manager_timeout)
         if raw_global_manager_timeout is not None
-        else 240
+        else MANAGER_DEFAULT_TIMEOUT_MINUTES
     )
     raw_project_timeout = project.get("dispatch_timeout_minutes")
     project_timeout_minutes = (

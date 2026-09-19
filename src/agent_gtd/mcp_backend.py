@@ -426,6 +426,7 @@ class McpBackend(Protocol):
             "",
         ] = "",
         decision_rule: Literal["", "agent-judgment"] = "",
+        merge_note: str = "",
     ) -> dict[str, Any]: ...
 
     async def halt_rollout(
@@ -1292,6 +1293,7 @@ class LocalBackend:
             "",
         ] = "",
         decision_rule: Literal["", "agent-judgment"] = "",
+        merge_note: str = "",
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import rollout_service
@@ -1305,6 +1307,7 @@ class LocalBackend:
             outcome,
             merge_actor=merge_actor,
             decision_rule=decision_rule,
+            merge_note=merge_note,
         )
 
     async def halt_rollout(
@@ -2305,6 +2308,7 @@ class HttpBackend:
             "",
         ] = "",
         decision_rule: Literal["", "agent-judgment"] = "",
+        merge_note: str = "",
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "item_id": item_id,
@@ -2314,6 +2318,8 @@ class HttpBackend:
             body["merge_actor"] = merge_actor
         if decision_rule:
             body["decision_rule"] = decision_rule
+        if merge_note:
+            body["merge_note"] = merge_note
         resp = await self._client.post(
             f"/api/rollouts/{rollout_id}/complete-item",
             json=body,

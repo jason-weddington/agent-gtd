@@ -119,22 +119,34 @@ async def _migrate_engine_default_to_sonnet() -> None:
 
 
 async def _migrate_manager_timeout_default() -> None:
-    """One-time idempotent migration: write manager_default_timeout_minutes=240.
+    """One-time idempotent migration: seed manager_default_timeout_minutes.
 
     Ensures the deployment-wide default for manager-mode dispatch runs is
     explicitly stored in ``app_settings``.  If the key is already present,
     the existing value is left unchanged.
 
+    The seeded value comes from
+    ``dispatch_constants.MANAGER_DEFAULT_TIMEOUT_MINUTES`` — the single
+    authoritative manage timeout (see that module's comment).
+
     This migration is idempotent — running it twice is a no-op.
     """
     from agent_gtd.database import get_db
+    from agent_gtd.dispatch_constants import MANAGER_DEFAULT_TIMEOUT_MINUTES
     from agent_gtd.services.settings_service import get_setting, set_setting
 
     db = await get_db()
     existing = await get_setting(db, "dispatch.manager_default_timeout_minutes")
     if existing is None:
-        await set_setting(db, "dispatch.manager_default_timeout_minutes", "240")
-        logger.info("migration: wrote dispatch.manager_default_timeout_minutes=240")
+        await set_setting(
+            db,
+            "dispatch.manager_default_timeout_minutes",
+            str(MANAGER_DEFAULT_TIMEOUT_MINUTES),
+        )
+        logger.info(
+            "migration: wrote dispatch.manager_default_timeout_minutes=%d",
+            MANAGER_DEFAULT_TIMEOUT_MINUTES,
+        )
     else:
         logger.info(
             "migration: dispatch.manager_default_timeout_minutes already set to %s",

@@ -1732,3 +1732,39 @@ async def test_complete_item_in_rollout_invalid_decision_rule(
         headers=w["headers"],
     )
     assert resp.status_code == 422
+
+
+async def test_complete_item_route_persists_merge_note(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """A merge_note on the complete-item body lands as a queryable event."""
+    w = linear_wave
+    db = w["db"]
+    await db.execute(
+        "UPDATE rollout_items SET status = 'dispatched'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        w["rollout_id"],
+        w["item_a_id"],
+    )
+    note = "resolve_max_turns() gained `mode`; config key dispatch.foo renamed"
+    resp = await client.post(
+        f"/api/rollouts/{w['rollout_id']}/complete-item",
+        json={
+            "item_id": w["item_a_id"],
+            "outcome": "completed",
+            "merge_actor": "manager-autonomous",
+            "merge_note": note,
+        },
+        headers=w["headers"],
+    )
+    assert resp.status_code == 200
+
+    resp = await client.get(
+        f"/api/rollouts/{w['rollout_id']}/merge-notes",
+        headers=w["headers"],
+    )
+    assert resp.status_code == 200
+    notes = resp.json()["merge_notes"]
+    assert len(notes) == 1
+    assert notes[0]["item_id"] == w["item_a_id"]
+    assert notes[0]["note"] == note

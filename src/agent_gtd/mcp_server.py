@@ -1671,6 +1671,7 @@ async def complete_item_in_rollout(
         "human", "manager-allowlist", "manager-autonomous", "manager+human-fixup", ""
     ] = "",
     decision_rule: Literal["", "agent-judgment"] = "",
+    merge_note: str = "",
 ) -> dict[str, Any]:
     """Mark a dispatched rollout item as done and unblock downstream items.
 
@@ -1687,6 +1688,12 @@ async def complete_item_in_rollout(
             ``"manager-allowlist"``, ``"manager+human-fixup"``, or empty).
         decision_rule: Allowlist rule name that fired (from executor
             classifier).  Stored in the item_outcome event payload.
+        merge_note: Short structured note recording what the merged work
+            changed that could invalidate a LATER item's spec — changed public
+            signatures, renamed classes, changed config keys.  NOT a prose
+            summary of the diff (the commit message covers that).  Stored as a
+            ``merge_note`` rollout event and fed into subsequent manage prompts
+            so AC reconciliation reasons from a durable record.
 
     Returns:
         Dict with keys:
@@ -1702,6 +1709,7 @@ async def complete_item_in_rollout(
             outcome,
             merge_actor=merge_actor,
             decision_rule=decision_rule,
+            merge_note=merge_note,
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None

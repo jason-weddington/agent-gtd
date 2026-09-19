@@ -70,6 +70,7 @@ def _cmd_complete_item_in_rollout(args: argparse.Namespace) -> None:
         "Literal['', 'agent-judgment']",
         args.decision_rule if args.decision_rule is not None else "",
     )
+    merge_note: str = args.merge_note or ""
 
     async def _run() -> Any:
         async with backend_session() as (backend, user_id):
@@ -80,6 +81,7 @@ def _cmd_complete_item_in_rollout(args: argparse.Namespace) -> None:
                 outcome,
                 merge_actor=merge_actor,
                 decision_rule=decision_rule,
+                merge_note=merge_note,
             )
 
     try:
@@ -255,6 +257,15 @@ def register(subparsers: argparse._SubParsersAction[Any]) -> None:
         choices=["agent-judgment"],
         default=None,
         help="Decision rule applied (omit to use backend default).",
+    )
+    p_complete.add_argument(
+        "--merge-note",
+        dest="merge_note",
+        default=None,
+        help=(
+            "Short structured note: changed public signatures, renamed classes "
+            "and changed config keys that could invalidate a later item's spec."
+        ),
     )
     p_complete.set_defaults(func=_cmd_complete_item_in_rollout)
 

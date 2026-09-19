@@ -28,6 +28,28 @@ _HALTED_FROM_STATUSES = ("pending", "ready", "dispatched")
 # status is NOT in this set (i.e. pending / cloning / running).
 _TERMINAL_RUN_STATUSES = frozenset(("success", "failed", "cancelled", "timeout"))
 
+# Merge notes.
+#
+# A merge note is the durable artifact the reviewing manager writes when it
+# merges an item: the changed public signatures, renamed classes and changed
+# config keys that could invalidate a LATER item's spec.  Before this existed,
+# AC reconciliation left no trace at all — it happened (or did not) inside one
+# manager's context window and vanished with the process.
+#
+# Notes are stored as ``rollout_events`` rows with kind ``merge_note`` rather
+# than as item comments: the events table is already the rollout's append-only,
+# seq-ordered, per-rollout audit log, which is exactly the query shape the
+# reader needs ("the last N notes for THIS rollout, newest first").  An item
+# comment would be per-item, unordered across items, and not scoped to a
+# rollout, forcing an N-query fan-out to reconstruct the same list.
+MERGE_NOTE_EVENT_KIND = "merge_note"
+
+# Hard cap on a single stored merge note.  A note is a list of changed
+# signatures/renames/config keys, not a prose summary of the diff — the commit
+# message is for that.  The cap keeps a rambling note from crowding out the
+# other N-1 notes in a later manage prompt.
+MERGE_NOTE_MAX_CHARS = 2000
+
 
 # ---------------------------------------------------------------------------
 # Legality contract validation
@@ -764,6 +786,7 @@ async def complete_item_in_rollout(
     outcome: RolloutItemOutcome | str,
     merge_actor: str = "",
     decision_rule: str = "",
+    merge_note: str = "",
 ) -> dict[str, Any]:
     """Mark a dispatched wave item as done and unblock downstream items.
 
@@ -783,6 +806,12 @@ async def complete_item_in_rollout(
             Stored on the rollout_items row.
         decision_rule: Allowlist rule name that triggered auto-approval
             (from the executor classifier). Stored in the event payload.
+        merge_note: Short structured note describing what the merged work
+            changed that could invalidate a later item's spec — changed public
+            signatures, renamed classes, changed config keys.  When non-empty
+            a ``merge_note`` rollout event is appended alongside the
+            ``item_outcome`` event.  Truncated to
+            ``MERGE_NOTE_MAX_CHARS``.
 
     Returns:
         Dict with keys:
@@ -920,6 +949,23 @@ async def complete_item_in_rollout(
         decision_rule=decision_rule,
     )
     _publish_rollout_event(db, user_id, wave_event, project_id)
+
+    # Persist the merge note as its own event so the next manage prompt can
+    # read the last N without having to parse item_outcome payloads.
+    trimmed_note = merge_note.strip()[:MERGE_NOTE_MAX_CHARS]
+    if trimmed_note:
+        note_event = await _append_rollout_event(
+            db,
+            rollout_id,
+            kind=MERGE_NOTE_EVENT_KIND,
+            actor="manager",
+            payload={
+                "item_id": item_id,
+                "outcome": outcome,
+                "note": trimmed_note,
+            },
+        )
+        _publish_rollout_event(db, user_id, note_event, project_id)
 
     # If all items are done, emit wave_completed lifecycle event (AC-5)
     if graph_complete:
@@ -1843,6 +1889,66 @@ async def get_rollout_events(
                 d["payload"] = {}
         result.append(d)
     return result
+
+
+async def get_recent_merge_notes(
+    db: DbPool,
+    rollout_id: str,
+    user_id: str,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Return the most recent merge notes for a rollout, newest first.
+
+    Merge notes are ``rollout_events`` rows with kind ``merge_note`` (see
+    ``MERGE_NOTE_EVENT_KIND``).  This is the read side of the durable record
+    that replaces a manager's in-context memory of what earlier items changed:
+    the dispatch service feeds the last N into every subsequent manage prompt,
+    so a relaunched manager keeps the context it used to silently lose.
+
+    Args:
+        db: Database pool.
+        rollout_id: The rollout to query.
+        user_id: The calling user's ID — must own the rollout.
+        limit: Maximum number of notes to return (clamped to 1..50).
+
+    Returns:
+        List of ``{item_id, outcome, note, seq, ts}`` dicts, newest first.
+
+    Raises:
+        NotFoundError: If the rollout is not found or not owned by the caller.
+    """
+    await _get_rollout(db, user_id, rollout_id)
+
+    effective_limit = min(max(1, limit), 50)
+    rows = await db.fetch(
+        "SELECT seq, ts, payload FROM rollout_events"
+        " WHERE rollout_id = $1 AND kind = $2"
+        " ORDER BY seq DESC LIMIT $3",
+        rollout_id,
+        MERGE_NOTE_EVENT_KIND,
+        effective_limit,
+    )
+    notes: list[dict[str, Any]] = []
+    for r in rows:
+        raw = r["payload"]
+        payload: dict[str, Any]
+        if isinstance(raw, str):
+            try:
+                payload = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+        else:
+            payload = raw or {}
+        notes.append(
+            {
+                "seq": r["seq"],
+                "ts": r["ts"],
+                "item_id": payload.get("item_id", ""),
+                "outcome": payload.get("outcome", ""),
+                "note": payload.get("note", ""),
+            }
+        )
+    return notes
 
 
 async def resume_rollout(

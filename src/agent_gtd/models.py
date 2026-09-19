@@ -9,6 +9,8 @@ from agent_gtd_dispatch_protocol import DispatchMode as DispatchMode
 from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 from pydantic import BaseModel, Field, field_validator
 
+from agent_gtd.dispatch_constants import MANAGER_DEFAULT_TIMEOUT_MINUTES
+
 # --- Enums ---
 
 
@@ -862,7 +864,7 @@ class DispatchSettingsResponse(BaseModel):
     build_agent_name: str = ""
     default_max_turns: int = 100
     default_timeout_minutes: int = 30
-    manager_default_timeout_minutes: int = 240
+    manager_default_timeout_minutes: int = MANAGER_DEFAULT_TIMEOUT_MINUTES
     service_url: str
     service_api_key_preview: str = ""
 

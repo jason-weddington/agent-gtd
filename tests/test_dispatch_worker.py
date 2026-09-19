@@ -9,9 +9,12 @@ from agent_gtd_dispatch_protocol import DispatchRequest
 from agent_gtd_dispatch_protocol import RunResponse as RemoteRunResponse
 from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 
+from agent_gtd import dispatch_worker
+from agent_gtd.dispatch_constants import MANAGER_DEFAULT_TIMEOUT_MINUTES
 from agent_gtd.dispatch_worker import (
     resolve_agent,
     resolve_engine,
+    resolve_max_turns,
     resolve_timeout_minutes,
 )
 
@@ -1713,3 +1716,64 @@ async def test_execute_run_fails_run_on_rejected_manage_engine() -> None:
     joined = " ".join(str(a) for call in failures for a in call)
     assert "failed" in joined
     assert "talos-opus" in joined
+
+
+# ---------------------------------------------------------------------------
+# resolve_max_turns — mode-specific branch
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_max_turns_manage_default_matches_build() -> None:
+    """Default MANAGE_MAX_TURNS=None: manage resolves exactly as build does.
+
+    This is the no-behavioural-change guard — the seam exists, the value does not
+    differ yet.
+    """
+    assert dispatch_worker.MANAGE_MAX_TURNS is None
+    assert resolve_max_turns(None, 100, "manage") == 100
+    assert resolve_max_turns(None, 100, "manage") == resolve_max_turns(
+        None, 100, "build"
+    )
+
+
+def test_resolve_max_turns_manage_uses_mode_specific_value(monkeypatch) -> None:
+    """With a manage-specific budget set, manage mode returns it."""
+    monkeypatch.setattr(dispatch_worker, "MANAGE_MAX_TURNS", 25)
+
+    assert resolve_max_turns(None, 100, "manage") == 25
+
+
+def test_resolve_max_turns_build_and_plan_unchanged_by_manage_value(
+    monkeypatch,
+) -> None:
+    """A manage-specific budget must not leak into build or plan runs."""
+    monkeypatch.setattr(dispatch_worker, "MANAGE_MAX_TURNS", 25)
+
+    assert resolve_max_turns(None, 100, "build") == 100
+    assert resolve_max_turns(None, 100, "plan") == 100
+
+
+def test_resolve_max_turns_default_mode_is_build(monkeypatch) -> None:
+    """Callers that omit `mode` keep the pre-existing behaviour."""
+    monkeypatch.setattr(dispatch_worker, "MANAGE_MAX_TURNS", 25)
+
+    assert resolve_max_turns(None, 100) == 100
+
+
+def test_resolve_max_turns_project_override_wins_over_manage_value(
+    monkeypatch,
+) -> None:
+    """An explicit per-project budget still beats the manage-specific default."""
+    monkeypatch.setattr(dispatch_worker, "MANAGE_MAX_TURNS", 25)
+
+    assert resolve_max_turns(250, 100, "manage") == 250
+
+
+def test_manager_default_timeout_is_the_single_source_of_truth() -> None:
+    """The GTD-side manage timeout constant is authoritative for 240 minutes.
+
+    The dispatch service's ``config.MANAGE_TIMEOUT_SECONDS`` backstop derives
+    from this value and must stay numerically equal to it.
+    """
+    assert MANAGER_DEFAULT_TIMEOUT_MINUTES == 240
+    assert MANAGER_DEFAULT_TIMEOUT_MINUTES * 60 == 14400

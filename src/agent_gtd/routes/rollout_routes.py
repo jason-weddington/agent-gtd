@@ -19,6 +19,7 @@ Endpoints (planning + executor):
 Endpoints (frontend UI — AC-22, AC-23, AC-24):
     GET  /api/projects/{project_id}/active-rollout       → active RolloutResponse
     GET  /api/rollouts/{id}/events                   → rollout event list
+    GET  /api/rollouts/{id}/merge-notes              → recent merge notes
     POST /api/rollouts/{id}/resume                   → resume halted rollout
 """
 
@@ -67,6 +68,7 @@ class CompleteItemRequest(BaseModel):
     outcome: RolloutItemOutcome
     merge_actor: MergeActor | Literal[""] = ""
     decision_rule: Literal["", "agent-judgment"] = ""
+    merge_note: str = ""
 
 
 class HaltRolloutRequest(BaseModel):
@@ -195,7 +197,8 @@ async def complete_item_in_rollout(
 
     Args:
         rollout_id: The wave run the item belongs to.
-        body: item_id, outcome, optional merge_actor and decision_rule.
+        body: item_id, outcome, optional merge_actor, decision_rule and
+            merge_note.
         user: Injected authenticated user.
 
     Returns:
@@ -211,6 +214,7 @@ async def complete_item_in_rollout(
             body.outcome,
             merge_actor=body.merge_actor,
             decision_rule=body.decision_rule,
+            merge_note=body.merge_note,
         )
     except (NotFoundError, ValidationError) as exc:
         raise _map_exc(exc) from exc
@@ -400,6 +404,37 @@ async def get_active_rollout(
         raise HTTPException(status_code=404, detail="No active wave for this project")
 
     return wave
+
+
+@router.get("/{rollout_id}/merge-notes")
+async def get_rollout_merge_notes(
+    rollout_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(default=10, ge=1, le=50),
+) -> dict[str, Any]:
+    """Return the most recent merge notes for a rollout, newest first.
+
+    Merge notes are the durable record of what each merged item changed that
+    could invalidate a later item's spec.  The dispatch service reads this to
+    feed the last N notes into each subsequent manage prompt.
+
+    Args:
+        rollout_id: The rollout to query.
+        user: Injected authenticated user.
+        limit: Max notes to return (1-50, default 10).
+
+    Returns:
+        Dict with a ``merge_notes`` list.
+    """
+    db = await get_db()
+    try:
+        notes = await rollout_service.get_recent_merge_notes(
+            db, rollout_id, user.id, limit=limit
+        )
+    except (NotFoundError, ValidationError) as exc:
+        raise _map_exc(exc) from exc
+
+    return {"merge_notes": notes}
 
 
 @router.get("/{rollout_id}/events")

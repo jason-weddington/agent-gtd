@@ -10,9 +10,12 @@ import pytest
 from agent_gtd.database import encode_file_specs, encode_json_list, get_db
 from agent_gtd.exceptions import LegalityContractError, NotFoundError, ValidationError
 from agent_gtd.services.rollout_service import (
+    MERGE_NOTE_EVENT_KIND,
+    MERGE_NOTE_MAX_CHARS,
     call_planner,
     cancel_rollout,
     complete_item_in_rollout,
+    get_recent_merge_notes,
     start_rollout,
     validate_legality_contract,
 )
@@ -1758,3 +1761,150 @@ async def test_check_halted_rollout_completion_not_halted_no_op(db):
     assert row is not None
     assert row["status"] == "running"
     mock_pub.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Merge notes — persistence and retrieval
+# ---------------------------------------------------------------------------
+
+
+async def _complete_with_note(
+    db, user_id, rollout_id, item_id, note, *, outcome="completed"
+):
+    """Complete a rollout item with a merge note, with side effects patched out."""
+    with (
+        patch(
+            "agent_gtd.services.rollout_lock_service.release_rollout_item",
+            new_callable=AsyncMock,
+        ),
+        patch("agent_gtd.services.rollout_service._publish_rollout_event"),
+    ):
+        return await complete_item_in_rollout(
+            db,
+            user_id,
+            rollout_id,
+            item_id,
+            outcome=outcome,
+            merge_actor="manager-autonomous",
+            merge_note=note,
+        )
+
+
+async def test_merge_note_persisted_and_retrievable(db):
+    """A merge note supplied at merge time is stored and read back."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, status="review")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, rollout_id, item_id, status="dispatched")
+
+    note = "resolve_max_turns() gained a `mode` param; config key dispatch.foo renamed"
+    await _complete_with_note(db, user_id, rollout_id, item_id, note)
+
+    notes = await get_recent_merge_notes(db, rollout_id, user_id)
+    assert len(notes) == 1
+    assert notes[0]["item_id"] == item_id
+    assert notes[0]["note"] == note
+    assert notes[0]["outcome"] == "completed"
+
+
+async def test_merge_note_stored_as_rollout_event(db):
+    """The note lands in rollout_events under the merge_note kind."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, status="review")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, rollout_id, item_id, status="dispatched")
+
+    await _complete_with_note(db, user_id, rollout_id, item_id, "renamed Foo → Bar")
+
+    rows = await db.fetch(
+        "SELECT kind FROM rollout_events WHERE rollout_id = $1 AND kind = $2",
+        rollout_id,
+        MERGE_NOTE_EVENT_KIND,
+    )
+    assert len(rows) == 1
+
+
+async def test_no_merge_note_event_when_note_empty(db):
+    """Omitting the note (today's callers) appends no merge_note event."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, status="review")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, rollout_id, item_id, status="dispatched")
+
+    await _complete_with_note(db, user_id, rollout_id, item_id, "   ")
+
+    assert await get_recent_merge_notes(db, rollout_id, user_id) == []
+
+
+async def test_merge_notes_newest_first_and_limited(db):
+    """Notes come back newest-first and honour the limit."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+
+    item_ids = []
+    for n in range(3):
+        item_id = await _make_item(
+            db, user_id, project_id, status="review", title=f"Item {n}"
+        )
+        item_ids.append(item_id)
+        await _make_wave_plan_item(db, rollout_id, item_id, status="dispatched")
+
+    for n, item_id in enumerate(item_ids):
+        await _complete_with_note(db, user_id, rollout_id, item_id, f"note {n}")
+
+    notes = await get_recent_merge_notes(db, rollout_id, user_id)
+    assert [x["note"] for x in notes] == ["note 2", "note 1", "note 0"]
+
+    assert [
+        x["note"]
+        for x in await get_recent_merge_notes(db, rollout_id, user_id, limit=2)
+    ] == ["note 2", "note 1"]
+
+
+async def test_merge_note_truncated_to_max_chars(db):
+    """An over-long note is clipped rather than crowding out other notes."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, status="review")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, rollout_id, item_id, status="dispatched")
+
+    await _complete_with_note(db, user_id, rollout_id, item_id, "x" * 5000)
+
+    notes = await get_recent_merge_notes(db, rollout_id, user_id)
+    assert len(notes[0]["note"]) == MERGE_NOTE_MAX_CHARS
+
+
+async def test_merge_notes_scoped_to_rollout(db):
+    """Notes from another rollout never leak into this one's list."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_a = await _make_rollout(db, user_id, project_id, status="running")
+    rollout_b = await _make_rollout(db, user_id, project_id, status="running")
+
+    item_a = await _make_item(db, user_id, project_id, status="review", title="A")
+    item_b = await _make_item(db, user_id, project_id, status="review", title="B")
+    await _make_wave_plan_item(db, rollout_a, item_a, status="dispatched")
+    await _make_wave_plan_item(db, rollout_b, item_b, status="dispatched")
+
+    await _complete_with_note(db, user_id, rollout_a, item_a, "note A")
+    await _complete_with_note(db, user_id, rollout_b, item_b, "note B")
+
+    assert [
+        n["note"] for n in await get_recent_merge_notes(db, rollout_a, user_id)
+    ] == ["note A"]
+
+
+async def test_merge_notes_rejects_foreign_user(db):
+    """A user who does not own the rollout cannot read its merge notes."""
+    user_id = await _make_user(db)
+    other_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+
+    with pytest.raises(NotFoundError):
+        await get_recent_merge_notes(db, rollout_id, other_id)

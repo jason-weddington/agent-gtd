@@ -95,6 +95,7 @@ class _FakeBackend:
         *,
         merge_actor: str = "",
         decision_rule: str = "",
+        merge_note: str = "",
     ) -> dict[str, Any]:
         self.calls.append(
             {
@@ -105,6 +106,7 @@ class _FakeBackend:
                 "outcome": outcome,
                 "merge_actor": merge_actor,
                 "decision_rule": decision_rule,
+                "merge_note": merge_note,
             }
         )
         return self._responses["complete_item_in_rollout"]
@@ -681,6 +683,33 @@ def test_complete_item_defaults(
     call = fake.calls[0]
     assert call["merge_actor"] == ""
     assert call["decision_rule"] == ""
+    assert call["merge_note"] == ""
+
+
+def test_complete_item_forwards_merge_note(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--merge-note reaches the backend verbatim."""
+    fake = _FakeBackend()
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+
+    note = "resolve_max_turns() gained `mode`; config key dispatch.foo renamed"
+    p, _ = _make_parser()
+    args = p.parse_args(
+        [
+            "complete-item-in-rollout",
+            _ruid(),
+            _ruid(),
+            "--outcome",
+            "completed",
+            "--merge-note",
+            note,
+        ]
+    )
+    args.func(args)
+
+    assert fake.calls[0]["merge_note"] == note
 
 
 def test_halt_rollout_defaults(

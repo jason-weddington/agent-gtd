@@ -157,7 +157,7 @@ async def create_run(
             int(raw_project_turns) if raw_project_turns is not None else None
         )
         effective_max_turns = resolve_max_turns(
-            project_dispatch_max_turns, global_default
+            project_dispatch_max_turns, global_default, mode
         )
     else:
         effective_max_turns = max_turns
@@ -319,7 +319,10 @@ async def dispatch_rollout_run(
     project_dispatch_max_turns = (
         int(raw_project_turns) if raw_project_turns is not None else None
     )
-    effective_max_turns = resolve_max_turns(project_dispatch_max_turns, global_default)
+    # This is the manage-mode launch path — mode is manage by construction.
+    effective_max_turns = resolve_max_turns(
+        project_dispatch_max_turns, global_default, "manage"
+    )
 
     now = datetime.now(UTC).isoformat()
     run_id = str(uuid.uuid4())

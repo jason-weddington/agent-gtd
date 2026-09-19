@@ -140,6 +140,31 @@ async def _make_wave_event(
     return event_id
 
 
+async def _make_merge_note_event(
+    db: Any,
+    rollout_id: str,
+    item_id: str,
+    note: str,
+    seq: int,
+) -> str:
+    """Insert a merge_note rollout_events row and return its ID."""
+    from agent_gtd.services.rollout_service import MERGE_NOTE_EVENT_KIND
+
+    event_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO rollout_events (id, rollout_id, seq, ts, kind, actor, payload)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        event_id,
+        rollout_id,
+        seq,
+        _now(),
+        MERGE_NOTE_EVENT_KIND,
+        "manager",
+        json.dumps({"item_id": item_id, "outcome": "completed", "note": note}),
+    )
+    return event_id
+
+
 async def _make_wave_plan(
     db: Any, rollout_id: str, nodes: list[str], edges: list[dict[str, str]]
 ) -> str:
@@ -367,6 +392,76 @@ class TestGetRolloutEvents:
     ) -> None:
         """Unauthenticated request is rejected."""
         resp = await client.get(f"/api/rollouts/{wave_setup['rollout_id']}/events")
+        assert resp.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/rollouts/{id}/merge-notes
+# ---------------------------------------------------------------------------
+
+
+class TestGetRolloutMergeNotes:
+    async def test_returns_notes_newest_first(
+        self, client: AsyncClient, wave_setup: dict[str, Any]
+    ) -> None:
+        db = wave_setup["db"]
+        rollout_id = wave_setup["rollout_id"]
+
+        await _make_merge_note_event(db, rollout_id, "item-a", "renamed Foo", seq=1)
+        await _make_merge_note_event(db, rollout_id, "item-b", "new key x.y", seq=2)
+
+        resp = await client.get(
+            f"/api/rollouts/{rollout_id}/merge-notes",
+            headers=wave_setup["headers"],
+        )
+        assert resp.status_code == 200
+        notes = resp.json()["merge_notes"]
+        assert [n["item_id"] for n in notes] == ["item-b", "item-a"]
+        assert notes[0]["note"] == "new key x.y"
+
+    async def test_ignores_non_merge_note_events(
+        self, client: AsyncClient, wave_setup: dict[str, Any]
+    ) -> None:
+        db = wave_setup["db"]
+        rollout_id = wave_setup["rollout_id"]
+
+        await _make_wave_event(db, rollout_id, kind="item_outcome", seq=1)
+        await _make_merge_note_event(db, rollout_id, "item-a", "renamed Foo", seq=2)
+
+        resp = await client.get(
+            f"/api/rollouts/{rollout_id}/merge-notes",
+            headers=wave_setup["headers"],
+        )
+        assert [n["item_id"] for n in resp.json()["merge_notes"]] == ["item-a"]
+
+    async def test_respects_limit_param(
+        self, client: AsyncClient, wave_setup: dict[str, Any]
+    ) -> None:
+        db = wave_setup["db"]
+        rollout_id = wave_setup["rollout_id"]
+
+        for i in range(5):
+            await _make_merge_note_event(db, rollout_id, f"item-{i}", "n", seq=i + 1)
+
+        resp = await client.get(
+            f"/api/rollouts/{rollout_id}/merge-notes?limit=2",
+            headers=wave_setup["headers"],
+        )
+        assert len(resp.json()["merge_notes"]) == 2
+
+    async def test_404_for_unknown_rollout(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> None:
+        resp = await client.get(
+            "/api/rollouts/no-such-rollout/merge-notes",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 404
+
+    async def test_requires_auth(
+        self, client: AsyncClient, wave_setup: dict[str, Any]
+    ) -> None:
+        resp = await client.get(f"/api/rollouts/{wave_setup['rollout_id']}/merge-notes")
         assert resp.status_code in (401, 403)
 
 
