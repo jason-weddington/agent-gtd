@@ -1499,3 +1499,93 @@ async def test_resume_polling_mirrors_long_error_msg_uncut() -> None:
         await _resume_polling(db, run, "remote-err", url="http://t", api_key="k")
 
     assert update_mock.call_args.kwargs["error_msg"] == error
+
+
+class TestProtocolEnumCoverage:
+    """The pinned protocol must know every terminal the dispatch service emits.
+
+    Regression guard for a latent production break found 2026-09-19. agent_gtd's
+    uv.lock pinned agent-gtd-dispatch-protocol 0.1.0 — a version predating
+    `RunStatus.already_satisfied` — while the deployed dispatch service had
+    started emitting that terminal (talos exit 30, and the claude-code
+    already_satisfied artifact disposition). `_poll_remote_run` validates poll
+    responses with `RemoteRunResponse.model_validate`, so the first
+    already_satisfied run would have raised a Pydantic ValidationError in the
+    poller instead of reconciling. It had not fired yet only because no run had
+    reached that terminal in production.
+
+    The failure is silent in exactly the wrong way: nothing warns you that the
+    lockfile is behind, and the deploy reports success. Pin the expectation here
+    so a future protocol status is a red test rather than a runtime surprise.
+    """
+
+    def test_run_status_covers_every_dispatch_terminal(self) -> None:
+        from agent_gtd_dispatch_protocol import RunStatus
+
+        members = {m.value for m in RunStatus}
+        required = {
+            "pending",
+            "running",
+            "succeeded",
+            "failed",
+            "timed_out",
+            "cancelled",
+            "already_satisfied",
+        }
+        missing = required - members
+        assert not missing, (
+            f"pinned protocol is missing RunStatus members {sorted(missing)} — "
+            "run `uv lock --upgrade-package agent-gtd-dispatch-protocol`"
+        )
+
+    def test_already_satisfied_poll_response_validates(self) -> None:
+        """The exact shape that would have blown up the poller."""
+        from agent_gtd.dispatch_worker import RemoteRunResponse
+
+        parsed = RemoteRunResponse.model_validate(
+            {
+                "id": "0d3482320cfb",
+                "item_id": "192d4b13-0000-0000-0000-000000000000",
+                "project_name": "flickrasync",
+                "branch_name": "feat/demo",
+                "engine": "talos-glm-flash",
+                "agent_name": None,
+                "mode": "build",
+                "rollout_id": None,
+                "status": "already_satisfied",
+                "started_at": "2026-09-19T12:00:00Z",
+                "completed_at": "2026-09-19T12:04:00Z",
+                "exit_code": 30,
+                "error": None,
+                "created_at": "2026-09-19T12:00:00Z",
+            }
+        )
+        assert parsed.status.value == "already_satisfied"
+
+
+class TestAlreadySatisfiedStatusMapping:
+    """`already_satisfied` must mirror as a non-error terminal.
+
+    Mapping it to FAILED would halt a rollout wave over work that was already
+    correct — the exact false-negative shape the completion contract exists to
+    avoid.
+    """
+
+    def test_already_satisfied_maps_to_success(self) -> None:
+        from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
+
+        from agent_gtd.models import LocalRunStatus
+
+        assert (
+            LocalRunStatus.from_remote(RemoteRunStatus.already_satisfied)
+            is LocalRunStatus.SUCCESS
+        )
+
+    def test_mapping_is_total_over_the_remote_enum(self) -> None:
+        """Every remote status maps without raising — the assert_never guard."""
+        from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
+
+        from agent_gtd.models import LocalRunStatus
+
+        for remote in RemoteRunStatus:
+            assert LocalRunStatus.from_remote(remote) is not None

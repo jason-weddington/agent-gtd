@@ -91,6 +91,20 @@ class LocalRunStatus(StrEnum):
         match remote:
             case RemoteRunStatus.succeeded:
                 return cls.SUCCESS
+            case RemoteRunStatus.already_satisfied:
+                # The agent found the acceptance criteria already met and the
+                # quality gate passed on the untouched tree.  That is a terminal
+                # without error, so it mirrors as SUCCESS: mapping it to FAILED
+                # would halt a rollout wave over healthy work.
+                #
+                # It does NOT mean the item is done, and nothing here implies
+                # that — SUCCESS drives only the stored local status and the SSE
+                # event type.  The dispatch service owns the item transition
+                # (PATCH to `review`) and records the rollout child as `skipped`
+                # so the wave advances.  The local enum deliberately grows no
+                # `already_satisfied` member: that would change persisted values
+                # and the UI for a distinction only the dispatch side acts on.
+                return cls.SUCCESS
             case RemoteRunStatus.failed:
                 return cls.FAILED
             case RemoteRunStatus.timed_out:
