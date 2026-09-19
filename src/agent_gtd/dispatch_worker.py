@@ -71,13 +71,29 @@ MANAGE_ENGINE = "claude-code"
 # Terminal statuses from the shared dispatch-protocol package.
 # When the remote run reaches one of these, we stop polling and map to a
 # local status via LocalRunStatus.from_remote().
-_TERMINAL_STATUSES: frozenset[RemoteRunStatus] = frozenset(
+#
+# DERIVED, not hand-listed. A hand-written set is exactly how `already_satisfied`
+# went missing: it was added to the protocol enum AND to `from_remote`, whose
+# `assert_never` guard forced that update — but nothing forces a frozenset
+# literal, so the poller treated the new terminal as "still running" and looped
+# forever. Two runs sat at `running` for over half an hour on 2026-09-19 while
+# the dispatch service had marked them terminal, which also means `--wait` never
+# returns and a Monitor never fires.
+#
+# Deriving from the enum minus the known non-terminals means a future protocol
+# status is terminal-by-default here. That is the safe direction: treating a new
+# status as terminal surfaces it immediately (it maps through `from_remote`,
+# whose assert_never fails loudly if unmapped), whereas treating it as
+# non-terminal hangs silently.
+_NON_TERMINAL_STATUSES: frozenset[RemoteRunStatus] = frozenset(
     {
-        RemoteRunStatus.succeeded,
-        RemoteRunStatus.failed,
-        RemoteRunStatus.timed_out,
-        RemoteRunStatus.cancelled,
+        RemoteRunStatus.pending,
+        RemoteRunStatus.running,
     }
+)
+
+_TERMINAL_STATUSES: frozenset[RemoteRunStatus] = frozenset(
+    status for status in RemoteRunStatus if status not in _NON_TERMINAL_STATUSES
 )
 
 

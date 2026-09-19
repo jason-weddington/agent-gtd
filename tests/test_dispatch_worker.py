@@ -1777,3 +1777,50 @@ def test_manager_default_timeout_is_the_single_source_of_truth() -> None:
     """
     assert MANAGER_DEFAULT_TIMEOUT_MINUTES == 240
     assert MANAGER_DEFAULT_TIMEOUT_MINUTES * 60 == 14400
+
+
+class TestTerminalStatusCoverage:
+    """Every non-running protocol status must be terminal to the poller.
+
+    Regression guard for 2026-09-19: `already_satisfied` was added to the
+    protocol enum and to `LocalRunStatus.from_remote` — whose `assert_never`
+    guard forced that second update — but `_TERMINAL_STATUSES` was a hand-written
+    frozenset and nothing forced it. The poller therefore treated the new
+    terminal as "still running" and looped forever: two runs sat at `running`
+    for over thirty minutes while the dispatch service had already marked them
+    terminal. `run-status --wait` never returns in that state and a Monitor
+    never fires, so the failure is invisible rather than loud.
+    """
+
+    def test_already_satisfied_is_terminal(self) -> None:
+        from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
+
+        from agent_gtd.dispatch_worker import _TERMINAL_STATUSES
+
+        assert RemoteRunStatus.already_satisfied in _TERMINAL_STATUSES
+
+    def test_only_pending_and_running_are_non_terminal(self) -> None:
+        """A new protocol status is terminal by default — the safe direction.
+
+        Treating an unknown status as terminal surfaces it immediately, because
+        it then maps through from_remote whose assert_never fails loudly.
+        Treating it as non-terminal hangs silently, which is the bug this
+        guards.
+        """
+        from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
+
+        from agent_gtd.dispatch_worker import _TERMINAL_STATUSES
+
+        non_terminal = set(RemoteRunStatus) - set(_TERMINAL_STATUSES)
+        assert non_terminal == {
+            RemoteRunStatus.pending,
+            RemoteRunStatus.running,
+        }
+
+    def test_every_terminal_status_maps_locally(self) -> None:
+        """No terminal status may break the mapping the poller runs next."""
+        from agent_gtd.dispatch_worker import _TERMINAL_STATUSES
+        from agent_gtd.models import LocalRunStatus
+
+        for remote in _TERMINAL_STATUSES:
+            assert LocalRunStatus.from_remote(remote) is not None
