@@ -9,6 +9,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
+  FormHelperText,
   IconButton,
   InputLabel,
   MenuItem,
@@ -21,7 +22,8 @@ import {
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { api, ApiError } from '../api'
-import type { Project, ProjectStatus, DispatchAgentInfo, RepoMode } from '../types'
+import type { Project, ProjectStatus, DispatchAgentInfo, RepoMode, BuildEngine } from '../types'
+import { MANAGE_ENGINE_OPTIONS } from '../engineLabels'
 
 interface ProjectEditDialogProps {
   open: boolean
@@ -48,6 +50,7 @@ export default function ProjectEditDialog({
   const [workspaceRepos, setWorkspaceRepos] = useState<string[]>([''])
   const [planDispatchAgent, setPlanDispatchAgent] = useState<string | null>(null)
   const [buildDispatchAgent, setBuildDispatchAgent] = useState<string | null>(null)
+  const [manageEngine, setManageEngine] = useState<BuildEngine | null>(null)
   const [gateCommand, setGateCommand] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -99,6 +102,7 @@ export default function ProjectEditDialog({
       setWorkspaceRepos(editing.workspaceRepos && editing.workspaceRepos.length > 0 ? editing.workspaceRepos : [''])
       setPlanDispatchAgent(editing.planDispatchAgent ?? null)
       setBuildDispatchAgent(editing.buildDispatchAgent ?? null)
+      setManageEngine(editing.manageEngine ?? null)
       setGateCommand(editing.gateCommand ?? null)
     } else {
       setName('')
@@ -111,6 +115,7 @@ export default function ProjectEditDialog({
       setWorkspaceRepos([''])
       setPlanDispatchAgent(null)
       setBuildDispatchAgent(null)
+      setManageEngine(null)
       setGateCommand(null)
     }
     setSaveError(null)
@@ -151,6 +156,7 @@ export default function ProjectEditDialog({
           workspaceRepos: trimmedRepos,
           planDispatchAgent,
           buildDispatchAgent,
+          manageEngine,
           gateCommand,
         } : {}
         saved = await api.projects.update(editing.id, {
@@ -423,6 +429,39 @@ export default function ProjectEditDialog({
                 />
               )}
             />
+          </span>
+        </Tooltip>
+        <Tooltip
+          title={!isOwner && editing !== null ? 'Only the project owner can edit dispatch settings' : ''}
+          disableHoverListener={isOwner}
+        >
+          <span>
+            <FormControl fullWidth size="small" margin="normal">
+              <InputLabel id="manage-engine-label">Rollout Manager Engine</InputLabel>
+              <Select
+                labelId="manage-engine-label"
+                label="Rollout Manager Engine"
+                value={manageEngine ?? ''}
+                disabled={!isOwner && editing !== null}
+                onChange={(e) =>
+                  setManageEngine((e.target.value as BuildEngine | '') || null)
+                }
+              >
+                <MenuItem value="">Default — Claude Code (Opus)</MenuItem>
+                {MANAGE_ENGINE_OPTIONS.map((opt) => (
+                  <MenuItem key={opt.value} value={opt.value}>
+                    {opt.displayLabel}
+                  </MenuItem>
+                ))}
+              </Select>
+              <FormHelperText>
+                Engine that drives a rollout manager. The default is Opus on purpose: a
+                manager uses few turns but has a large blast radius — it dispatches every
+                child build, reconciles acceptance criteria and merges, so a bad call
+                costs far more than the tokens it saves. Only Claude Code engines can
+                drive a manager.
+              </FormHelperText>
+            </FormControl>
           </span>
         </Tooltip>
         <TextField

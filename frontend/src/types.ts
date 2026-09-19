@@ -105,6 +105,8 @@ export interface Project {
   planDispatchAgent?: string | null
   /** Per-project build-mode agent override. Null = inherit from global build agent. */
   buildDispatchAgent?: string | null
+  /** Per-project manage-mode (rollout manager) engine override. Null = use the default (Opus). */
+  manageEngine?: BuildEngine | null
   /** Shell command that is the project's quality gate, run from the repo root (the workspace root for workspace projects); exit 0 = green. Dispatch runs it after each build run that pushes a branch and marks the run failed if it exits non-zero. Null = not set. */
   gateCommand?: string | null
   /** Dispatch mode: 'monorepo' (single git_origin) or 'workspace' (multiple repos). Undefined = monorepo. */

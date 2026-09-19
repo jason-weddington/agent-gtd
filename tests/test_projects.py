@@ -20,6 +20,7 @@ _REPRESENTATIVE_VALUES: dict[str, object] = {
     "dispatch_timeout_minutes": 30,
     "gate_command": "uv run pytest",
     "git_origin": "git@host:repos/x",
+    "manage_engine": "claude-code-sonnet",
     "plan_dispatch_agent": "some-agent",
     "repo_mode": "workspace",
     "workspace_repos": ["git@host:repos/x"],
@@ -1599,3 +1600,143 @@ async def test_gate_command_owner_patch_succeeds(
     )
     assert res.status_code == 200
     assert res.json()["gate_command"] == "npm test"
+
+
+# ---------------------------------------------------------------------------
+# manage_engine — per-project manage-mode engine override
+# ---------------------------------------------------------------------------
+
+
+async def test_create_project_manage_engine_is_null(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """New projects inherit the manage-engine default (NULL = claude-code)."""
+    res = await client.post(
+        "/api/projects",
+        json={"name": "Manage Engine Default"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["manage_engine"] is None
+
+
+async def test_update_project_manage_engine_roundtrip(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """manage_engine is accepted, persisted and returned."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"manage_engine": "claude-code-sonnet"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["manage_engine"] == "claude-code-sonnet"
+
+    res = await client.get(f"/api/projects/{project_id}", headers=auth_headers)
+    assert res.json()["manage_engine"] == "claude-code-sonnet"
+
+
+async def test_update_project_clear_manage_engine(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Explicit null clears manage_engine back to the default."""
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={"manage_engine": "claude-code-glm"},
+        headers=auth_headers,
+    )
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"manage_engine": None},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["manage_engine"] is None
+
+
+async def test_update_project_manage_engine_absent_is_unchanged(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """Omitting manage_engine leaves the stored value alone."""
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={"manage_engine": "claude-code-haiku"},
+        headers=auth_headers,
+    )
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"area": "somewhere"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["manage_engine"] == "claude-code-haiku"
+
+
+async def test_update_project_rejects_unknown_manage_engine(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """An unknown engine is rejected at the API boundary, not at launch time."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"manage_engine": "not-a-real-engine"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "talos_engine",
+    ["talos-opus", "talos-sonnet", "talos-glm"],
+)
+async def test_update_project_rejects_talos_manage_engine(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    project_id: str,
+    talos_engine: str,
+):
+    """Talos engines are refused for manage mode with an explicit reason."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"manage_engine": talos_engine},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+    body = res.text
+    assert "self-verif" in body
+    assert "multi-wave manager loop" in body
+
+
+async def test_update_project_rejects_non_manage_capable_engine(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """A registered engine outside the claude-code family is also refused."""
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"manage_engine": "kiro"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+    assert "not manage-capable" in res.text
+
+
+async def test_project_service_rejects_bad_manage_engine(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """The service layer validates too, so non-HTTP callers cannot bypass it."""
+    from agent_gtd.database import get_db
+    from agent_gtd.exceptions import ValidationError
+    from agent_gtd.services import project_service
+
+    db = await get_db()
+    row = await db.fetchrow("SELECT user_id FROM projects WHERE id = $1", project_id)
+    assert row is not None
+    user_id = str(row["user_id"])
+
+    with pytest.raises(ValidationError, match=r"not a known engine"):
+        await project_service.update_project(
+            db, user_id, project_id, manage_engine="nope"
+        )
+    with pytest.raises(ValidationError, match=r"self-verif"):
+        await project_service.update_project(
+            db, user_id, project_id, manage_engine="talos-opus"
+        )

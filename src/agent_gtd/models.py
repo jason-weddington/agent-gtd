@@ -195,6 +195,55 @@ Derived from the enum so a future `talos-*` member is automatically included.
 """
 
 
+CLAUDE_CODE_ENGINES: frozenset[str] = frozenset(
+    member.value for member in BuildEngine if member.value.startswith("claude-code")
+)
+"""Engines that drive the Claude Code harness.
+
+Derived from the enum so a future `claude-code-*` member is automatically
+included.  This is the HARNESS family, not a model tier — the mirror of
+``agent_gtd_dispatch.engines.Engine.is_claude_code_family`` on the dispatch
+side, which grants a manage-mode run the dispatch URL + key it needs to
+dispatch its own children.
+"""
+
+
+MANAGE_CAPABLE_ENGINES: frozenset[str] = CLAUDE_CODE_ENGINES
+"""Engines that may drive a manage-mode (rollout manager) run.
+
+Manage mode runs a multi-wave loop: it dispatches child build runs, waits on
+them, reconciles acceptance criteria and merges.  Only the Claude Code harness
+family can do that today — it is also the only family the dispatch service
+grants ``_MANAGE_EXECUTOR_ENV_KEYS`` to, so an engine outside it would come up
+without the dispatch URL/key and fail in a way that reads as a model problem.
+"""
+
+
+def manage_engine_rejection(engine: str) -> str | None:
+    """Return an error message when *engine* cannot drive manage mode.
+
+    Returns ``None`` when the engine is manage-capable.  The message is written
+    to be read by a human at the API boundary, so it says WHY rather than just
+    that the value was refused.
+    """
+    if engine in TALOS_ENGINES:
+        return (
+            f"manage_engine {engine!r} is not supported: talos engines"
+            " self-verify a single gate and return a disposition — they are not"
+            " a harness that can drive a multi-wave manager loop, dispatch child"
+            " runs and merge their work. Choose one of:"
+            f" {', '.join(sorted(MANAGE_CAPABLE_ENGINES))}."
+        )
+    if engine not in MANAGE_CAPABLE_ENGINES:
+        return (
+            f"manage_engine {engine!r} is not manage-capable: manage mode needs"
+            " the Claude Code harness, which is the only family granted the"
+            " dispatch URL and key a manager uses to dispatch its children."
+            f" Choose one of: {', '.join(sorted(MANAGE_CAPABLE_ENGINES))}."
+        )
+    return None
+
+
 class RolloutEventKind(StrEnum):
     """Kind of event emitted during a rollout."""
 
@@ -261,6 +310,9 @@ class Project(BaseModel):
     dispatch_timeout_minutes: int | None = None
     plan_dispatch_agent: str | None = None
     build_dispatch_agent: str | None = None
+    # Engine used for manage-mode (rollout manager) runs. None = use the
+    # deployment default (claude-code / Opus). See dispatch_worker.resolve_engine.
+    manage_engine: BuildEngine | None = None
     # Per-repo/per-workspace-repo gate commands are DEFERRED to ~0.5.0
     # (workspace_repos stays a plain URL list until then); gate_command is a
     # single project-level nullable shell string.
@@ -537,7 +589,7 @@ class UpdateProjectRequest(BaseModel):
     """Update a project. All fields optional.
 
     For dispatch_max_turns, dispatch_timeout_minutes, plan_dispatch_agent,
-    and build_dispatch_agent:
+    build_dispatch_agent, and manage_engine:
     - Field absent → unchanged
     - Field explicitly null → clear the override (revert to inheriting global)
     - Field set → persist the value
@@ -559,7 +611,24 @@ class UpdateProjectRequest(BaseModel):
     dispatch_timeout_minutes: int | None = None
     plan_dispatch_agent: str | None = None
     build_dispatch_agent: str | None = None
+    manage_engine: BuildEngine | None = None
     gate_command: str | None = None
+
+    @field_validator("manage_engine")
+    @classmethod
+    def _validate_manage_engine(cls, v: BuildEngine | None) -> BuildEngine | None:
+        """Reject non-manage-capable engines at the API boundary.
+
+        An unknown engine is already rejected by the ``BuildEngine`` enum; this
+        catches the registered-but-not-manage-capable ones (talos, kiro) so the
+        problem surfaces on save rather than at manager launch time.
+        """
+        if v is None:
+            return v
+        rejection = manage_engine_rejection(v.value)
+        if rejection is not None:
+            raise ValueError(rejection)
+        return v
 
 
 class ProjectResponse(BaseModel):
@@ -578,6 +647,7 @@ class ProjectResponse(BaseModel):
     dispatch_timeout_minutes: int | None = None
     plan_dispatch_agent: str | None = None
     build_dispatch_agent: str | None = None
+    manage_engine: BuildEngine | None = None
     gate_command: str | None = None
     created_at: datetime
     updated_at: datetime

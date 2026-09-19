@@ -16,6 +16,7 @@ from agent_gtd.dispatch_constants import (
 from agent_gtd.exceptions import NotFoundError, ValidationError
 from agent_gtd.models import (
     AddMemberRequest,
+    BuildEngine,
     CreateProjectRequest,
     MemberSummary,
     ProjectResponse,
@@ -34,6 +35,7 @@ _DISPATCH_ONLY_FIELDS = {
     "dispatch_timeout_minutes",
     "plan_dispatch_agent",
     "build_dispatch_agent",
+    "manage_engine",
     "gate_command",
     # Clone-target fields: repo_mode, workspace_repos, and git_origin control which
     # repos headless agents clone/push to.  Owner-only closes the pre-existing gap
@@ -53,6 +55,7 @@ def _project_response(
     raw_timeout = row.get("dispatch_timeout_minutes")
     raw_plan_agent = row.get("plan_dispatch_agent")
     raw_build_agent = row.get("build_dispatch_agent")
+    raw_manage_engine = row.get("manage_engine")
     raw_gate = row.get("gate_command")
     raw_owner_email = row.get("owner_email")
     raw_member_count = row.get("member_count")
@@ -88,6 +91,9 @@ def _project_response(
         plan_dispatch_agent=str(raw_plan_agent) if raw_plan_agent is not None else None,
         build_dispatch_agent=str(raw_build_agent)
         if raw_build_agent is not None
+        else None,
+        manage_engine=BuildEngine(str(raw_manage_engine))
+        if raw_manage_engine
         else None,
         gate_command=str(raw_gate) if raw_gate is not None else None,
         created_at=datetime.fromisoformat(str(row["created_at"])),
@@ -234,6 +240,9 @@ async def update_project(
         "build_dispatch_agent" in body.model_fields_set
         and body.build_dispatch_agent is None
     )
+    clear_manage_engine = (
+        "manage_engine" in body.model_fields_set and body.manage_engine is None
+    )
     clear_gate_command = (
         "gate_command" in body.model_fields_set and body.gate_command is None
     )
@@ -260,6 +269,10 @@ async def update_project(
             clear_plan_dispatch_agent=clear_plan_dispatch_agent,
             build_dispatch_agent=body.build_dispatch_agent,
             clear_build_dispatch_agent=clear_build_dispatch_agent,
+            manage_engine=(
+                body.manage_engine.value if body.manage_engine is not None else None
+            ),
+            clear_manage_engine=clear_manage_engine,
             gate_command=body.gate_command,
             clear_gate_command=clear_gate_command,
         )

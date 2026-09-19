@@ -39,6 +39,31 @@ def workspace_repo_dir(url: str) -> str:
     return url.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1].removesuffix(".git")
 
 
+def _validate_manage_engine(manage_engine: str) -> None:
+    """Validate a project's manage-mode engine override.
+
+    Rejects both unknown engines and registered-but-not-manage-capable ones
+    (talos, kiro) so the problem surfaces on save rather than at manager launch
+    time, where a missing dispatch env reads as a model failure.
+
+    Raises:
+        ValidationError: If the engine is unknown or not manage-capable.
+    """
+    from agent_gtd.models import BuildEngine, manage_engine_rejection
+
+    try:
+        BuildEngine(manage_engine)
+    except ValueError:
+        known = ", ".join(sorted(member.value for member in BuildEngine))
+        raise ValidationError(
+            f"manage_engine {manage_engine!r} is not a known engine."
+            f" Known engines: {known}."
+        ) from None
+    rejection = manage_engine_rejection(manage_engine)
+    if rejection is not None:
+        raise ValidationError(rejection)
+
+
 def _validate_workspace_fields(
     repo_mode: str | None,
     workspace_repos: list[str] | None,
@@ -400,13 +425,15 @@ async def update_project(
     clear_plan_dispatch_agent: bool = False,
     build_dispatch_agent: str | None = None,
     clear_build_dispatch_agent: bool = False,
+    manage_engine: str | None = None,
+    clear_manage_engine: bool = False,
     gate_command: str | None = None,
     clear_gate_command: bool = False,
 ) -> dict[str, Any]:
     """Update a project. Only non-None fields are changed.
 
     For nullable override columns (dispatch_max_turns, dispatch_timeout_minutes,
-    plan_dispatch_agent, build_dispatch_agent):
+    plan_dispatch_agent, build_dispatch_agent, manage_engine):
     - Pass the value to set it.
     - Pass clear_dispatch_max_turns=True (with dispatch_max_turns=None) to set NULL.
     - Omit both to leave the column unchanged.
@@ -417,8 +444,11 @@ async def update_project(
 
     Raises:
         NotFoundError: If the project doesn't exist or isn't accessible.
-        ValidationError: If the workspace fields fail validation.
+        ValidationError: If the workspace fields fail validation, or if
+            ``manage_engine`` is unknown or not manage-capable.
     """
+    if manage_engine is not None:
+        _validate_manage_engine(manage_engine)
     # Fetch current row to (a) verify access and (b) compute effective state.
     current_row = await db.fetchrow(
         "SELECT * FROM projects WHERE id = $1 AND "
@@ -506,6 +536,12 @@ async def update_project(
     elif clear_build_dispatch_agent:
         params.append(None)
         updates.append(f"build_dispatch_agent = ${len(params)}")
+    if manage_engine is not None:
+        params.append(manage_engine)
+        updates.append(f"manage_engine = ${len(params)}")
+    elif clear_manage_engine:
+        params.append(None)
+        updates.append(f"manage_engine = ${len(params)}")
     if gate_command is not None:
         params.append(gate_command)
         updates.append(f"gate_command = ${len(params)}")

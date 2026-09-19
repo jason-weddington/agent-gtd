@@ -29,3 +29,15 @@ export const BUILD_ENGINE_OPTIONS: { value: BuildEngine; displayLabel: string }[
   { value: 'talos-glm', displayLabel: 'Talos (GLM)' },
   { value: 'talos-glm-flash', displayLabel: 'Talos (GLM Flash)' },
 ]
+
+/**
+ * Engines that may drive a manage-mode (rollout manager) run.
+ *
+ * Derived from BUILD_ENGINE_OPTIONS rather than re-listed, so a future
+ * claude-code-* engine shows up here automatically. Mirrors
+ * agent_gtd.models.MANAGE_CAPABLE_ENGINES on the server: manage mode runs a
+ * multi-wave loop that dispatches child runs and merges, and only the Claude
+ * Code harness family is granted the dispatch env that needs.
+ */
+export const MANAGE_ENGINE_OPTIONS: { value: BuildEngine; displayLabel: string }[] =
+  BUILD_ENGINE_OPTIONS.filter((o) => o.value.startsWith('claude-code'))

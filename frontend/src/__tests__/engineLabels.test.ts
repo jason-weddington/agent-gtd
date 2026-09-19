@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ENGINE_LABELS, BUILD_ENGINE_OPTIONS } from '../engineLabels'
+import { ENGINE_LABELS, BUILD_ENGINE_OPTIONS, MANAGE_ENGINE_OPTIONS } from '../engineLabels'
 
 describe('BUILD_ENGINE_OPTIONS', () => {
   it('has exactly 12 entries', () => {
@@ -128,5 +128,21 @@ describe('ENGINE_LABELS', () => {
     expect(ENGINE_LABELS['talos-qwen'].label).toBe('Talos Qwen')
     expect(ENGINE_LABELS['talos-glm'].label).toBe('Talos GLM')
     expect(ENGINE_LABELS['talos-glm-flash'].label).toBe('Talos GLM Flash')
+  })
+})
+
+describe('MANAGE_ENGINE_OPTIONS', () => {
+  it('contains only claude-code-family engines', () => {
+    expect(MANAGE_ENGINE_OPTIONS.length).toBeGreaterThan(0)
+    for (const opt of MANAGE_ENGINE_OPTIONS) {
+      expect(opt.value.startsWith('claude-code')).toBe(true)
+    }
+  })
+
+  it('includes the default (Opus) engine and excludes talos and kiro', () => {
+    const values = MANAGE_ENGINE_OPTIONS.map((o) => o.value)
+    expect(values).toContain('claude-code')
+    expect(values).not.toContain('kiro')
+    expect(values.filter((v) => v.startsWith('talos-'))).toHaveLength(0)
   })
 })

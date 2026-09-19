@@ -518,6 +518,9 @@ _MIGRATIONS: list[str] = [
     # a logged warning in init_db) and idempotent on Postgres.
     "ALTER TABLE claude_runs ALTER COLUMN engine DROP DEFAULT",
     "ALTER TABLE claude_runs ALTER COLUMN engine DROP NOT NULL",
+    # Per-project manage-mode (rollout manager) engine override.
+    # NULL = use the deployment default (dispatch_worker.MANAGE_ENGINE, Opus).
+    "ALTER TABLE projects ADD COLUMN manage_engine TEXT",
 ]
 
 

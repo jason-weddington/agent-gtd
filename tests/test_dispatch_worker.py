@@ -1589,3 +1589,127 @@ class TestAlreadySatisfiedStatusMapping:
 
         for remote in RemoteRunStatus:
             assert LocalRunStatus.from_remote(remote) is not None
+
+
+# ---------------------------------------------------------------------------
+# resolve_engine — per-project manage engine
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "project_manage_engine,expected",
+    [
+        # NULL / empty → the unchanged default. THIS IS THE NO-REGRESSION CASE:
+        # a project that has never set manage_engine must resolve exactly as it
+        # did before the column existed.
+        (None, "claude-code"),
+        ("", "claude-code"),
+        # Explicit opt-in to a non-default claude-code-family engine.
+        ("claude-code-sonnet", "claude-code-sonnet"),
+        ("claude-code-haiku", "claude-code-haiku"),
+        ("claude-code-glm", "claude-code-glm"),
+        ("claude-code-ollama", "claude-code-ollama"),
+        # Explicitly pinning the default is a no-op.
+        ("claude-code", "claude-code"),
+    ],
+)
+def test_resolve_engine_manage_uses_project_override(
+    project_manage_engine: str | None,
+    expected: str,
+) -> None:
+    """Manage mode consults the project's manage_engine, else MANAGE_ENGINE."""
+    assert resolve_engine("manage", None, None, project_manage_engine) == expected
+
+
+def test_resolve_engine_manage_null_matches_todays_behaviour() -> None:
+    """A NULL manage_engine resolves identically to the pre-column call form.
+
+    Explicit no-regression guard: the three-arg call (everything that existed
+    before this option) and the four-arg call with NULL must agree, and both
+    must be the unchanged MANAGE_ENGINE default.
+    """
+    from agent_gtd.dispatch_worker import MANAGE_ENGINE
+
+    assert MANAGE_ENGINE == "claude-code"
+    for item_engine in (None, "", "claude-code-sonnet", "talos-glm"):
+        for global_engine in (None, "claude-code-sonnet", "talos-glm"):
+            legacy = resolve_engine("manage", item_engine, global_engine)
+            with_null = resolve_engine("manage", item_engine, global_engine, None)
+            assert legacy == with_null == MANAGE_ENGINE
+
+
+def test_resolve_engine_manage_ignores_item_and_global_when_project_set() -> None:
+    """The project override beats both the item engine and the global."""
+    assert (
+        resolve_engine(
+            "manage", "claude-code-ollama", "claude-code-sonnet", "claude-code-haiku"
+        )
+        == "claude-code-haiku"
+    )
+
+
+@pytest.mark.parametrize(
+    "talos_engine",
+    ["talos-haiku", "talos-sonnet", "talos-opus", "talos-qwen", "talos-glm"],
+)
+def test_resolve_engine_manage_rejects_talos(talos_engine: str) -> None:
+    """A talos manage_engine fails fast with an explicit, informative error."""
+    with pytest.raises(ValueError) as exc:
+        resolve_engine("manage", None, "claude-code", talos_engine)
+    msg = str(exc.value)
+    assert talos_engine in msg
+    assert "self-verif" in msg
+    assert "multi-wave manager loop" in msg
+
+
+def test_resolve_engine_manage_rejects_non_manage_capable_engine() -> None:
+    """A registered but non-claude-code engine is also rejected for manage."""
+    with pytest.raises(ValueError, match=r"not manage-capable"):
+        resolve_engine("manage", None, "claude-code", "kiro")
+
+
+def test_manage_capable_engines_are_the_claude_code_family() -> None:
+    """The manage-capable set is derived from the enum, not a literal list."""
+    from agent_gtd.models import (
+        MANAGE_CAPABLE_ENGINES,
+        TALOS_ENGINES,
+        BuildEngine,
+        manage_engine_rejection,
+    )
+
+    assert BuildEngine.CLAUDE_CODE.value in MANAGE_CAPABLE_ENGINES
+    assert not (MANAGE_CAPABLE_ENGINES & TALOS_ENGINES)
+    for name in MANAGE_CAPABLE_ENGINES:
+        assert name.startswith("claude-code")
+        assert manage_engine_rejection(name) is None
+    for name in TALOS_ENGINES:
+        assert manage_engine_rejection(name) is not None
+
+
+@pytest.mark.asyncio
+async def test_execute_run_fails_run_on_rejected_manage_engine() -> None:
+    """A project carrying a talos manage_engine fails the run with the message."""
+    from agent_gtd.dispatch_worker import execute_run
+
+    run = {
+        "id": "run-mgr-1",
+        "item_id": None,
+        "user_id": "user-1",
+        "project_id": "proj-1",
+        "max_turns": 50,
+        "mode": "manage",
+    }
+    project: dict[str, object] = {"manage_engine": "talos-opus"}
+    db = _make_db_mock(project_owner_id="user-1")
+
+    await execute_run(db, run, None, project)
+
+    failures = [
+        call.args
+        for call in db.execute.await_args_list
+        if "UPDATE claude_runs" in str(call.args[0])
+    ]
+    assert failures, "expected the run row to be updated"
+    joined = " ".join(str(a) for call in failures for a in call)
+    assert "failed" in joined
+    assert "talos-opus" in joined

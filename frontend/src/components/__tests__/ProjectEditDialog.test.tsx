@@ -249,6 +249,7 @@ describe('ProjectEditDialog', () => {
       expect(payload).not.toHaveProperty('workspaceRepos')
       expect(payload).not.toHaveProperty('planDispatchAgent')
       expect(payload).not.toHaveProperty('buildDispatchAgent')
+      expect(payload).not.toHaveProperty('manageEngine')
       // Non-owner fields are still present
       expect(payload).toHaveProperty('name')
       expect(payload).toHaveProperty('description')
@@ -282,6 +283,49 @@ describe('ProjectEditDialog', () => {
       expect(payload).toHaveProperty('repoMode', 'monorepo')
       expect(payload).toHaveProperty('gitOrigin', 'git@github.com:org/repo.git')
       expect(payload).toHaveProperty('workspaceRepos')
+    })
+  })
+
+  describe('(i) rollout manager engine override', () => {
+    it('defaults to the inherit option and round-trips an existing value', async () => {
+      const editing = makeMockProject({ isOwner: true, manageEngine: null })
+
+      const { unmount } = render(
+        <ProjectEditDialog open={true} onClose={noop} editing={editing} onSaved={noop} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Rollout Manager Engine')).toBeInTheDocument()
+      })
+      // NULL renders as the explicit "default" option, and saves as null so the
+      // backend keeps using MANAGE_ENGINE (Opus).
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      await waitFor(() => {
+        expect(vi.mocked(api.projects.update)).toHaveBeenCalledOnce()
+      })
+      const [, payload] = vi.mocked(api.projects.update).mock.calls[0]
+      expect((payload as Record<string, unknown>).manageEngine).toBeNull()
+
+      unmount()
+      vi.mocked(api.projects.update).mockClear()
+
+      render(
+        <ProjectEditDialog
+          open={true}
+          onClose={noop}
+          editing={makeMockProject({ isOwner: true, manageEngine: 'claude-code-glm' })}
+          onSaved={noop}
+        />,
+      )
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      await waitFor(() => {
+        expect(vi.mocked(api.projects.update)).toHaveBeenCalledOnce()
+      })
+      const [, payload2] = vi.mocked(api.projects.update).mock.calls[0]
+      expect((payload2 as Record<string, unknown>).manageEngine).toBe('claude-code-glm')
     })
   })
 

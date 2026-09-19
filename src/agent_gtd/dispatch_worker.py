@@ -19,7 +19,11 @@ from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 from agent_gtd.auth import create_token
 from agent_gtd.exceptions import HostFullError
 from agent_gtd.identity import compute_run_attribution
-from agent_gtd.models import TALOS_ENGINES, LocalRunStatus
+from agent_gtd.models import (
+    TALOS_ENGINES,
+    LocalRunStatus,
+    manage_engine_rejection,
+)
 from agent_gtd.util.tasks import supervise_task
 
 logger = logging.getLogger(__name__)
@@ -40,9 +44,14 @@ POLL_INTERVAL = 15  # seconds between status polls
 # forces truncation and no migration is involved.
 ERROR_MSG_MAX_CHARS = 2000
 
-# Manage-mode is always pinned to Opus (claude-code), regardless of the global engine.
+# DEFAULT manage-mode engine — Opus (claude-code), regardless of the global engine.
 # This ensures the manage-mode rollout driver never accidentally downgrades to a
 # cheaper model when the global is set to claude-code-sonnet.
+#
+# A project MAY override this via `projects.manage_engine` (NULL = use this
+# default).  The default deliberately stays claude-code: a manager has a small
+# turn count but a huge blast radius, so downgrading it is an explicit opt-in,
+# never something a global setting can do behind the operator's back.
 MANAGE_ENGINE = "claude-code"
 
 # Terminal statuses from the shared dispatch-protocol package.
@@ -122,11 +131,13 @@ def resolve_engine(
     mode: str,
     item_build_engine: str | None,
     global_engine: str | None,
+    project_manage_engine: str | None = None,
 ) -> str:
     """Resolve effective dispatch engine.
 
     Resolution order:
-        manage → always MANAGE_ENGINE (Opus / claude-code), ignores the global
+        manage → project.manage_engine if set, else MANAGE_ENGINE (Opus /
+                 claude-code); ignores the global and the item engine
         build   → item.build_engine if set, else global
         plan    → item.build_engine if set and NOT a talos-* engine, else global
 
@@ -149,15 +160,29 @@ def resolve_engine(
             if the item inherits the global engine.
         global_engine: The deployment-wide engine from app_settings, or ``None``
             if the global is not yet configured.
+        project_manage_engine: The project's ``manage_engine`` override, or
+            ``None``/``""`` when the project inherits ``MANAGE_ENGINE``.  Only
+            consulted for manage mode.
 
     Returns:
         The resolved engine string.
 
     Raises:
-        ValueError: If ``global_engine`` is unset and ``mode`` is not "manage".
+        ValueError: If ``global_engine`` is unset and ``mode`` is not "manage",
+            or if the project's ``manage_engine`` is not manage-capable (a
+            talos engine, for instance — see ``manage_engine_rejection``).
     """
     if mode == "manage":
-        return MANAGE_ENGINE  # pinned to Opus; never raises on unset global
+        # Project override wins; NULL/empty falls back to the unchanged default.
+        # Never raises on an unset global — manage mode does not consult it.
+        manage_engine = project_manage_engine or MANAGE_ENGINE
+        rejection = manage_engine_rejection(manage_engine)
+        if rejection is not None:
+            # Fail fast and loudly: a manager on a non-manage-capable engine
+            # would otherwise come up without the dispatch env it needs and the
+            # failure would read as a model problem, not a config problem.
+            raise ValueError(rejection)
+        return manage_engine
     if not global_engine:
         raise ValueError(
             "dispatch.engine global setting is unset; configure a global dispatch"
@@ -638,6 +663,32 @@ async def execute_run(
     mode = str(run.get("mode", "build"))
     attribution = compute_run_attribution(mode, run_id)
 
+    async def _fail_run(error_msg: str) -> None:
+        """Mark the run failed and post a comment (shared across retry paths)."""
+        await _update_run(
+            db,
+            run_id,
+            status="failed",
+            finished_at=datetime.now(UTC).isoformat(),
+            error_msg=error_msg,
+        )
+        _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
+        if item_id:
+            try:
+                from agent_gtd.services.comment_service import create_comment
+
+                await create_comment(
+                    db,
+                    user_id,
+                    item_id=item_id,
+                    content_markdown=f"Dispatch failed: {error_msg}",
+                    created_by=attribution,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to post dispatch failure comment to item %s", item_id
+                )
+
     # Dispatch config belongs to the project owner, not the caller.
     # Inbox items (no project) use the caller's own config.
     project_id = run.get("project_id")
@@ -654,7 +705,20 @@ async def execute_run(
     item_build_engine = (
         str(item.get("build_engine")) if item and item.get("build_engine") else None
     )
-    engine = resolve_engine(mode, item_build_engine, global_engine)
+    raw_manage_engine = project.get("manage_engine")
+    project_manage_engine = (
+        str(raw_manage_engine) if raw_manage_engine is not None else None
+    )
+    try:
+        engine = resolve_engine(
+            mode, item_build_engine, global_engine, project_manage_engine
+        )
+    except ValueError as exc:
+        # Misconfigured engine (unset global, or a non-manage-capable
+        # project manage_engine). Fail the run with the explanatory message
+        # rather than letting it surface as an opaque worker traceback.
+        await _fail_run(str(exc)[:500])
+        return
     global_plan_agent = await get_setting(db, "dispatch.plan_agent_name") or ""
     global_build_agent = await get_setting(db, "dispatch.build_agent_name") or ""
     # Project override wins if set; fall back to the global deployment setting.
@@ -725,32 +789,6 @@ async def execute_run(
     # excluding the full host and trying the next-best candidate.
     # Targeted dispatch (dispatch_host_id set) does not retry on 503.
     excluded_urls: set[str] = set()
-
-    async def _fail_run(error_msg: str) -> None:
-        """Mark the run failed and post a comment (shared across retry paths)."""
-        await _update_run(
-            db,
-            run_id,
-            status="failed",
-            finished_at=datetime.now(UTC).isoformat(),
-            error_msg=error_msg,
-        )
-        _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
-        if item_id:
-            try:
-                from agent_gtd.services.comment_service import create_comment
-
-                await create_comment(
-                    db,
-                    user_id,
-                    item_id=item_id,
-                    content_markdown=f"Dispatch failed: {error_msg}",
-                    created_by=attribution,
-                )
-            except Exception:
-                logger.warning(
-                    "Failed to post dispatch failure comment to item %s", item_id
-                )
 
     async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
         # --- Pick host and dispatch (with 503 retry for auto-routing) ---
