@@ -44,6 +44,11 @@ async def _create_project_with_origin(
 
 async def _insert_pending_rollout(db: Any, user_id: str, project_id: str) -> str:
     """Directly insert an autonomous_rollout row with status='pending'."""
+    return await _insert_rollout(db, user_id, project_id, "pending")
+
+
+async def _insert_rollout(db: Any, user_id: str, project_id: str, status: str) -> str:
+    """Directly insert an autonomous_rollout row with the given status."""
     rollout_id = str(uuid.uuid4())
     now = _now()
     await db.execute(
@@ -53,11 +58,28 @@ async def _insert_pending_rollout(db: Any, user_id: str, project_id: str) -> str
         rollout_id,
         project_id,
         user_id,
-        "pending",
+        status,
         now,
         now,
     )
     return rollout_id
+
+
+async def _insert_dispatch_host(db: Any, owner_user_id: str, host_id: str) -> None:
+    """Directly insert a dispatch_hosts row owned by *owner_user_id*."""
+    now = _now()
+    await db.execute(
+        "INSERT INTO dispatch_hosts"
+        " (id, user_id, label, url, api_key, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        host_id,
+        owner_user_id,
+        "test-host",
+        "http://127.0.0.1:9000",
+        "sk-test",
+        now,
+        now,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -544,3 +566,192 @@ async def test_execute_run_build_mode_includes_item_id() -> None:
     assert dispatched_item_id == item_id, (
         f"build-mode should pass item_id={item_id}, got: {dispatched_item_id}"
     )
+
+
+# ---------------------------------------------------------------------------
+# dispatch-rollout host pinning (POST /api/rollouts/{id}/dispatch)
+# ---------------------------------------------------------------------------
+
+
+async def test_dispatch_rollout_with_host_pin_persists_on_run_and_rollout(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    """POST with dispatch_host_id pins the run row and is stored on the rollout."""
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    rollout_id = await _insert_pending_rollout(db, user_id, project_id)
+    host_id = str(uuid.uuid4())
+    await _insert_dispatch_host(db, user_id, host_id)
+
+    res = await client.post(
+        f"/api/rollouts/{rollout_id}/dispatch",
+        json={"dispatch_host_id": host_id},
+        headers=auth_headers,
+    )
+
+    assert res.status_code == 201, res.text
+    run = res.json()
+    run_row = await db.fetchrow(
+        "SELECT dispatch_host_id FROM claude_runs WHERE id = $1", run["id"]
+    )
+    assert run_row is not None
+    assert run_row["dispatch_host_id"] == host_id
+
+    rollout_row = await db.fetchrow(
+        "SELECT dispatch_host_id FROM autonomous_rollouts WHERE id = $1",
+        rollout_id,
+    )
+    assert rollout_row is not None
+    assert rollout_row["dispatch_host_id"] == host_id
+
+
+async def test_dispatch_rollout_unknown_host_returns_404(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    """POST with a host id not owned by the project owner returns 404."""
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    rollout_id = await _insert_pending_rollout(db, user_id, project_id)
+
+    res = await client.post(
+        f"/api/rollouts/{rollout_id}/dispatch",
+        json={"dispatch_host_id": "no-such-host-uuid"},
+        headers=auth_headers,
+    )
+
+    assert res.status_code == 404
+    assert "no-such-host-uuid" in res.json()["detail"]
+
+    # The rollout must not have been pinned or started.
+    row = await db.fetchrow(
+        "SELECT status, dispatch_host_id FROM autonomous_rollouts WHERE id = $1",
+        rollout_id,
+    )
+    assert row is not None
+    assert row["status"] == "pending"
+    assert row["dispatch_host_id"] is None
+
+
+async def test_dispatch_rollout_no_body_still_201_with_null_pin(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    """Bodyless POST (frontend shape) still dispatches with NULL pin (back-compat)."""
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    rollout_id = await _insert_pending_rollout(db, user_id, project_id)
+
+    res = await client.post(
+        f"/api/rollouts/{rollout_id}/dispatch",
+        headers=auth_headers,
+    )
+
+    assert res.status_code == 201, res.text
+    run_id = res.json()["id"]
+    run_row = await db.fetchrow(
+        "SELECT dispatch_host_id FROM claude_runs WHERE id = $1", run_id
+    )
+    assert run_row is not None
+    assert run_row["dispatch_host_id"] is None
+
+    rollout_row = await db.fetchrow(
+        "SELECT dispatch_host_id FROM autonomous_rollouts WHERE id = $1",
+        rollout_id,
+    )
+    assert rollout_row is not None
+    assert rollout_row["dispatch_host_id"] is None
+
+
+# ---------------------------------------------------------------------------
+# Child-build inheritance via create_run (service level)
+# ---------------------------------------------------------------------------
+
+
+async def _create_item_in_project(
+    client: AsyncClient,
+    headers: dict[str, str],
+    project_id: str,
+    title: str = "Child build item",
+) -> str:
+    """Create a next_action item in the project and return its ID."""
+    res = await client.post(
+        "/api/items",
+        json={
+            "title": title,
+            "project_id": project_id,
+            "status": "next_action",
+        },
+        headers=headers,
+    )
+    assert res.status_code == 201
+    return res.json()["id"]
+
+
+async def test_create_run_child_build_inherits_rollout_host(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    """A running rollout with a pinned host propagates it to child build runs."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import create_run
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+    rollout_id = await _insert_rollout(db, user_id, project_id, "running")
+    await db.execute(
+        "UPDATE autonomous_rollouts SET dispatch_host_id = $1 WHERE id = $2",
+        "host-x",
+        rollout_id,
+    )
+
+    run = await create_run(db, user_id, item_id, mode="build", rollout_id=rollout_id)
+    assert run["dispatch_host_id"] == "host-x"
+
+
+async def test_create_run_explicit_host_wins_over_rollout_inheritance(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    """An explicitly passed dispatch_host_id overrides the rollout's stored pin."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import create_run
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+    rollout_id = await _insert_rollout(db, user_id, project_id, "running")
+    await db.execute(
+        "UPDATE autonomous_rollouts SET dispatch_host_id = $1 WHERE id = $2",
+        "host-x",
+        rollout_id,
+    )
+
+    run = await create_run(
+        db,
+        user_id,
+        item_id,
+        mode="build",
+        rollout_id=rollout_id,
+        dispatch_host_id="host-y",
+    )
+    assert run["dispatch_host_id"] == "host-y"
+
+
+async def test_create_run_unpinned_rollout_yields_null_host(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    """A rollout with a NULL pin produces child build runs with NULL (auto-route)."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import create_run
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+    rollout_id = await _insert_rollout(db, user_id, project_id, "running")
+
+    run = await create_run(db, user_id, item_id, mode="build", rollout_id=rollout_id)
+    assert run["dispatch_host_id"] is None

@@ -74,13 +74,17 @@ def _cmd_dispatch_rollout(args: argparse.Namespace) -> None:
     writes the created manage-mode run dict as JSON to stdout.
 
     Args:
-        args: Parsed namespace containing ``rollout_id`` (``str``).
+        args: Parsed namespace containing ``rollout_id`` (``str``) and
+            ``dispatch_host_id`` (``str | None``).
     """
     rollout_id: str = args.rollout_id
+    dispatch_host_id: str | None = args.dispatch_host_id
 
     async def _run() -> Any:
         async with backend_session() as (backend, user_id):
-            return await backend.dispatch_rollout(user_id, rollout_id)
+            return await backend.dispatch_rollout(
+                user_id, rollout_id, dispatch_host_id=dispatch_host_id
+            )
 
     try:
         result: Any = asyncio.run(_run())
@@ -199,6 +203,13 @@ def register(subparsers: argparse._SubParsersAction[Any]) -> None:
         help="Dispatch a planned rollout, starting the manage-mode run.",
     )
     dr.add_argument("rollout_id", help="Autonomous rollout ID.")
+    dr.add_argument(
+        "--dispatch-host-id",
+        type=str,
+        default=None,
+        dest="dispatch_host_id",
+        help="Pin execution to a specific dispatch host by ID.",
+    )
     dr.set_defaults(func=_cmd_dispatch_rollout)
 
     # --- start-rollout ---

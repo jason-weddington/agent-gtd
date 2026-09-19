@@ -24,6 +24,7 @@ from typing import Any
 
 import pytest
 
+from agent_gtd.cli import build_parser
 from agent_gtd.cli_commands import _shared
 from agent_gtd.cli_commands.rollout_planning import (
     _cmd_dispatch_rollout,
@@ -75,9 +76,17 @@ class _FakeBackend:
         self._maybe_raise("plan_rollout")
         return self._responses.get("plan_rollout", {"id": "rollout-1"})
 
-    async def dispatch_rollout(self, user_id: str, rollout_id: str) -> dict[str, Any]:
+    async def dispatch_rollout(
+        self,
+        user_id: str,
+        rollout_id: str,
+        *,
+        dispatch_host_id: str | None = None,
+    ) -> dict[str, Any]:
         """Fake dispatch_rollout — records call args and returns configured response."""
-        self.calls.setdefault("dispatch_rollout", []).append((user_id, rollout_id))
+        self.calls.setdefault("dispatch_rollout", []).append(
+            (user_id, rollout_id, dispatch_host_id)
+        )
         self._maybe_raise("dispatch_rollout")
         return self._responses.get("dispatch_rollout", {"id": "run-1"})
 
@@ -136,6 +145,7 @@ def _dispatch_rollout_args(**overrides: Any) -> argparse.Namespace:
     """Return a Namespace for the dispatch-rollout subcommand with defaults."""
     defaults: dict[str, Any] = {
         "rollout_id": "rollout-uuid-1",
+        "dispatch_host_id": None,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -596,3 +606,53 @@ def test_register_plan_rollout_help_is_present() -> None:
     # build_parser calls add_subparsers with no metavar, so choices is the map.
     # Verify the plan-rollout entry is present (help text is set via add_parser).
     assert "plan-rollout" in subparsers.choices
+
+
+# ---------------------------------------------------------------------------
+# 8. dispatch-rollout --dispatch-host-id
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_rollout_forwards_none_host_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """dispatch-rollout forwards dispatch_host_id=None when the flag is omitted."""
+    fake = _patch_backend(monkeypatch)
+
+    _cmd_dispatch_rollout(_dispatch_rollout_args(rollout_id="rollout-1"))
+
+    _user_id, rollout_id, dispatch_host_id = fake.calls["dispatch_rollout"][0]
+    assert rollout_id == "rollout-1"
+    assert dispatch_host_id is None
+
+
+def test_dispatch_rollout_forwards_pinned_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """dispatch-rollout forwards --dispatch-host-id through to the backend."""
+    fake = _patch_backend(monkeypatch)
+
+    _cmd_dispatch_rollout(
+        _dispatch_rollout_args(rollout_id="rollout-1", dispatch_host_id="host-abc")
+    )
+
+    _user_id, _rollout_id, dispatch_host_id = fake.calls["dispatch_rollout"][0]
+    assert dispatch_host_id == "host-abc"
+
+
+def test_build_parser_dispatch_rollout_host_defaults_to_none() -> None:
+    """--dispatch-host-id defaults to None for the dispatch-rollout subcommand."""
+    parser = build_parser()
+    args = parser.parse_args(["dispatch-rollout", "rollout-1"])
+
+    assert args.dispatch_host_id is None
+
+
+def test_build_parser_dispatch_rollout_host_parsed() -> None:
+    """--dispatch-host-id is parsed for the dispatch-rollout subcommand."""
+    parser = build_parser()
+    args = parser.parse_args(
+        ["dispatch-rollout", "rollout-1", "--dispatch-host-id", "host-abc"]
+    )
+
+    assert args.dispatch_host_id == "host-abc"

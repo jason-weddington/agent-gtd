@@ -409,6 +409,7 @@ class Rollout(BaseModel):
     halt_reason: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
+    dispatch_host_id: str | None = None
     created_at: datetime
     updated_at: datetime
 

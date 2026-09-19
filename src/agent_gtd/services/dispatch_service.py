@@ -126,6 +126,12 @@ async def create_run(
                 f" (status={rollout_build['status']}); "
                 "build-mode dispatch requires a running rollout"
             )
+        # Child-build inheritance: an explicitly passed dispatch_host_id always
+        # wins; otherwise the run inherits the rollout's stored pin (NULL =
+        # auto-routing).
+        if dispatch_host_id is None:
+            inherited = rollout_build.get("dispatch_host_id")
+            dispatch_host_id = str(inherited) if inherited is not None else None
 
     # Manage-mode pre-flight: validate the rollout exists, is owned, and is pending
     rollout: dict[str, Any] | None = None
@@ -247,6 +253,8 @@ async def dispatch_rollout_run(
     db: DbPool,
     user_id: str,
     rollout_id: str,
+    *,
+    dispatch_host_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a manage-mode dispatch run scoped to a rollout (no item_id).
 
@@ -255,13 +263,19 @@ async def dispatch_rollout_run(
     - Rollout has status="pending" (one-shot)
     - Workspace projects: non-empty workspace_repos required
     - Monorepo projects: non-empty git_origin required
+    - When dispatch_host_id is set: it must exist in the project owner's
+      dispatch host list (capacity/engine checks stay in pick_dispatch_host,
+      enforced by the dispatch worker at execution time).
 
-    Creates a claude_runs row with item_id=NULL, mode="manage".
+    Creates a claude_runs row with item_id=NULL, mode="manage". When
+    dispatch_host_id is set, the pin is written to both the run and the
+    rollout row (child build runs inherit it from the rollout).
     Transitions rollout pending → running.
 
     Raises:
-        NotFoundError: If rollout not found or not owned by user, or if the
-            project is missing its required repo configuration.
+        NotFoundError: If rollout not found or not owned by user, if the
+            project is missing its required repo configuration, or if the
+            pinned dispatch host does not exist.
         ValidationError: If rollout is not in pending status.
     """
     from agent_gtd.services.rollout_service import _get_rollout, start_rollout
@@ -291,6 +305,14 @@ async def dispatch_rollout_run(
     from agent_gtd.dispatch_worker import DEFAULT_MAX_TURNS, resolve_max_turns
     from agent_gtd.services import settings_service
 
+    # Host pin validation: existence check only (owner-scoped, like the
+    # dispatch_item route). Capacity/engine compatibility is enforced by
+    # pick_dispatch_host in the dispatch worker, which fails the run loudly.
+    if dispatch_host_id is not None:
+        hosts = await settings_service.get_dispatch_hosts(db, str(project["user_id"]))
+        if not any(h["id"] == dispatch_host_id for h in hosts):
+            raise NotFoundError("DispatchHost", dispatch_host_id)
+
     stored = await settings_service.get_setting(db, "dispatch.default_max_turns")
     global_default = int(stored) if stored is not None else DEFAULT_MAX_TURNS
     raw_project_turns = project.get("dispatch_max_turns")
@@ -306,8 +328,9 @@ async def dispatch_rollout_run(
     await db.execute(
         "INSERT INTO claude_runs"
         " (id, item_id, project_id, user_id, status, feature_branch,"
-        "  max_turns, mode, rollout_id, created_at, updated_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        "  max_turns, mode, rollout_id, created_at, updated_at,"
+        "  dispatch_host_id)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
         run_id,
         None,  # item_id is NULL for manage-mode rollout runs
         project_id,
@@ -319,7 +342,18 @@ async def dispatch_rollout_run(
         rollout_id,
         now,
         now,
+        dispatch_host_id,
     )
+
+    # Persist the pin at rollout level so child build runs inherit it.
+    if dispatch_host_id is not None:
+        await db.execute(
+            "UPDATE autonomous_rollouts"
+            " SET dispatch_host_id = $1, updated_at = $2 WHERE id = $3",
+            dispatch_host_id,
+            now,
+            rollout_id,
+        )
 
     # Transition rollout pending → running
     await start_rollout(

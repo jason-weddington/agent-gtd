@@ -1878,6 +1878,7 @@ async def update_rollout_state(
 async def dispatch_rollout(
     rollout_id: str,
     ctx: Context,
+    dispatch_host_id: str | None = None,
 ) -> dict[str, Any]:
     """Dispatch the wave manager agent for this rollout.
 
@@ -1891,6 +1892,11 @@ async def dispatch_rollout(
     Args:
         rollout_id: ID of the rollout to dispatch.
         ctx: MCP context (injected automatically).
+        dispatch_host_id: Optional host UUID from /api/settings/dispatch/hosts.
+            Set to pin this dispatch to a specific host (use for verification,
+            debugging, or cache affinity). Omit to let the router pick
+            automatically based on engine + agent availability and capacity.
+            The pin is stored on the rollout and inherited by child build runs.
 
     Returns:
         The created run dict with status and branch name.
@@ -1901,7 +1907,9 @@ async def dispatch_rollout(
 
     session = await _get_session(ctx)
     try:
-        return await _backend.dispatch_rollout(session["user_id"], rollout_id)
+        return await _backend.dispatch_rollout(
+            session["user_id"], rollout_id, dispatch_host_id=dispatch_host_id
+        )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except _ValidationError as e:

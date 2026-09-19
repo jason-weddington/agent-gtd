@@ -448,6 +448,7 @@ Transition a rollout from `pending` to `running` without launching a manage agen
 
 #### `POST /api/rollouts/{rollout_id}/dispatch`
 Launch a manage-mode agent to drive the rollout. Sets status to `running`.
+- **Request body (optional):** `{"dispatch_host_id": "uuid or null (null = auto-route)"}` — pin the manage run to a specific dispatch host. The pin is stored on the rollout (`autonomous_rollouts.dispatch_host_id`) and inherited by child build runs. A bodyless request or `{}` auto-routes.
 - **Response:** `RunResponse` for the manage run.
 
 #### `GET /api/rollouts/{rollout_id}/advance`

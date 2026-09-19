@@ -521,6 +521,8 @@ _MIGRATIONS: list[str] = [
     # Per-project manage-mode (rollout manager) engine override.
     # NULL = use the deployment default (dispatch_worker.MANAGE_ENGINE, Opus).
     "ALTER TABLE projects ADD COLUMN manage_engine TEXT",
+    # Rollout-level dispatch host pin, inherited by child build runs.
+    "ALTER TABLE autonomous_rollouts ADD COLUMN dispatch_host_id TEXT",
 ]
 
 

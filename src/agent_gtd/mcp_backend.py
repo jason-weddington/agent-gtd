@@ -322,7 +322,11 @@ class McpBackend(Protocol):
     ) -> dict[str, Any]: ...
 
     async def dispatch_rollout(
-        self, user_id: str, rollout_id: str
+        self,
+        user_id: str,
+        rollout_id: str,
+        *,
+        dispatch_host_id: str | None = None,
     ) -> dict[str, Any]: ...
 
     async def get_run(self, user_id: str, run_id: str) -> dict[str, Any]: ...
@@ -1101,12 +1105,16 @@ class LocalBackend:
         self,
         user_id: str,
         rollout_id: str,
+        *,
+        dispatch_host_id: str | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services.dispatch_service import dispatch_rollout_run
 
         db = await get_db()
-        return await dispatch_rollout_run(db, user_id, rollout_id)
+        return await dispatch_rollout_run(
+            db, user_id, rollout_id, dispatch_host_id=dispatch_host_id
+        )
 
     async def get_run(self, user_id: str, run_id: str) -> dict[str, Any]:
         from agent_gtd.database import get_db
@@ -2064,10 +2072,15 @@ class HttpBackend:
         self,
         user_id: str,
         rollout_id: str,
+        *,
+        dispatch_host_id: str | None = None,
     ) -> dict[str, Any]:
+        body: dict[str, Any] = {}
+        if dispatch_host_id is not None:
+            body["dispatch_host_id"] = dispatch_host_id
         resp = await self._client.post(
             f"/api/rollouts/{rollout_id}/dispatch",
-            json={},
+            json=body,
             headers=self._headers(),
         )
         self._check(resp)

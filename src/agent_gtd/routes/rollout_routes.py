@@ -83,6 +83,12 @@ class CancelRolloutRequest(BaseModel):
     reason: str
 
 
+class DispatchRolloutRequest(BaseModel):
+    """Optional request body for POST /{rollout_id}/dispatch."""
+
+    dispatch_host_id: str | None = None
+
+
 class ReplanRolloutRequest(BaseModel):
     """Request body for POST /replan."""
 
@@ -631,26 +637,39 @@ async def relaunch_manage(
 async def dispatch_rollout(
     rollout_id: str,
     user: Annotated[User, Depends(get_current_user)],
+    body: DispatchRolloutRequest | None = None,
 ) -> RunResponse:
     """Dispatch the wave manager agent for this rollout.
 
     Creates a manage-mode claude_runs row with item_id=NULL, scoped to the
     rollout. Transitions the rollout from pending → running.
 
+    The request body is optional: send ``{"dispatch_host_id": "<uuid>"}`` to
+    pin execution to a specific dispatch host (the pin is stored on the
+    rollout and inherited by child build runs). A bodyless request or
+    ``{}`` auto-routes the run.
+
     Args:
         rollout_id: The rollout to dispatch.
         user: Injected authenticated user.
+        body: Optional DispatchRolloutRequest with dispatch_host_id.
 
     Returns:
         201 RunResponse with the created run.
 
     Raises:
         404 if rollout not found or caller doesn't own it.
+        404 if the pinned dispatch host doesn't exist.
         409 if rollout is not in pending status.
     """
     db = await get_db()
     try:
-        row = await dispatch_rollout_run(db, user.id, rollout_id)
+        row = await dispatch_rollout_run(
+            db,
+            user.id,
+            rollout_id,
+            dispatch_host_id=body.dispatch_host_id if body is not None else None,
+        )
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=exc.detail) from exc
     except ValidationError as exc:
