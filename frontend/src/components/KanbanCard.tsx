@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { Box, Typography, Chip, IconButton, Tooltip, Checkbox } from '@mui/material'
+import { Box, Typography, Chip, IconButton, Tooltip } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import PersonAddIcon from '@mui/icons-material/PersonAdd'
@@ -15,10 +15,6 @@ interface KanbanCardProps {
   onDelete: (item: Item) => void
   onAssignToMe?: (item: Item) => void
   currentUserEmail?: string
-  selectionMode?: boolean
-  isSelectable?: boolean
-  isSelected?: boolean
-  onToggleSelect?: (id: string) => void
 }
 
 export default memo(function KanbanCard({
@@ -28,14 +24,9 @@ export default memo(function KanbanCard({
   onDelete,
   onAssignToMe,
   currentUserEmail,
-  selectionMode,
-  isSelectable,
-  isSelected,
-  onToggleSelect,
 }: KanbanCardProps) {
   const isOverdue = item.dueDate && new Date(item.dueDate) < new Date()
   const engineChip = item.buildEngine ? (ENGINE_LABELS[item.buildEngine] ?? { label: item.buildEngine, color: 'default' as const }) : null
-  const selectableCard = selectionMode && isSelectable
 
   return (
     <Draggable draggableId={item.id} index={index}>
@@ -49,7 +40,7 @@ export default memo(function KanbanCard({
             // Make drop animation near-instant so onDragEnd fires immediately.
             ...(snapshot.isDropAnimating ? { transitionDuration: '0.001s' } : {}),
           }}
-          onClick={() => selectableCard ? onToggleSelect?.(item.id) : onEdit(item)}
+          onClick={() => onEdit(item)}
           sx={{
             p: 1.5,
             mb: 1,
@@ -68,21 +59,7 @@ export default memo(function KanbanCard({
             '&:hover .kanban-actions': { opacity: 1 },
           }}
         >
-          {selectableCard && (
-            <Checkbox
-              checked={isSelected ?? false}
-              size="small"
-              sx={{
-                position: 'absolute',
-                top: 4,
-                right: 4,
-                p: 0.25,
-              }}
-              onClick={(e) => e.stopPropagation()}
-              onChange={() => onToggleSelect?.(item.id)}
-            />
-          )}
-          <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5, pr: selectableCard ? 3 : 0 }}>
+          <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
             {item.title}
           </Typography>
 
@@ -117,7 +94,7 @@ export default memo(function KanbanCard({
 
             <Box
               className="kanban-actions"
-              sx={{ opacity: 0, transition: 'opacity 0.15s', display: selectableCard ? 'none' : 'flex' }}
+              sx={{ opacity: 0, transition: 'opacity 0.15s', display: 'flex' }}
             >
               {onAssignToMe && currentUserEmail && item.assignedTo !== currentUserEmail && (
                 <Tooltip title="Assign to me">

@@ -1,9 +1,7 @@
-import { type ReactNode } from 'react'
 import { Box, Typography, Button, Chip } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import { Droppable } from '@hello-pangea/dnd'
 import KanbanCard from './KanbanCard'
-import { isRolloutEligible } from './KanbanBoard'
 import type { Item } from '../types'
 
 interface KanbanColumnProps {
@@ -15,10 +13,6 @@ interface KanbanColumnProps {
   onAdd: (columnId: string) => void
   onAssignToMe?: (item: Item) => void
   currentUserEmail?: string
-  headerCTA?: ReactNode
-  selectionMode?: boolean
-  selectedIds?: ReadonlySet<string>
-  onToggleSelect?: (id: string) => void
 }
 
 export default function KanbanColumn({
@@ -30,10 +24,6 @@ export default function KanbanColumn({
   onAdd,
   onAssignToMe,
   currentUserEmail,
-  headerCTA,
-  selectionMode,
-  selectedIds,
-  onToggleSelect,
 }: KanbanColumnProps) {
   return (
     <Box
@@ -45,9 +35,6 @@ export default function KanbanColumn({
         flexDirection: 'column',
       }}
     >
-      {/* Optional CTA above the column header */}
-      {headerCTA}
-
       {/* Column header */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, px: 0.5 }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
@@ -82,10 +69,6 @@ export default function KanbanColumn({
                 onDelete={onDelete}
                 onAssignToMe={onAssignToMe}
                 currentUserEmail={currentUserEmail}
-                selectionMode={selectionMode}
-                isSelectable={isRolloutEligible(item)}
-                isSelected={selectedIds?.has(item.id)}
-                onToggleSelect={onToggleSelect}
               />
             ))}
             {provided.placeholder}

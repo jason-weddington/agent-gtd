@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from 'react'
 import { flushSync } from 'react-dom'
-import { Box, Chip, Typography, Collapse, IconButton, Snackbar, Link } from '@mui/material'
+import { Box, Chip, Typography, Collapse, IconButton, Snackbar } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import { DragDropContext, type DropResult } from '@hello-pangea/dnd'
@@ -8,11 +8,6 @@ import KanbanColumn from './KanbanColumn'
 import { api, ApiError } from '../api'
 import type { Item, ItemStatus } from '../types'
 import { useAuth } from '../contexts/AuthContext'
-
-/** Check if an item is eligible for rollout selection (ready and not already locked into a rollout) */
-export function isRolloutEligible(item: Item): boolean {
-  return item.status === 'ready' && item.lockedByRolloutId === null
-}
 
 /** Column definitions */
 const COLUMNS = [
@@ -58,10 +53,6 @@ export default function KanbanBoard({
   const { user } = useAuth()
   const [doneExpanded, setDoneExpanded] = useState(false)
   const [dragError, setDragError] = useState<string | null>(null)
-  const [rolloutError, setRolloutError] = useState<string | null>(null)
-  const [rolloutSelectionMode, setRolloutSelectionMode] = useState(false)
-  const [selectedReadyIds, setSelectedReadyIds] = useState<Set<string>>(new Set())
-  const [startingRollout, setStartingRollout] = useState(false)
   // Optimistic override — applied instantly on drop so cards don't pop back to source column
   const [optimistic, setOptimistic] = useState<Item[] | null>(null)
   const displayItems = optimistic ?? items
@@ -92,54 +83,6 @@ export default function KanbanBoard({
     }),
     [displayItems],
   )
-
-  // Items in the ready column that are eligible for rollout (status === 'ready' and not locked by a rollout)
-  const readyItems = useMemo(
-    () => items.filter(isRolloutEligible),
-    [items],
-  )
-
-  const handleToggleSelect = useCallback((id: string) => {
-    setSelectedReadyIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
-
-  const handleCtaClick = useCallback(async () => {
-    if (!rolloutSelectionMode) {
-      // Enter selection mode
-      setRolloutSelectionMode(true)
-      setSelectedReadyIds(new Set())
-      return
-    }
-
-    if (selectedReadyIds.size === 0) {
-      // Cancel — exit selection mode
-      setRolloutSelectionMode(false)
-      return
-    }
-
-    // Start rollout
-    setStartingRollout(true)
-    try {
-      const rollout = await api.rollouts.planRollout([...selectedReadyIds])
-      await api.rollouts.dispatchRollout(rollout.rolloutId)
-      setRolloutSelectionMode(false)
-      setSelectedReadyIds(new Set())
-      await onRefresh()
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setRolloutError(err.detail)
-      } else {
-        setRolloutError('Failed to start rollout')
-      }
-    } finally {
-      setStartingRollout(false)
-    }
-  }, [rolloutSelectionMode, selectedReadyIds, onRefresh])
 
   const handleDragEnd = useCallback(
     async (result: DropResult) => {
@@ -212,25 +155,6 @@ export default function KanbanBoard({
     [user, onRefresh],
   )
 
-  const ctaLabel = rolloutSelectionMode && selectedReadyIds.size > 0
-    ? 'Rollout Selected Items'
-    : 'Select for Rollout...'
-
-  const readyColumnCTA = readyItems.length > 0 ? (
-    <Box sx={{ mb: 0.5, px: 0.5 }}>
-      <Link
-        component="button"
-        variant="caption"
-        onClick={handleCtaClick}
-        disabled={startingRollout}
-        underline="hover"
-        sx={{ cursor: startingRollout ? 'wait' : 'pointer' }}
-      >
-        {startingRollout ? 'Starting rollout...' : ctaLabel}
-      </Link>
-    </Box>
-  ) : null
-
   return (
     <Box>
       <Snackbar
@@ -238,12 +162,6 @@ export default function KanbanBoard({
         autoHideDuration={6000}
         onClose={() => setDragError(null)}
         message={dragError}
-      />
-      <Snackbar
-        open={rolloutError !== null}
-        autoHideDuration={6000}
-        onClose={() => setRolloutError(null)}
-        message={rolloutError}
       />
       <DragDropContext onDragEnd={handleDragEnd}>
         <Box
@@ -266,12 +184,6 @@ export default function KanbanBoard({
               onAdd={handleAddToColumn}
               onAssignToMe={user?.email ? handleAssignToMe : undefined}
               currentUserEmail={user?.email}
-              {...(col.id === 'ready' ? {
-                headerCTA: readyColumnCTA,
-                selectionMode: rolloutSelectionMode,
-                selectedIds: selectedReadyIds,
-                onToggleSelect: handleToggleSelect,
-              } : {})}
             />
           ))}
         </Box>

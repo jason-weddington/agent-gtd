@@ -280,12 +280,6 @@ export interface ActivityEvent {
   payload: Record<string, unknown>
 }
 
-export interface PlanRolloutResponse {
-  rolloutId: string
-  status: string
-  itemCount: number
-}
-
 // --- Attachments ---
 
 export interface AttachmentResponse {

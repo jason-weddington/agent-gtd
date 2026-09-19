@@ -1,4 +1,4 @@
-import type { ActivityEvent, AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, DispatchHost, FailedRun, Invite, Item, MemberSummary, Note, PasswordResetIssued, PlanRolloutResponse, Project, Rollout, RolloutEvent, RolloutFailureFeed, Run, StaleRun, UserResponse } from './types'
+import type { ActivityEvent, AdminUser, ApiKeyInfo, AttachmentResponse, AuthResponse, BlockerSummary, Comment, CreatedInvite, DispatchCapabilities, DispatchHost, FailedRun, Invite, Item, MemberSummary, Note, PasswordResetIssued, Project, Rollout, RolloutEvent, RolloutFailureFeed, Run, StaleRun, UserResponse } from './types'
 import { toSnakeCase, toCamelCase, convertKeys } from './utils'
 
 // --- Helpers ---
@@ -273,9 +273,6 @@ export const api = {
   },
 
   rollouts: {
-    /** POST /api/rollouts — plan a new rollout from selected ready items. */
-    planRollout: (itemIds: string[]) =>
-      request<PlanRolloutResponse>('POST', '/rollouts', { itemIds }),
     /** GET /api/rollouts/{id} — fetch a single rollout by ID. */
     get: (rolloutId: string) => request<Rollout>('GET', `/rollouts/${rolloutId}`),
     /** GET /api/projects/{projectId}/active-rollout — 404 if none active. */
@@ -308,9 +305,6 @@ export const api = {
     /** POST /api/rollouts/{id}/resume */
     resume: (rolloutId: string, answer: string) =>
       request<Rollout>('POST', `/rollouts/${rolloutId}/resume`, { answer }),
-    /** POST /api/rollouts/{id}/dispatch — launch the manage agent */
-    dispatchRollout: (rolloutId: string) =>
-      request<Run>('POST', `/rollouts/${rolloutId}/dispatch`),
     /** GET /api/rollouts/{id}/rollout_failures — wave halts and failed runs. */
     failures: (rolloutId: string) =>
       request<RolloutFailureFeed>('GET', `/rollouts/${rolloutId}/rollout_failures`),
@@ -323,8 +317,6 @@ export const api = {
       const qs = query.toString()
       return request<Rollout[]>('GET', `/rollouts${qs ? `?${qs}` : ''}`)
     },
-    /** GET /api/rollouts/{id}/plan — latest plan with per-item progress. */
-    plan: (rolloutId: string) => request<unknown>('GET', `/rollouts/${rolloutId}/plan`),
   },
 
   dispatch: {
