@@ -2,6 +2,60 @@
 
 <!-- version list -->
 
+## v1.100.0 (2026-09-19)
+
+### Bug Fixes
+
+- Convert the fixer hooks to checkers so a talos commit survives
+  ([`ee2fcc6`](https://github.com/jason-weddington/agent-gtd/commit/ee2fcc6a2913758aa969031f3846e35212f9b4e5))
+
+- **dispatch**: Plan-mode dispatch honors the item's build_engine (feb9f761)
+  ([`ef000ec`](https://github.com/jason-weddington/agent-gtd/commit/ef000ec23a2bc3778ece768b28daab27990a0764))
+
+- **dispatch-worker**: Raise the error_msg mirror clip to 2000 chars
+  ([`fd0e2ce`](https://github.com/jason-weddington/agent-gtd/commit/fd0e2ce6988349b86e994e9dad329ad8facca436))
+
+- **protocol**: Upgrade the pinned protocol and map already_satisfied
+  ([`1c4a84f`](https://github.com/jason-weddington/agent-gtd/commit/1c4a84fed962fbc69f80670fe384635f8c472b49))
+
+### Documentation
+
+- Add r7-server as the third dispatch host
+  ([`c19a99d`](https://github.com/jason-weddington/agent-gtd/commit/c19a99d2bf9bb2f0062c416cc18c3bbcc48a42e5))
+
+- Dispatched agents are unprivileged; host setup provisions their toolchain
+  ([`4b6c1cd`](https://github.com/jason-weddington/agent-gtd/commit/4b6c1cd2c874622e75342fc923861a3900b787de))
+
+- KB MCP servers are thin clients of the hosted KB services
+  ([`afc6fdc`](https://github.com/jason-weddington/agent-gtd/commit/afc6fdc1adea3dd9da077bb94261b675c644daab))
+
+- Make gate_command copy engine-agnostic now that dispatch enforces it (850c058b)
+  ([`647cee5`](https://github.com/jason-weddington/agent-gtd/commit/647cee5354a82c85cb5fbbbe589176b189f67e09))
+
+### Features
+
+- Add talos-glm-flash build engine; claude-code-glm now drives glm-5.3 (ce002dd4)
+  ([`8975baf`](https://github.com/jason-weddington/agent-gtd/commit/8975bafb2d26853c58ef0593e24913b94cb78804))
+
+- **a07de7fd**: Surface the talos-* engines in the agent_gtd web UI (labels, chips, build-engine
+  selector)
+  ([`d3e460a`](https://github.com/jason-weddington/agent-gtd/commit/d3e460a71498dc90d966bdc44cc8d3919ff47def))
+
+- **dispatch**: Make the rollout manage engine configurable per project
+  ([`7b5b8c9`](https://github.com/jason-weddington/agent-gtd/commit/7b5b8c932d945bfbff4c5576c845e3a5e09b95fa))
+
+- **items**: Reject plan-run overwrites of a set build_engine (1545855d)
+  ([`e527f7a`](https://github.com/jason-weddington/agent-gtd/commit/e527f7a9733f21635af8aa1e4b85cde189500e43))
+
+- **rollouts**: Derive the rollout DAG from blockers instead of an LLM planner
+  ([`8c9603d`](https://github.com/jason-weddington/agent-gtd/commit/8c9603d103500d0bc4676dfbe8257535ab93ff33))
+
+### Refactoring
+
+- **frontend**: Remove the human rollout create/start UI path
+  ([`cc85c46`](https://github.com/jason-weddington/agent-gtd/commit/cc85c463068dc8cd89c2e8ff114d23114021127f))
+
+
 ## v1.99.0 (2026-08-10)
 
 ### Features
