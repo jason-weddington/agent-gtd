@@ -284,6 +284,7 @@ Releases are **decoupled from commits** (the old post-commit auto-release hook h
 - **Pre-push hooks**: Test coverage enforcement — `git push` is blocked if coverage drops below the `fail_under` threshold in `pyproject.toml`
 - Planning directory is excluded from Python linting
 - Local hooks that use `uv run` (mypy, pytest, etc.) use `uv run --frozen` to prevent uv from rebuilding the package mid-hook
+- Pre-commit hooks CHECK; they never mutate files. Agents FIX. A mutating hook (e.g. `ruff --fix`, `end-of-file-fixer`) would silently destroy a talos worker's single commit attempt, since talos has no retry loop the way Claude Code's commit-retry does. See kb-03099.
 
 ## Testing Discipline
 Tests must be written alongside the code they cover, not bolted on after the fact. When implementing a new feature or fixing a bug:
