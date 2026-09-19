@@ -59,6 +59,18 @@ dispatched repo's hooks or gate needs (lefthook, pre-commit, cargo tools, gitlea
 by its `deploy.sh`. Never design a fix that has the agent, a prompt, or a per-repo
 script install software at run time.
 
+**The same constraint applies to SECRETS, and it bites when writing acceptance
+criteria.** A build agent runs as `dispatch`; the service credentials live in
+`/home/dispatch-svc/.env`, readable only by `dispatch-svc` and root, and the agent
+has no sudo. So an AC of the form "verify this against the live endpoint" or
+"confirm the credential works" is **unsatisfiable by construction** — the agent
+can observe an unauthenticated 401 and nothing more. Write the AC to require what
+the agent *can* do (a startup probe, a recorded failure class, a test against a
+fake) and do the credentialed check yourself as the lead. An agent that quietly
+claims such an AC is met is the failure this rule exists to prevent; one that
+flags it honestly has done the right thing and is owed the check, not a
+re-dispatch.
+
 **Canonical env file is `/home/dispatch-svc/.env`** — it is the systemd
 `EnvironmentFile` (read by the running service) *and* the file `setup-dispatch-host.sh`
 reads at provision time to inject KB secrets into the agent's MCP config.
