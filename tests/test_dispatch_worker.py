@@ -1393,3 +1393,109 @@ async def test_dispatch_to_remote_none_callback_token_omits_key() -> None:
     assert "callback_token" not in body, (
         "callback_token must NOT be present in JSON when None (exclude_none=True)"
     )
+
+
+# ---------------------------------------------------------------------------
+# error_msg truncation — the second of two layers (see ERROR_MSG_MAX_CHARS)
+# ---------------------------------------------------------------------------
+
+
+def _long_remote_error(n: int = 1500) -> str:
+    """A realistic long pre-commit failure: failing hook at the head, noise after."""
+    head = (
+        "mypy....................................................Failed\n"
+        "- hook id: mypy\n"
+        "src/x.py:12: error: Incompatible return value type\n"
+    )
+    filler = "hook..........................(no files to check) Skipped\n"
+    msg = "git commit failed: " + head
+    while len(msg) < n:
+        msg += filler
+    return msg[:n]
+
+
+def test_error_msg_budget_is_2000() -> None:
+    """One named constant, matched to the dispatch service's own budget."""
+    from agent_gtd.dispatch_worker import ERROR_MSG_MAX_CHARS
+
+    assert ERROR_MSG_MAX_CHARS == 2000
+
+
+@pytest.mark.asyncio
+async def test_reconcile_mirrors_long_error_msg_uncut() -> None:
+    """A ~1500-char remote error survives the reconcile mirror intact.
+
+    The old 500-char clip kept only the tail of the dispatch service's own
+    300-char tail, so the failing hook at the HEAD never reached the operator.
+    ``runs.error_msg`` is a TEXT column — nothing forces truncation.
+    """
+    from agent_gtd.dispatch_worker import reconcile_active_runs
+
+    error = _long_remote_error()
+    assert len(error) == 1500
+
+    db = _make_reconcile_db_mock([_make_ea_run_row()], project_owner_id="user-ea")
+    update_mock = AsyncMock()
+
+    with (
+        patch("agent_gtd.database.get_db", new=AsyncMock(return_value=db)),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(return_value=_EA_HOSTS),
+        ),
+        patch(
+            "agent_gtd.dispatch_worker._poll_remote_run",
+            new=AsyncMock(
+                return_value=_make_remote_run_response(
+                    RemoteRunStatus.failed, error=error
+                )
+            ),
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=update_mock),
+        patch("agent_gtd.dispatch_worker._publish_run_event"),
+    ):
+        count = await reconcile_active_runs()
+
+    assert count == 1
+    stored = update_mock.call_args.kwargs["error_msg"]
+    assert stored == error
+    assert "- hook id: mypy" in stored
+
+
+@pytest.mark.asyncio
+async def test_resume_polling_mirrors_long_error_msg_uncut() -> None:
+    """Same for the resumed poll loop's terminal branch."""
+    from agent_gtd.dispatch_worker import _resume_polling
+
+    error = _long_remote_error()
+    run = {
+        "id": "run-err-resume",
+        "item_id": "item-err-resume",
+        "user_id": "user-err-resume",
+        "project_id": "proj-err-resume",
+        "engine": "claude-code",
+    }
+    db = MagicMock()
+    db.execute = AsyncMock()
+    mock_client = MagicMock()
+    update_mock = AsyncMock()
+
+    with (
+        patch("agent_gtd.dispatch_worker.asyncio.sleep", new=AsyncMock()),
+        patch(
+            "agent_gtd.dispatch_worker._poll_remote_run",
+            new=AsyncMock(
+                return_value=_make_remote_run_response(
+                    RemoteRunStatus.failed, error=error
+                )
+            ),
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=update_mock),
+        patch("agent_gtd.dispatch_worker._publish_run_event"),
+        patch("agent_gtd.dispatch_worker.httpx.AsyncClient") as mock_cls,
+    ):
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        await _resume_polling(db, run, "remote-err", url="http://t", api_key="k")
+
+    assert update_mock.call_args.kwargs["error_msg"] == error

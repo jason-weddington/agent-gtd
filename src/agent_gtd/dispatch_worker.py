@@ -31,6 +31,15 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_TURNS = int(os.environ.get("DISPATCH_DEFAULT_MAX_TURNS", "100"))
 POLL_INTERVAL = 15  # seconds between status polls
 
+# Cap on the remote `error` text mirrored onto a local run's `error_msg`.
+# This is the SECOND of two truncation layers (the dispatch service applies its
+# own, governed by agent_gtd_dispatch.dispatch.ERROR_TEXT_MAX_CHARS); the pair
+# once clipped a failing pre-commit hook down to nothing but `Skipped` lines.
+# Both layers carry the same 2000-char budget so neither can silently bind
+# first again.  `runs.error_msg` is a TEXT column — nothing in the schema
+# forces truncation and no migration is involved.
+ERROR_MSG_MAX_CHARS = 2000
+
 # Manage-mode is always pinned to Opus (claude-code), regardless of the global engine.
 # This ensures the manage-mode rollout driver never accidentally downgrades to a
 # cheaper model when the global is set to claude-code-sonnet.
@@ -491,7 +500,7 @@ async def reconcile_active_runs() -> int:
             update_fields: dict[str, object] = {
                 "status": local_status,
                 "finished_at": now,
-                "error_msg": error_msg[:500] if error_msg else "",
+                "error_msg": error_msg[:ERROR_MSG_MAX_CHARS] if error_msg else "",
             }
             # Omit when None: _update_run writes every passed kwarg, so passing
             # engine_actual=None would overwrite a set value with SQL NULL.
@@ -587,7 +596,7 @@ async def _resume_polling(
         update_fields: dict[str, object] = {
             "status": local_status,
             "finished_at": finished,
-            "error_msg": error_msg[:500] if error_msg else "",
+            "error_msg": error_msg[:ERROR_MSG_MAX_CHARS] if error_msg else "",
         }
         # Omit when None so we never overwrite a set value with SQL NULL.
         if ea is not None:
@@ -873,7 +882,7 @@ async def execute_run(
         update_fields: dict[str, object] = {
             "status": local_status,
             "finished_at": finished,
-            "error_msg": error_msg[:500] if error_msg else "",
+            "error_msg": error_msg[:ERROR_MSG_MAX_CHARS] if error_msg else "",
         }
         # Omit when None so we never overwrite a set value with SQL NULL.
         if ea is not None:
