@@ -38,7 +38,9 @@ It must be added in **three** places in `agent_gtd/src/agent_gtd/database.py`, a
 
 ### Router
 
-A skip clause in the **auto** branch of `pick_dispatch_host`, placed after the existing `exclude_urls` filter — and a **refusal in the pinned branch too**.
+A skip clause in the **auto** branch of `pick_dispatch_host` — and a **refusal in the pinned branch too**.
+
+**Drain is checked before capability labels.** `844f345` added capability-label filtering to this same function, which rejects a host that lacks a required label before engine, agent and capacity are considered, and raises `UnmetCapabilityError` naming what went unsatisfied. Drain sits ahead of that: a drained host is not a candidate whatever labels it carries. The ordering matters for the error a caller sees — a pool whose only capable host is drained must report *drained*, not *unmet capability*, because those call for opposite responses (wait for the host to come back, versus label another host or fix the requirement).
 
 #### Drain must block pinned dispatch. This is the load-bearing decision.
 
@@ -56,7 +58,11 @@ An intermediate draft proposed an `--allow-drained` flag for operator verificati
 
 So there is no flag, no header, no env var, no escape hatch. Every board-side path — MCP `dispatch_item`, the REST route, the CLI, and rollout child dispatch — refuses a drained host, and the refusal lives at the single chokepoint rather than being re-implemented per caller.
 
-**The chokepoint is `pick_dispatch_host`.** It has exactly one caller, `dispatch_worker.py:923`, and every dispatch path funnels through it, so the check cannot be routed around. A second, friendlier rejection belongs at `dispatch_service.create_run` (`:257-272`, where a pinned `dispatch_host_id` is already validated against the owner's host list) so a caller is told immediately rather than after a run row exists — but `pick_dispatch_host` is the one that must be correct, because it is the one nothing can bypass.
+**The chokepoint is `pick_dispatch_host`.** It has exactly one caller, `dispatch_worker.py:923`, and every dispatch path funnels through it, so the check cannot be routed around. That is the one that must be correct, because it is the one nothing can bypass.
+
+A second, friendlier rejection belongs earlier, so a caller is told before a run row exists rather than after. **Correction to an earlier draft of this doc, caught by the groom's code-grounding pass:** `create_run` does **not** validate a pinned `dispatch_host_id` today — it performs no pin validation at all. The two surfaces that do are `dispatch_service.dispatch_rollout_run` and the REST pre-flight in `dispatch_routes.py`. So the early rejection is NEW code rather than an extension of an existing check, and whichever surface it lands on, it is a convenience: it must never be the only refusal, because a caller that reaches the worker by another path would sail past it.
+
+Line numbers are deliberately omitted here. Host capability labels landed in `844f345` and moved this code; cite symbols and verify against the tree at implementation time.
 
 #### Then how do you verify a host after upgrading it?
 
