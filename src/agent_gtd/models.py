@@ -969,6 +969,7 @@ class RunResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     dispatched_by_email: str | None = None
+    remote_run_id: str = ""
 
 
 class FailedRunResponse(RunResponse):

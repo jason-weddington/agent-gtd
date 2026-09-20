@@ -83,6 +83,7 @@ def _run_response(row: dict[str, object]) -> RunResponse:
         dispatched_by_email=(
             str(row["dispatched_by_email"]) if row.get("dispatched_by_email") else None
         ),
+        remote_run_id=str(row.get("remote_run_id", "") or ""),
     )
 
 
@@ -122,6 +123,7 @@ def _failed_run_response(row: dict[str, object]) -> FailedRunResponse:
         dispatched_by_email=(
             str(row["dispatched_by_email"]) if row.get("dispatched_by_email") else None
         ),
+        remote_run_id=str(row.get("remote_run_id", "") or ""),
         item_title=str(row["item_title"]) if row.get("item_title") else None,
         project_name=str(row.get("project_name", "")),
     )
@@ -163,6 +165,7 @@ def _stale_run_response(row: dict[str, object]) -> StaleRunResponse:
         dispatched_by_email=(
             str(row["dispatched_by_email"]) if row.get("dispatched_by_email") else None
         ),
+        remote_run_id=str(row.get("remote_run_id", "") or ""),
         item_title=str(row["item_title"]) if row.get("item_title") else None,
         project_name=str(row.get("project_name", "")),
         item_status=str(row.get("item_status", "")),

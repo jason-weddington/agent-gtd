@@ -444,3 +444,58 @@ def test_stale_run_response_dispatch_host_url_absent():
     row = {k: v for k, v in _STALE_ROW.items() if k != "dispatch_host_url"}
     resp = dr._stale_run_response(row)
     assert resp.dispatch_host_url is None
+
+
+# ---------------------------------------------------------------------------
+# remote_run_id — the dispatch-side run id, needed to find a run's evidence
+# directory (keyed by the dispatch id) from any agent_gtd-side surface.
+# ---------------------------------------------------------------------------
+
+
+def test_run_response_remote_run_id_value():
+    """_run_response propagates a populated remote_run_id."""
+    row = {**_BASE_ROW, "remote_run_id": "dispatch-run-abc123"}
+    resp = dr._run_response(row)
+    assert resp.remote_run_id == "dispatch-run-abc123"
+
+
+def test_run_response_remote_run_id_absent_tolerates_pre_migration_rows():
+    """A row from before the column existed (key absent) yields "", not a crash."""
+    row = {k: v for k, v in _BASE_ROW.items() if k != "remote_run_id"}
+    resp = dr._run_response(row)
+    assert resp.remote_run_id == ""
+
+
+def test_run_response_remote_run_id_none_tolerates_null():
+    """A NULL/None remote_run_id yields "", not a validation error."""
+    row = {**_BASE_ROW, "remote_run_id": None}
+    resp = dr._run_response(row)
+    assert resp.remote_run_id == ""
+
+
+def test_failed_run_response_remote_run_id_value():
+    """_failed_run_response propagates a populated remote_run_id."""
+    row = {**_FAILED_ROW, "remote_run_id": "dispatch-run-abc123"}
+    resp = dr._failed_run_response(row)
+    assert resp.remote_run_id == "dispatch-run-abc123"
+
+
+def test_failed_run_response_remote_run_id_absent():
+    """_failed_run_response tolerates an absent remote_run_id key."""
+    row = {k: v for k, v in _FAILED_ROW.items() if k != "remote_run_id"}
+    resp = dr._failed_run_response(row)
+    assert resp.remote_run_id == ""
+
+
+def test_stale_run_response_remote_run_id_value():
+    """_stale_run_response propagates a populated remote_run_id."""
+    row = {**_STALE_ROW, "remote_run_id": "dispatch-run-abc123"}
+    resp = dr._stale_run_response(row)
+    assert resp.remote_run_id == "dispatch-run-abc123"
+
+
+def test_stale_run_response_remote_run_id_absent():
+    """_stale_run_response tolerates an absent remote_run_id key."""
+    row = {k: v for k, v in _STALE_ROW.items() if k != "remote_run_id"}
+    resp = dr._stale_run_response(row)
+    assert resp.remote_run_id == ""

@@ -1363,7 +1363,13 @@ async def get_run_status(
         ctx: MCP context (injected automatically).
 
     Returns:
-        The run dict with current status.
+        The run dict with current status, including ``remote_run_id`` — the
+        DISPATCH-side run id (empty string for pre-migration rows or when the
+        run was never dispatched remotely). Every surface a lead sees when
+        investigating a run — this tool, ``agent-gtd run-status``,
+        ``agent-gtd list-runs`` — carries this id, since a run's evidence
+        directory on the dispatch host is keyed by it, not by this
+        agent_gtd-side run id.
     """
     session = await _get_session(ctx)
     try:
