@@ -38,9 +38,31 @@ It must be added in **three** places in `agent_gtd/src/agent_gtd/database.py`, a
 
 ### Router
 
-One skip clause in the **auto** branch of `pick_dispatch_host` only, placed after the existing `exclude_urls` filter.
+A skip clause in the **auto** branch of `pick_dispatch_host`, placed after the existing `exclude_urls` filter — and a **refusal in the pinned branch too**.
 
-The **pinned** branch (`--dispatch-host-id`) is deliberately untouched. That is how an operator exercises a freshly upgraded host, and it is the only way to verify a fix before returning the host to rotation. Drain means "no new *unpinned* work", never "unreachable".
+#### Drain must block pinned dispatch. This is the load-bearing decision.
+
+An earlier draft of this design left `--dispatch-host-id` untouched, on the theory that pinning is how an operator tests a freshly upgraded host. That was wrong, and it would have defeated the entire feature in practice.
+
+Pinning is not primarily an operator tool. It is how agents express **capability affinity**. camera-profiles pins to r7-research because that is the only host where hundreds of gigabytes of sample images are staged; nowhere else can run those items at all. Those dispatches come from a peer session that has no idea a drain is in progress, and under the earlier design they would have kept landing on r7-research indefinitely — so the host would never have gone idle, and drain would have silently failed to do the one thing it exists for.
+
+So: **a pinned dispatch to a drained host is refused**, and the error carries the drain reason.
+
+The refusal must read as *wait*, not as *re-route*. A caller pinning for affinity cannot fall back to auto-routing — the data is not on the other hosts — so an error that nudges toward "try another host" sends them somewhere the work cannot run. The message should name the host, say it is draining, quote the reason, and say the work should be retried when it returns. This is what makes the mandatory `--reason` pay for itself: camera-profiles sees `r7-research is draining: rolling deploy 2.0.2` and knows to hold rather than guess.
+
+#### Then how do you test a drained host?
+
+An explicit operator override, separate from pinning: `--allow-drained` on the dispatch path, refused by default.
+
+The split matters because the two uses of pinning want opposite behaviour under drain. Capability affinity is a routine agent action that must be blocked; operator verification is a deliberate human action by someone who already knows the host is draining and why. Conflating them into one flag is exactly the bug in the earlier draft. Keeping the override separate also means the default is refusal, which is the safe direction: an agent that has never heard of drain cannot accidentally opt into it.
+
+#### The durable fix is capability labels, not pinning
+
+The root problem is that pinning is being used to express a *requirement* ("this item needs the sample-image dataset") because there is no way to say so directly. That conflation is what makes drain awkward.
+
+Item `1bfbfbc4` — host capability labels, letting projects and items declare what a host must provide — landed today and is in review. Once it ships, camera-profiles declares a requirement instead of pinning a host id, the router satisfies it, and drain composes naturally: a drained host simply stops being an eligible candidate, and an item whose only capable host is drained waits for a host rather than failing. No override needed, because nobody is pinning.
+
+This design should be read as the interim: refuse-and-explain now, and expect the override to become unnecessary as capability labels take over the affinity cases.
 
 ### What drain must NOT break
 
@@ -50,9 +72,15 @@ The **pinned** branch (`--dispatch-host-id`) is deliberately untouched. That is 
 
 **Peer visibility has to land on all three projections**, not just the local one: `DispatchHostResponse`, and both `mcp_backend` projections (`:1176` and `:2145`). Other sessions dispatch to this fleet concurrently and need to see that a host is parked and why. Test it in HTTP mode, not only local.
 
-### What drain does not cover
+### Pinned rollouts need a decision, not a caveat
 
-**A pinned rollout defeats drain entirely** (`dispatch_service.py:129-134`). A rollout pinned to a host keeps dispatching its children there regardless. So **drained ≠ will-go-idle**, and the operator procedure has to say so.
+A rollout pinned to a host keeps dispatching its children there (`dispatch_service.py:129-134`). With pinned dispatch now refused, those child dispatches would start failing mid-wave — and a failed child currently halts the rollout, which is the blast-radius problem filed as `9f00b5f1`.
+
+That is not acceptable as a side effect of draining. The rollout loop must treat "host is draining" as a reason to **wait**, not to fail and not to halt: hold the wave, publish the drain reason as the manager's current step so it is visible on the board, and resume when the host returns.
+
+This is the one place drain needs real logic rather than a filter, and it is dispatch-side, so it ships in the same wave as the column. Until it exists, **do not drain a host that owns a running rollout** — the operator procedure must check, and `drain-host` should warn when the host has one.
+
+### What drain does not cover
 
 **Board-side changes still need a board restart.** This covers dispatch-side fixes only. An `agent_gtd` change — like today's `reviewer-autonomous` fix — still bounces the board.
 
@@ -75,9 +103,14 @@ Wait for a parked host to go idle. **Read `active_runs` twice, ~30s apart, befor
 ```bash
 curl -s http://pironman01:8100/info | jq '{active_runs, max_concurrent_runs}'
 DISPATCH_HOST=pironman01 EXPECT_VERSION=2.0.2 ./deploy.sh
-agent-gtd dispatch-item <id> --dispatch-host-id <pironman01-id>   # verify while still drained
+
+# Verify while still drained — --allow-drained is required, pinning alone is refused
+agent-gtd dispatch-item <id> --dispatch-host-id <pironman01-id> --allow-drained
+
 agent-gtd undrain-host pironman01
 ```
+
+Peer sessions pinning to a drained host get a refusal naming the host and quoting the reason, and should hold rather than re-route — a caller pinning for capability affinity has nowhere else to go.
 
 Repeat per host. The fleet never drops below one host accepting work.
 
