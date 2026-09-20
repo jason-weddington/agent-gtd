@@ -44,6 +44,10 @@ _DISPATCH_ONLY_FIELDS = {
     "git_origin",
     "repo_mode",
     "workspace_repos",
+    # Capability-label requirement: operator/owner-set, same tier as
+    # gate_command — it controls which hosts a member's dispatches can land
+    # on, so a non-owner member cannot quietly loosen or tighten it.
+    "required_labels",
 }
 
 
@@ -76,6 +80,12 @@ def _project_response(
         else (decode_json_list(str(raw_workspace_repos)) if raw_workspace_repos else [])
     )
     repo_mode = RepoMode(str(row.get("repo_mode") or "monorepo"))
+    raw_required_labels = row.get("required_labels")
+    required_labels: list[str] = (
+        raw_required_labels
+        if isinstance(raw_required_labels, list)
+        else (decode_json_list(str(raw_required_labels)) if raw_required_labels else [])
+    )
     return ProjectResponse(
         id=str(row["id"]),
         name=str(row["name"]),
@@ -101,6 +111,7 @@ def _project_response(
         if raw_reviewer_engine
         else None,
         gate_command=str(raw_gate) if raw_gate is not None else None,
+        required_labels=required_labels,
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
         is_owner=is_owner,
@@ -157,6 +168,7 @@ async def create_project(
             repo_mode=body.repo_mode.value,
             workspace_repos=body.workspace_repos,
             gate_command=body.gate_command,
+            required_labels=body.required_labels,
         )
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=e.detail) from None
@@ -287,6 +299,7 @@ async def update_project(
             clear_reviewer_engine=clear_reviewer_engine,
             gate_command=body.gate_command,
             clear_gate_command=clear_gate_command,
+            required_labels=body.required_labels,
         )
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Project not found") from None

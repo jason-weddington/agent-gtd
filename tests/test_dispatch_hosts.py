@@ -62,6 +62,165 @@ async def test_add_dispatch_host(
     assert "super-secret-key" not in str(data)  # gitleaks:allow
     assert "id" in data
     assert "created_at" in data
+    assert data["capability_labels"] == []
+
+
+@pytest.mark.asyncio
+async def test_add_dispatch_host_with_capability_labels(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """POST accepts capability_labels; normalized (lowercase, stripped, deduped)."""
+    res = await client.post(
+        "/api/settings/dispatch/hosts",
+        json={  # gitleaks:allow
+            "label": "r7-research",
+            "url": "http://r7.local:8001",
+            "api_key": "some-key",
+            "capability_labels": ["  Camera-Data ", "camera-data", "GPU"],
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["capability_labels"] == ["camera-data", "gpu"]
+
+
+@pytest.mark.asyncio
+async def test_update_dispatch_host_labels(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH replaces the full capability_labels list."""
+    add_res = await client.post(
+        "/api/settings/dispatch/hosts",
+        json={  # gitleaks:allow
+            "label": "r7-server",
+            "url": "http://r7server.local:8001",
+            "api_key": "some-key",
+            "capability_labels": ["gpu"],
+        },
+        headers=auth_headers,
+    )
+    host_id = add_res.json()["id"]
+
+    patch_res = await client.patch(
+        f"/api/settings/dispatch/hosts/{host_id}",
+        json={"capability_labels": ["Tauri-Linux", "pnpm"]},
+        headers=auth_headers,
+    )
+    assert patch_res.status_code == 200
+    data = patch_res.json()
+    assert data["id"] == host_id
+    # Normalized (lowercase, stripped) but order-preserving, not sorted.
+    assert data["capability_labels"] == ["tauri-linux", "pnpm"]
+
+    # GET reflects the replacement, not a union with the old list.
+    list_res = await client.get("/api/settings/dispatch/hosts", headers=auth_headers)
+    assert list_res.json()[0]["capability_labels"] == ["tauri-linux", "pnpm"]
+
+
+@pytest.mark.asyncio
+async def test_update_dispatch_host_labels_clears_with_empty_list(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH with an empty list clears all labels."""
+    add_res = await client.post(
+        "/api/settings/dispatch/hosts",
+        json={  # gitleaks:allow
+            "label": "",
+            "url": "http://clear.local:8001",
+            "api_key": "some-key",
+            "capability_labels": ["gpu"],
+        },
+        headers=auth_headers,
+    )
+    host_id = add_res.json()["id"]
+
+    patch_res = await client.patch(
+        f"/api/settings/dispatch/hosts/{host_id}",
+        json={"capability_labels": []},
+        headers=auth_headers,
+    )
+    assert patch_res.status_code == 200
+    assert patch_res.json()["capability_labels"] == []
+
+
+@pytest.mark.asyncio
+async def test_update_dispatch_host_not_found_returns_404(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH on a nonexistent host id returns 404."""
+    res = await client.patch(
+        "/api/settings/dispatch/hosts/00000000-0000-0000-0000-000000000099",
+        json={"capability_labels": ["gpu"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_update_dispatch_host_wrong_owner_returns_404(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH by a non-owner returns 404 and does not modify the host."""
+    from agent_gtd.auth import create_token, register_user
+
+    add_res = await client.post(
+        "/api/settings/dispatch/hosts",
+        json={  # gitleaks:allow
+            "label": "",
+            "url": "http://ownercheck.local:8001",
+            "api_key": "keyA",
+            "capability_labels": ["gpu"],
+        },
+        headers=auth_headers,
+    )
+    host_id = add_res.json()["id"]
+
+    user_b = await register_user("userb_hostpatch@example.com", "passb")
+    headers_b = {"Authorization": f"Bearer {create_token(user_b.id)}"}
+    res = await client.patch(
+        f"/api/settings/dispatch/hosts/{host_id}",
+        json={"capability_labels": ["camera-data"]},
+        headers=headers_b,
+    )
+    assert res.status_code == 404
+
+    # Unchanged from the owner's perspective.
+    list_res = await client.get("/api/settings/dispatch/hosts", headers=auth_headers)
+    assert list_res.json()[0]["capability_labels"] == ["gpu"]
+
+
+@pytest.mark.asyncio
+async def test_update_dispatch_host_invalidates_capabilities_cache(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """PATCH invalidates the in-process capabilities cache, same as add/delete."""
+    from agent_gtd.models import DispatchCapabilitiesResponse
+
+    add_res = await client.post(
+        "/api/settings/dispatch/hosts",
+        json={  # gitleaks:allow
+            "label": "",
+            "url": "http://cachecheck.local:8001",
+            "api_key": "some-key",
+        },
+        headers=auth_headers,
+    )
+    host_id = add_res.json()["id"]
+
+    me_res = await client.get("/api/auth/me", headers=auth_headers)
+    user_id = me_res.json()["id"]
+    dr._capabilities_cache[user_id] = (
+        dr._now(),
+        DispatchCapabilitiesResponse(engine="stale", version="0.0.0"),
+    )
+
+    await client.patch(
+        f"/api/settings/dispatch/hosts/{host_id}",
+        json={"capability_labels": ["gpu"]},
+        headers=auth_headers,
+    )
+    assert user_id not in dr._capabilities_cache
 
 
 @pytest.mark.asyncio

@@ -113,6 +113,8 @@ export interface Project {
   repoMode?: RepoMode
   /** Workspace repo URLs. Only used when repoMode === 'workspace'. */
   workspaceRepos?: string[]
+  /** Capability labels a dispatch host must provide for this project's runs (e.g. 'camera-data', 'tauri-linux'). Union'd with an item's own requiredLabels at routing time. */
+  requiredLabels?: string[]
   /** Number of open (non-done) items in this project. */
   totalItems: number
   /** Short preview of the project description (first line). Null when description is empty. */
@@ -197,6 +199,8 @@ export interface Run {
   dispatchedByEmail?: string
   rolloutId: string | null
   dispatchHostUrl?: string
+  /** Why this host was chosen: explicitly pinned, or which required labels it satisfied and how it ranked on capacity. Empty for pre-migration runs. */
+  routingRationale?: string
 }
 
 // --- Failure Feed ---
@@ -310,5 +314,7 @@ export interface DispatchHost {
   label: string
   url: string
   apiKeyPreview: string
+  /** Operator-set capability labels (e.g. 'camera-data', 'tauri-linux'). Never self-reported by the host. */
+  capabilityLabels: string[]
   createdAt: string
 }

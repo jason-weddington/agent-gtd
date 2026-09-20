@@ -42,6 +42,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         repo_mode TEXT NOT NULL DEFAULT 'monorepo',
         workspace_repos TEXT NOT NULL DEFAULT '[]',
         gate_command TEXT,
+        required_labels TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )
@@ -70,6 +71,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         acceptance_criteria TEXT NOT NULL DEFAULT '[]',
         files_to_modify TEXT NOT NULL DEFAULT '[]',
         scope_out TEXT NOT NULL DEFAULT '[]',
+        required_labels TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )
@@ -176,6 +178,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         rollout_id TEXT REFERENCES autonomous_rollouts(id),
         engine TEXT,
         engine_actual TEXT,
+        routing_rationale TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )
@@ -233,6 +236,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         label    TEXT NOT NULL DEFAULT '',
         url      TEXT NOT NULL,
         api_key  TEXT NOT NULL,
+        capability_labels TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         UNIQUE (user_id, url)
@@ -533,6 +537,19 @@ _MIGRATIONS: list[str] = [
     # default. This is the value the dispatch worker reads off the rollout row
     # when it launches a reviewer for a completed build.
     "ALTER TABLE autonomous_rollouts ADD COLUMN reviewer_engine TEXT",
+    # Host capability labels: operator-set on the host record (never
+    # self-reported). Project/item required-label lists are the demand side;
+    # this is the supply side. See dispatch_router.pick_dispatch_host.
+    "ALTER TABLE dispatch_hosts ADD COLUMN capability_labels TEXT NOT NULL DEFAULT '[]'",  # noqa: E501
+    # Effective requirement for a dispatch is the union of the project's and
+    # the item's required labels — an item may add a constraint, never relax
+    # one the project declares.
+    "ALTER TABLE projects ADD COLUMN required_labels TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE items ADD COLUMN required_labels TEXT NOT NULL DEFAULT '[]'",
+    # Human-readable record of why this host was chosen (explicit pin, or
+    # which requirements it satisfied and how it ranked on capacity) —
+    # visible in the run record without cross-referencing dispatch_host_url.
+    "ALTER TABLE claude_runs ADD COLUMN routing_rationale TEXT NOT NULL DEFAULT ''",
 ]
 
 
@@ -676,6 +693,26 @@ def encode_json_list(items: list[str]) -> str:
 def decode_json_list(text: str) -> list[str]:
     """Decode JSON text back to a list."""
     result: list[str] = json.loads(text)
+    return result
+
+
+def normalize_labels(labels: list[str]) -> list[str]:
+    """Normalize a list of free-form labels: strip, lowercase, drop blanks, dedupe.
+
+    Used for capability labels (dispatch hosts) and required-label lists
+    (projects, items). Matching between the two is exact-string and
+    case-insensitive by design (no globbing, hierarchies, or negation), so
+    normalization happens once here, on write, rather than at comparison
+    time. Order is preserved (first occurrence wins) for stable display.
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+    for raw in labels:
+        norm = raw.strip().lower()
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        result.append(norm)
     return result
 
 

@@ -10,6 +10,7 @@ from agent_gtd.database import (
     decode_json_list,
     encode_file_specs,
     encode_json_list,
+    normalize_labels,
     row_to_dict,
 )
 from agent_gtd.db_types import DbPool
@@ -105,6 +106,7 @@ async def create_item(
     acceptance_criteria: list[str] | None = None,
     files_to_modify: list[dict[str, Any]] | None = None,
     scope_out: list[str] | None = None,
+    required_labels: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a new item and return its row data.
 
@@ -128,9 +130,9 @@ async def create_item(
         "(id, project_id, user_id, title, description, status, priority, "
         "due_date, created_by, assigned_to, waiting_on, sort_order, labels, "
         "build_engine, acceptance_criteria, files_to_modify, scope_out, "
-        "created_at, updated_at)"
+        "required_labels, created_at, updated_at)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,"
-        " $14, $15, $16, $17, $18, $19)",
+        " $14, $15, $16, $17, $18, $19, $20)",
         item_id,
         project_id,
         user_id,
@@ -148,6 +150,7 @@ async def create_item(
         encode_json_list(acceptance_criteria or []),
         encode_file_specs(files_to_modify or []),
         encode_json_list(scope_out or []),
+        encode_json_list(normalize_labels(required_labels or [])),
         now,
         now,
     )
@@ -217,6 +220,7 @@ async def update_item(
     acceptance_criteria: list[str] | None = None,
     files_to_modify: list[dict[str, Any]] | None = None,
     scope_out: list[str] | None = None,
+    required_labels: list[str] | None = None,
     version: int | None = None,
     actor_run_id: str | None = None,
     actor_run_mode: str | None = None,
@@ -247,6 +251,9 @@ async def update_item(
         files_to_modify: New files-to-modify list (None = unchanged,
             empty list = clear).
         scope_out: New scope-out list (None = unchanged, empty list = clear).
+        required_labels: New required-labels list (None = unchanged, empty
+            list = clear). Normalized (lowercase, stripped, deduped) on
+            write.
         version: If provided, enforces optimistic locking — update fails
             if the current DB version doesn't match.
         actor_run_id: ID of the dispatch run making this call, if any.
@@ -409,6 +416,10 @@ async def update_item(
     if scope_out is not None:
         params.append(encode_json_list(scope_out))
         updates.append(f"scope_out = ${len(params)}")
+
+    if required_labels is not None:
+        params.append(encode_json_list(normalize_labels(required_labels)))
+        updates.append(f"required_labels = ${len(params)}")
 
     if updates:
         updates.append("version = version + 1")
@@ -663,6 +674,7 @@ def item_row_to_response_dict(row: dict[str, Any]) -> dict[str, Any]:
         ),
         "files_to_modify": decode_file_specs(str(row.get("files_to_modify") or "[]")),
         "scope_out": decode_json_list(str(row.get("scope_out") or "[]")),
+        "required_labels": decode_json_list(str(row.get("required_labels") or "[]")),
     }
 
 

@@ -15,6 +15,7 @@ from agent_gtd.models import (
     BuildEngine,
     DispatchHostResponse,
     DispatchSettingsResponse,
+    UpdateDispatchHostRequest,
     UpdateDispatchSettingsRequest,
     User,
 )
@@ -204,6 +205,7 @@ async def list_dispatch_hosts(
             label=h.get("label", ""),
             url=h["url"],
             api_key_preview=_mask_key(h["api_key"]),
+            capability_labels=h.get("capability_labels", []),
             created_at=datetime.fromisoformat(h["created_at"]),
         )
         for h in hosts
@@ -234,7 +236,7 @@ async def add_dispatch_host(
     db = await get_db()
     try:
         host = await settings_service.add_dispatch_host(
-            db, user.id, body.label, url, body.api_key
+            db, user.id, body.label, url, body.api_key, body.capability_labels
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -247,6 +249,39 @@ async def add_dispatch_host(
         label=host.get("label", ""),
         url=host["url"],
         api_key_preview=_mask_key(host["api_key"]),
+        capability_labels=host.get("capability_labels", []),
+        created_at=datetime.fromisoformat(host["created_at"]),
+    )
+
+
+@router.patch("/dispatch/hosts/{host_id}", response_model=DispatchHostResponse)
+async def update_dispatch_host(
+    host_id: str,
+    body: UpdateDispatchHostRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> DispatchHostResponse:
+    """Update a dispatch host's capability labels (operator-set).
+
+    Replaces the full label list. Labels are never self-reported by the
+    host — the operator installs the toolchain or places the data, so they
+    are the one who knows.
+    """
+    db = await get_db()
+    host = await settings_service.update_dispatch_host(
+        db, user.id, host_id, body.capability_labels
+    )
+    if host is None:
+        raise HTTPException(status_code=404, detail="Host not found")
+
+    # Invalidate capabilities cache so the next GET reflects the new labels
+    _capabilities_cache.pop(user.id, None)
+
+    return DispatchHostResponse(
+        id=host["id"],
+        label=host.get("label", ""),
+        url=host["url"],
+        api_key_preview=_mask_key(host["api_key"]),
+        capability_labels=host.get("capability_labels", []),
         created_at=datetime.fromisoformat(host["created_at"]),
     )
 

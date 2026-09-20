@@ -884,9 +884,16 @@ async def execute_run(
     # Get dispatch hosts for the project owner
     from agent_gtd.services.dispatch_router import (
         NoCompatibleHostError,
+        UnmetCapabilityError,
         pick_dispatch_host,
     )
+    from agent_gtd.services.dispatch_service import effective_required_labels
     from agent_gtd.services.settings_service import get_dispatch_hosts
+
+    # Effective requirement is the union of the project's and the item's
+    # required capability labels — an item can add a constraint but never
+    # relax one the project declares.
+    required_labels = frozenset(effective_required_labels(project, item))
 
     hosts = await get_dispatch_hosts(db, owner_id)
     if not hosts:
@@ -916,6 +923,7 @@ async def execute_run(
         dispatch_url: str = ""
         dispatch_api_key: str = ""
         remote_run_id: str = ""
+        routing_rationale: str = ""
 
         while True:
             # Pick the best host for the required engine + agent
@@ -926,13 +934,16 @@ async def execute_run(
                     agent_name=agent_name or None,
                     target_host_id=dispatch_host_id,
                     exclude_urls=frozenset(excluded_urls),
+                    required_labels=required_labels,
                 )
-            except (NoCompatibleHostError, HostFullError) as exc:
+            except (NoCompatibleHostError, UnmetCapabilityError, HostFullError) as exc:
                 await _fail_run(str(exc)[:500])
                 return
 
             dispatch_url = selected_host["url"]
             dispatch_api_key = selected_host["api_key"]
+            routing_rationale = selected_host.pop("_routing_rationale", "")
+            host_label = selected_host.get("label") or dispatch_url
 
             # --- Dispatch to remote ---
             try:
@@ -989,8 +1000,29 @@ async def execute_run(
             remote_run_id=remote_run_id,
             dispatch_host_url=dispatch_url,
             engine=engine,
+            routing_rationale=routing_rationale,
         )
         _publish_run_event(db, user_id, run_id, item_id, run, "run_started")
+
+        # Best-effort: surface the routing decision on the item so a human
+        # can see why this host was picked without opening the run record.
+        if item_id and routing_rationale:
+            try:
+                from agent_gtd.services.comment_service import create_comment
+
+                await create_comment(
+                    db,
+                    user_id,
+                    item_id=item_id,
+                    content_markdown=(
+                        f"Dispatched to **{host_label}** — {routing_rationale}"
+                    ),
+                    created_by=attribution,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to post routing-rationale comment to item %s", item_id
+                )
 
         # --- Poll until terminal ---
         try:

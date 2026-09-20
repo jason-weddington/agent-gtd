@@ -170,7 +170,7 @@ export const api = {
       const qs = query.toString()
       return request<Project[]>('GET', `/projects${qs ? `?${qs}` : ''}`)
     },
-    create: (data: { name: string; description?: string; status?: string; area?: string; gitOrigin?: string; kbProjectRef?: string; repoMode?: string; workspaceRepos?: string[]; gateCommand?: string }) =>
+    create: (data: { name: string; description?: string; status?: string; area?: string; gitOrigin?: string; kbProjectRef?: string; repoMode?: string; workspaceRepos?: string[]; gateCommand?: string; requiredLabels?: string[] }) =>
       request<Project>('POST', '/projects', data),
     get: (id: string) => request<Project>('GET', `/projects/${id}`),
     update: (id: string, data: Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>) =>
@@ -326,8 +326,10 @@ export const api = {
 
   dispatchHosts: {
     list: () => request<DispatchHost[]>('GET', '/settings/dispatch/hosts'),
-    add: (label: string, url: string, apiKey: string) =>
-      request<DispatchHost>('POST', '/settings/dispatch/hosts', { label, url, apiKey }),
+    add: (label: string, url: string, apiKey: string, capabilityLabels: string[] = []) =>
+      request<DispatchHost>('POST', '/settings/dispatch/hosts', { label, url, apiKey, capabilityLabels }),
+    updateLabels: (hostId: string, capabilityLabels: string[]) =>
+      request<DispatchHost>('PATCH', `/settings/dispatch/hosts/${hostId}`, { capabilityLabels }),
     remove: (hostId: string) => request<void>('DELETE', `/settings/dispatch/hosts/${hostId}`),
   },
 

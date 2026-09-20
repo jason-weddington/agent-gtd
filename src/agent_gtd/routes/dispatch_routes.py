@@ -78,6 +78,7 @@ def _run_response(row: dict[str, object]) -> RunResponse:
         dispatch_host_url=(
             str(row["dispatch_host_url"]) if row.get("dispatch_host_url") else None
         ),
+        routing_rationale=str(row.get("routing_rationale", "") or ""),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
         dispatched_by_email=(
@@ -118,6 +119,7 @@ def _failed_run_response(row: dict[str, object]) -> FailedRunResponse:
         dispatch_host_url=(
             str(row["dispatch_host_url"]) if row.get("dispatch_host_url") else None
         ),
+        routing_rationale=str(row.get("routing_rationale", "") or ""),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
         dispatched_by_email=(
@@ -160,6 +162,7 @@ def _stale_run_response(row: dict[str, object]) -> StaleRunResponse:
         dispatch_host_url=(
             str(row["dispatch_host_url"]) if row.get("dispatch_host_url") else None
         ),
+        routing_rationale=str(row.get("routing_rationale", "") or ""),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
         dispatched_by_email=(

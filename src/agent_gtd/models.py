@@ -374,6 +374,11 @@ class Project(BaseModel):
     # (workspace_repos stays a plain URL list until then); gate_command is a
     # single project-level nullable shell string.
     gate_command: str | None = None
+    # Capability labels a dispatch host must provide for this project's runs
+    # (e.g. 'camera-data', 'tauri-linux'). Union'd with an item's own
+    # required_labels to form the effective requirement at routing time —
+    # see dispatch_service.effective_required_labels.
+    required_labels: list[str] = []
     created_at: datetime
     updated_at: datetime
 
@@ -401,6 +406,9 @@ class Item(BaseModel):
     acceptance_criteria: list[str] = []
     files_to_modify: list[dict[str, Any]] = []
     scope_out: list[str] = []
+    # Additional capability labels this item requires beyond its project's —
+    # the effective requirement at routing time is the union of the two.
+    required_labels: list[str] = []
     created_at: datetime
     updated_at: datetime
 
@@ -641,6 +649,7 @@ class CreateProjectRequest(BaseModel):
     repo_mode: RepoMode = RepoMode.MONOREPO
     workspace_repos: list[str] = []
     gate_command: str | None = None
+    required_labels: list[str] = []
 
 
 class UpdateProjectRequest(BaseModel):
@@ -652,7 +661,7 @@ class UpdateProjectRequest(BaseModel):
     - Field explicitly null → clear the override (revert to inheriting global)
     - Field set → persist the value
 
-    For repo_mode and workspace_repos:
+    For repo_mode, workspace_repos, and required_labels:
     - Field absent → unchanged
     - Field set → persist the value (None = unchanged, not a clear)
     """
@@ -672,6 +681,7 @@ class UpdateProjectRequest(BaseModel):
     manage_engine: BuildEngine | None = None
     reviewer_engine: BuildEngine | None = None
     gate_command: str | None = None
+    required_labels: list[str] | None = None
 
     @field_validator("manage_engine")
     @classmethod
@@ -725,6 +735,7 @@ class ProjectResponse(BaseModel):
     manage_engine: BuildEngine | None = None
     reviewer_engine: BuildEngine | None = None
     gate_command: str | None = None
+    required_labels: list[str] = []
     created_at: datetime
     updated_at: datetime
     is_owner: bool | None = None
@@ -796,6 +807,7 @@ class CreateItemRequest(BaseModel):
     acceptance_criteria: list[str] = []
     files_to_modify: list[dict[str, Any]] = []
     scope_out: list[str] = []
+    required_labels: list[str] = []
 
 
 class UpdateItemRequest(BaseModel):
@@ -815,6 +827,7 @@ class UpdateItemRequest(BaseModel):
     acceptance_criteria: list[str] | None = None
     files_to_modify: list[dict[str, Any]] | None = None
     scope_out: list[str] | None = None
+    required_labels: list[str] | None = None
     version: int | None = None
 
 
@@ -853,6 +866,7 @@ class ItemResponse(BaseModel):
     acceptance_criteria: list[str] = []
     files_to_modify: list[dict[str, Any]] = []
     scope_out: list[str] = []
+    required_labels: list[str] = []
     created_at: datetime
     updated_at: datetime
     blockers: list[BlockerSummary] = []
@@ -976,6 +990,10 @@ class RunResponse(BaseModel):
     engine: str | None = None
     engine_actual: str | None = None
     dispatch_host_url: str | None = None
+    # Why this host was chosen: explicitly pinned, or which required labels
+    # it satisfied and how it ranked on capacity. "" for pre-migration runs
+    # and runs that never reached routing (e.g. failed before host pick).
+    routing_rationale: str = ""
     created_at: datetime
     updated_at: datetime
     dispatched_by_email: str | None = None
@@ -1046,6 +1064,7 @@ class DispatchHostResponse(BaseModel):
     label: str
     url: str
     api_key_preview: str  # "****" + last-4, never full key
+    capability_labels: list[str] = []
     created_at: datetime
 
 
@@ -1055,6 +1074,22 @@ class AddDispatchHostRequest(BaseModel):
     label: str = ""
     url: str  # Must be non-empty, stripped
     api_key: str  # Must be non-empty
+    # Operator-set capability labels (e.g. 'camera-data', 'tauri-linux').
+    # Never self-reported by the host — the operator installs the toolchain
+    # or places the data, so they are the one who knows. Normalized
+    # (lowercase, stripped, deduped) on write.
+    capability_labels: list[str] = []
+
+
+class UpdateDispatchHostRequest(BaseModel):
+    """Request to update a dispatch host's capability labels.
+
+    Only field this endpoint edits — label/url/api_key are immutable after
+    creation (delete and re-add to change those). The full label list is
+    replaced on each call (empty list clears all labels).
+    """
+
+    capability_labels: list[str] = []
 
 
 # --- Rollout Manager Schemas ---

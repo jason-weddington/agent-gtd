@@ -56,6 +56,10 @@ export default function Settings() {
   const [hostLabel, setHostLabel] = useState('')
   const [hostUrl, setHostUrl] = useState('')
   const [hostApiKey, setHostApiKey] = useState('')
+  const [hostCapabilityLabelsText, setHostCapabilityLabelsText] = useState('')
+  const [editingHostId, setEditingHostId] = useState<string | null>(null)
+  const [editingLabelsText, setEditingLabelsText] = useState('')
+  const [savingHostLabels, setSavingHostLabels] = useState(false)
   const [hostError, setHostError] = useState<string | null>(null)
 
   const handleMaxTurnsChange = (raw: string) => {
@@ -196,14 +200,18 @@ export default function Settings() {
 
   useEffect(() => { loadDispatchHosts() }, [loadDispatchHosts])
 
+  const parseLabelsText = (text: string): string[] =>
+    Array.from(new Set(text.split(',').map((l) => l.trim().toLowerCase()).filter((l) => l !== '')))
+
   const handleAddHost = async () => {
     setHostError(null)
     setAddingHost(true)
     try {
-      await api.dispatchHosts.add(hostLabel, hostUrl.trim(), hostApiKey)
+      await api.dispatchHosts.add(hostLabel, hostUrl.trim(), hostApiKey, parseLabelsText(hostCapabilityLabelsText))
       setHostLabel('')
       setHostUrl('')
       setHostApiKey('')
+      setHostCapabilityLabelsText('')
       loadDispatchHosts()
       // Refresh capabilities after adding a host
       api.dispatch.capabilities().then(setCapabilities).catch(() => {})
@@ -211,6 +219,24 @@ export default function Settings() {
       if (err instanceof ApiError) setHostError(err.detail)
     } finally {
       setAddingHost(false)
+    }
+  }
+
+  const handleStartEditLabels = (host: DispatchHost) => {
+    setEditingHostId(host.id)
+    setEditingLabelsText(host.capabilityLabels.join(', '))
+  }
+
+  const handleSaveLabels = async (hostId: string) => {
+    setSavingHostLabels(true)
+    try {
+      await api.dispatchHosts.updateLabels(hostId, parseLabelsText(editingLabelsText))
+      setEditingHostId(null)
+      loadDispatchHosts()
+    } catch {
+      // handled by api client
+    } finally {
+      setSavingHostLabels(false)
     }
   }
 
@@ -545,16 +571,52 @@ export default function Settings() {
               {dispatchHosts.map((h) => (
                 <ListItem
                   key={h.id}
+                  alignItems="flex-start"
                   secondaryAction={
                     <IconButton edge="end" size="small" onClick={() => void handleRemoveHost(h.id)}>
                       <DeleteIcon fontSize="small" />
                     </IconButton>
                   }
                 >
-                  <ListItemText
-                    primary={h.label || h.url}
-                    secondary={`${h.url} · ${h.apiKeyPreview}`}
-                  />
+                  {editingHostId === h.id ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, width: '100%', pr: 4 }}>
+                      <Typography variant="body2">{h.label || h.url}</Typography>
+                      <TextField
+                        size="small"
+                        fullWidth
+                        label="Capability labels (comma-separated)"
+                        value={editingLabelsText}
+                        onChange={(e) => setEditingLabelsText(e.target.value)}
+                        placeholder="camera-data, tauri-linux"
+                      />
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button size="small" variant="contained" disabled={savingHostLabels}
+                          onClick={() => void handleSaveLabels(h.id)}>
+                          Save
+                        </Button>
+                        <Button size="small" onClick={() => setEditingHostId(null)}>Cancel</Button>
+                      </Box>
+                    </Box>
+                  ) : (
+                    <ListItemText
+                      primary={h.label || h.url}
+                      secondary={
+                        <>
+                          {`${h.url} · ${h.apiKeyPreview}`}
+                          {' · '}
+                          {h.capabilityLabels.length > 0 ? h.capabilityLabels.join(', ') : 'no capability labels'}
+                          {' — '}
+                          <Box
+                            component="span"
+                            sx={{ cursor: 'pointer', textDecoration: 'underline' }}
+                            onClick={() => handleStartEditLabels(h)}
+                          >
+                            edit labels
+                          </Box>
+                        </>
+                      }
+                    />
+                  )}
                 </ListItem>
               ))}
             </List>
@@ -572,6 +634,11 @@ export default function Settings() {
             <TextField label="API Key" type="password" size="small" fullWidth required
               value={hostApiKey}
               onChange={(e) => { setHostApiKey(e.target.value); setHostError(null) }} />
+            <TextField label="Capability labels (optional, comma-separated)" size="small" fullWidth
+              value={hostCapabilityLabelsText}
+              onChange={(e) => setHostCapabilityLabelsText(e.target.value)}
+              placeholder="camera-data, tauri-linux"
+              helperText="What this host can provide — operator-set, e.g. data it holds or a toolchain it has installed." />
             {hostError && <Alert severity="error">{hostError}</Alert>}
             <Button variant="outlined" size="small" onClick={() => void handleAddHost()}
               disabled={addingHost || !hostUrl.trim() || !hostApiKey.trim()}

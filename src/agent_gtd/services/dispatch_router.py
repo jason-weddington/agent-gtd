@@ -86,6 +86,76 @@ class NoCompatibleHostError(Exception):
         )
 
 
+class UnmetCapabilityError(Exception):
+    """No host in the pool satisfies the effective capability-label requirement.
+
+    Raised BEFORE engine/agent/capacity are ever consulted — a host missing a
+    required label is never a candidate, regardless of what else it offers.
+    Deliberately distinct from ``NoCompatibleHostError`` so the failure names
+    the actual routing problem (which labels went unsatisfied, on which
+    hosts) instead of a generic "no compatible host" message. This is the
+    guardrail against an agent confidently misdiagnosing a routing failure
+    (missing dataset / missing toolchain) as something else from the inside.
+    """
+
+    def __init__(
+        self,
+        required_labels: list[str],
+        hosts_checked: list[dict[str, str]],
+    ) -> None:
+        """Initialize with the unmet required labels and per-host reasons."""
+        self.required_labels = required_labels
+        self.hosts_checked = hosts_checked
+        reasons = "; ".join(f"{h['host']}: {h['reason']}" for h in hosts_checked)
+        super().__init__(
+            f"No host satisfies required capability label(s) {required_labels!r}. "
+            f"Checked: {reasons}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Capability-label matching
+# ---------------------------------------------------------------------------
+
+
+def _norm_label(label: str) -> str:
+    """Normalize a label for comparison: lowercase, stripped."""
+    return label.strip().lower()
+
+
+def _host_capability_labels(host: dict[str, Any]) -> frozenset[str]:
+    """Return a host's normalized capability labels (operator-set, static)."""
+    return frozenset(
+        _norm_label(str(label)) for label in host.get("capability_labels") or []
+    )
+
+
+def _missing_labels(required: frozenset[str], host: dict[str, Any]) -> frozenset[str]:
+    """Return the subset of ``required`` this host's labels do not cover."""
+    return required - _host_capability_labels(host)
+
+
+def _pin_rationale(host_label: str, required: frozenset[str]) -> str:
+    """Build the routing-rationale string for an explicitly pinned host."""
+    if required:
+        return (
+            f"explicitly pinned to '{host_label}' "
+            f"(satisfies required label(s): {', '.join(sorted(required))})"
+        )
+    return f"explicitly pinned to '{host_label}'"
+
+
+def _auto_rationale(host_label: str, required: frozenset[str], available: int) -> str:
+    """Build the routing-rationale string for an auto-ranked host."""
+    if required:
+        return (
+            f"'{host_label}' satisfied required label(s) "
+            f"{', '.join(sorted(required))} and ranked first on capacity "
+            f"({available} available)"
+        )
+    return f"'{host_label}' ranked first on capacity ({available} available)"
+
+
 # ---------------------------------------------------------------------------
 # /info fetch helpers
 # ---------------------------------------------------------------------------
@@ -168,6 +238,7 @@ async def pick_dispatch_host(
     agent_name: str | None,
     target_host_id: str | None = None,
     exclude_urls: frozenset[str] | None = None,
+    required_labels: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """Select the best dispatch host for the given engine and agent.
 
@@ -175,15 +246,28 @@ async def pick_dispatch_host(
     (after validation), bypassing capacity ranking.
 
     Algorithm (auto mode, target_host_id=None):
-    1. Poll /info on all hosts concurrently (5s timeout, no cache — real-time).
-    2. Filter: skip unreachable hosts, hosts missing the requested engine,
+    1. Filter by capability label FIRST, using the static, operator-set
+       ``capability_labels`` on each host record — no network call needed.
+       A host missing any label in ``required_labels`` is never a candidate,
+       regardless of capacity. Empty/unset ``required_labels`` is a pure
+       no-op (every host proceeds to step 2, matching pre-label behaviour).
+    2. Poll /info on the label-qualified hosts concurrently (5s timeout, no
+       cache — real-time).
+    3. Filter: skip unreachable hosts, hosts missing the requested engine,
        hosts in ``exclude_urls`` (at-capacity hosts excluded by caller),
        and (if agent_name set) hosts missing the requested agent.
-    3. Rank: pick the host with the most available capacity
+    4. Rank: pick the host with the most available capacity
        (max_concurrent_runs - active_runs).
+
+    The winning host dict carries an extra ``_routing_rationale`` key (a
+    human-readable string explaining why it was chosen) for the caller to
+    persist on the run record — a transient key, not a column on the host
+    record itself.
 
     Args:
         hosts: List of host dicts with at least ``url`` and ``label`` keys.
+            ``capability_labels`` (list[str], operator-set) defaults to
+            empty when absent.
         engine: Required engine name (must be in host's ``engines`` list).
         agent_name: Optional agent name (must be in host's ``agents`` list).
         target_host_id: Optional host UUID to pin this dispatch to a specific
@@ -192,16 +276,29 @@ async def pick_dispatch_host(
         exclude_urls: Optional set of host URLs to skip (hosts known to be at
             capacity). Excluded hosts appear in ``NoCompatibleHostError.hosts_checked``
             with reason ``"at capacity"``. Only used in auto mode.
+        required_labels: Optional set of capability labels every candidate
+            host must have (the effective union of a project's and an
+            item's required labels). A pin that lacks a required label
+            fails the same way an auto-routed dispatch would — pinning
+            names which host, not that the requirement no longer applies.
 
     Returns:
-        The winning host dict.
+        The winning host dict (with a transient ``_routing_rationale`` key).
 
     Raises:
         NotFoundError: If target_host_id is set but not found in hosts list.
+        UnmetCapabilityError: If no host (or the pinned host) satisfies
+            ``required_labels``. Raised before any engine/agent/capacity
+            check — a labels failure is a distinct, more specific failure
+            than a generic "no compatible host".
         NoCompatibleHostError: If target host fails engine/agent validation,
-            or if no host passes the filters in auto mode.
+            or if no label-qualified host passes the filters in auto mode.
         HostFullError: If target host is at maximum capacity.
     """
+    effective_required = frozenset(
+        _norm_label(label) for label in (required_labels or ())
+    )
+
     if target_host_id is not None:
         # Targeted dispatch: find the host by ID
         target = next((h for h in hosts if h.get("id") == target_host_id), None)
@@ -209,6 +306,24 @@ async def pick_dispatch_host(
             raise NotFoundError("DispatchHost", target_host_id)
 
         host_label = target.get("label") or target.get("url", "unknown")
+
+        # Capability labels are operator-set and static — validate before any
+        # network call. Pinning names which host, not that the requirement no
+        # longer applies, so a pinned host lacking a required label fails
+        # fast with the same named-requirement error as auto-routing would.
+        missing = _missing_labels(effective_required, target)
+        if missing:
+            raise UnmetCapabilityError(
+                required_labels=sorted(effective_required),
+                hosts_checked=[
+                    {
+                        "host": host_label,
+                        "reason": (
+                            f"missing required label(s): {', '.join(sorted(missing))}"
+                        ),
+                    }
+                ],
+            )
 
         # Fetch /info from the targeted host
         try:
@@ -259,12 +374,41 @@ async def pick_dispatch_host(
                 host_label, int(target_info.get("max_concurrent_runs", 0))
             )
 
+        target["_routing_rationale"] = _pin_rationale(host_label, effective_required)
         return target
+
+    # Auto mode: filter by capability label first — before any network call —
+    # so a host missing a required label is never a candidate regardless of
+    # capacity, and the failure (if total) names the unmet labels rather than
+    # falling through to a generic "no compatible host" message.
+    label_skipped: list[dict[str, str]] = []
+    if effective_required:
+        label_ok_hosts: list[dict[str, Any]] = []
+        for host in hosts:
+            host_label = host.get("label") or host.get("url", "unknown")
+            missing = _missing_labels(effective_required, host)
+            if missing:
+                label_skipped.append(
+                    {
+                        "host": host_label,
+                        "reason": (
+                            f"missing required label(s): {', '.join(sorted(missing))}"
+                        ),
+                    }
+                )
+            else:
+                label_ok_hosts.append(host)
+        if not label_ok_hosts:
+            raise UnmetCapabilityError(
+                required_labels=sorted(effective_required),
+                hosts_checked=label_skipped,
+            )
+        hosts = label_ok_hosts
 
     infos = await _gather_host_info(hosts)
 
     candidates: list[dict[str, Any]] = []
-    skipped: list[dict[str, str]] = []
+    skipped: list[dict[str, str]] = list(label_skipped)
 
     for host, info in zip(hosts, infos, strict=False):
         host_label = host.get("label") or host.get("url", "unknown")
@@ -304,4 +448,8 @@ async def pick_dispatch_host(
 
     best = max(candidates, key=lambda c: c["_available"])
     selected: dict[str, Any] = best["_host"]
+    host_label = selected.get("label") or selected.get("url", "unknown")
+    selected["_routing_rationale"] = _auto_rationale(
+        host_label, effective_required, int(best["_available"])
+    )
     return selected

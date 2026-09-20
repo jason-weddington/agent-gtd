@@ -12,7 +12,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from agent_gtd.database import row_to_dict
+from agent_gtd.database import decode_json_list, row_to_dict
 from agent_gtd.db_types import DbPool
 from agent_gtd.exceptions import (
     BlockersUnresolvedError,
@@ -33,6 +33,36 @@ logger = logging.getLogger(__name__)
 _ACTIVE_STATUSES = ("pending", "cloning", "running")
 # Note: manage-mode runs are created via dispatch_rollout_run (item_id=NULL) and
 # therefore never appear in the _ACTIVE_STATUSES check below, which filters by item_id.
+
+
+def _decode_label_list(raw: object) -> list[str]:
+    """Tolerantly decode a required_labels value: list, JSON text, or absent.
+
+    Handles both a service-layer dict (already decoded to a list) and a raw
+    DB row dict (JSON text, as fetched directly by dispatch_worker), so this
+    works against either shape without forcing callers to decode first.
+    """
+    if isinstance(raw, list):
+        return [str(label) for label in raw]
+    if raw:
+        return decode_json_list(str(raw))
+    return []
+
+
+def effective_required_labels(
+    project: dict[str, Any] | None, item: dict[str, Any] | None
+) -> list[str]:
+    """Return the effective capability-label requirement for a dispatch.
+
+    The effective requirement is the UNION of the project's and the item's
+    ``required_labels`` — an item may add a constraint on top of its
+    project's, but can never relax one the project declares. Labels are
+    already normalized (lowercase, stripped) at write time; this just unions
+    the two sets and returns them sorted for deterministic output.
+    """
+    project_labels = _decode_label_list((project or {}).get("required_labels"))
+    item_labels = _decode_label_list((item or {}).get("required_labels"))
+    return sorted(set(project_labels) | set(item_labels))
 
 
 def make_branch_name(item_id: str, title: str) -> str:

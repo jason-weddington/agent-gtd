@@ -5,7 +5,12 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from agent_gtd.database import decode_json_list, encode_json_list, row_to_dict
+from agent_gtd.database import (
+    decode_json_list,
+    encode_json_list,
+    normalize_labels,
+    row_to_dict,
+)
 from agent_gtd.db_types import DbPool
 from agent_gtd.event_bus import get_event_bus
 from agent_gtd.exceptions import NotFoundError, ValidationError
@@ -154,9 +159,9 @@ def _validate_workspace_fields(
 
 
 def _decode_project_workspace_repos(result: dict[str, Any]) -> dict[str, Any]:
-    """Decode workspace_repos from JSON text to list[str] in-place.
+    """Decode workspace_repos and required_labels from JSON text in-place.
 
-    Handles three cases:
+    Handles three cases per field:
     - Already a list (pre-decoded by a join query): no-op.
     - A JSON text string (raw DB row): decoded via decode_json_list.
     - Missing or None: set to [].
@@ -174,6 +179,14 @@ def _decode_project_workspace_repos(result: dict[str, Any]) -> dict[str, Any]:
         result["workspace_repos"] = decode_json_list(str(raw))
     else:
         result["workspace_repos"] = []
+
+    raw_labels = result.get("required_labels")
+    if isinstance(raw_labels, list):
+        pass  # already decoded
+    elif raw_labels:
+        result["required_labels"] = decode_json_list(str(raw_labels))
+    else:
+        result["required_labels"] = []
     return result
 
 
@@ -316,6 +329,7 @@ async def create_project(
     repo_mode: str = "monorepo",
     workspace_repos: list[str] | None = None,
     gate_command: str | None = None,
+    required_labels: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a new project and return its row data.
 
@@ -335,6 +349,11 @@ async def create_project(
             projects); exit 0 = green. Dispatch runs it after each build run
             that pushes a branch and marks the run failed if it exits
             non-zero.
+        required_labels: Optional list of capability labels a dispatch host
+            must provide for this project's runs (e.g. 'camera-data',
+            'tauri-linux'). Normalized (lowercase, stripped, deduped) on
+            write. Union'd with an item's own required_labels at routing
+            time — see dispatch_service.effective_required_labels.
 
     Returns:
         The created project row as a dict (workspace_repos decoded to list[str]).
@@ -360,8 +379,8 @@ async def create_project(
         "INSERT INTO projects "
         "(id, user_id, name, description, status, area, git_origin,"
         " kb_project_ref, repo_mode, workspace_repos, gate_command,"
-        " created_at, updated_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+        " required_labels, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
         project_id,
         user_id,
         name,
@@ -373,6 +392,7 @@ async def create_project(
         repo_mode,
         encode_json_list(stripped_repos),
         gate_command,
+        encode_json_list(normalize_labels(required_labels or [])),
         now,
         now,
     )
@@ -457,6 +477,7 @@ async def update_project(
     clear_reviewer_engine: bool = False,
     gate_command: str | None = None,
     clear_gate_command: bool = False,
+    required_labels: list[str] | None = None,
 ) -> dict[str, Any]:
     """Update a project. Only non-None fields are changed.
 
@@ -466,9 +487,9 @@ async def update_project(
     - Pass clear_dispatch_max_turns=True (with dispatch_max_turns=None) to set NULL.
     - Omit both to leave the column unchanged.
 
-    For repo_mode and workspace_repos:
+    For repo_mode, workspace_repos, and required_labels:
     - None = leave unchanged.
-    - Non-None = set to that value.
+    - Non-None = set to that value (required_labels is normalized on write).
 
     Raises:
         NotFoundError: If the project doesn't exist or isn't accessible.
@@ -584,6 +605,9 @@ async def update_project(
     elif clear_gate_command:
         params.append(None)
         updates.append(f"gate_command = ${len(params)}")
+    if required_labels is not None:
+        params.append(encode_json_list(normalize_labels(required_labels)))
+        updates.append(f"required_labels = ${len(params)}")
 
     if updates:
         params.append(datetime.now(UTC).isoformat())

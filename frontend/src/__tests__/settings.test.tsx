@@ -78,6 +78,7 @@ describe('Settings – Dispatch Hosts', () => {
       label: 'my-host',
       url: 'http://dispatch.example.com',
       apiKeyPreview: '****key1',
+      capabilityLabels: [],
       createdAt: '2024-01-01T00:00:00Z',
     })
     vi.mocked(api.settings.getDispatch).mockResolvedValue({
@@ -126,6 +127,7 @@ describe('Settings – Dispatch Hosts', () => {
         label: 'pi-1',
         url: 'http://pi1.local:8001',
         apiKeyPreview: '****abcd',
+        capabilityLabels: [],
         createdAt: '2024-01-01T00:00:00Z',
       },
     ])
@@ -188,6 +190,7 @@ describe('Settings – Dispatch Hosts', () => {
         '',
         'http://dispatch.local:8001',
         'secret-key',
+        [],
       )
     })
   })

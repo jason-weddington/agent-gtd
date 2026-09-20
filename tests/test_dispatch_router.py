@@ -504,3 +504,197 @@ def test_classify_info_failure_discriminates(exc, expect):
     from agent_gtd.services.dispatch_router import _classify_info_failure
 
     assert expect in _classify_info_failure(exc)
+
+
+# ---------------------------------------------------------------------------
+# Capability-label filtering (host capability labels vs. required labels)
+# ---------------------------------------------------------------------------
+
+HOST_C_TAURI = {
+    "id": "c",
+    "url": "http://host-c:8001",
+    "api_key": "keyc",
+    "label": "host-c",
+    "capability_labels": ["tauri-linux"],
+}
+
+
+@pytest.mark.asyncio
+async def test_label_filter_excludes_only_host_with_capacity() -> None:
+    """A host lacking a required label is excluded even as the only candidate.
+
+    Mirrors incident 2 from the design doc: no /info call should even be
+    needed to reject HOST_A here — the label filter runs before any network
+    call, so HOST_A (no capability_labels) never becomes a candidate despite
+    being the only host in the pool.
+    """
+    from agent_gtd.services.dispatch_router import (
+        UnmetCapabilityError,
+        pick_dispatch_host,
+    )
+
+    with pytest.raises(UnmetCapabilityError) as exc_info:
+        await pick_dispatch_host(
+            [HOST_A],
+            engine="claude-code",
+            agent_name=None,
+            required_labels=frozenset({"tauri-linux"}),
+        )
+    exc = exc_info.value
+    assert exc.required_labels == ["tauri-linux"]
+    assert len(exc.hosts_checked) == 1
+    assert exc.hosts_checked[0]["host"] == "host-a"
+    assert "tauri-linux" in exc.hosts_checked[0]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_label_filter_passes_matching_host_and_records_rationale() -> None:
+    """A host with the required label is a candidate and wins on capacity.
+
+    The winning host dict carries a ``_routing_rationale`` explaining what it
+    satisfied — this is what the caller persists on the run record.
+    """
+    from agent_gtd.services.dispatch_router import pick_dispatch_host
+
+    async def fake_gather(hosts):  # type: ignore[no-untyped-def]
+        return [INFO_ALL_UP_A]
+
+    with patch(
+        "agent_gtd.services.dispatch_router._gather_host_info",
+        new=fake_gather,
+    ):
+        selected = await pick_dispatch_host(
+            [HOST_C_TAURI],
+            engine="claude-code",
+            agent_name=None,
+            required_labels=frozenset({"tauri-linux"}),
+        )
+    assert selected["id"] == "c"
+    assert "tauri-linux" in selected["_routing_rationale"]
+    assert "ranked first on capacity" in selected["_routing_rationale"]
+
+
+@pytest.mark.asyncio
+async def test_label_matching_is_case_insensitive() -> None:
+    """A host's differently-cased label still satisfies a lowercase requirement."""
+    from agent_gtd.services.dispatch_router import pick_dispatch_host
+
+    host = {**HOST_C_TAURI, "capability_labels": ["Tauri-Linux"]}
+
+    async def fake_gather(hosts):  # type: ignore[no-untyped-def]
+        return [INFO_ALL_UP_A]
+
+    with patch(
+        "agent_gtd.services.dispatch_router._gather_host_info",
+        new=fake_gather,
+    ):
+        selected = await pick_dispatch_host(
+            [host],
+            engine="claude-code",
+            agent_name=None,
+            required_labels=frozenset({"tauri-linux"}),
+        )
+    assert selected["id"] == "c"
+
+
+@pytest.mark.asyncio
+async def test_no_required_labels_is_pure_noop() -> None:
+    """Explicit empty required_labels behaves exactly like the pre-label path."""
+    from agent_gtd.services.dispatch_router import pick_dispatch_host
+
+    with patch(
+        "agent_gtd.services.dispatch_router._fetch_host_info",
+        side_effect=[INFO_ALL_UP_A, INFO_ALL_UP_B],
+    ):
+        selected = await pick_dispatch_host(
+            [HOST_A, HOST_B],
+            engine="claude-code",
+            agent_name=None,
+            required_labels=frozenset(),
+        )
+    assert selected["id"] == "a"
+    assert "_routing_rationale" in selected
+
+
+@pytest.mark.asyncio
+async def test_pinned_host_missing_label_fails_fast_no_network() -> None:
+    """A pin to a host lacking a required label fails before any /info probe.
+
+    Validates the pin rather than bypassing the requirement — pinning names
+    which host, not that the requirement no longer applies.
+    """
+    from agent_gtd.services.dispatch_router import (
+        UnmetCapabilityError,
+        pick_dispatch_host,
+    )
+
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            side_effect=AssertionError("must not probe a label-failing pin"),
+        ),
+        pytest.raises(UnmetCapabilityError) as exc_info,
+    ):
+        await pick_dispatch_host(
+            [HOST_A, HOST_B],
+            engine="claude-code",
+            agent_name=None,
+            target_host_id="a",
+            required_labels=frozenset({"gpu"}),
+        )
+    exc = exc_info.value
+    assert exc.required_labels == ["gpu"]
+    assert exc.hosts_checked[0]["host"] == "host-a"
+    assert "gpu" in exc.hosts_checked[0]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_pinned_host_with_required_label_succeeds() -> None:
+    """A pin to a host that DOES have the required label still validates and wins."""
+    from agent_gtd.services.dispatch_router import pick_dispatch_host
+
+    with patch(
+        "agent_gtd.services.dispatch_router._fetch_host_info",
+        return_value=INFO_ALL_UP_A,
+    ):
+        selected = await pick_dispatch_host(
+            [HOST_C_TAURI, HOST_B],
+            engine="claude-code",
+            agent_name=None,
+            target_host_id="c",
+            required_labels=frozenset({"tauri-linux"}),
+        )
+    assert selected["id"] == "c"
+    assert "explicitly pinned" in selected["_routing_rationale"]
+    assert "tauri-linux" in selected["_routing_rationale"]
+
+
+# ---------------------------------------------------------------------------
+# effective_required_labels (project + item union semantics)
+# ---------------------------------------------------------------------------
+
+
+def test_effective_required_labels_unions_project_and_item() -> None:
+    """The effective requirement is the union — an item adds, never relaxes."""
+    from agent_gtd.services.dispatch_service import effective_required_labels
+
+    project = {"required_labels": ["camera-data"]}
+    item = {"required_labels": ["tauri-linux"]}
+    assert effective_required_labels(project, item) == ["camera-data", "tauri-linux"]
+
+
+def test_effective_required_labels_tolerates_raw_json_text() -> None:
+    """Raw DB-row dicts (JSON text, not yet decoded) are handled transparently."""
+    from agent_gtd.services.dispatch_service import effective_required_labels
+
+    project = {"required_labels": '["camera-data"]'}
+    item = {"required_labels": '["tauri-linux", "camera-data"]'}
+    assert effective_required_labels(project, item) == ["camera-data", "tauri-linux"]
+
+
+def test_effective_required_labels_no_requirement_is_empty() -> None:
+    """An un-labelled project and item produce an empty requirement — a no-op."""
+    from agent_gtd.services.dispatch_service import effective_required_labels
+
+    assert effective_required_labels({}, {}) == []
+    assert effective_required_labels(None, None) == []

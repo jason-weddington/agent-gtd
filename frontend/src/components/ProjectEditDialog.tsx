@@ -52,6 +52,7 @@ export default function ProjectEditDialog({
   const [buildDispatchAgent, setBuildDispatchAgent] = useState<string | null>(null)
   const [manageEngine, setManageEngine] = useState<BuildEngine | null>(null)
   const [gateCommand, setGateCommand] = useState<string | null>(null)
+  const [requiredLabelsText, setRequiredLabelsText] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
@@ -104,6 +105,7 @@ export default function ProjectEditDialog({
       setBuildDispatchAgent(editing.buildDispatchAgent ?? null)
       setManageEngine(editing.manageEngine ?? null)
       setGateCommand(editing.gateCommand ?? null)
+      setRequiredLabelsText((editing.requiredLabels ?? []).join(', '))
     } else {
       setName('')
       setDescription('')
@@ -117,6 +119,7 @@ export default function ProjectEditDialog({
       setBuildDispatchAgent(null)
       setManageEngine(null)
       setGateCommand(null)
+      setRequiredLabelsText('')
     }
     setSaveError(null)
   }, [open, editing])
@@ -144,6 +147,10 @@ export default function ProjectEditDialog({
     setSaveError(null)
     // Trim repo URLs and drop empty rows; empty resulting list is valid.
     const trimmedRepos = workspaceRepos.map((r) => r.trim()).filter((r) => r !== '')
+    // Comma-separated labels, trimmed and de-duped; normalized again server-side.
+    const requiredLabels = Array.from(
+      new Set(requiredLabelsText.split(',').map((l) => l.trim().toLowerCase()).filter((l) => l !== '')),
+    )
     try {
       let saved: Project
       if (editing) {
@@ -158,6 +165,7 @@ export default function ProjectEditDialog({
           buildDispatchAgent,
           manageEngine,
           gateCommand,
+          requiredLabels,
         } : {}
         saved = await api.projects.update(editing.id, {
           name,
@@ -178,6 +186,7 @@ export default function ProjectEditDialog({
           repoMode,
           workspaceRepos: trimmedRepos,
           gateCommand: gateCommand ?? undefined,
+          requiredLabels,
         })
       }
       onSaved(saved)
@@ -472,6 +481,16 @@ export default function ProjectEditDialog({
           margin="normal"
           fullWidth
           helperText="Shell command that is the project's quality gate, run from the repo root (the workspace root for workspace projects); exit 0 = green. Dispatch runs it after each build run that pushes a branch and marks the run failed if it exits non-zero."
+        />
+        <TextField
+          label="Required Capability Labels"
+          value={requiredLabelsText}
+          onChange={(e) => setRequiredLabelsText(e.target.value)}
+          disabled={!isOwner && editing !== null}
+          size="small"
+          margin="normal"
+          fullWidth
+          helperText="Comma-separated capability labels a dispatch host must provide for this project's runs (e.g. camera-data, tauri-linux). A host missing any of these is never a routing candidate. An item can add further labels but cannot relax these."
         />
       </DialogContent>
       <DialogActions>

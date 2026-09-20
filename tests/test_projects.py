@@ -23,6 +23,7 @@ _REPRESENTATIVE_VALUES: dict[str, object] = {
     "manage_engine": "claude-code-sonnet",
     "plan_dispatch_agent": "some-agent",
     "repo_mode": "workspace",
+    "required_labels": ["tauri-linux"],
     "reviewer_engine": "claude-code-haiku",
     "workspace_repos": ["git@host:repos/x"],
 }
@@ -1462,6 +1463,33 @@ def test_decode_project_workspace_repos_none_becomes_empty_list():
     data = {"workspace_repos": None}
     out = _decode_project_workspace_repos(data)
     assert out["workspace_repos"] == []
+
+
+def test_decode_project_required_labels_already_list():
+    """No-op when required_labels is already a Python list (pre-decoded)."""
+    from agent_gtd.services.project_service import _decode_project_workspace_repos
+
+    data = {"required_labels": ["tauri-linux"]}
+    out = _decode_project_workspace_repos(data)
+    assert out["required_labels"] == ["tauri-linux"]
+
+
+def test_decode_project_required_labels_json_text():
+    """Decodes a raw JSON-text required_labels column (as fetched from the DB)."""
+    from agent_gtd.services.project_service import _decode_project_workspace_repos
+
+    data = {"required_labels": '["camera-data"]'}
+    out = _decode_project_workspace_repos(data)
+    assert out["required_labels"] == ["camera-data"]
+
+
+def test_decode_project_required_labels_none_becomes_empty_list():
+    """Sets required_labels to [] when value is None (absent/legacy row)."""
+    from agent_gtd.services.project_service import _decode_project_workspace_repos
+
+    data = {"required_labels": None}
+    out = _decode_project_workspace_repos(data)
+    assert out["required_labels"] == []
 
 
 # ---------------------------------------------------------------------------

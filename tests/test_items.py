@@ -1291,6 +1291,88 @@ async def test_update_item_scope_out_unchanged_when_omitted(
     assert res.json()["scope_out"] == ["Not now"]
 
 
+# --- required_labels field (host capability requirements) ---
+
+
+async def test_create_item_with_required_labels(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/items",
+        json={"title": "T", "required_labels": ["  Tauri-Linux ", "tauri-linux"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    # Normalized on write: lowercase, stripped, deduped.
+    assert res.json()["required_labels"] == ["tauri-linux"]
+
+
+async def test_create_item_required_labels_empty_by_default(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/items",
+        json={"title": "T"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["required_labels"] == []
+
+
+async def test_update_item_required_labels(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    create = await client.post("/api/items", json={"title": "T"}, headers=auth_headers)
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"required_labels": ["GPU"], "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["required_labels"] == ["gpu"]
+
+
+async def test_update_item_required_labels_clear(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    create = await client.post(
+        "/api/items",
+        json={"title": "T", "required_labels": ["gpu"]},
+        headers=auth_headers,
+    )
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"required_labels": [], "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["required_labels"] == []
+
+
+async def test_update_item_required_labels_unchanged_when_omitted(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """PATCH without required_labels leaves existing value unchanged."""
+    create = await client.post(
+        "/api/items",
+        json={"title": "T", "required_labels": ["camera-data"]},
+        headers=auth_headers,
+    )
+    assert create.status_code == 201
+    item = create.json()
+    res = await client.patch(
+        f"/api/items/{item['id']}",
+        json={"title": "Updated", "version": item["version"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["required_labels"] == ["camera-data"]
+
+
 # --- project_id move (AC-6, AC-7, AC-8, AC-9) ---
 
 

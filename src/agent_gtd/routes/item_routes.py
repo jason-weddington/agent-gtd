@@ -70,6 +70,7 @@ def _item_response(
         ),
         files_to_modify=decode_file_specs(str(row.get("files_to_modify") or "[]")),
         scope_out=decode_json_list(str(row.get("scope_out") or "[]")),
+        required_labels=decode_json_list(str(row.get("required_labels") or "[]")),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
         blockers=blockers if blockers is not None else [],
@@ -124,6 +125,7 @@ async def create_item(
             acceptance_criteria=body.acceptance_criteria,
             files_to_modify=body.files_to_modify,
             scope_out=body.scope_out,
+            required_labels=body.required_labels,
         )
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.detail) from None
@@ -219,6 +221,7 @@ async def update_item(
             acceptance_criteria=body.acceptance_criteria,
             files_to_modify=body.files_to_modify,
             scope_out=body.scope_out,
+            required_labels=body.required_labels,
             version=body.version,
             actor_run_id=run_ctx.run_id if run_ctx else None,
             actor_run_mode=run_ctx.mode if run_ctx else None,
