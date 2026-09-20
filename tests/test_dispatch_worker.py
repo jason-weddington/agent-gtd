@@ -1824,3 +1824,73 @@ class TestTerminalStatusCoverage:
 
         for remote in _TERMINAL_STATUSES:
             assert LocalRunStatus.from_remote(remote) is not None
+
+
+# ---------------------------------------------------------------------------
+# resolve_max_turns — the review branch
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_max_turns_review_uses_the_reviewer_budget() -> None:
+    """A per-decision reviewer needs far fewer turns than a resident manager."""
+    assert dispatch_worker.REVIEW_MAX_TURNS == 40
+    assert resolve_max_turns(None, 100, "review") == 40
+
+
+def test_resolve_max_turns_review_value_does_not_leak_into_other_modes() -> None:
+    assert resolve_max_turns(None, 100, "build") == 100
+    assert resolve_max_turns(None, 100, "plan") == 100
+    assert resolve_max_turns(None, 100, "manage") == 100
+
+
+def test_resolve_max_turns_project_override_still_wins_for_review() -> None:
+    assert resolve_max_turns(250, 100, "review") == 250
+
+
+def test_resolve_max_turns_review_unset_falls_through(monkeypatch) -> None:
+    monkeypatch.setattr(dispatch_worker, "REVIEW_MAX_TURNS", None)
+    assert resolve_max_turns(None, 100, "review") == 100
+
+
+# ---------------------------------------------------------------------------
+# resolve_reviewer_engine — rollout -> project -> deployment default (Sonnet)
+# ---------------------------------------------------------------------------
+
+
+def test_reviewer_engine_defaults_to_sonnet_not_opus() -> None:
+    from agent_gtd.dispatch_worker import resolve_reviewer_engine
+
+    assert dispatch_worker.REVIEWER_ENGINE == "claude-code-sonnet"
+    assert resolve_reviewer_engine(None, None) == "claude-code-sonnet"
+
+
+def test_reviewer_engine_project_default_beats_the_deployment_default() -> None:
+    from agent_gtd.dispatch_worker import resolve_reviewer_engine
+
+    assert resolve_reviewer_engine(None, "claude-code-haiku") == "claude-code-haiku"
+
+
+def test_reviewer_engine_rollout_override_beats_the_project_default() -> None:
+    from agent_gtd.dispatch_worker import resolve_reviewer_engine
+
+    assert resolve_reviewer_engine("claude-code", "claude-code-haiku") == "claude-code"
+
+
+def test_reviewer_engine_empty_strings_are_treated_as_unset() -> None:
+    from agent_gtd.dispatch_worker import resolve_reviewer_engine
+
+    assert resolve_reviewer_engine("", "") == "claude-code-sonnet"
+
+
+def test_reviewer_engine_rejects_a_talos_engine() -> None:
+    from agent_gtd.dispatch_worker import resolve_reviewer_engine
+
+    with pytest.raises(ValueError, match="not supported"):
+        resolve_reviewer_engine("talos-sonnet", None)
+
+
+def test_reviewer_engine_rejects_a_non_harness_engine() -> None:
+    from agent_gtd.dispatch_worker import resolve_reviewer_engine
+
+    with pytest.raises(ValueError, match="not review-capable"):
+        resolve_reviewer_engine("kiro", None)

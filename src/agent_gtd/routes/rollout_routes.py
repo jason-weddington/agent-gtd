@@ -27,12 +27,13 @@ import logging
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
 from agent_gtd.exceptions import LegalityContractError, NotFoundError, ValidationError
 from agent_gtd.models import (
+    BuildEngine,
     ManagerPhase,
     MergeActor,
     ResumeRolloutRequest,
@@ -40,6 +41,7 @@ from agent_gtd.models import (
     RolloutItemOutcome,
     RunResponse,
     User,
+    reviewer_engine_rejection,
 )
 from agent_gtd.services import rollout_service
 from agent_gtd.services.dispatch_service import dispatch_rollout_run
@@ -89,6 +91,34 @@ class DispatchRolloutRequest(BaseModel):
     """Optional request body for POST /{rollout_id}/dispatch."""
 
     dispatch_host_id: str | None = None
+    # Engine for this rollout's short-lived merge REVIEWERS. None = inherit
+    # projects.reviewer_engine, then the deployment default (Sonnet).
+    # See dispatch_worker.resolve_reviewer_engine for the resolution order.
+    reviewer_engine: BuildEngine | None = None
+
+    @field_validator("reviewer_engine")
+    @classmethod
+    def _validate_reviewer_engine(cls, v: BuildEngine | None) -> BuildEngine | None:
+        """Reject non-review-capable engines at the API boundary (422, not 409).
+
+        Mirrors ``UpdateProjectRequest._validate_reviewer_engine``: the enum
+        already rejects unknown engines, so this catches the
+        registered-but-not-review-capable ones (talos, kiro) before the rollout
+        is touched.  The service layer re-checks — this is the friendly error,
+        not the guard.
+        """
+        if v is None:
+            return v
+        rejection = reviewer_engine_rejection(v.value)
+        if rejection is not None:
+            raise ValueError(rejection)
+        return v
+
+
+class ResetRolloutItemRequest(BaseModel):
+    """Request body for POST /{rollout_id}/reset-item."""
+
+    item_id: str
 
 
 class ReplanRolloutRequest(BaseModel):
@@ -684,10 +714,15 @@ async def dispatch_rollout(
     rollout and inherited by child build runs). A bodyless request or
     ``{}`` auto-routes the run.
 
+    Send ``{"reviewer_engine": "claude-code-haiku"}`` to override the engine
+    this rollout's merge reviewers run on.  Omitted/null falls through to
+    ``projects.reviewer_engine`` and then to the deployment default (Sonnet).
+
     Args:
         rollout_id: The rollout to dispatch.
         user: Injected authenticated user.
-        body: Optional DispatchRolloutRequest with dispatch_host_id.
+        body: Optional DispatchRolloutRequest with dispatch_host_id and/or
+            reviewer_engine.
 
     Returns:
         201 RunResponse with the created run.
@@ -704,6 +739,11 @@ async def dispatch_rollout(
             user.id,
             rollout_id,
             dispatch_host_id=body.dispatch_host_id if body is not None else None,
+            reviewer_engine=(
+                body.reviewer_engine.value
+                if body is not None and body.reviewer_engine is not None
+                else None
+            ),
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=exc.detail) from exc
@@ -755,3 +795,39 @@ async def get_rollout_failures(
         wave_halts=feed["wave_halts"],
         failed_runs=failed_runs,
     )
+
+
+@router.post("/{rollout_id}/reset-item")
+async def reset_rollout_item(
+    rollout_id: str,
+    body: ResetRolloutItemRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Return a dispatched rollout item to ``ready`` so it can be re-dispatched.
+
+    Called by the dispatch worker when a reviewer returns a ``re-dispatch``
+    verdict.  Without this, the re-dispatch would be a silent no-op: the wave
+    linkage in ``dispatch_item`` is guarded by ``AND status = 'ready'`` (which
+    is exactly what stops the startup re-adoption sweep double-dispatching an
+    in-flight item), so an item still sitting in ``dispatched`` never gets
+    relinked to the new run.
+
+    Args:
+        rollout_id: The rollout the item belongs to.
+        body: ResetRolloutItemRequest naming the item.
+        user: Injected authenticated user.
+
+    Returns:
+        ``{rollout_id, item_id, status, previous_run_id}``.
+
+    Raises:
+        404 if the rollout or the rollout item is not found.
+        422 if the rollout is not running or the item is not dispatched.
+    """
+    db = await get_db()
+    try:
+        return await rollout_service.reset_rollout_item(
+            db, user.id, rollout_id, body.item_id
+        )
+    except (NotFoundError, ValidationError) as exc:
+        raise _map_exc(exc) from exc

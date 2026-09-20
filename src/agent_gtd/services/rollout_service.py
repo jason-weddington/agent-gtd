@@ -12,7 +12,7 @@ import httpx
 from agent_gtd.database import decode_file_specs, decode_json_list, row_to_dict
 from agent_gtd.db_types import DbPool
 from agent_gtd.exceptions import LegalityContractError, NotFoundError, ValidationError
-from agent_gtd.models import ManagerPhase, RolloutItemOutcome
+from agent_gtd.models import ManagerPhase, RolloutEventKind, RolloutItemOutcome
 from agent_gtd.services.item_service import get_item, get_unresolved_blockers
 from agent_gtd.services.rollout_dag import DERIVED_PLANNER_MODEL, derive_edges
 from agent_gtd.services.settings_service import get_dispatch_config
@@ -1330,6 +1330,95 @@ async def relaunch_manage_rollout(
     _publish_rollout_event(db, user_id, wave_event, project_id)
 
     return updated
+
+
+async def reset_rollout_item(
+    db: DbPool,
+    user_id: str,
+    rollout_id: str,
+    item_id: str,
+) -> dict[str, Any]:
+    """Return a dispatched rollout item to ``ready`` so it can be re-dispatched.
+
+    This is the seam a ``re-dispatch`` review verdict needs and nothing else
+    provides.  ``dispatch_item``'s wave linkage is guarded by
+    ``AND status = 'ready'`` — that guard is what makes dispatch idempotent and
+    what keeps the startup re-adoption sweep from double-dispatching an item
+    whose build is already in flight.  But it also means a bare re-dispatch of
+    an item sitting in ``dispatched`` is a SILENT no-op: no rows updated, the
+    terminal ``claude_run_id`` still linked, and the worker's in-flight query
+    never sees the new run.  Resetting first keeps the guard doing its job
+    instead of weakening it.
+
+    Deliberately narrow: only a ``dispatched`` item in a ``running`` rollout may
+    be reset, and the item's GTD status is left alone (the build agent already
+    moved it; a re-dispatch will move it again).
+
+    Args:
+        db: Database pool.
+        user_id: Calling user's ID — must be the rollout's lead_user_id.
+        rollout_id: The rollout the item belongs to.
+        item_id: The item to return to ``ready``.
+
+    Returns:
+        Dict with keys ``rollout_id``, ``item_id``, ``status`` (always
+        ``"ready"``) and ``previous_run_id`` (the run id that was unlinked, or
+        ``None``).
+
+    Raises:
+        NotFoundError: If the rollout is not found/owned, or the item is not
+            part of it.
+        ValidationError: If the rollout is not running, or the item is not in
+            ``dispatched`` status.
+    """
+    wave = await _get_rollout(db, user_id, rollout_id)
+    if wave["status"] != "running":
+        raise ValidationError(
+            f"Rollout {rollout_id} is not running (status={wave['status']}); "
+            "only a running rollout's items can be reset"
+        )
+
+    row = await db.fetchrow(
+        "SELECT status, claude_run_id FROM rollout_items"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
+        item_id,
+    )
+    if row is None:
+        raise NotFoundError("RolloutItem", f"{rollout_id}/{item_id}")
+    if row["status"] != "dispatched":
+        raise ValidationError(
+            f"Rollout item {item_id} is '{row['status']}', not 'dispatched'; "
+            "only a dispatched item can be reset for re-dispatch"
+        )
+
+    previous_run_id = (
+        str(row["claude_run_id"]) if row["claude_run_id"] is not None else None
+    )
+
+    await db.execute(
+        "UPDATE rollout_items"
+        " SET status = 'ready', claude_run_id = NULL"
+        " WHERE rollout_id = $1 AND item_id = $2 AND status = 'dispatched'",
+        rollout_id,
+        item_id,
+    )
+
+    rollout_event = await _append_rollout_event(
+        db,
+        rollout_id,
+        kind=RolloutEventKind.ITEM_RESET,
+        actor="dispatch",
+        payload={"item_id": item_id, "previous_run_id": previous_run_id},
+    )
+    _publish_rollout_event(db, user_id, rollout_event, str(wave["project_id"]))
+
+    return {
+        "rollout_id": rollout_id,
+        "item_id": item_id,
+        "status": "ready",
+        "previous_run_id": previous_run_id,
+    }
 
 
 async def cancel_rollout(

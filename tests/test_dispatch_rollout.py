@@ -755,3 +755,146 @@ async def test_create_run_unpinned_rollout_yields_null_host(
 
     run = await create_run(db, user_id, item_id, mode="build", rollout_id=rollout_id)
     assert run["dispatch_host_id"] is None
+
+
+# ---------------------------------------------------------------------------
+# Reviewer engine — resolved at dispatch and persisted on the rollout row.
+#
+# Resolution order: rollout override (this request body) → projects.reviewer_engine
+# → dispatch_worker.REVIEWER_ENGINE (claude-code-sonnet).
+# ---------------------------------------------------------------------------
+
+
+async def _reviewer_engine_of(db: Any, rollout_id: str) -> str | None:
+    row = await db.fetchrow(
+        "SELECT reviewer_engine FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert row is not None
+    return row["reviewer_engine"]
+
+
+async def test_dispatch_rollout_defaults_the_reviewer_to_sonnet(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    rollout_id = await _insert_pending_rollout(db, user_id, project_id)
+
+    res = await client.post(
+        f"/api/rollouts/{rollout_id}/dispatch", headers=auth_headers
+    )
+    assert res.status_code == 201, res.text
+    assert await _reviewer_engine_of(db, rollout_id) == "claude-code-sonnet"
+
+
+async def test_dispatch_rollout_body_overrides_the_reviewer_engine(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    rollout_id = await _insert_pending_rollout(db, user_id, project_id)
+
+    res = await client.post(
+        f"/api/rollouts/{rollout_id}/dispatch",
+        json={"reviewer_engine": "claude-code-haiku"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201, res.text
+    assert await _reviewer_engine_of(db, rollout_id) == "claude-code-haiku"
+
+
+async def test_dispatch_rollout_falls_back_to_the_project_reviewer_engine(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    patch_res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"reviewer_engine": "claude-code"},
+        headers=auth_headers,
+    )
+    assert patch_res.status_code == 200, patch_res.text
+    assert patch_res.json()["reviewer_engine"] == "claude-code"
+
+    rollout_id = await _insert_pending_rollout(db, user_id, project_id)
+    res = await client.post(
+        f"/api/rollouts/{rollout_id}/dispatch", headers=auth_headers
+    )
+    assert res.status_code == 201, res.text
+    assert await _reviewer_engine_of(db, rollout_id) == "claude-code"
+
+
+async def test_dispatch_rollout_rejects_a_talos_reviewer_engine(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    rollout_id = await _insert_pending_rollout(db, user_id, project_id)
+
+    res = await client.post(
+        f"/api/rollouts/{rollout_id}/dispatch",
+        json={"reviewer_engine": "talos-sonnet"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422, res.text
+
+
+# ---------------------------------------------------------------------------
+# POST /api/rollouts/{id}/reset-item
+# ---------------------------------------------------------------------------
+
+
+async def test_reset_item_route_returns_the_item_to_ready(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    rollout_id = await _insert_rollout(db, user_id, project_id, "running")
+    item_res = await client.post(
+        "/api/items",
+        json={"title": "Reset me", "project_id": project_id},
+        headers=auth_headers,
+    )
+    assert item_res.status_code == 201, item_res.text
+    item_id = item_res.json()["id"]
+    await db.execute(
+        "INSERT INTO rollout_items (rollout_id, item_id, status)"
+        " VALUES ($1, $2, 'dispatched')",
+        rollout_id,
+        item_id,
+    )
+
+    res = await client.post(
+        f"/api/rollouts/{rollout_id}/reset-item",
+        json={"item_id": item_id},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["status"] == "ready"
+
+
+async def test_reset_item_route_404s_for_an_unknown_item(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    rollout_id = await _insert_rollout(db, user_id, project_id, "running")
+
+    res = await client.post(
+        f"/api/rollouts/{rollout_id}/reset-item",
+        json={"item_id": str(uuid.uuid4())},
+        headers=auth_headers,
+    )
+    assert res.status_code == 404, res.text

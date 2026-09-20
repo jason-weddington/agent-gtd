@@ -523,6 +523,16 @@ _MIGRATIONS: list[str] = [
     "ALTER TABLE projects ADD COLUMN manage_engine TEXT",
     # Rollout-level dispatch host pin, inherited by child build runs.
     "ALTER TABLE autonomous_rollouts ADD COLUMN dispatch_host_id TEXT",
+    # Per-project default engine for the short-lived merge REVIEWER.
+    # NULL = use the deployment default (dispatch_worker.REVIEWER_ENGINE, Sonnet).
+    # Same shape as manage_engine above; a reviewer is a per-decision agent, so
+    # its default is deliberately a cheaper tier than the manager's Opus.
+    "ALTER TABLE projects ADD COLUMN reviewer_engine TEXT",
+    # Per-rollout reviewer engine override, chosen when the rollout is
+    # dispatched. NULL = inherit projects.reviewer_engine, then the deployment
+    # default. This is the value the dispatch worker reads off the rollout row
+    # when it launches a reviewer for a completed build.
+    "ALTER TABLE autonomous_rollouts ADD COLUMN reviewer_engine TEXT",
 ]
 
 

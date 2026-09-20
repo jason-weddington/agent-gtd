@@ -36,6 +36,7 @@ _DISPATCH_ONLY_FIELDS = {
     "plan_dispatch_agent",
     "build_dispatch_agent",
     "manage_engine",
+    "reviewer_engine",
     "gate_command",
     # Clone-target fields: repo_mode, workspace_repos, and git_origin control which
     # repos headless agents clone/push to.  Owner-only closes the pre-existing gap
@@ -56,6 +57,7 @@ def _project_response(
     raw_plan_agent = row.get("plan_dispatch_agent")
     raw_build_agent = row.get("build_dispatch_agent")
     raw_manage_engine = row.get("manage_engine")
+    raw_reviewer_engine = row.get("reviewer_engine")
     raw_gate = row.get("gate_command")
     raw_owner_email = row.get("owner_email")
     raw_member_count = row.get("member_count")
@@ -94,6 +96,9 @@ def _project_response(
         else None,
         manage_engine=BuildEngine(str(raw_manage_engine))
         if raw_manage_engine
+        else None,
+        reviewer_engine=BuildEngine(str(raw_reviewer_engine))
+        if raw_reviewer_engine
         else None,
         gate_command=str(raw_gate) if raw_gate is not None else None,
         created_at=datetime.fromisoformat(str(row["created_at"])),
@@ -243,6 +248,9 @@ async def update_project(
     clear_manage_engine = (
         "manage_engine" in body.model_fields_set and body.manage_engine is None
     )
+    clear_reviewer_engine = (
+        "reviewer_engine" in body.model_fields_set and body.reviewer_engine is None
+    )
     clear_gate_command = (
         "gate_command" in body.model_fields_set and body.gate_command is None
     )
@@ -273,6 +281,10 @@ async def update_project(
                 body.manage_engine.value if body.manage_engine is not None else None
             ),
             clear_manage_engine=clear_manage_engine,
+            reviewer_engine=(
+                body.reviewer_engine.value if body.reviewer_engine is not None else None
+            ),
+            clear_reviewer_engine=clear_reviewer_engine,
             gate_command=body.gate_command,
             clear_gate_command=clear_gate_command,
         )

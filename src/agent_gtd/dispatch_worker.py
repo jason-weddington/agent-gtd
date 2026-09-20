@@ -49,6 +49,28 @@ POLL_INTERVAL = 15  # seconds between status polls
 # an operator who set an explicit per-project budget meant it for every mode.
 MANAGE_MAX_TURNS: int | None = None
 
+# Mode-specific turn budget for REVIEW runs — the short-lived merge reviewer
+# that replaced the resident manager.
+#
+# 40, not 100.  A reviewer's whole job is ONE completed build: read the diff,
+# reconcile the item's acceptance criteria against it, run the project
+# gate_command, merge up to a handful of repos, write a verdict artifact.  That
+# is a bounded errand, and 40 turns is roughly double a measured worst case
+# (three workspace repos, one inline fix, one re-run of the gate) — enough head
+# room to finish, tight enough that a reviewer which has lost the plot stops
+# instead of wandering.
+#
+# Note what this number is NOT: it is not comparable to the resident manager's
+# 100.  The manager spent one budget on an entire rollout; the reviewers spend
+# N x REVIEW_MAX_TURNS across a rollout of N items.  Aggregate turn spend is a
+# DIFFERENT quantity from any single agent's budget, and the two must not be
+# compared as if they measured the same thing.  The saving comes from the
+# reviewer being SONNET and holding no idle context between items, not from the
+# per-agent ceiling.
+#
+# A project-level ``dispatch_max_turns`` override still wins, same as manage.
+REVIEW_MAX_TURNS: int | None = 40
+
 # Cap on the remote `error` text mirrored onto a local run's `error_msg`.
 # This is the SECOND of two truncation layers (the dispatch service applies its
 # own, governed by agent_gtd_dispatch.dispatch.ERROR_TEXT_MAX_CHARS); the pair
@@ -67,6 +89,18 @@ ERROR_MSG_MAX_CHARS = 2000
 # turn count but a huge blast radius, so downgrading it is an explicit opt-in,
 # never something a global setting can do behind the operator's back.
 MANAGE_ENGINE = "claude-code"
+
+# DEFAULT review-mode engine — Sonnet, deliberately NOT Opus.
+#
+# A reviewer decides one thing about one build against a written contract (the
+# item's acceptance criteria and the project's gate_command), and the expensive
+# half of its job — running the gate, driving git — is not model work at all.
+# The resident manager was Opus because it held a whole rollout in its head;
+# nothing about a per-build reviewer justifies that tier.
+#
+# Resolution order (see ``resolve_reviewer_engine``):
+#   rollout.reviewer_engine -> project.reviewer_engine -> this default.
+REVIEWER_ENGINE = "claude-code-sonnet"
 
 # Terminal statuses from the shared dispatch-protocol package.
 # When the remote run reaches one of these, we stop polling and map to a
@@ -151,13 +185,20 @@ def resolve_max_turns(
     resolve exactly as build and plan do — i.e. no behavioural change until
     someone deliberately sets a manage-specific number.
 
+    ``"review"`` uses the same seam with a number actually set:
+    ``REVIEW_MAX_TURNS`` (40).  A per-decision reviewer needs far fewer turns
+    than a resident manager did — see the constant's comment for why 40, and
+    for why aggregate spend across N reviewers is not the same quantity as one
+    manager's budget.
+
     Args:
         project_dispatch_max_turns: The project's ``dispatch_max_turns``
             value, or ``None`` if the project inherits the global default.
         global_default_max_turns: The deployment-wide default from
             app_settings (or the env-var fallback).
-        mode: The run mode — ``"build"``, ``"plan"`` or ``"manage"``.  Only
-            ``"manage"`` has a mode-specific branch today.
+        mode: The run mode — ``"build"``, ``"plan"``, ``"manage"`` or
+            ``"review"``.  Only ``"manage"`` and ``"review"`` have
+            mode-specific branches today.
 
     Returns:
         The resolved max_turns integer.
@@ -166,7 +207,45 @@ def resolve_max_turns(
         return project_dispatch_max_turns
     if mode == "manage" and MANAGE_MAX_TURNS is not None:
         return MANAGE_MAX_TURNS
+    if mode == "review" and REVIEW_MAX_TURNS is not None:
+        return REVIEW_MAX_TURNS
     return global_default_max_turns
+
+
+def resolve_reviewer_engine(
+    rollout_reviewer_engine: str | None,
+    project_reviewer_engine: str | None = None,
+) -> str:
+    """Resolve the engine a rollout's merge REVIEWERS run on.
+
+    Resolution order — most specific wins:
+        1. ``rollout.reviewer_engine`` — chosen when the rollout was
+           dispatched (``POST /api/rollouts/{id}/dispatch``).
+        2. ``project.reviewer_engine`` — the project's standing default.
+        3. ``REVIEWER_ENGINE`` — the deployment default, Sonnet.
+
+    Empty strings are treated as unset at every level, so a cleared column
+    falls through rather than resolving to ``""``.
+
+    Args:
+        rollout_reviewer_engine: The rollout's stored override, or None/"".
+        project_reviewer_engine: The project's standing default, or None/"".
+
+    Returns:
+        The resolved engine name.
+
+    Raises:
+        ValueError: If the resolved engine is not review-capable (a talos
+            engine, for instance — see ``reviewer_engine_rejection``).
+    """
+    from agent_gtd.models import reviewer_engine_rejection
+
+    engine = (rollout_reviewer_engine or "") or (project_reviewer_engine or "")
+    engine = engine or REVIEWER_ENGINE
+    rejection = reviewer_engine_rejection(engine)
+    if rejection is not None:
+        raise ValueError(rejection)
+    return engine
 
 
 def resolve_engine(

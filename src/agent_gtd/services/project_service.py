@@ -64,6 +64,32 @@ def _validate_manage_engine(manage_engine: str) -> None:
         raise ValidationError(rejection)
 
 
+def _validate_reviewer_engine(reviewer_engine: str) -> None:
+    """Validate a project's review-mode engine override.
+
+    Mirrors :func:`_validate_manage_engine`, with the review-capability list:
+    a reviewer drives git and the project gate command, so it needs the Claude
+    Code harness even though it is deliberately denied the dispatch keys a
+    manager gets.
+
+    Raises:
+        ValidationError: If the engine is unknown or not review-capable.
+    """
+    from agent_gtd.models import BuildEngine, reviewer_engine_rejection
+
+    try:
+        BuildEngine(reviewer_engine)
+    except ValueError:
+        known = ", ".join(sorted(member.value for member in BuildEngine))
+        raise ValidationError(
+            f"reviewer_engine {reviewer_engine!r} is not a known engine."
+            f" Known engines: {known}."
+        ) from None
+    rejection = reviewer_engine_rejection(reviewer_engine)
+    if rejection is not None:
+        raise ValidationError(rejection)
+
+
 def _validate_workspace_fields(
     repo_mode: str | None,
     workspace_repos: list[str] | None,
@@ -427,6 +453,8 @@ async def update_project(
     clear_build_dispatch_agent: bool = False,
     manage_engine: str | None = None,
     clear_manage_engine: bool = False,
+    reviewer_engine: str | None = None,
+    clear_reviewer_engine: bool = False,
     gate_command: str | None = None,
     clear_gate_command: bool = False,
 ) -> dict[str, Any]:
@@ -449,6 +477,8 @@ async def update_project(
     """
     if manage_engine is not None:
         _validate_manage_engine(manage_engine)
+    if reviewer_engine is not None:
+        _validate_reviewer_engine(reviewer_engine)
     # Fetch current row to (a) verify access and (b) compute effective state.
     current_row = await db.fetchrow(
         "SELECT * FROM projects WHERE id = $1 AND "
@@ -542,6 +572,12 @@ async def update_project(
     elif clear_manage_engine:
         params.append(None)
         updates.append(f"manage_engine = ${len(params)}")
+    if reviewer_engine is not None:
+        params.append(reviewer_engine)
+        updates.append(f"reviewer_engine = ${len(params)}")
+    elif clear_reviewer_engine:
+        params.append(None)
+        updates.append(f"reviewer_engine = ${len(params)}")
     if gate_command is not None:
         params.append(gate_command)
         updates.append(f"gate_command = ${len(params)}")

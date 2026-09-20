@@ -1908,3 +1908,114 @@ async def test_merge_notes_rejects_foreign_user(db):
 
     with pytest.raises(NotFoundError):
         await get_recent_merge_notes(db, rollout_id, other_id)
+
+
+# ---------------------------------------------------------------------------
+# reset_rollout_item — the seam a `re-dispatch` review verdict needs
+#
+# dispatch_item's wave linkage is guarded by `AND status = 'ready'`. That guard
+# is what makes dispatch idempotent (and the startup re-adoption sweep safe),
+# but it also makes a bare re-dispatch of a `dispatched` item a SILENT no-op.
+# Resetting first keeps the guard doing its job instead of weakening it.
+# ---------------------------------------------------------------------------
+
+
+async def _make_claude_run(db, user_id: str, project_id: str) -> str:
+    run_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO claude_runs"
+        " (id, project_id, user_id, status, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6)",
+        run_id,
+        project_id,
+        user_id,
+        "failed",
+        NOW,
+        NOW,
+    )
+    return run_id
+
+
+async def test_reset_rollout_item_returns_a_dispatched_item_to_ready(db):
+    from agent_gtd.services.rollout_service import reset_rollout_item
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    item_id = await _make_item(db, user_id, project_id)
+    run_id = await _make_claude_run(db, user_id, project_id)
+    await _make_wave_plan_item(db, rollout_id, item_id, status="dispatched")
+    await db.execute(
+        "UPDATE rollout_items SET claude_run_id = $1"
+        " WHERE rollout_id = $2 AND item_id = $3",
+        run_id,
+        rollout_id,
+        item_id,
+    )
+
+    result = await reset_rollout_item(db, user_id, rollout_id, item_id)
+
+    assert result["status"] == "ready"
+    assert result["previous_run_id"] == run_id
+    assert await _get_wave_item_status(db, rollout_id, item_id) == "ready"
+    row = await db.fetchrow(
+        "SELECT claude_run_id FROM rollout_items"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
+        item_id,
+    )
+    assert row["claude_run_id"] is None
+
+
+async def test_reset_rollout_item_appends_an_item_reset_event(db):
+    from agent_gtd.services.rollout_service import reset_rollout_item
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    item_id = await _make_item(db, user_id, project_id)
+    await _make_wave_plan_item(db, rollout_id, item_id, status="dispatched")
+
+    await reset_rollout_item(db, user_id, rollout_id, item_id)
+
+    rows = await db.fetch(
+        "SELECT kind FROM rollout_events WHERE rollout_id = $1", rollout_id
+    )
+    assert "item_reset" in [r["kind"] for r in rows]
+
+
+async def test_reset_rollout_item_rejects_a_non_running_rollout(db):
+    from agent_gtd.services.rollout_service import reset_rollout_item
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="halted")
+    item_id = await _make_item(db, user_id, project_id)
+    await _make_wave_plan_item(db, rollout_id, item_id, status="dispatched")
+
+    with pytest.raises(ValidationError, match="not running"):
+        await reset_rollout_item(db, user_id, rollout_id, item_id)
+
+
+async def test_reset_rollout_item_rejects_a_non_dispatched_item(db):
+    from agent_gtd.services.rollout_service import reset_rollout_item
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    item_id = await _make_item(db, user_id, project_id)
+    await _make_wave_plan_item(db, rollout_id, item_id, status="ready")
+
+    with pytest.raises(ValidationError, match="only a dispatched item"):
+        await reset_rollout_item(db, user_id, rollout_id, item_id)
+
+
+async def test_reset_rollout_item_unknown_item_is_not_found(db):
+    from agent_gtd.services.rollout_service import reset_rollout_item
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+
+    with pytest.raises(NotFoundError):
+        await reset_rollout_item(db, user_id, rollout_id, "no-such-item")

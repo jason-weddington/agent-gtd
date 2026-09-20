@@ -23,6 +23,7 @@ _REPRESENTATIVE_VALUES: dict[str, object] = {
     "manage_engine": "claude-code-sonnet",
     "plan_dispatch_agent": "some-agent",
     "repo_mode": "workspace",
+    "reviewer_engine": "claude-code-haiku",
     "workspace_repos": ["git@host:repos/x"],
 }
 
@@ -1007,6 +1008,7 @@ async def test_create_project_workspace_mode(
         json={
             "name": "Workspace P",
             "repo_mode": "workspace",
+            "reviewer_engine": "claude-code-haiku",
             "workspace_repos": [
                 "https://github.com/org/repo-a.git",
                 "https://github.com/org/repo-b.git",
@@ -1032,6 +1034,7 @@ async def test_create_project_workspace_strips_urls(
         json={
             "name": "P",
             "repo_mode": "workspace",
+            "reviewer_engine": "claude-code-haiku",
             "workspace_repos": ["  https://github.com/org/repo.git  "],
         },
         headers=auth_headers,
@@ -1099,6 +1102,7 @@ async def test_create_workspace_duplicate_dir_rejected(
         json={
             "name": "P",
             "repo_mode": "workspace",
+            "reviewer_engine": "claude-code-haiku",
             "workspace_repos": [
                 "https://github.com/org/repo.git",
                 "https://github.com/other-org/repo.git",
@@ -1120,6 +1124,7 @@ async def test_create_workspace_empty_dir_url_rejected(
         json={
             "name": "P",
             "repo_mode": "workspace",
+            "reviewer_engine": "claude-code-haiku",
             "workspace_repos": ["https://example.com/.git"],
         },
         headers=auth_headers,
@@ -1136,6 +1141,7 @@ async def test_update_project_workspace_fields(
         f"/api/projects/{project_id}",
         json={
             "repo_mode": "workspace",
+            "reviewer_engine": "claude-code-haiku",
             "workspace_repos": ["https://github.com/org/repo.git"],
         },
         headers=auth_headers,
@@ -1159,6 +1165,7 @@ async def test_update_project_workspace_repos_returned_as_list(
         f"/api/projects/{project_id}",
         json={
             "repo_mode": "workspace",
+            "reviewer_engine": "claude-code-haiku",
             "workspace_repos": ["https://github.com/org/a.git"],
         },
         headers=auth_headers,
@@ -1175,6 +1182,7 @@ async def test_update_project_absent_workspace_fields_unchanged(
         f"/api/projects/{project_id}",
         json={
             "repo_mode": "workspace",
+            "reviewer_engine": "claude-code-haiku",
             "workspace_repos": ["https://github.com/org/repo.git"],
         },
         headers=auth_headers,
@@ -1199,6 +1207,7 @@ async def test_update_workspace_to_monorepo(
         f"/api/projects/{project_id}",
         json={
             "repo_mode": "workspace",
+            "reviewer_engine": "claude-code-haiku",
             "workspace_repos": ["https://github.com/org/repo.git"],
         },
         headers=auth_headers,
@@ -1233,6 +1242,7 @@ async def test_update_project_empty_repos_while_workspace_rejected(
         f"/api/projects/{project_id}",
         json={
             "repo_mode": "workspace",
+            "reviewer_engine": "claude-code-haiku",
             "workspace_repos": ["https://github.com/org/repo.git"],
         },
         headers=auth_headers,
@@ -1291,6 +1301,7 @@ async def test_update_workspace_duplicate_dir_rejected(
         f"/api/projects/{project_id}",
         json={
             "repo_mode": "workspace",
+            "reviewer_engine": "claude-code-haiku",
             "workspace_repos": [
                 "https://github.com/org-a/repo.git",
                 "https://github.com/org-b/repo.git",
@@ -1420,6 +1431,7 @@ async def test_owner_patch_all_clone_target_fields_succeeds(client: AsyncClient)
         json={
             "git_origin": "https://github.com/org/meta.git",
             "repo_mode": "workspace",
+            "reviewer_engine": "claude-code-haiku",
             "workspace_repos": ["https://github.com/org/repo.git"],
         },
         headers=owner_headers,
@@ -1740,3 +1752,129 @@ async def test_project_service_rejects_bad_manage_engine(
         await project_service.update_project(
             db, user_id, project_id, manage_engine="talos-opus"
         )
+
+
+# ---------------------------------------------------------------------------
+# reviewer_engine — per-project default for the short-lived merge reviewer
+#
+# Same shape as manage_engine above (nullable column, NULL = deployment
+# default), different tier: a reviewer decides ONE build against a written
+# contract, so its default is Sonnet rather than the manager's Opus.
+# ---------------------------------------------------------------------------
+
+
+async def test_create_project_reviewer_engine_is_null(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    """New projects inherit the reviewer default (NULL = claude-code-sonnet)."""
+    res = await client.post(
+        "/api/projects",
+        json={"name": "Reviewer Engine Default"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["reviewer_engine"] is None
+
+
+async def test_update_project_reviewer_engine_roundtrip(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"reviewer_engine": "claude-code-haiku"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["reviewer_engine"] == "claude-code-haiku"
+
+    res = await client.get(f"/api/projects/{project_id}", headers=auth_headers)
+    assert res.json()["reviewer_engine"] == "claude-code-haiku"
+
+
+async def test_update_project_clear_reviewer_engine(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={"reviewer_engine": "claude-code-haiku"},
+        headers=auth_headers,
+    )
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"reviewer_engine": None},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["reviewer_engine"] is None
+
+
+async def test_update_project_reviewer_engine_absent_is_unchanged(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={"reviewer_engine": "claude-code-haiku"},
+        headers=auth_headers,
+    )
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"area": "elsewhere"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["reviewer_engine"] == "claude-code-haiku"
+
+
+async def test_update_project_rejects_talos_reviewer_engine(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"reviewer_engine": "talos-opus"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+    assert "not supported" in res.text
+
+
+async def test_update_project_rejects_kiro_reviewer_engine(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    res = await client.patch(
+        f"/api/projects/{project_id}",
+        json={"reviewer_engine": "kiro"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+    assert "not review-capable" in res.text
+
+
+async def test_project_service_rejects_bad_reviewer_engine(
+    client: AsyncClient, auth_headers: dict[str, str], project_id: str
+):
+    """The service layer validates too — the API boundary is not the only guard."""
+    from agent_gtd.database import get_db
+    from agent_gtd.exceptions import ValidationError as SvcValidationError
+    from agent_gtd.services import project_service
+
+    db = await get_db()
+    user_id = (
+        await db.fetchrow("SELECT user_id FROM projects WHERE id = $1", project_id)
+    )["user_id"]
+
+    with pytest.raises(SvcValidationError, match="not a known engine"):
+        await project_service.update_project(
+            db, user_id, project_id, reviewer_engine="nope"
+        )
+    with pytest.raises(SvcValidationError, match="not supported"):
+        await project_service.update_project(
+            db, user_id, project_id, reviewer_engine="talos-opus"
+        )
+
+
+def test_reviewer_engine_rejection_accepts_the_harness_family():
+    from agent_gtd.models import REVIEW_CAPABLE_ENGINES, reviewer_engine_rejection
+
+    assert "claude-code-sonnet" in REVIEW_CAPABLE_ENGINES
+    for engine in REVIEW_CAPABLE_ENGINES:
+        assert reviewer_engine_rejection(engine) is None

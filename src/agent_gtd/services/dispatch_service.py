@@ -255,6 +255,7 @@ async def dispatch_rollout_run(
     rollout_id: str,
     *,
     dispatch_host_id: str | None = None,
+    reviewer_engine: str | None = None,
 ) -> dict[str, Any]:
     """Create a manage-mode dispatch run scoped to a rollout (no item_id).
 
@@ -271,6 +272,12 @@ async def dispatch_rollout_run(
     dispatch_host_id is set, the pin is written to both the run and the
     rollout row (child build runs inherit it from the rollout).
     Transitions rollout pending → running.
+
+    ``reviewer_engine`` is the engine this rollout's short-lived merge
+    REVIEWERS run on.  It is RESOLVED here (rollout override → project default
+    → deployment default) and persisted on the rollout row, so the dispatch
+    worker reads one settled value off the rollout instead of re-deriving the
+    order on the far side of the wire.
 
     Raises:
         NotFoundError: If rollout not found or not owned by user, if the
@@ -302,8 +309,23 @@ async def dispatch_rollout_run(
                 f"Project '{project['name']}' has no git_origin configured",
             )
 
-    from agent_gtd.dispatch_worker import DEFAULT_MAX_TURNS, resolve_max_turns
+    from agent_gtd.dispatch_worker import (
+        DEFAULT_MAX_TURNS,
+        resolve_max_turns,
+        resolve_reviewer_engine,
+    )
     from agent_gtd.services import settings_service
+
+    raw_project_reviewer_engine = project.get("reviewer_engine")
+    try:
+        effective_reviewer_engine = resolve_reviewer_engine(
+            reviewer_engine,
+            str(raw_project_reviewer_engine)
+            if raw_project_reviewer_engine is not None
+            else None,
+        )
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
 
     # Host pin validation: existence check only (owner-scoped, like the
     # dispatch_item route). Capacity/engine compatibility is enforced by
@@ -357,6 +379,16 @@ async def dispatch_rollout_run(
             now,
             rollout_id,
         )
+
+    # Persist the settled reviewer engine on the rollout — this is what the
+    # dispatch worker reads when it launches a reviewer for a completed build.
+    await db.execute(
+        "UPDATE autonomous_rollouts"
+        " SET reviewer_engine = $1, updated_at = $2 WHERE id = $3",
+        effective_reviewer_engine,
+        now,
+        rollout_id,
+    )
 
     # Transition rollout pending → running
     await start_rollout(

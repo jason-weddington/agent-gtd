@@ -246,6 +246,44 @@ def manage_engine_rejection(engine: str) -> str | None:
     return None
 
 
+REVIEW_CAPABLE_ENGINES: frozenset[str] = CLAUDE_CODE_ENGINES
+"""Engines that may drive a REVIEW-mode (per-build merge reviewer) run.
+
+Same family as ``MANAGE_CAPABLE_ENGINES`` but for a different reason, and the
+distinction matters: a manager needs the Claude Code harness because it
+dispatches child runs with the dispatch URL + key.  A reviewer is explicitly
+NOT granted those keys (it returns a verdict; the worker dispatches).  It needs
+the harness because it drives git, runs the project gate command and writes a
+structured verdict artifact — work a single-gate self-verifying engine cannot
+do.
+"""
+
+
+def reviewer_engine_rejection(engine: str) -> str | None:
+    """Return an error message when *engine* cannot drive review mode.
+
+    Returns ``None`` when the engine is review-capable.  Kept separate from
+    :func:`manage_engine_rejection` because the two refuse for different
+    reasons and a reviewer must never be told it was refused for lacking
+    dispatch keys it is deliberately denied.
+    """
+    if engine in TALOS_ENGINES:
+        return (
+            f"reviewer_engine {engine!r} is not supported: talos engines"
+            " self-verify a single gate and return a disposition — they cannot"
+            " drive the git merge dance or emit a bounded review verdict."
+            f" Choose one of: {', '.join(sorted(REVIEW_CAPABLE_ENGINES))}."
+        )
+    if engine not in REVIEW_CAPABLE_ENGINES:
+        return (
+            f"reviewer_engine {engine!r} is not review-capable: review mode"
+            " needs the Claude Code harness to read a diff, run the project"
+            " gate command and perform the merge."
+            f" Choose one of: {', '.join(sorted(REVIEW_CAPABLE_ENGINES))}."
+        )
+    return None
+
+
 class RolloutEventKind(StrEnum):
     """Kind of event emitted during a rollout."""
 
@@ -260,6 +298,9 @@ class RolloutEventKind(StrEnum):
     WAVE_REPLANNED = "wave_replanned"
     MANAGER_STATE_UPDATE = "manager_state_update"
     WAVE_RESUMED = "wave_resumed"
+    # A dispatched item was returned to 'ready' so the worker can re-dispatch
+    # it after a reviewer returned a `re-dispatch` verdict.
+    ITEM_RESET = "item_reset"
 
 
 class RolloutItemOutcome(StrEnum):
@@ -315,6 +356,10 @@ class Project(BaseModel):
     # Engine used for manage-mode (rollout manager) runs. None = use the
     # deployment default (claude-code / Opus). See dispatch_worker.resolve_engine.
     manage_engine: BuildEngine | None = None
+    # Engine used for REVIEW-mode (per-build merge reviewer) runs. None = use
+    # the deployment default (claude-code-sonnet). A per-rollout value
+    # overrides this. See dispatch_worker.resolve_reviewer_engine.
+    reviewer_engine: BuildEngine | None = None
     # Per-repo/per-workspace-repo gate commands are DEFERRED to ~0.5.0
     # (workspace_repos stays a plain URL list until then); gate_command is a
     # single project-level nullable shell string.
@@ -615,6 +660,7 @@ class UpdateProjectRequest(BaseModel):
     plan_dispatch_agent: str | None = None
     build_dispatch_agent: str | None = None
     manage_engine: BuildEngine | None = None
+    reviewer_engine: BuildEngine | None = None
     gate_command: str | None = None
 
     @field_validator("manage_engine")
@@ -629,6 +675,22 @@ class UpdateProjectRequest(BaseModel):
         if v is None:
             return v
         rejection = manage_engine_rejection(v.value)
+        if rejection is not None:
+            raise ValueError(rejection)
+        return v
+
+    @field_validator("reviewer_engine")
+    @classmethod
+    def _validate_reviewer_engine(cls, v: BuildEngine | None) -> BuildEngine | None:
+        """Reject non-review-capable engines at the API boundary.
+
+        Mirrors ``_validate_manage_engine``: the enum already rejects unknown
+        engines, so this catches the registered-but-not-review-capable ones
+        (talos, kiro) on save rather than at reviewer launch time.
+        """
+        if v is None:
+            return v
+        rejection = reviewer_engine_rejection(v.value)
         if rejection is not None:
             raise ValueError(rejection)
         return v
@@ -651,6 +713,7 @@ class ProjectResponse(BaseModel):
     plan_dispatch_agent: str | None = None
     build_dispatch_agent: str | None = None
     manage_engine: BuildEngine | None = None
+    reviewer_engine: BuildEngine | None = None
     gate_command: str | None = None
     created_at: datetime
     updated_at: datetime
