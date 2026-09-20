@@ -14,7 +14,6 @@ Endpoints (planning + executor):
     GET  /api/rollouts/{rollout_id}/advance         → advance_rollout result
     POST /api/rollouts/{rollout_id}/complete-item   → complete_item_in_rollout result
     POST /api/rollouts/{rollout_id}/halt            → updated rollout
-    POST /api/rollouts/{rollout_id}/replan          → new plan info
 
 Endpoints (frontend UI — AC-22, AC-23, AC-24):
     GET  /api/projects/{project_id}/active-rollout       → active RolloutResponse
@@ -119,12 +118,6 @@ class ResetRolloutItemRequest(BaseModel):
     """Request body for POST /{rollout_id}/reset-item."""
 
     item_id: str
-
-
-class ReplanRolloutRequest(BaseModel):
-    """Request body for POST /replan."""
-
-    from_item: str | None = None
 
 
 class UpdateRolloutStateRequest(BaseModel):
@@ -331,34 +324,6 @@ async def start_rollout(
     db = await get_db()
     try:
         return await rollout_service.start_rollout(db, user.id, rollout_id)
-    except (NotFoundError, ValidationError) as exc:
-        raise _map_exc(exc) from exc
-
-
-@router.post("/{rollout_id}/replan")
-async def replan_rollout(
-    rollout_id: str,
-    body: ReplanRolloutRequest,
-    user: Annotated[User, Depends(get_current_user)],
-) -> dict[str, Any]:
-    """Re-plan the remaining subgraph for an in-progress wave.
-
-    Args:
-        rollout_id: The wave run to replan.
-        body: Optional from_item to restrict replanning to a subgraph.
-        user: Injected authenticated user.
-
-    Returns:
-        Dict with old_version, new_version, and new_plan.
-    """
-    db = await get_db()
-    try:
-        return await rollout_service.replan_rollout(
-            db,
-            user.id,
-            rollout_id,
-            from_item=body.from_item,
-        )
     except (NotFoundError, ValidationError) as exc:
         raise _map_exc(exc) from exc
 

@@ -7,8 +7,6 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-import httpx
-
 from agent_gtd.database import decode_file_specs, decode_json_list, row_to_dict
 from agent_gtd.db_types import DbPool
 from agent_gtd.exceptions import LegalityContractError, NotFoundError, ValidationError
@@ -164,64 +162,6 @@ async def validate_legality_contract(
 
     if failures:
         raise LegalityContractError(failures)
-
-
-# ---------------------------------------------------------------------------
-# Planner HTTP call
-# ---------------------------------------------------------------------------
-
-
-async def call_planner(
-    dispatch_url: str,
-    api_key: str,
-    item_ids: list[str],
-) -> dict[str, Any]:
-    """Call the remote planner endpoint and return the DAG.
-
-    .. deprecated::
-        ``plan_rollout`` no longer calls this — it derives the DAG locally via
-        :mod:`agent_gtd.services.rollout_dag`.  Kept until in-flight rollouts
-        have drained and the remote planner is removed entirely.
-
-    Sends ``{"item_ids": [...]}`` to ``POST {dispatch_url}/plan`` and returns
-    the parsed response body.
-
-    Args:
-        dispatch_url: Base URL of the dispatch service (e.g.
-            ``"https://dispatch.example.com"``).
-        api_key: API key sent as ``Authorization: Bearer <api_key>``.
-        item_ids: IDs of the items to plan.
-
-    Returns:
-        Planner response dict with shape::
-
-            {
-                "nodes": list[str],
-                "edges": [{"from_item_id": str, "to_item_id": str}, ...],
-                "planner_model": str,
-            }
-
-    Raises:
-        RuntimeError: On HTTP error (non-2xx), network error, or timeout.
-    """
-    url = f"{dispatch_url.rstrip('/')}/plan"
-    headers = {"Authorization": f"Bearer {api_key}"}
-    body: dict[str, list[str]] = {"item_ids": item_ids}
-
-    try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            resp = await client.post(url, json=body, headers=headers)
-        resp.raise_for_status()
-        data: dict[str, Any] = resp.json()
-        return data
-    except httpx.HTTPStatusError as exc:
-        raise RuntimeError(
-            f"Planner HTTP error {exc.response.status_code}: {exc.response.text}"
-        ) from exc
-    except httpx.TimeoutException as exc:
-        raise RuntimeError(f"Planner request timed out: {exc}") from exc
-    except httpx.RequestError as exc:
-        raise RuntimeError(f"Planner network error: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +454,7 @@ async def _fetch_in_flight_build_runs_batch(
 
 
 # ---------------------------------------------------------------------------
-# Executor helpers (advance/complete/halt/replan)
+# Executor helpers (advance/complete/halt)
 # ---------------------------------------------------------------------------
 
 
@@ -685,19 +625,6 @@ def _build_successor_map(
         to_id = edge["to_item_id"]
         succs.setdefault(from_id, []).append(to_id)
     return succs
-
-
-def _dfs_descendants(item_id: str, succs: dict[str, list[str]]) -> set[str]:
-    """Return all descendants of *item_id* (including itself) via DFS."""
-    visited: set[str] = set()
-    stack = [item_id]
-    while stack:
-        node = stack.pop()
-        if node in visited:
-            continue
-        visited.add(node)
-        stack.extend(succs.get(node, []))
-    return visited
 
 
 # ---------------------------------------------------------------------------
@@ -1575,200 +1502,6 @@ async def start_rollout(
     )
     assert row is not None  # noqa: S101
     return row_to_dict(row)
-
-
-async def _call_planner(
-    db: DbPool,
-    user_id: str,
-    rollout_id: str,
-    item_ids: list[str],
-) -> dict[str, Any]:
-    """Call the dispatch-worker planner to generate a plan for the given items.
-
-    # Uses the same dispatch-worker planner mechanism as plan_rollout.
-
-    Args:
-        db: Database pool.
-        user_id: Calling user's ID (used to look up dispatch config).
-        rollout_id: The rollout being replanned (sent to planner for context).
-        item_ids: List of remaining item IDs to plan for.
-
-    Returns:
-        Dict from the planner with at least ``nodes``, ``edges``, and
-        ``planner_model`` keys.
-
-    Raises:
-        ValidationError: If dispatch service is not configured or planner fails.
-    """
-    import httpx
-
-    from agent_gtd.services.settings_service import get_dispatch_config
-
-    config = await get_dispatch_config(db, user_id)
-    if config is None:
-        raise ValidationError(
-            "Dispatch service not configured — cannot call planner for replan_rollout"
-        )
-
-    url = str(config.get("url", "")).rstrip("/")
-    api_key = str(config.get("api_key", ""))
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{url}/plan",
-            json={"rollout_id": rollout_id, "item_ids": item_ids},
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=30.0,
-        )
-
-    if resp.status_code != 200:
-        raise ValidationError(f"Planner returned {resp.status_code}: {resp.text[:200]}")
-
-    data: dict[str, Any] = resp.json()
-    return data
-
-
-async def replan_rollout(
-    db: DbPool,
-    user_id: str,
-    rollout_id: str,
-    from_item: str | None = None,
-) -> dict[str, Any]:
-    """Re-plan the remaining subgraph for an in-progress rollout.
-
-    Calls the dispatch-worker planner (same mechanism as plan_rollout) scoped
-    to the remaining pending/ready items, persists a new rollout_plans version,
-    updates item readiness, and emits a ``rollout_replanned`` event.
-
-    Args:
-        db: Database pool.
-        user_id: Calling user's ID — must be the wave's lead_user_id.
-        rollout_id: ID of the rollout to replan.
-        from_item: Optional item ID to restrict replanning to its downstream
-            subgraph (depth-first traversal).
-
-    Returns:
-        Dict with keys:
-          - old_version (int): The previous plan version.
-          - new_version (int): The newly created plan version.
-          - new_plan (dict): The new rollout_plans row.
-
-    Raises:
-        NotFoundError: If wave not found or caller doesn't own it.
-        ValidationError: If wave is not running, there are no remaining items,
-            or the planner call fails.
-    """
-    wave = await _get_rollout(db, user_id, rollout_id)
-    if wave["status"] != "running":
-        raise ValidationError(
-            f"Wave {rollout_id} is not running (status={wave['status']})"
-        )
-
-    remaining_rows = await db.fetch(
-        "SELECT item_id FROM rollout_items"
-        " WHERE rollout_id = $1 AND status IN ('pending', 'ready')",
-        rollout_id,
-    )
-    remaining_ids = [r["item_id"] for r in remaining_rows]
-    if not remaining_ids:
-        raise ValidationError(f"Wave {rollout_id} has no remaining items to replan")
-
-    # If from_item is given, restrict to its downstream subgraph
-    if from_item is not None:
-        plan = await _get_latest_plan(db, rollout_id)
-        edges_raw: list[dict[str, str]] = json.loads(plan["edges"]) if plan else []
-        succs = _build_successor_map(edges_raw)
-        descendants = _dfs_descendants(from_item, succs)
-        remaining_ids = [i for i in remaining_ids if i in descendants]
-        if not remaining_ids:
-            raise ValidationError(
-                f"No remaining items in the downstream subgraph of {from_item}"
-            )
-
-    # Determine next version
-    version_row = await db.fetchrow(
-        "SELECT COALESCE(MAX(version), 0) AS max_version"
-        " FROM rollout_plans WHERE rollout_id = $1",
-        rollout_id,
-    )
-    old_version = int(version_row["max_version"]) if version_row else 0
-    new_version = old_version + 1
-
-    # Call the planner for the remaining items
-    planner_result = await _call_planner(db, user_id, rollout_id, remaining_ids)
-
-    new_nodes: list[str] = planner_result.get("nodes", remaining_ids)
-    new_edges: list[dict[str, str]] = planner_result.get("edges", [])
-    planner_model: str = planner_result.get("planner_model", "")
-
-    # Persist new rollout_plans row
-    plan_id = str(uuid.uuid4())
-    now = datetime.now(UTC).isoformat()
-    await db.execute(
-        "INSERT INTO rollout_plans"
-        " (id, rollout_id, version, nodes, edges, planner_model, created_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7)",
-        plan_id,
-        rollout_id,
-        new_version,
-        json.dumps(new_nodes),
-        json.dumps(new_edges),
-        planner_model,
-        now,
-    )
-
-    # Update readiness of remaining items based on new DAG
-    new_preds = _build_predecessor_map(new_edges)
-    all_rows = await db.fetch(
-        "SELECT item_id, status FROM rollout_items WHERE rollout_id = $1",
-        rollout_id,
-    )
-    all_statuses: dict[str, str] = {r["item_id"]: r["status"] for r in all_rows}
-
-    for rid in remaining_ids:
-        item_preds = new_preds.get(rid, [])
-        all_preds_done = all(
-            all_statuses.get(p, "pending") in _TERMINAL_STATUSES for p in item_preds
-        )
-        if all_preds_done:
-            await db.execute(
-                "UPDATE rollout_items SET status = 'ready'"
-                " WHERE rollout_id = $1 AND item_id = $2 AND status = 'pending'",
-                rollout_id,
-                rid,
-            )
-        else:
-            # If the new plan re-blocks an item that was 'ready', revert it.
-            await db.execute(
-                "UPDATE rollout_items SET status = 'pending'"
-                " WHERE rollout_id = $1 AND item_id = $2 AND status = 'ready'",
-                rollout_id,
-                rid,
-            )
-
-    # Emit wave_replanned event and publish to SSE subscribers
-    wave_event = await _append_rollout_event(
-        db,
-        rollout_id,
-        kind="wave_replanned",
-        actor="manager",
-        payload={
-            "old_version": old_version,
-            "new_version": new_version,
-        },
-    )
-    _publish_rollout_event(db, user_id, wave_event, str(wave["project_id"]))
-
-    new_plan_row = await db.fetchrow(
-        "SELECT * FROM rollout_plans WHERE id = $1", plan_id
-    )
-    assert new_plan_row is not None  # noqa: S101
-
-    return {
-        "old_version": old_version,
-        "new_version": new_version,
-        "new_plan": row_to_dict(new_plan_row),
-    }
 
 
 # ---------------------------------------------------------------------------

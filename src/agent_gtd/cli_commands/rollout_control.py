@@ -1,13 +1,12 @@
 """CLI subcommand module: rollout control commands.
 
-Exposes a :func:`register` function that adds six subparsers for the
+Exposes a :func:`register` function that adds five subparsers for the
 ``agent-gtd`` CLI:
 
 - ``advance-rollout``
 - ``complete-item-in-rollout``
 - ``halt-rollout``
 - ``cancel-rollout``
-- ``replan-rollout``
 - ``update-rollout-state``
 
 Each handler follows the same shape as the sibling module
@@ -145,32 +144,6 @@ def _cmd_cancel_rollout(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
-# replan-rollout
-# ---------------------------------------------------------------------------
-
-
-def _cmd_replan_rollout(args: argparse.Namespace) -> None:
-    """Synchronous handler for replan-rollout."""
-    rollout_id: str = args.rollout_id
-    from_item: str | None = args.from_item
-
-    async def _run() -> Any:
-        async with backend_session() as (backend, user_id):
-            return await backend.replan_rollout(
-                user_id,
-                rollout_id,
-                from_item=from_item,
-            )
-
-    try:
-        result: Any = asyncio.run(_run())
-    except Exception as e:
-        fail(e)
-
-    emit_json(result)
-
-
-# ---------------------------------------------------------------------------
 # update-rollout-state
 # ---------------------------------------------------------------------------
 
@@ -210,10 +183,10 @@ def _cmd_update_rollout_state(args: argparse.Namespace) -> None:
 
 
 def register(subparsers: argparse._SubParsersAction[Any]) -> None:
-    """Register the six rollout control subcommands on *subparsers*.
+    """Register the five rollout control subcommands on *subparsers*.
 
     Adds: advance-rollout, complete-item-in-rollout, halt-rollout,
-    cancel-rollout, replan-rollout, update-rollout-state.
+    cancel-rollout, update-rollout-state.
 
     Args:
         subparsers: The subparsers action from the top-level argument parser.
@@ -293,20 +266,6 @@ def register(subparsers: argparse._SubParsersAction[Any]) -> None:
     p_cancel.add_argument("rollout_id", help="ID of the rollout to cancel.")
     p_cancel.add_argument("--reason", required=True, help="Reason for cancellation.")
     p_cancel.set_defaults(func=_cmd_cancel_rollout)
-
-    # -- replan-rollout --------------------------------------------------------
-    p_replan = subparsers.add_parser(
-        "replan-rollout",
-        help="Replan a rollout, optionally starting from a specific item.",
-    )
-    p_replan.add_argument("rollout_id", help="ID of the rollout to replan.")
-    p_replan.add_argument(
-        "--from-item",
-        dest="from_item",
-        default=None,
-        help="Item ID to start replanning from (omit to replan from the start).",
-    )
-    p_replan.set_defaults(func=_cmd_replan_rollout)
 
     # -- update-rollout-state --------------------------------------------------
     p_update = subparsers.add_parser(

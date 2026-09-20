@@ -446,14 +446,6 @@ class McpBackend(Protocol):
         reason: str,
     ) -> dict[str, Any]: ...
 
-    async def replan_rollout(
-        self,
-        user_id: str,
-        rollout_id: str,
-        *,
-        from_item: str | None = None,
-    ) -> dict[str, Any]: ...
-
     async def start_rollout(
         self,
         user_id: str,
@@ -1354,21 +1346,6 @@ class LocalBackend:
 
         db = await get_db()
         return await rollout_service.cancel_rollout(db, user_id, rollout_id, reason)
-
-    async def replan_rollout(
-        self,
-        user_id: str,
-        rollout_id: str,
-        *,
-        from_item: str | None = None,
-    ) -> dict[str, Any]:
-        from agent_gtd.database import get_db
-        from agent_gtd.services import rollout_service
-
-        db = await get_db()
-        return await rollout_service.replan_rollout(
-            db, user_id, rollout_id, from_item=from_item
-        )
 
     async def update_rollout_state(
         self,
@@ -2375,25 +2352,6 @@ class HttpBackend:
         resp = await self._client.post(
             f"/api/rollouts/{rollout_id}/cancel",
             json={"reason": reason},
-            headers=self._headers(),
-        )
-        self._check(resp)
-        result: dict[str, Any] = resp.json()
-        return result
-
-    async def replan_rollout(
-        self,
-        user_id: str,
-        rollout_id: str,
-        *,
-        from_item: str | None = None,
-    ) -> dict[str, Any]:
-        body: dict[str, Any] = {}
-        if from_item is not None:
-            body["from_item"] = from_item
-        resp = await self._client.post(
-            f"/api/rollouts/{rollout_id}/replan",
-            json=body,
             headers=self._headers(),
         )
         self._check(resp)

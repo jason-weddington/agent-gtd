@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -12,7 +12,6 @@ from agent_gtd.exceptions import LegalityContractError, NotFoundError, Validatio
 from agent_gtd.services.rollout_service import (
     MERGE_NOTE_EVENT_KIND,
     MERGE_NOTE_MAX_CHARS,
-    call_planner,
     cancel_rollout,
     complete_item_in_rollout,
     get_recent_merge_notes,
@@ -710,100 +709,6 @@ async def test_validate_mixed_projects_item_with_existing_failures(db):
 
 
 # ---------------------------------------------------------------------------
-# call_planner error paths (lines 237-254)
-# ---------------------------------------------------------------------------
-
-
-def _make_async_client_mock(post_side_effect=None, response=None):
-    """Build a mock httpx.AsyncClient context manager."""
-    mock_client = MagicMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    if post_side_effect is not None:
-        mock_client.post = AsyncMock(side_effect=post_side_effect)
-    else:
-        mock_client.post = AsyncMock(return_value=response)
-    return mock_client
-
-
-async def test_call_planner_http_status_error():
-    """HTTPStatusError from raise_for_status is wrapped as RuntimeError."""
-    mock_response = MagicMock()
-    mock_request = httpx.Request("POST", "http://dispatch.test:8100/plan")
-    error_response = MagicMock()
-    error_response.status_code = 500
-    error_response.text = "Internal Server Error"
-    mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-        "Server Error",
-        request=mock_request,
-        response=error_response,
-    )
-    mock_client = _make_async_client_mock(response=mock_response)
-
-    with (
-        patch(
-            "agent_gtd.services.rollout_service.httpx.AsyncClient",
-            return_value=mock_client,
-        ),
-        pytest.raises(RuntimeError, match="Planner HTTP error 500"),
-    ):
-        await call_planner("http://dispatch.test:8100", "key", ["item-1"])
-
-
-async def test_call_planner_timeout_error():
-    """TimeoutException from client.post is wrapped as RuntimeError."""
-    mock_client = _make_async_client_mock(
-        post_side_effect=httpx.TimeoutException("Request timed out")
-    )
-
-    with (
-        patch(
-            "agent_gtd.services.rollout_service.httpx.AsyncClient",
-            return_value=mock_client,
-        ),
-        pytest.raises(RuntimeError, match="timed out"),
-    ):
-        await call_planner("http://dispatch.test:8100", "key", ["item-1"])
-
-
-async def test_call_planner_network_error():
-    """RequestError from client.post is wrapped as RuntimeError."""
-    mock_client = _make_async_client_mock(
-        post_side_effect=httpx.ConnectError("Connection refused")
-    )
-
-    with (
-        patch(
-            "agent_gtd.services.rollout_service.httpx.AsyncClient",
-            return_value=mock_client,
-        ),
-        pytest.raises(RuntimeError, match="network error"),
-    ):
-        await call_planner("http://dispatch.test:8100", "key", ["item-1"])
-
-
-async def test_call_planner_success():
-    """Successful planner call returns parsed JSON response."""
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json.return_value = {
-        "nodes": ["item-1"],
-        "edges": [],
-        "planner_model": "claude-sonnet-4-6",
-    }
-    mock_client = _make_async_client_mock(response=mock_response)
-
-    with patch(
-        "agent_gtd.services.rollout_service.httpx.AsyncClient",
-        return_value=mock_client,
-    ):
-        result = await call_planner("http://dispatch.test:8100", "key", ["item-1"])
-
-    assert result["nodes"] == ["item-1"]
-    assert result["planner_model"] == "claude-sonnet-4-6"
-
-
-# ---------------------------------------------------------------------------
 # plan_rollout — project not found (line 309)
 # ---------------------------------------------------------------------------
 
@@ -929,8 +834,9 @@ async def _configure_dispatch_for(db, user_id: str) -> None:
 async def test_plan_rollout_makes_no_outbound_http_call(db):
     """plan_rollout must not touch the network — the DAG is derived locally.
 
-    Any httpx request (and the legacy ``call_planner`` helper) blows up, so the
-    test fails loudly if the remote planner creeps back into this path.
+    Any httpx request blows up, so the test fails loudly if a remote planner
+    creeps back into this path.  The LLM planner it guards against was deleted
+    along with ``POST /plan``; this guard outlives it.
     """
     from agent_gtd.services.rollout_service import plan_rollout
 
@@ -954,15 +860,12 @@ async def test_plan_rollout_makes_no_outbound_http_call(db):
     await _configure_dispatch_for(db, user_id)
 
     no_http = AssertionError("plan_rollout made an outbound HTTP call")
-    planner_mock = AsyncMock(side_effect=AssertionError("call_planner was invoked"))
     with (
         patch.object(httpx.AsyncClient, "send", side_effect=no_http),
         patch.object(httpx.AsyncClient, "request", side_effect=no_http),
-        patch("agent_gtd.services.rollout_service.call_planner", planner_mock),
     ):
         result = await plan_rollout(db, user_id, [item_a, item_b])
 
-    planner_mock.assert_not_awaited()
     assert result["status"] == "pending"
     assert result["planner_model"] == "derived-from-blockers"
     assert result["plan"]["edges"] == [{"from_item_id": item_a, "to_item_id": item_b}]

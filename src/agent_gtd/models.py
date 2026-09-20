@@ -295,6 +295,8 @@ class RolloutEventKind(StrEnum):
     MANAGE_RELAUNCHED = "manage_relaunched"
     WAVE_CANCELLED = "wave_cancelled"
     WAVE_STARTED = "wave_started"
+    # Historical only: emitted by the removed LLM replanner.  Retained so
+    # existing rollout_events rows still deserialise.
     WAVE_REPLANNED = "wave_replanned"
     MANAGER_STATE_UPDATE = "manager_state_update"
     WAVE_RESUMED = "wave_resumed"

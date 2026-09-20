@@ -322,43 +322,6 @@ async def test_update_rollout_state_publishes_sse(_setup_db):
     assert call_kwargs["payload"]["payload"]["phase"] == "dispatching"
 
 
-async def test_replan_rollout_publishes_sse(_setup_db):
-    """After replan_rollout(), bus.publish is called once with kind='wave_replanned'."""
-    from agent_gtd.services.rollout_service import replan_rollout
-
-    db = await get_db()
-    user_id = await _make_user(db)
-    project_id = await _make_project(db, user_id)
-    item_id = await _make_item(db, user_id, project_id)
-    rollout_id = await _make_wave_run(db, user_id, project_id, status="running")
-    await _make_wave_plan(db, rollout_id, [item_id], [], version=1)
-    await _make_wave_item(db, rollout_id, item_id, status="pending")
-
-    mock_planner_result = {
-        "nodes": [item_id],
-        "edges": [],
-        "planner_model": "test-model",
-    }
-    mock_bus = AsyncMock()
-    mock_bus.publish = AsyncMock(return_value="event-id")
-
-    with (
-        patch("agent_gtd.event_bus.get_event_bus", return_value=mock_bus),
-        patch(
-            "agent_gtd.services.rollout_service._call_planner",
-            return_value=mock_planner_result,
-        ),
-    ):
-        await replan_rollout(db, user_id, rollout_id)
-        await asyncio.sleep(0)
-
-    mock_bus.publish.assert_called_once()
-    call_kwargs = mock_bus.publish.call_args.kwargs
-    assert call_kwargs["event_type"] == "rollout_event"
-    payload = call_kwargs["payload"]
-    assert payload["kind"] == "wave_replanned"
-
-
 # ---------------------------------------------------------------------------
 # Integration test — real event bus, verify fan-out to project members
 # ---------------------------------------------------------------------------

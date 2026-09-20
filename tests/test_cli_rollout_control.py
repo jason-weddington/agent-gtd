@@ -63,11 +63,6 @@ class _FakeBackend:
             },
             "halt_rollout": {"id": "r-1", "status": "halted"},
             "cancel_rollout": {"id": "r-1", "status": "cancelled"},
-            "replan_rollout": {
-                "old_version": 1,
-                "new_version": 2,
-                "new_plan": [],
-            },
             "update_rollout_state": {
                 "rollout_id": "r-1",
                 "ts": "2026-01-01T00:00:00Z",
@@ -145,23 +140,6 @@ class _FakeBackend:
         )
         return self._responses["cancel_rollout"]
 
-    async def replan_rollout(
-        self,
-        user_id: str,
-        rollout_id: str,
-        *,
-        from_item: str | None = None,
-    ) -> dict[str, Any]:
-        self.calls.append(
-            {
-                "method": "replan_rollout",
-                "user_id": user_id,
-                "rollout_id": rollout_id,
-                "from_item": from_item,
-            }
-        )
-        return self._responses["replan_rollout"]
-
     async def update_rollout_state(
         self,
         user_id: str,
@@ -208,9 +186,6 @@ class _ErrorBackend:
         raise RuntimeError("backend exploded")
 
     async def cancel_rollout(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        raise RuntimeError("backend exploded")
-
-    async def replan_rollout(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("backend exploded")
 
     async def update_rollout_state(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -397,26 +372,6 @@ class TestCancelRolloutParsing:
             p.parse_args(["cancel-rollout", _ruid()])
 
 
-class TestReplanRolloutParsing:
-    def test_positional_only(self) -> None:
-        p, _ = _make_parser()
-        rid = _ruid()
-        args = p.parse_args(["replan-rollout", rid])
-        assert args.rollout_id == rid
-        assert args.from_item is None
-
-    def test_from_item_optional(self) -> None:
-        p, _ = _make_parser()
-        iid = _ruid()
-        args = p.parse_args(["replan-rollout", _ruid(), "--from-item", iid])
-        assert args.from_item == iid
-
-    def test_missing_positional_raises_systemexit(self) -> None:
-        p, _ = _make_parser()
-        with pytest.raises(SystemExit):
-            p.parse_args(["replan-rollout"])
-
-
 class TestUpdateRolloutStateParsing:
     def test_required_phase(self) -> None:
         p, _ = _make_parser()
@@ -596,32 +551,6 @@ def test_cancel_rollout_success(
     assert fake.closed is True
 
 
-def test_replan_rollout_success(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """replan-rollout calls backend with correct args and prints JSON."""
-    fake = _FakeBackend()
-    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
-    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
-
-    rid, iid = _ruid(), _ruid()
-    p, _ = _make_parser()
-    args = p.parse_args(["replan-rollout", rid, "--from-item", iid])
-    args.func(args)
-
-    captured = capsys.readouterr()
-    assert captured.err == ""
-    data = json.loads(captured.out)
-    assert "new_plan" in data
-
-    assert len(fake.calls) == 1
-    call = fake.calls[0]
-    assert call["method"] == "replan_rollout"
-    assert call["rollout_id"] == rid
-    assert call["from_item"] == iid
-    assert fake.closed is True
-
-
 def test_update_rollout_state_success(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -729,22 +658,6 @@ def test_halt_rollout_defaults(
     assert call["item_id"] is None
 
 
-def test_replan_rollout_defaults(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Omitting --from-item passes from_item=None to the backend."""
-    fake = _FakeBackend()
-    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
-    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
-
-    p, _ = _make_parser()
-    args = p.parse_args(["replan-rollout", _ruid()])
-    args.func(args)
-
-    call = fake.calls[0]
-    assert call["from_item"] is None
-
-
 def test_update_rollout_state_defaults(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -845,27 +758,6 @@ def test_cancel_rollout_error_path(
 
     p, _ = _make_parser()
     args = p.parse_args(["cancel-rollout", _ruid(), "--reason", "abort"])
-
-    with pytest.raises(SystemExit) as exc_info:
-        args.func(args)
-
-    assert exc_info.value.code == 1
-    captured = capsys.readouterr()
-    assert "Error:" in captured.err
-
-
-def test_replan_rollout_error_path(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Backend raises → 'Error:' on stderr + SystemExit(1)."""
-    monkeypatch.setattr(
-        "agent_gtd.cli_commands._shared.create_backend",
-        lambda: _ErrorBackend(),
-    )
-    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
-
-    p, _ = _make_parser()
-    args = p.parse_args(["replan-rollout", _ruid()])
 
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)

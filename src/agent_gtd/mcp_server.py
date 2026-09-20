@@ -1797,45 +1797,6 @@ async def cancel_rollout(
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
-async def replan_rollout(
-    rollout_id: str,
-    ctx: Context,
-    from_item: str | None = None,
-) -> dict[str, Any]:
-    """Re-plan the remaining subgraph for an in-progress rollout.
-
-    Calls the dispatch-worker planner (same mechanism as plan_rollout) scoped
-    to the remaining pending/ready items, persists a new rollout_plans version,
-    updates item readiness, and emits a ``wave_replanned`` event.
-
-    Args:
-        rollout_id: ID of the rollout to replan.
-        ctx: MCP context (injected automatically).
-        from_item: Optional item ID to restrict replanning to its downstream
-            subgraph (depth-first traversal from this item).
-
-    Returns:
-        Dict with keys:
-          - old_version (int): The previous plan version.
-          - new_version (int): The newly created plan version.
-          - new_plan (dict): The new rollout_plans row.
-    """
-    session = await _get_session(ctx)
-    try:
-        return await _backend.replan_rollout(
-            session["user_id"],
-            rollout_id,
-            from_item=from_item,
-        )
-    except NotFoundError as e:
-        raise ToolError(e.detail) from None
-    except ValidationError as e:
-        raise ToolError(e.detail) from None
-
-
-@mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
-)
 async def update_rollout_state(
     rollout_id: str,
     phase: Literal[

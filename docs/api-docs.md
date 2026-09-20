@@ -470,11 +470,6 @@ Cancel the rollout. Idempotent for already-cancelled rollouts.
 - **Request body:** `{"reason": str}`
 - **Response:** Updated rollout dict.
 
-#### `POST /api/rollouts/{rollout_id}/replan`
-Replan remaining pending/ready items. Generates a new DAG version.
-- **Request body:** `{"from_item"?: str}`
-- **Response:** `{"old_version": int, "new_version": int, "new_plan": dict}`
-
 #### `POST /api/rollouts/{rollout_id}/state`
 Update the manager's semantic phase for the real-time dashboard.
 - **Request body:** `{"phase": str, "current_item_id"?: str, "current_step"?: str}`
@@ -734,13 +729,6 @@ halt_rollout(rollout_id: str, reason: str, comment: str | None = None, item_id: 
 
 cancel_rollout(rollout_id: str, reason: str) → dict
 # Destructive. Idempotent for already-cancelled rollouts.
-
-replan_rollout(rollout_id: str, from_item: str | None = None) → {
-    "old_version": int,
-    "new_version": int,
-    "new_plan": dict,
-}
-# Replans remaining pending/ready items. Increments plan version. Emits SSE event.
 
 update_rollout_state(
     rollout_id: str,

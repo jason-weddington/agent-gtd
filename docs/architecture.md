@@ -91,7 +91,7 @@ nginx (r7-research)              ← terminates TLS, serves frontend/dist/
 - **Purpose:** Serves 40+ MCP tools for AI agents over FastMCP's HTTP transport, mounted at `/mcp`.
 - **Interfaces:** FastMCP `Server` instance; shares the same database pool and service layer as the REST API.
 - **Session management:** Resolution order: (1) existing session from prior `login()` call, (2) local SQLite mode auto-creates a default session, (3) `AGENT_GTD_API_KEY` env var auto-authenticates, (4) raises `ToolError("Not logged in")`.
-- **Tool groups:** Projects (CRUD + sharing), Items (CRUD + blockers + claim/release), Notes (CRUD), Comments, Dispatch runs, Rollout manager (plan/start/advance/halt/cancel/replan).
+- **Tool groups:** Projects (CRUD + sharing), Items (CRUD + blockers + claim/release), Notes (CRUD), Comments, Dispatch runs, Rollout manager (plan/start/advance/halt/cancel).
 - **Destructive hints:** Tools that delete data or halt rollouts carry `annotations={"destructiveHint": True}` for MCP-aware clients.
 
 ### Database Layer (`database.py`, `sqlite_pool.py`)
@@ -175,7 +175,7 @@ the same FastAPI `app` instance and database pool.
 - **Notes:** `add_note`, `get_note`, `update_note`, `delete_note`, `list_notes`
 - **Comments:** `add_comment`, `list_comments`, `update_comment`
 - **Dispatch:** `dispatch_item`, `get_run_status`, `list_runs`
-- **Rollout management:** `plan_rollout`, `start_rollout`, `get_rollout`, `get_rollout_plan`, `list_rollouts`, `advance_rollout`, `complete_item_in_rollout`, `halt_rollout`, `cancel_rollout`, `replan_rollout`, `update_rollout_state`, `dispatch_rollout`
+- **Rollout management:** `plan_rollout`, `start_rollout`, `get_rollout`, `get_rollout_plan`, `list_rollouts`, `advance_rollout`, `complete_item_in_rollout`, `halt_rollout`, `cancel_rollout`, `update_rollout_state`, `dispatch_rollout`
 
 ## Rollout / Run / Item Execution Model
 

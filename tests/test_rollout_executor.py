@@ -1,12 +1,9 @@
 """Tests for the wave executor cycle MCP tools.
 
-Covers: advance_rollout, complete_item_in_rollout, halt_rollout, replan_rollout —
-both the
+Covers: advance_rollout, complete_item_in_rollout, halt_rollout — both the
 service layer and the FastAPI REST routes.
 
-The in-memory SQLite fixture from conftest.py is used for all tests.  The
-dispatch-worker planner HTTP call inside replan_rollout is mocked so no real
-HTTP request is made.
+The in-memory SQLite fixture from conftest.py is used for all tests.
 """
 
 import json
@@ -559,75 +556,6 @@ async def test_halt_rollout_emits_comment_id_in_payload(
 
 
 # ---------------------------------------------------------------------------
-# replan_rollout tests
-# ---------------------------------------------------------------------------
-
-
-async def test_replan_rollout_no_remaining(
-    client: AsyncClient, linear_wave: dict
-) -> None:
-    """When all items are terminal, replan_rollout raises 422 (nothing to replan)."""
-    w = linear_wave
-    db = w["db"]
-    # Mark all items as completed
-    await db.execute(
-        "UPDATE rollout_items SET status = 'completed' WHERE rollout_id = $1",
-        w["rollout_id"],
-    )
-    resp = await client.post(
-        f"/api/rollouts/{w['rollout_id']}/replan",
-        json={},
-        headers=w["headers"],
-    )
-    assert resp.status_code == 422
-
-
-async def test_replan_rollout_creates_new_version(
-    client: AsyncClient, linear_wave: dict
-) -> None:
-    """replan_rollout creates a new rollout_plans row with version = old_version + 1."""
-    w = linear_wave
-    db = w["db"]
-
-    mock_plan = {
-        "nodes": [w["item_b_id"]],
-        "edges": [],
-        "planner_model": "mock-model",
-    }
-
-    with patch(
-        "agent_gtd.services.rollout_service._call_planner",
-        new_callable=AsyncMock,
-        return_value=mock_plan,
-    ):
-        # Complete A so B is the only remaining item
-        await db.execute(
-            "UPDATE rollout_items SET status = 'completed'"
-            " WHERE rollout_id = $1 AND item_id = $2",
-            w["rollout_id"],
-            w["item_a_id"],
-        )
-        resp = await client.post(
-            f"/api/rollouts/{w['rollout_id']}/replan",
-            json={},
-            headers=w["headers"],
-        )
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["old_version"] == 1
-    assert data["new_version"] == 2
-    assert data["new_plan"]["version"] == 2
-    assert data["new_plan"]["planner_model"] == "mock-model"
-
-    # Verify a wave_replanned event was emitted
-    event = await _get_wave_event(db, w["rollout_id"], "wave_replanned")
-    assert event is not None
-    assert event["payload"]["old_version"] == 1
-    assert event["payload"]["new_version"] == 2
-
-
-# ---------------------------------------------------------------------------
 # Error-path / branch-coverage tests
 # ---------------------------------------------------------------------------
 
@@ -739,182 +667,6 @@ async def test_complete_item_in_rollout_downstream_not_pending(
     # B is dispatched so not newly_ready; C should be newly_ready
     assert item_c in data["newly_ready"]
     assert item_b not in data["newly_ready"]
-
-
-async def test_replan_rollout_not_running(
-    client: AsyncClient, linear_wave: dict
-) -> None:
-    """replan_rollout on a non-running wave → 422."""
-    w = linear_wave
-    db = w["db"]
-    await db.execute(
-        "UPDATE autonomous_rollouts SET status = 'halted' WHERE id = $1",
-        w["rollout_id"],
-    )
-    resp = await client.post(
-        f"/api/rollouts/{w['rollout_id']}/replan",
-        json={},
-        headers=w["headers"],
-    )
-    assert resp.status_code == 422
-
-
-async def test_replan_rollout_with_from_item(
-    client: AsyncClient, linear_wave: dict
-) -> None:
-    """replan_rollout with from_item restricts replanning to A's subgraph (B only)."""
-    w = linear_wave
-    db = w["db"]
-
-    mock_plan = {
-        "nodes": [w["item_b_id"]],
-        "edges": [],
-        "planner_model": "mock",
-    }
-
-    with patch(
-        "agent_gtd.services.rollout_service._call_planner",
-        new_callable=AsyncMock,
-        return_value=mock_plan,
-    ):
-        # Complete A so only B remains
-        await db.execute(
-            "UPDATE rollout_items SET status = 'completed'"
-            " WHERE rollout_id = $1 AND item_id = $2",
-            w["rollout_id"],
-            w["item_a_id"],
-        )
-        resp = await client.post(
-            f"/api/rollouts/{w['rollout_id']}/replan",
-            json={"from_item": w["item_a_id"]},
-            headers=w["headers"],
-        )
-
-    assert resp.status_code == 200
-    data = resp.json()
-    # B is downstream of A → it should be in the replanned subgraph
-    assert data["new_version"] == 2
-
-
-async def test_replan_rollout_from_item_no_descendants(
-    client: AsyncClient, linear_wave: dict
-) -> None:
-    """replan_rollout with from_item that has no remaining descendants → 422."""
-    w = linear_wave
-    db = w["db"]
-    # Mark B as completed so from_item=A has no remaining descendants
-    await db.execute(
-        "UPDATE rollout_items SET status = 'completed'"
-        " WHERE rollout_id = $1 AND item_id = $2",
-        w["rollout_id"],
-        w["item_b_id"],
-    )
-    # A is still pending; from_item=B (leaf) has no descendants at all
-    resp = await client.post(
-        f"/api/rollouts/{w['rollout_id']}/replan",
-        json={"from_item": w["item_b_id"]},
-        headers=w["headers"],
-    )
-    # B has no remaining descendant items → 422
-    assert resp.status_code == 422
-
-
-async def test_call_planner_no_config(linear_wave: dict) -> None:
-    """_call_planner raises ValidationError when dispatch service is not configured."""
-    from agent_gtd.exceptions import ValidationError
-    from agent_gtd.services.rollout_service import _call_planner
-
-    w = linear_wave
-    db = w["db"]
-    # user_id is w["user_id"] — no dispatch config has been set for this test user
-    with pytest.raises(ValidationError, match="not configured"):
-        await _call_planner(db, w["user_id"], w["rollout_id"], [w["item_a_id"]])
-
-
-async def test_call_planner_http_error(linear_wave: dict) -> None:
-    """_call_planner raises ValidationError when the planner HTTP call fails."""
-    from agent_gtd.exceptions import ValidationError
-    from agent_gtd.services.rollout_service import _call_planner
-    from agent_gtd.services.settings_service import set_user_setting
-
-    w = linear_wave
-    db = w["db"]
-    user_id = w["user_id"]
-
-    # Configure dispatch settings for this user
-    await set_user_setting(
-        db, user_id, "dispatch.service_url", "http://fake-planner:8100"
-    )
-    await set_user_setting(db, user_id, "dispatch.service_api_key", "test-key")
-
-    # Mock the httpx client to return a 500 error
-    mock_resp = AsyncMock()
-    mock_resp.status_code = 500
-    mock_resp.text = "Internal Server Error"
-
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_client_instance = AsyncMock()
-        mock_client_instance.post = AsyncMock(return_value=mock_resp)
-        mock_client_cls.return_value.__aenter__ = AsyncMock(
-            return_value=mock_client_instance
-        )
-        mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        with pytest.raises(ValidationError, match="Planner returned 500"):
-            await _call_planner(db, user_id, w["rollout_id"], [w["item_a_id"]])
-
-
-async def test_replan_rollout_readiness_regression(
-    client: AsyncClient, auth_headers: dict[str, str]
-) -> None:
-    """replan_rollout reverts a 'ready' item to 'pending'
-    when it gains a predecessor."""
-    from agent_gtd.auth import create_token, register_user
-    from agent_gtd.database import get_db
-
-    db = await get_db()
-    user = await register_user("replan-revert@example.com", "pw")
-    user_id = user.id
-    project_id = await _make_project(db, user_id)
-    item_a = await _make_item(db, user_id, project_id, "A")
-    item_b = await _make_item(db, user_id, project_id, "B")
-    wave_id = await _make_wave_run(db, user_id, project_id, status="running")
-
-    # Initial plan: A → B (B is blocked by A)
-    await _make_wave_plan(
-        db,
-        wave_id,
-        nodes=[item_a, item_b],
-        edges=[{"from_item_id": item_a, "to_item_id": item_b}],
-    )
-    await _make_wave_item(db, wave_id, item_a, status="pending")
-    # B is 'ready' (was unblocked somehow), but new plan will re-block it
-    await _make_wave_item(db, wave_id, item_b, status="ready")
-
-    # New plan: A → B still (B has A as predecessor, A is still pending)
-    # So B should be reverted back to 'pending' since A is pending
-    mock_plan = {
-        "nodes": [item_a, item_b],
-        "edges": [{"from_item_id": item_a, "to_item_id": item_b}],
-        "planner_model": "mock",
-    }
-
-    headers = {"Authorization": f"Bearer {create_token(user_id)}"}
-    with patch(
-        "agent_gtd.services.rollout_service._call_planner",
-        new_callable=AsyncMock,
-        return_value=mock_plan,
-    ):
-        resp = await client.post(
-            f"/api/rollouts/{wave_id}/replan",
-            json={},
-            headers=headers,
-        )
-
-    assert resp.status_code == 200
-    # B should now be 'pending' since A (its predecessor) is still pending
-    b_row = await _get_wave_plan_item(db, wave_id, item_b)
-    assert b_row["status"] == "pending"
 
 
 # ---------------------------------------------------------------------------
@@ -1048,7 +800,6 @@ async def test_plan_rollout_route_happy_path_returns_dag(
 @pytest.fixture
 async def _mock_dispatch_preflight():
     """Skip the dispatch service health check for manage-mode dispatch tests."""
-    from unittest.mock import AsyncMock, patch
 
     with patch(
         "agent_gtd.routes.dispatch_routes._check_dispatch_service",
