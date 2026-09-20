@@ -2,11 +2,14 @@
 
 # TODO: encrypt dispatch.service_api_key at rest (not implemented; we trust our own DB)
 
+import logging
 import os
 from datetime import UTC, datetime
 from typing import Any
 
 from agent_gtd.database import decode_json_list, encode_json_list, normalize_labels
+
+logger = logging.getLogger(__name__)
 
 
 def _decode_host_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -15,6 +18,22 @@ def _decode_host_row(row: dict[str, Any]) -> dict[str, Any]:
     row["capability_labels"] = (
         raw if isinstance(raw, list) else (decode_json_list(str(raw)) if raw else [])
     )
+    return row
+
+
+def _warn_on_out_of_band_empty_drain(row: dict[str, Any]) -> dict[str, Any]:
+    """Warn when a read host carries an empty drain_reason.
+
+    The service layer refuses to write an empty drain_reason (drained-but-
+    says-nothing), so '' can only arrive via direct-to-DB edits. Any
+    non-NULL still means drained (fails closed); return the row unchanged.
+    """
+    if row.get("drain_reason") == "":
+        logger.warning(
+            "dispatch host %s has empty drain_reason written outside the "
+            "service layer; treating as drained with no explanation",
+            row["id"],
+        )
     return row
 
 
@@ -103,18 +122,21 @@ async def get_dispatch_hosts(db: Any, user_id: str) -> list[dict[str, Any]]:
 
     Returns:
         List of dicts with keys: id, url, api_key, label, capability_labels
-        (decoded to list[str]).
+        (decoded to list[str]), drain_reason (str | None — NULL/None means
+        accepting work, any non-NULL string means out of rotation).
     """
     import uuid
     from datetime import UTC, datetime
 
     rows = await db.fetch(
-        "SELECT id, url, api_key, label, capability_labels, created_at "
-        "FROM dispatch_hosts WHERE user_id = $1 ORDER BY created_at ASC",
+        "SELECT id, url, api_key, label, capability_labels, drain_reason, "
+        "created_at FROM dispatch_hosts WHERE user_id = $1 ORDER BY created_at ASC",
         user_id,
     )
     if rows:
-        return [_decode_host_row(dict(r)) for r in rows]
+        return [
+            _warn_on_out_of_band_empty_drain(_decode_host_row(dict(r))) for r in rows
+        ]
 
     # Lazy migration from legacy single-host user_settings
     url = await get_user_setting(db, user_id, "dispatch.service_url")
@@ -137,11 +159,13 @@ async def get_dispatch_hosts(db: Any, user_id: str) -> list[dict[str, Any]]:
         )
         # Re-fetch to return the canonical row
         rows = await db.fetch(
-            "SELECT id, url, api_key, label, capability_labels, created_at "
-            "FROM dispatch_hosts WHERE user_id = $1 ORDER BY created_at ASC",
+            "SELECT id, url, api_key, label, capability_labels, drain_reason, "
+            "created_at FROM dispatch_hosts WHERE user_id = $1 ORDER BY created_at ASC",
             user_id,
         )
-        return [_decode_host_row(dict(r)) for r in rows]
+        return [
+            _warn_on_out_of_band_empty_drain(_decode_host_row(dict(r))) for r in rows
+        ]
 
     return []
 
@@ -242,6 +266,147 @@ async def update_dispatch_host(
     row = await db.fetchrow("SELECT * FROM dispatch_hosts WHERE id = $1", host_id)
     assert row is not None  # noqa: S101
     return _decode_host_row(dict(row))
+
+
+async def drain_dispatch_host(
+    db: Any, user_id: str, host_id: str, reason: str | None = None
+) -> dict[str, Any] | None:
+    """Take a dispatch host out of rotation (operator action).
+
+    Args:
+        db: Database pool.
+        user_id: Owner's user ID.
+        host_id: ID of the dispatch host to drain.
+        reason: Why the host is out of rotation. MANDATORY unless the host
+            is already drained — a non-NULL empty string must never be
+            written (drained-but-says-nothing). Whitespace is stripped on
+            write. When the host is already drained and no (or a blank)
+            reason is given, the existing reason is kept untouched.
+
+    Returns:
+        The updated row (decoded), or None if the host doesn't exist or
+        isn't owned by user_id.
+
+    Raises:
+        ValueError: If the host is not already drained and no non-blank
+            reason was supplied.
+    """
+    from datetime import UTC, datetime
+
+    # Owner-scoped existence check first, before any reason validation —
+    # and it carries the current drain_reason so the branch needs no second
+    # read.
+    existing = await db.fetchrow(
+        "SELECT id, drain_reason FROM dispatch_hosts WHERE id = $1 AND user_id = $2",
+        host_id,
+        user_id,
+    )
+    if existing is None:
+        return None
+
+    current = existing["drain_reason"]
+    trimmed = reason.strip() if isinstance(reason, str) else None
+
+    if current is None:
+        # Mandatory-reason rule applies only to hosts not already drained.
+        if not trimmed:
+            msg = (
+                f"Dispatch host '{host_id}' is not drained: a reason is "
+                "required to drain it"
+            )
+            raise ValueError(msg)
+    elif not trimmed:
+        # Already drained with no (or a blank) reason: keep the existing
+        # reason unchanged — no UPDATE, no updated_at bump, no error.
+        row = await db.fetchrow("SELECT * FROM dispatch_hosts WHERE id = $1", host_id)
+        assert row is not None  # noqa: S101
+        kept = _decode_host_row(dict(row))
+        logger.info(
+            "Drained dispatch host id=%s label=%s by user=%s kept existing reason=%r",
+            host_id,
+            row["label"],
+            user_id,
+            kept["drain_reason"],
+        )
+        return kept
+
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "UPDATE dispatch_hosts SET drain_reason = $1, updated_at = $2 "
+        "WHERE id = $3 AND user_id = $4",
+        trimmed,
+        now,
+        host_id,
+        user_id,
+    )
+    row = await db.fetchrow("SELECT * FROM dispatch_hosts WHERE id = $1", host_id)
+    assert row is not None  # noqa: S101
+    result = _decode_host_row(dict(row))
+    if current is None:
+        logger.info(
+            "Drained dispatch host id=%s label=%s by user=%s reason=%r",
+            host_id,
+            row["label"],
+            user_id,
+            result["drain_reason"],
+        )
+    else:
+        logger.info(
+            "Drained dispatch host id=%s label=%s by user=%s replaced "
+            "reason=%r with reason=%r",
+            host_id,
+            row["label"],
+            user_id,
+            current,
+            result["drain_reason"],
+        )
+    return result
+
+
+async def undrain_dispatch_host(
+    db: Any, user_id: str, host_id: str
+) -> dict[str, Any] | None:
+    """Return a drained dispatch host to rotation (clears drain_reason).
+
+    Idempotent: undraining an already-undrained host returns its row and
+    raises nothing.
+
+    Returns:
+        The updated row (decoded), or None if the host doesn't exist or
+        isn't owned by user_id.
+    """
+    from datetime import UTC, datetime
+
+    # Owner-scoped existence check first; also captures the prior reason
+    # for the log record.
+    existing = await db.fetchrow(
+        "SELECT id, drain_reason FROM dispatch_hosts WHERE id = $1 AND user_id = $2",
+        host_id,
+        user_id,
+    )
+    if existing is None:
+        return None
+
+    prior = existing["drain_reason"]
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "UPDATE dispatch_hosts SET drain_reason = NULL, updated_at = $1 "
+        "WHERE id = $2 AND user_id = $3",
+        now,
+        host_id,
+        user_id,
+    )
+    row = await db.fetchrow("SELECT * FROM dispatch_hosts WHERE id = $1", host_id)
+    assert row is not None  # noqa: S101
+    result = _decode_host_row(dict(row))
+    logger.info(
+        "Undrained dispatch host id=%s label=%s by user=%s prior_reason=%r",
+        host_id,
+        row["label"],
+        user_id,
+        prior,
+    )
+    return result
 
 
 async def remove_dispatch_host(db: Any, user_id: str, host_id: str) -> str | None:

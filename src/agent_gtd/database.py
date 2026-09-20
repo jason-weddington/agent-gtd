@@ -237,6 +237,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         url      TEXT NOT NULL,
         api_key  TEXT NOT NULL,
         capability_labels TEXT NOT NULL DEFAULT '[]',
+        drain_reason TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         UNIQUE (user_id, url)
@@ -499,6 +500,7 @@ _MIGRATIONS: list[str] = [
         label    TEXT NOT NULL DEFAULT '',
         url      TEXT NOT NULL,
         api_key  TEXT NOT NULL,
+        drain_reason TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         UNIQUE (user_id, url)
@@ -550,6 +552,16 @@ _MIGRATIONS: list[str] = [
     # which requirements it satisfied and how it ranked on capacity) —
     # visible in the run record without cross-referencing dispatch_host_url.
     "ALTER TABLE claude_runs ADD COLUMN routing_rationale TEXT NOT NULL DEFAULT ''",
+    # Host drain state: NULL means the host is accepting work; any non-NULL
+    # string means out of rotation, with the reason as the value. The router
+    # reads host.get("drain_reason"), so a missing column fails silently as
+    # not-drained — the column is therefore declared in all three sites
+    # (schema CREATE, the migration CREATE above, and this ALTER). Nullable,
+    # no DEFAULT: NULL is the only encoding of not-drained. The ALTER is
+    # replay-safe: on a fresh DB the CREATE already made the column, so this
+    # fails as a duplicate and is suppressed with a logged warning (the
+    # established capability_labels idiom).
+    "ALTER TABLE dispatch_hosts ADD COLUMN drain_reason TEXT",
 ]
 
 
@@ -667,6 +679,18 @@ async def init_db() -> None:
                 )
 
     await _sweep_cross_project_blockers(pool)
+
+    # Drain tripwire: the router reads host.get("drain_reason"), so a missing
+    # column means every host silently reads as not-drained and drain does
+    # nothing. Probe the column and surface a named ERROR instead of letting
+    # the failure show up as broken behaviour at first dispatch.
+    try:
+        await pool.fetch("SELECT drain_reason FROM dispatch_hosts LIMIT 1")
+    except Exception:  # broad-suppress-ok: logs an ERROR, never raises
+        logger.error(
+            "drain_reason missing from dispatch_hosts: "
+            "drain is inert and every host reads as not-drained"
+        )
 
     if is_local_mode():
         await ensure_local_user(pool)
