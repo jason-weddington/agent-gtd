@@ -50,7 +50,9 @@ ALIAS_MAP = {
 
 # CLI subcommands that legitimately have no MCP counterpart. ``promote-admin``
 # is a local operational command (direct DB update), not a GTD tool.
-CLI_ONLY_EXTRAS = {"promote-admin"}
+# ``drain-host`` / ``undrain-host`` are operator-only fleet verbs — a drain an
+# agent can trigger is not a drain, so they deliberately have no MCP tool.
+CLI_ONLY_EXTRAS = {"promote-admin", "drain-host", "undrain-host"}
 
 
 def _cli_names() -> set[str]:

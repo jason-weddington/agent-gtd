@@ -1,10 +1,13 @@
 """CLI dispatch, run, and dispatch-host subcommands for agent-gtd.
 
-Registers three subcommands on the shared subparsers action:
+Registers five subcommands on the shared subparsers action:
 
 - ``dispatch-item``: dispatch an item for autonomous build or plan execution.
 - ``list-runs``: list dispatch runs, optionally filtered by item or status.
-- ``list-dispatch-hosts``: list registered dispatch hosts (id, label, URL only).
+- ``list-dispatch-hosts``: list registered dispatch hosts (id, label, URL, drain state).
+- ``drain-host``: take a host out of rotation (operator action; --reason mandatory
+  unless the host is already drained).
+- ``undrain-host``: return a drained host to rotation.
 """
 
 from __future__ import annotations
@@ -83,9 +86,11 @@ def _cmd_list_runs(args: argparse.Namespace) -> None:
 def _cmd_list_dispatch_hosts(args: argparse.Namespace) -> None:
     """List registered dispatch hosts.
 
-    Calls ``backend.list_dispatch_hosts``; prints the ``{id, label, url}``
-    list as JSON to stdout.  No secret fields are printed — the backend
-    projection already excludes ``api_key`` and related fields.
+    Calls ``backend.list_dispatch_hosts``; prints the ``{id, label, url,
+    drain_reason}`` list as JSON to stdout.  A non-null ``drain_reason`` means
+    the host is out of rotation and the string says why.  No secret fields
+    are printed — the backend projection already excludes ``api_key`` and
+    related fields.
 
     Args:
         args: Parsed namespace (no filtering arguments for this subcommand).
@@ -102,10 +107,63 @@ def _cmd_list_dispatch_hosts(args: argparse.Namespace) -> None:
     emit_json(result)
 
 
+def _cmd_drain_host(args: argparse.Namespace) -> None:
+    """Take a dispatch host out of rotation (operator action).
+
+    Calls ``backend.drain_dispatch_host`` with the host reference (id,
+    unique label, or unique URL substring) and the optional ``--reason``;
+    prints the resulting host dict (``{id, label, url, drain_reason}``) as
+    JSON to stdout.  A drain an agent can trigger is not a drain, so these
+    verbs have no MCP counterpart — draining is an operator action with a
+    reason string.  There is no override: nothing in this CLI contract can
+    route work to a drained host.
+
+    Args:
+        args: Parsed namespace with ``host`` and optional ``reason``.
+    """
+
+    async def _run() -> dict[str, Any]:
+        async with backend_session() as (backend, user_id):
+            return await backend.drain_dispatch_host(
+                user_id, args.host, reason=args.reason
+            )
+
+    try:
+        result = asyncio.run(_run())
+    except Exception as e:
+        fail(e)
+    emit_json(result)
+
+
+def _cmd_undrain_host(args: argparse.Namespace) -> None:
+    """Return a drained dispatch host to rotation.
+
+    Calls ``backend.undrain_dispatch_host`` with the host reference; prints
+    the resulting host dict as JSON to stdout.  Idempotent — undraining a
+    never-drained host succeeds with ``drain_reason: null``.
+
+    Args:
+        args: Parsed namespace with ``host``.
+    """
+
+    async def _run() -> dict[str, Any]:
+        async with backend_session() as (backend, user_id):
+            return await backend.undrain_dispatch_host(user_id, args.host)
+
+    try:
+        result = asyncio.run(_run())
+    except Exception as e:
+        fail(e)
+    emit_json(result)
+
+
 def register(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    """Register dispatch-item, list-runs, and list-dispatch-hosts subparsers.
+    """Register the five dispatch/host subparsers.
+
+    Registers dispatch-item, list-runs, list-dispatch-hosts, drain-host,
+    and undrain-host.
 
     Each subparser calls ``parser.set_defaults(func=<handler>)`` so that
     ``cli.main()``'s ``args.func(args)`` fall-through invokes the right
@@ -193,6 +251,40 @@ def register(
     # ------------------------------------------------------------------ #
     ldh = subparsers.add_parser(
         "list-dispatch-hosts",
-        help="List registered dispatch hosts (id, label, URL).",
+        help="List registered dispatch hosts (id, label, URL, drain state).",
     )
     ldh.set_defaults(func=_cmd_list_dispatch_hosts)
+
+    # ------------------------------------------------------------------ #
+    # drain-host
+    # ------------------------------------------------------------------ #
+    dh = subparsers.add_parser(
+        "drain-host",
+        help=(
+            "Take a dispatch host out of rotation"
+            " (--reason mandatory unless already drained)."
+        ),
+    )
+    dh.add_argument("host", type=str, help="Host id, unique label, or URL substring.")
+    dh.add_argument(
+        "--reason",
+        type=str,
+        default=None,
+        dest="reason",
+        help=(
+            "Why the host is out of rotation. Mandatory unless the host is"
+            " already drained; whitespace is stripped. Omit to keep an"
+            " existing reason."
+        ),
+    )
+    dh.set_defaults(func=_cmd_drain_host)
+
+    # ------------------------------------------------------------------ #
+    # undrain-host
+    # ------------------------------------------------------------------ #
+    uh = subparsers.add_parser(
+        "undrain-host",
+        help="Return a drained dispatch host to rotation.",
+    )
+    uh.add_argument("host", type=str, help="Host id, unique label, or URL substring.")
+    uh.set_defaults(func=_cmd_undrain_host)

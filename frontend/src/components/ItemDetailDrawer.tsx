@@ -1726,7 +1726,9 @@ export default function ItemDetailDrawer({
               >
                 <MenuItem value="">{'(auto-route)'}</MenuItem>
                 {dispatchHosts.map((h) => (
-                  <MenuItem key={h.id} value={h.id}>{h.label}</MenuItem>
+                  <MenuItem key={h.id} value={h.id}>
+                    {h.drainReason ? `${h.label} — draining: ${h.drainReason}` : h.label}
+                  </MenuItem>
                 ))}
               </Select>
             </FormControl>

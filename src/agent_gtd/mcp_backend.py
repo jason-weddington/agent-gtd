@@ -22,6 +22,21 @@ _TITLE_LEN = 60
 _PER_COLUMN_CAP = 10
 
 
+def _host_projection(host: dict[str, Any]) -> dict[str, Any]:
+    """Project a dispatch host to the peer-visibility shape (no secrets).
+
+    Exactly ``{id, label, url, drain_reason}`` — never ``api_key`` or
+    ``api_key_preview``. Used by BOTH backends so CLI output is
+    mode-invariant.
+    """
+    return {
+        "id": host["id"],
+        "label": host["label"],
+        "url": host["url"],
+        "drain_reason": host.get("drain_reason"),
+    }
+
+
 def _format_board_snapshot(
     items: list[dict[str, Any]],
     project_id: str,
@@ -360,6 +375,19 @@ class McpBackend(Protocol):
         self,
         user_id: str,
     ) -> list[dict[str, Any]]: ...
+
+    async def drain_dispatch_host(
+        self,
+        user_id: str,
+        host: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def undrain_dispatch_host(
+        self,
+        user_id: str,
+        host: str,
+    ) -> dict[str, Any]: ...
 
     async def add_blocker(
         self,
@@ -1173,7 +1201,36 @@ class LocalBackend:
         db = await get_db()
         hosts = await settings_service.get_dispatch_hosts(db, user_id)
         # Project down to non-secret fields only — never return api_key.
-        return [{"id": h["id"], "label": h["label"], "url": h["url"]} for h in hosts]
+        return [_host_projection(h) for h in hosts]
+
+    async def drain_dispatch_host(
+        self,
+        user_id: str,
+        host: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import settings_service
+
+        db = await get_db()
+        result = await settings_service.set_dispatch_host_drain(
+            db, user_id, host, reason
+        )
+        # Never return api_key or api_key_preview to peers.
+        return _host_projection(result)
+
+    async def undrain_dispatch_host(
+        self,
+        user_id: str,
+        host: str,
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import settings_service
+
+        db = await get_db()
+        result = await settings_service.clear_dispatch_host_drain(db, user_id, host)
+        # Never return api_key or api_key_preview to peers.
+        return _host_projection(result)
 
     async def add_blocker(
         self,
@@ -2142,7 +2199,38 @@ class HttpBackend:
         self._check(resp)
         hosts: list[dict[str, Any]] = resp.json()
         # Project down to non-secret fields only — drop api_key_preview/created_at.
-        return [{"id": h["id"], "label": h["label"], "url": h["url"]} for h in hosts]
+        return [_host_projection(h) for h in hosts]
+
+    async def drain_dispatch_host(
+        self,
+        user_id: str,
+        host: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        resp = await self._client.post(
+            "/api/settings/dispatch/hosts/drain",
+            json={"host": host, "reason": reason},
+            headers=self._headers(),
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        # Project down from the DispatchHostResponse the same way
+        # list_dispatch_hosts drops api_key_preview/created_at.
+        return _host_projection(result)
+
+    async def undrain_dispatch_host(
+        self,
+        user_id: str,
+        host: str,
+    ) -> dict[str, Any]:
+        resp = await self._client.post(
+            "/api/settings/dispatch/hosts/undrain",
+            json={"host": host},
+            headers=self._headers(),
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return _host_projection(result)
 
     async def add_blocker(
         self,

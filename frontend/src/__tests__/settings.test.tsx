@@ -77,6 +77,7 @@ describe('Settings – Dispatch Hosts', () => {
       id: 'host-1',
       label: 'my-host',
       url: 'http://dispatch.example.com',
+      drainReason: null,
       apiKeyPreview: '****key1',
       capabilityLabels: [],
       createdAt: '2024-01-01T00:00:00Z',
@@ -126,6 +127,7 @@ describe('Settings – Dispatch Hosts', () => {
         id: 'h1',
         label: 'pi-1',
         url: 'http://pi1.local:8001',
+        drainReason: null,
         apiKeyPreview: '****abcd',
         capabilityLabels: [],
         createdAt: '2024-01-01T00:00:00Z',
@@ -136,6 +138,47 @@ describe('Settings – Dispatch Hosts', () => {
 
     // The host primary text (label) should appear
     expect(await screen.findByText('pi-1')).toBeInTheDocument()
+  })
+
+  it('shows the draining chip for a host with a drainReason', async () => {
+    const api = await getApi()
+    vi.mocked(api.dispatchHosts.list).mockResolvedValue([
+      {
+        id: 'h1',
+        label: 'pi-1',
+        url: 'http://pi1.local:8001',
+        drainReason: 'rolling deploy 2.0.2',
+        apiKeyPreview: '****abcd',
+        capabilityLabels: [],
+        createdAt: '2024-01-01T00:00:00Z',
+      },
+    ])
+
+    render(<Settings />)
+
+    expect(
+      await screen.findByText('draining: rolling deploy 2.0.2'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows no draining text for a host with a null drainReason', async () => {
+    const api = await getApi()
+    vi.mocked(api.dispatchHosts.list).mockResolvedValue([
+      {
+        id: 'h1',
+        label: 'pi-1',
+        url: 'http://pi1.local:8001',
+        drainReason: null,
+        apiKeyPreview: '****abcd',
+        capabilityLabels: [],
+        createdAt: '2024-01-01T00:00:00Z',
+      },
+    ])
+
+    render(<Settings />)
+
+    expect(await screen.findByText('pi-1')).toBeInTheDocument()
+    expect(screen.queryByText(/draining:/)).not.toBeInTheDocument()
   })
 
   it('Add Host button is disabled when URL is empty', async () => {

@@ -605,6 +605,14 @@ export default function Settings() {
                           {`${h.url} · ${h.apiKeyPreview}`}
                           {' · '}
                           {h.capabilityLabels.length > 0 ? h.capabilityLabels.join(', ') : 'no capability labels'}
+                          {h.drainReason ? (
+                            <>
+                              {' · '}
+                              <Box component="span" sx={{ color: 'warning.main' }}>
+                                {`draining: ${h.drainReason}`}
+                              </Box>
+                            </>
+                          ) : null}
                           {' — '}
                           <Box
                             component="span"

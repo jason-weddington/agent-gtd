@@ -10,11 +10,14 @@ from fastapi.responses import Response
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
 from agent_gtd.dispatch_constants import MAX_TIMEOUT_MINUTES, MIN_TIMEOUT_MINUTES
+from agent_gtd.exceptions import NotFoundError, ValidationError
 from agent_gtd.models import (
     AddDispatchHostRequest,
     BuildEngine,
     DispatchHostResponse,
     DispatchSettingsResponse,
+    DrainDispatchHostRequest,
+    UndrainDispatchHostRequest,
     UpdateDispatchHostRequest,
     UpdateDispatchSettingsRequest,
     User,
@@ -206,6 +209,7 @@ async def list_dispatch_hosts(
             url=h["url"],
             api_key_preview=_mask_key(h["api_key"]),
             capability_labels=h.get("capability_labels", []),
+            drain_reason=h.get("drain_reason"),
             created_at=datetime.fromisoformat(h["created_at"]),
         )
         for h in hosts
@@ -250,6 +254,7 @@ async def add_dispatch_host(
         url=host["url"],
         api_key_preview=_mask_key(host["api_key"]),
         capability_labels=host.get("capability_labels", []),
+        drain_reason=host.get("drain_reason"),
         created_at=datetime.fromisoformat(host["created_at"]),
     )
 
@@ -282,6 +287,65 @@ async def update_dispatch_host(
         url=host["url"],
         api_key_preview=_mask_key(host["api_key"]),
         capability_labels=host.get("capability_labels", []),
+        drain_reason=host.get("drain_reason"),
+        created_at=datetime.fromisoformat(host["created_at"]),
+    )
+
+
+@router.post("/dispatch/hosts/drain", response_model=DispatchHostResponse)
+async def drain_dispatch_host(
+    body: DrainDispatchHostRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> DispatchHostResponse:
+    """Take a dispatch host out of rotation (operator action, docs/host-drain.md).
+
+    The host is addressed by id, unique label, or unique URL substring.
+    ``reason`` is mandatory unless the host is already drained; the reason
+    string IS the flag — an unexplained drain is refused (422 carries the
+    ``--reason`` hint).
+    """
+    db = await get_db()
+    try:
+        host = await settings_service.set_dispatch_host_drain(
+            db, user.id, body.host, body.reason
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=exc.detail) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.detail) from exc
+
+    return DispatchHostResponse(
+        id=host["id"],
+        label=host.get("label", ""),
+        url=host["url"],
+        api_key_preview=_mask_key(host["api_key"]),
+        capability_labels=host.get("capability_labels", []),
+        drain_reason=host.get("drain_reason"),
+        created_at=datetime.fromisoformat(host["created_at"]),
+    )
+
+
+@router.post("/dispatch/hosts/undrain", response_model=DispatchHostResponse)
+async def undrain_dispatch_host(
+    body: UndrainDispatchHostRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> DispatchHostResponse:
+    """Return a drained dispatch host to rotation (clears drain_reason)."""
+    db = await get_db()
+    try:
+        host = await settings_service.clear_dispatch_host_drain(db, user.id, body.host)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=exc.detail) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.detail) from exc
+
+    return DispatchHostResponse(
+        id=host["id"],
+        label=host.get("label", ""),
+        url=host["url"],
+        api_key_preview=_mask_key(host["api_key"]),
+        capability_labels=host.get("capability_labels", []),
+        drain_reason=host.get("drain_reason"),
         created_at=datetime.fromisoformat(host["created_at"]),
     )
 

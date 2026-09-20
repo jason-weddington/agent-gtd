@@ -7,13 +7,20 @@ drain/undrain service functions, read-path guard, schema tripwires.
 import logging
 
 import pytest
+from httpx import ASGITransport
 
 import agent_gtd.database as db_mod
 from agent_gtd.database import LOCAL_USER_ID, get_db, init_db
+from agent_gtd.exceptions import NotFoundError, ValidationError
+from agent_gtd.main import app
+from agent_gtd.mcp_backend import HttpBackend, LocalBackend
 from agent_gtd.services.settings_service import (
     add_dispatch_host,
+    clear_dispatch_host_drain,
     drain_dispatch_host,
     get_dispatch_hosts,
+    resolve_dispatch_host,
+    set_dispatch_host_drain,
     set_user_setting,
     undrain_dispatch_host,
     update_dispatch_host,
@@ -450,3 +457,598 @@ async def test_lazy_migration_refetch_includes_drain_reason():
     assert len(hosts) == 1
     assert hosts[0]["drain_reason"] is None
     assert hosts[0]["api_key"] == "legacy-key"
+
+
+# ---------------------------------------------------------------------------
+# RESOLVER — resolve_dispatch_host (id → unique label → unique url substring)
+# ---------------------------------------------------------------------------
+
+
+async def _add_two_hosts(db: object) -> tuple[dict, dict]:
+    """Add the canonical two-host fleet: pironman01 + jason-precision."""
+    first = await _add_host(
+        db,
+        label="pironman01",
+        url="http://pironman01.local:8100",
+        api_key="key-1",
+    )
+    second = await add_dispatch_host(
+        db,
+        LOCAL_USER_ID,
+        "jason-precision",
+        "http://jason-precision.local:8100",
+        "key-2",
+    )
+    return first, second
+
+
+async def _add_other_user() -> str:
+    """Register a second user and return its id (dispatch_hosts FKs users)."""
+    from agent_gtd.auth import register_user
+
+    user = await register_user("other-owner@example.com", "testpass123")
+    return user.id
+
+
+async def test_resolve_by_exact_id():
+    db = await get_db()
+    host, _ = await _add_two_hosts(db)
+    resolved, resolved_by = await resolve_dispatch_host(db, LOCAL_USER_ID, host["id"])
+    assert resolved["id"] == host["id"]
+    assert resolved_by == "id"
+
+
+async def test_resolve_id_beats_label():
+    db = await get_db()
+    host_a, _ = await _add_two_hosts(db)
+    # host_b's label is the string equal to host_a's id — id must win.
+    await add_dispatch_host(db, LOCAL_USER_ID, host_a["id"], "http://x:8100", "key-3")
+    resolved, resolved_by = await resolve_dispatch_host(db, LOCAL_USER_ID, host_a["id"])
+    assert resolved["id"] == host_a["id"]
+    assert resolved_by == "id"
+
+
+async def test_resolve_by_unique_label():
+    db = await get_db()
+    first, _ = await _add_two_hosts(db)
+    resolved, resolved_by = await resolve_dispatch_host(db, LOCAL_USER_ID, "pironman01")
+    assert resolved["id"] == first["id"]
+    assert resolved_by == "label"
+
+
+async def test_resolve_by_unique_url_substring():
+    db = await get_db()
+    first, _ = await _add_two_hosts(db)
+    resolved, resolved_by = await resolve_dispatch_host(
+        db, LOCAL_USER_ID, "pironman01.local"
+    )
+    assert resolved["id"] == first["id"]
+    assert resolved_by == "url-substring"
+
+
+async def test_resolve_ambiguous_label_pinned_detail():
+    db = await get_db()
+    a = await add_dispatch_host(db, LOCAL_USER_ID, "edge", "http://edge-a:8100", "k1")
+    b = await add_dispatch_host(db, LOCAL_USER_ID, "edge", "http://edge-b:8100", "k2")
+    with pytest.raises(ValidationError) as exc_info:
+        await resolve_dispatch_host(db, LOCAL_USER_ID, "edge")
+    detail = str(exc_info.value.detail)
+    assert detail.startswith("Multiple dispatch hosts match 'edge':")
+    assert f"label=edge id={a['id']} url=http://edge-a:8100" in detail
+    assert f"label=edge id={b['id']} url=http://edge-b:8100" in detail
+    # Candidates are joined with '; ' and ordered created_at ASC.
+    assert detail.index(a["id"]) < detail.index(b["id"])
+    assert "; " in detail
+
+
+async def test_resolve_ambiguous_url_substring():
+    db = await get_db()
+    await add_dispatch_host(db, LOCAL_USER_ID, "one", "http://edge-a:8100", "k1")
+    await add_dispatch_host(db, LOCAL_USER_ID, "two", "http://edge-b:8100", "k2")
+    with pytest.raises(ValidationError) as exc_info:
+        await resolve_dispatch_host(db, LOCAL_USER_ID, "edge-")
+    assert "Multiple dispatch hosts match 'edge-':" in str(exc_info.value.detail)
+
+
+async def test_resolve_unknown_ref_raises_not_found():
+    db = await get_db()
+    await _add_two_hosts(db)
+    with pytest.raises(NotFoundError):
+        await resolve_dispatch_host(db, LOCAL_USER_ID, "no-such-host")
+
+
+async def test_resolve_owner_scoping():
+    db = await get_db()
+    other_id = await _add_other_user()
+    await add_dispatch_host(db, other_id, "pironman01", "http://p:8100", "k9")
+    with pytest.raises(NotFoundError):
+        await resolve_dispatch_host(db, LOCAL_USER_ID, "pironman01")
+
+
+# ---------------------------------------------------------------------------
+# SET / CLEAR — set_dispatch_host_drain, clear_dispatch_host_drain
+# ---------------------------------------------------------------------------
+
+
+async def test_set_drain_by_label_stores_stripped_reason():
+    db = await get_db()
+    host = await _add_host(db)
+    row = await set_dispatch_host_drain(
+        db, LOCAL_USER_ID, "pironman01", "  rolling deploy 2.0.2  "
+    )
+    assert row["id"] == host["id"]
+    assert row["drain_reason"] == "rolling deploy 2.0.2"
+    assert row["api_key"] == "key-abc"  # reconciliation read path stays intact
+    raw = await db.fetchrow(
+        "SELECT drain_reason FROM dispatch_hosts WHERE id = $1", host["id"]
+    )
+    assert raw["drain_reason"] == "rolling deploy 2.0.2"
+
+
+async def test_set_drain_missing_reason_on_not_drained_raises_validation():
+    db = await get_db()
+    host = await _add_host(db)
+    for reason in (None, "", "   "):
+        with pytest.raises(ValidationError, match="--reason"):
+            await set_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01", reason)
+    raw = await db.fetchrow(
+        "SELECT drain_reason FROM dispatch_hosts WHERE id = $1", host["id"]
+    )
+    assert raw["drain_reason"] is None
+
+
+async def test_set_drain_noop_on_already_drained_keeps_reason():
+    db = await get_db()
+    host = await _add_host(db)
+    await set_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01", "first reason")
+    before = await db.fetchrow(
+        "SELECT drain_reason, updated_at FROM dispatch_hosts WHERE id = $1",
+        host["id"],
+    )
+    for reason in (None, "", "   "):
+        row = await set_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01", reason)
+        assert row["drain_reason"] == "first reason"
+    after = await db.fetchrow(
+        "SELECT drain_reason, updated_at FROM dispatch_hosts WHERE id = $1",
+        host["id"],
+    )
+    assert after["drain_reason"] == "first reason"
+    assert after["updated_at"] == before["updated_at"]  # no bump on no-op
+
+
+async def test_set_drain_overwrites_existing_reason():
+    db = await get_db()
+    await _add_host(db)
+    await set_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01", "old reason")
+    row = await set_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01", "new reason")
+    assert row["drain_reason"] == "new reason"
+    raw = await db.fetchrow(
+        "SELECT drain_reason FROM dispatch_hosts WHERE id = $1", row["id"]
+    )
+    assert raw["drain_reason"] == "new reason"
+
+
+async def test_set_drain_sets_updated_at_on_write():
+    db = await get_db()
+    host = await _add_host(db)
+    before = await db.fetchrow(
+        "SELECT updated_at FROM dispatch_hosts WHERE id = $1", host["id"]
+    )
+    import asyncio
+
+    await asyncio.sleep(0.01)
+    await set_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01", "deploy")
+    after = await db.fetchrow(
+        "SELECT updated_at FROM dispatch_hosts WHERE id = $1", host["id"]
+    )
+    assert after["updated_at"] != before["updated_at"]
+
+
+async def test_set_drain_wrong_owner_raises_not_found():
+    db = await get_db()
+    other = await _add_other_user()
+    await add_dispatch_host(db, other, "pironman01", "http://p:8100", "k")
+    with pytest.raises(NotFoundError):
+        await set_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01", "deploy")
+
+
+async def test_clear_drain_returns_null_reason():
+    db = await get_db()
+    await _add_host(db)
+    await set_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01", "deploy")
+    row = await clear_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01")
+    assert row["drain_reason"] is None
+    raw = await db.fetchrow(
+        "SELECT drain_reason FROM dispatch_hosts WHERE id = $1", row["id"]
+    )
+    assert raw["drain_reason"] is None
+
+
+async def test_clear_drain_never_drained_is_noop():
+    db = await get_db()
+    host = await _add_host(db)
+    row = await clear_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01")
+    assert row["id"] == host["id"]
+    assert row["drain_reason"] is None
+
+
+async def test_clear_drain_noop_leaves_updated_at_byte_identical():
+    db = await get_db()
+    host = await _add_host(db)
+    await set_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01", "deploy")
+    await clear_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01")
+    before = await db.fetchrow(
+        "SELECT updated_at FROM dispatch_hosts WHERE id = $1", host["id"]
+    )
+    row = await clear_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01")
+    assert row["drain_reason"] is None
+    after = await db.fetchrow(
+        "SELECT updated_at FROM dispatch_hosts WHERE id = $1", host["id"]
+    )
+    assert after["updated_at"] == before["updated_at"]  # byte-identical no-op
+
+
+async def test_clear_drain_wrong_owner_raises_not_found():
+    db = await get_db()
+    other = await _add_other_user()
+    await add_dispatch_host(db, other, "pironman01", "http://p:8100", "k")
+    with pytest.raises(NotFoundError):
+        await clear_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01")
+
+
+# ---------------------------------------------------------------------------
+# INSTRUMENTATION — caplog on resolve_by, INFO/WARNING branches, tripwire
+# ---------------------------------------------------------------------------
+
+
+def _drain_records(caplog, levelno: int | None = None) -> list:
+    """Filter caplog records for the ref-resolved drain log records."""
+    return [
+        r
+        for r in caplog.records
+        if r.getMessage().startswith("Dispatch host drain")
+        and (levelno is None or r.levelno == levelno)
+    ]
+
+
+def _undrain_records(caplog, levelno: int | None = None) -> list:
+    return [
+        r
+        for r in caplog.records
+        if r.getMessage().startswith("Dispatch host undrain")
+        and (levelno is None or r.levelno == levelno)
+    ]
+
+
+async def test_set_drain_logs_resolved_by_label(caplog):
+    db = await get_db()
+    await _add_host(db)
+    with caplog.at_level(logging.INFO, logger="agent_gtd.services.settings_service"):
+        await set_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01", "deploy")
+    records = list(_drain_records(caplog, logging.INFO))
+    assert len(records) == 1
+    rec = records[0]
+    assert rec.resolved_by == "label"
+    assert rec.host_ref == "pironman01"  # exactly as supplied, un-resolved
+    assert rec.user_id == LOCAL_USER_ID
+    assert rec.host_id
+    assert rec.label == "pironman01"
+    assert rec.previous_drain_reason is None
+    assert rec.new_drain_reason == "deploy"
+
+
+async def test_set_drain_logs_resolved_by_url_substring(caplog):
+    db = await get_db()
+    await _add_host(db, url="http://pironman01.local:8100")
+    with caplog.at_level(logging.INFO, logger="agent_gtd.services.settings_service"):
+        await set_dispatch_host_drain(
+            db, LOCAL_USER_ID, "pironman01.local", "  deploy  "
+        )
+    records = list(_drain_records(caplog, logging.INFO))
+    assert len(records) == 1
+    rec = records[0]
+    assert rec.resolved_by == "url-substring"
+    assert rec.new_drain_reason == "deploy"  # stripped
+
+
+async def test_set_drain_noop_logs_warning(caplog):
+    db = await get_db()
+    await _add_host(db)
+    await set_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01", "deploy")
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="agent_gtd.services.settings_service"):
+        await set_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01", None)
+    warned = _drain_records(caplog, logging.WARNING)
+    assert len(warned) == 1
+    rec = warned[0]
+    assert rec.resolved_by == "label"
+    assert rec.previous_drain_reason == "deploy"
+    assert rec.new_drain_reason == "deploy"
+
+
+async def test_clear_drain_noop_logs_warning(caplog):
+    db = await get_db()
+    await _add_host(db)
+    with caplog.at_level(logging.INFO, logger="agent_gtd.services.settings_service"):
+        await clear_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01")
+    warned = _undrain_records(caplog, logging.WARNING)
+    assert len(warned) == 1
+    rec = warned[0]
+    assert rec.resolved_by == "label"
+    assert rec.new_drain_reason is None
+
+
+async def test_set_drain_tripwire_warns_when_readback_differs(monkeypatch, caplog):
+    db = await get_db()
+    await _add_host(db)
+
+    async def _hosts_without_drain(db_arg: object, user_id: str) -> list[dict]:
+        hosts = await get_dispatch_hosts(db_arg, user_id)
+        return [{k: v for k, v in h.items() if k != "drain_reason"} for h in hosts]
+
+    monkeypatch.setattr(
+        "agent_gtd.services.settings_service.get_dispatch_hosts",
+        _hosts_without_drain,
+    )
+    with caplog.at_level(logging.INFO, logger="agent_gtd.services.settings_service"):
+        row = await set_dispatch_host_drain(db, LOCAL_USER_ID, "pironman01", "deploy")
+    tripwire = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "read-back" in r.getMessage()
+    ]
+    assert len(tripwire) == 1
+    assert row["drain_reason"] == "deploy"  # still returns the written host dict
+
+
+# ---------------------------------------------------------------------------
+# REST — POST /api/settings/dispatch/hosts/drain and /undrain
+# ---------------------------------------------------------------------------
+
+REASON = "rolling deploy 2.0.2"
+
+
+async def _seed_rest_host(client, auth_headers, user_id) -> dict:
+    db = await get_db()
+    return await add_dispatch_host(
+        db, user_id, "pironman01", "http://pironman01.local:8100", "key-abc"
+    )
+
+
+async def test_rest_drain_happy_path(client, auth_headers, user_id):
+    host = await _seed_rest_host(client, auth_headers, user_id)
+    resp = await client.post(
+        "/api/settings/dispatch/hosts/drain",
+        json={"host": "pironman01", "reason": REASON},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["drain_reason"] == REASON
+    assert data["id"] == host["id"]
+
+
+async def test_rest_drain_unknown_ref_404(client, auth_headers, user_id):
+    await _seed_rest_host(client, auth_headers, user_id)
+    resp = await client.post(
+        "/api/settings/dispatch/hosts/drain",
+        json={"host": "no-such-host", "reason": REASON},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404
+    assert "no-such-host" in resp.json()["detail"]
+
+
+async def test_rest_drain_ambiguous_ref_422(client, auth_headers, user_id):
+    await _seed_rest_host(client, auth_headers, user_id)
+    db = await get_db()
+    await add_dispatch_host(db, user_id, "pironman01", "http://dup:8100", "k2")
+    resp = await client.post(
+        "/api/settings/dispatch/hosts/drain",
+        json={"host": "pironman01", "reason": REASON},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
+    assert "Multiple dispatch hosts match" in resp.json()["detail"]
+
+
+async def test_rest_drain_without_reason_on_not_drained_422(
+    client, auth_headers, user_id
+):
+    await _seed_rest_host(client, auth_headers, user_id)
+    resp = await client.post(
+        "/api/settings/dispatch/hosts/drain",
+        json={"host": "pironman01"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
+    assert "--reason" in resp.json()["detail"]
+    listing = await client.get("/api/settings/dispatch/hosts", headers=auth_headers)
+    assert listing.json()[0]["drain_reason"] is None
+
+
+async def test_rest_drain_without_reason_on_drained_keeps_reason(
+    client, auth_headers, user_id
+):
+    await _seed_rest_host(client, auth_headers, user_id)
+    db = await get_db()
+    await set_dispatch_host_drain(db, user_id, "pironman01", REASON)
+    resp = await client.post(
+        "/api/settings/dispatch/hosts/drain",
+        json={"host": "pironman01"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["drain_reason"] == REASON
+
+
+async def test_rest_drain_then_undrain_then_list(client, auth_headers, user_id):
+    await _seed_rest_host(client, auth_headers, user_id)
+    await client.post(
+        "/api/settings/dispatch/hosts/drain",
+        json={"host": "pironman01", "reason": REASON},
+        headers=auth_headers,
+    )
+    resp = await client.post(
+        "/api/settings/dispatch/hosts/undrain",
+        json={"host": "pironman01"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["drain_reason"] is None
+    listing = await client.get("/api/settings/dispatch/hosts", headers=auth_headers)
+    hosts = listing.json()
+    assert len(hosts) == 1
+    assert hosts[0]["drain_reason"] is None
+    assert hosts[0]["api_key_preview"].startswith("****")
+    assert "api_key" not in hosts[0]
+
+
+async def test_rest_undrain_non_drained_is_200(client, auth_headers, user_id):
+    await _seed_rest_host(client, auth_headers, user_id)
+    resp = await client.post(
+        "/api/settings/dispatch/hosts/undrain",
+        json={"host": "pironman01"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["drain_reason"] is None
+
+
+async def test_rest_undrain_unknown_ref_404(client, auth_headers, user_id):
+    await _seed_rest_host(client, auth_headers, user_id)
+    resp = await client.post(
+        "/api/settings/dispatch/hosts/undrain",
+        json={"host": "no-such-host"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404
+
+
+async def test_rest_list_does_not_filter_drained_and_carries_reason(
+    client, auth_headers, user_id
+):
+    """GET /hosts returns EVERY host — drained or not — with drain_reason."""
+    await _seed_rest_host(client, auth_headers, user_id)
+    db = await get_db()
+    await add_dispatch_host(db, user_id, "jason-precision", "http://j:8100", "k2")
+    await set_dispatch_host_drain(db, user_id, "pironman01", REASON)
+    resp = await client.get("/api/settings/dispatch/hosts", headers=auth_headers)
+    hosts = resp.json()
+    assert len(hosts) == 2  # drained host is NOT filtered out
+    by_label = {h["label"]: h for h in hosts}
+    assert by_label["pironman01"]["drain_reason"] == REASON
+    assert by_label["jason-precision"]["drain_reason"] is None
+
+
+# ---------------------------------------------------------------------------
+# PEER VISIBILITY — backend projections and drain/undrain methods
+# ---------------------------------------------------------------------------
+
+
+async def test_local_backend_list_carries_drain_reason():
+    db = await get_db()
+    backend = LocalBackend()
+    host = await _add_host(db)
+    await drain_dispatch_host(db, LOCAL_USER_ID, host["id"], REASON)
+    hosts = await backend.list_dispatch_hosts(LOCAL_USER_ID)
+    assert len(hosts) == 1
+    returned = hosts[0]
+    assert returned["drain_reason"] == REASON
+    assert set(returned.keys()) == {"id", "label", "url", "drain_reason"}
+
+
+async def test_local_backend_drain_returns_secret_free_dict():
+    db = await get_db()
+    await _add_host(db)
+    backend = LocalBackend()
+    result = await backend.drain_dispatch_host(
+        LOCAL_USER_ID, "pironman01", "rolling deploy 2.0.2"
+    )
+    assert result["drain_reason"] == "rolling deploy 2.0.2"
+    assert set(result.keys()) == {"id", "label", "url", "drain_reason"}
+    assert "api_key" not in result
+    assert "api_key_preview" not in result
+
+
+async def test_local_backend_undrain_returns_secret_free_dict():
+    db = await get_db()
+    await _add_host(db)
+    backend = LocalBackend()
+    await backend.drain_dispatch_host(LOCAL_USER_ID, "pironman01", "deploy")
+    result = await backend.undrain_dispatch_host(LOCAL_USER_ID, "pironman01")
+    assert result["drain_reason"] is None
+    assert set(result.keys()) == {"id", "label", "url", "drain_reason"}
+
+
+# ---------------------------------------------------------------------------
+# HTTP-MODE HttpBackend roundtrip (the only end-to-end HttpBackend drain test)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def drain_http_backend():
+    """HttpBackend wired to the FastAPI app via ASGI transport, logged in.
+
+    Yields ``(backend, user_id)`` — ``HttpBackend.login`` does not retain the
+    user id, so the fixture surfaces it alongside the logged-in backend.
+    """
+    from agent_gtd.auth import create_token, register_user
+
+    transport = ASGITransport(app=app)
+    be = HttpBackend(base_url="http://test")
+    be._client = be._client.__class__(
+        transport=transport,
+        base_url="http://test",
+        timeout=30.0,
+    )
+    user = await register_user("drain@example.com", "testpass123")
+    token = create_token(user.id)
+    resp = await be._client.post(
+        "/api/auth/api-keys",
+        json={"name": "drain-test-key"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    await be.login(resp.json()["api_key"], "drain-test-agent")
+    yield be, user.id
+    await be.close()
+
+
+async def test_http_backend_drain_undrain_roundtrip(drain_http_backend):
+    from agent_gtd.database import get_db as _get_db
+
+    backend, user_id = drain_http_backend
+    db = await _get_db()
+    await add_dispatch_host(
+        db, user_id, "pironman01", "http://pironman01.local:8100", "super-secret-key"
+    )
+    drained = await backend.drain_dispatch_host(user_id, "pironman01", REASON)
+    assert drained["drain_reason"] == REASON
+    assert set(drained.keys()) == {"id", "label", "url", "drain_reason"}
+    assert "api_key" not in drained
+    assert "api_key_preview" not in drained
+
+    # The drained host is NOT filtered out of the list projection.
+    while_drained = await backend.list_dispatch_hosts(user_id)
+    entry = next(h for h in while_drained if h["label"] == "pironman01")
+    assert entry["drain_reason"] == REASON
+
+    undrained = await backend.undrain_dispatch_host(user_id, "pironman01")
+    assert undrained["drain_reason"] is None
+    assert set(undrained.keys()) == {"id", "label", "url", "drain_reason"}
+
+
+async def test_http_backend_drain_missing_reason_propagates_detail(
+    drain_http_backend,
+):
+    from agent_gtd.database import get_db as _get_db
+
+    backend, user_id = drain_http_backend
+    db = await _get_db()
+    await add_dispatch_host(
+        db, user_id, "pironman01", "http://pironman01.local:8100", "k"
+    )
+    from fastmcp.exceptions import ToolError
+
+    with pytest.raises(ToolError, match="--reason"):
+        await backend.drain_dispatch_host(user_id, "pironman01", None)

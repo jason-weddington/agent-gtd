@@ -313,6 +313,8 @@ export interface DispatchHost {
   id: string
   label: string
   url: string
+  /** Non-null means the host is out of rotation and the string says why (docs/host-drain.md). */
+  drainReason: string | null
   apiKeyPreview: string
   /** Operator-set capability labels (e.g. 'camera-data', 'tauri-linux'). Never self-reported by the host. */
   capabilityLabels: string[]

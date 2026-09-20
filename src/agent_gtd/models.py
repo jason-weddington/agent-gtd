@@ -1065,6 +1065,9 @@ class DispatchHostResponse(BaseModel):
     url: str
     api_key_preview: str  # "****" + last-4, never full key
     capability_labels: list[str] = []
+    # NULL/None means the host accepts work; any non-NULL string means it is
+    # out of rotation and the string says why (docs/host-drain.md).
+    drain_reason: str | None = None
     created_at: datetime
 
 
@@ -1090,6 +1093,24 @@ class UpdateDispatchHostRequest(BaseModel):
     """
 
     capability_labels: list[str] = []
+
+
+class DrainDispatchHostRequest(BaseModel):
+    """Request to drain a dispatch host (take it out of rotation).
+
+    ``host`` accepts an id, a unique label, or a unique URL substring.
+    ``reason`` is mandatory unless the host is already drained — enforced
+    by the service layer (a 422 carries the ``--reason`` hint).
+    """
+
+    host: str
+    reason: str | None = None
+
+
+class UndrainDispatchHostRequest(BaseModel):
+    """Request to return a drained dispatch host to rotation."""
+
+    host: str
 
 
 # --- Rollout Manager Schemas ---

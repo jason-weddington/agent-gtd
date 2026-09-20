@@ -1412,13 +1412,19 @@ async def list_dispatch_hosts(
     host via ``dispatch_item(dispatch_host_id=...)``. The ``id`` field of each
     returned host is the value to pass as ``dispatch_host_id``.
 
-    No secret material is returned — only ``id``, ``label``, and ``url``.
+    A non-null ``drain_reason`` means the host is currently out of rotation
+    (drained) and the string says why — do not dispatch to it and do not
+    expect work on it to start; hold until it is undrained.
+
+    No secret material is returned — only ``id``, ``label``, ``url``, and
+    ``drain_reason``.
 
     Args:
         ctx: MCP context (injected automatically).
 
     Returns:
-        List of host dicts, each with keys ``id``, ``label``, and ``url``.
+        List of host dicts, each with keys ``id``, ``label``, ``url``, and
+        ``drain_reason``.
     """
     session = await _get_session(ctx)
     return await _backend.list_dispatch_hosts(session["user_id"])

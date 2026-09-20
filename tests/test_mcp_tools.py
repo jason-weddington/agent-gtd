@@ -1802,7 +1802,7 @@ async def test_list_dispatch_hosts_empty(registered_client):
 
 
 async def test_list_dispatch_hosts(registered_client, user_id):
-    """list_dispatch_hosts returns id/label/url and never exposes api_key."""
+    """list_dispatch_hosts returns id/label/url/drain_reason, never api_key."""
     from agent_gtd.services import settings_service
 
     db = await get_db()
@@ -1825,7 +1825,7 @@ async def test_list_dispatch_hosts(registered_client, user_id):
     # Critical: no secret material is ever returned.
     assert "api_key" not in returned
     assert "api_key_preview" not in returned
-    assert set(returned.keys()) == {"id", "label", "url"}
+    assert set(returned.keys()) == {"id", "label", "url", "drain_reason"}
 
 
 async def test_list_items_compact_by_default(registered_client, project_id):

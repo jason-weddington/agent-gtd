@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from agent_gtd.database import decode_json_list, encode_json_list, normalize_labels
+from agent_gtd.exceptions import NotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -406,6 +407,178 @@ async def undrain_dispatch_host(
         user_id,
         prior,
     )
+    return result
+
+
+async def resolve_dispatch_host(
+    db: Any, user_id: str, host_ref: str
+) -> tuple[dict[str, Any], str]:
+    """Resolve a host reference (id, label, or URL substring) to a host row.
+
+    Operators think in labels (``pironman01``), the registry thinks in UUIDs.
+    Resolution order, each step scoped to the caller's own hosts in
+    ``created_at`` ASC order (the order :func:`get_dispatch_hosts` returns):
+
+    1. Exact case-sensitive equality on ``id``.
+    2. Exact case-sensitive equality on ``label`` — only if exactly one host
+       matches.
+    3. Unique case-sensitive Python substring match via ``host_ref in url``.
+
+    Args:
+        db: Database pool.
+        user_id: Owner's user ID (hosts owned by others are invisible).
+        host_ref: The reference exactly as supplied — never resolved,
+            never normalized.
+
+    Returns:
+        ``(host_dict, resolved_by)`` where ``resolved_by`` is one of the
+        exact strings ``'id'``, ``'label'``, ``'url-substring'``.
+
+    Raises:
+        NotFoundError: If no host matches at any step.
+        ValidationError: If a label or URL substring matches more than one
+            host — the detail lists every candidate in created_at ASC order.
+    """
+    hosts = await get_dispatch_hosts(db, user_id)
+
+    def _candidates(matches: list[dict[str, Any]]) -> str:
+        return "; ".join(
+            f"label={h.get('label', '')} id={h['id']} url={h['url']}" for h in matches
+        )
+
+    # Step 1: exact id — always unambiguous by primary key, and beats label.
+    for host in hosts:
+        if host["id"] == host_ref:
+            return host, "id"
+
+    # Step 2: exact label, only when unique.
+    label_matches = [h for h in hosts if h["label"] == host_ref]
+    if len(label_matches) == 1:
+        return label_matches[0], "label"
+    if len(label_matches) > 1:
+        raise ValidationError(
+            f"Multiple dispatch hosts match '{host_ref}': {_candidates(label_matches)}"
+        )
+
+    # Step 3: unique URL substring.
+    url_matches = [h for h in hosts if host_ref in h["url"]]
+    if len(url_matches) == 1:
+        return url_matches[0], "url-substring"
+    if len(url_matches) > 1:
+        raise ValidationError(
+            f"Multiple dispatch hosts match '{host_ref}': {_candidates(url_matches)}"
+        )
+
+    raise NotFoundError("DispatchHost", host_ref)
+
+
+async def set_dispatch_host_drain(
+    db: Any, user_id: str, host_ref: str, reason: str | None = None
+) -> dict[str, Any]:
+    """Drain a dispatch host by reference (id, label, or URL substring).
+
+    Thin reference-resolving wrapper over :func:`drain_dispatch_host` that
+    adds the operator-facing logging (resolved_by, host_ref as supplied)
+    and a write-time read-back tripwire: the drain_reason column must be
+    declared in all three schema places, and a missed one fails silently
+    because the router reads ``host.get("drain_reason")``. Re-fetching
+    through the exact read path dispatch_worker consumes turns that silent
+    misconfiguration into a loud one while the operator is watching.
+
+    Returns:
+        The full decoded host row (secret-trimming happens at the backend
+        layer, never here).
+
+    Raises:
+        NotFoundError: If the reference resolves to no host owned by
+            *user_id*.
+        ValidationError: If the host is not drained and no non-blank reason
+            was supplied (detail contains ``--reason``), or if the reference
+            is ambiguous.
+    """
+    host, resolved_by = await resolve_dispatch_host(db, user_id, host_ref)
+    previous = host.get("drain_reason")
+    trimmed = reason.strip() if isinstance(reason, str) else None
+    reason_present = bool(trimmed)
+
+    if previous is None and not reason_present:
+        raise ValidationError(
+            f"Dispatch host '{host.get('label', '')}' ({host['id']}) is not "
+            "drained: pass --reason to drain it"
+        )
+
+    no_op = previous is not None and not reason_present
+    record = {
+        "user_id": user_id,
+        "host_ref": host_ref,
+        "resolved_by": resolved_by,
+        "host_id": host["id"],
+        "label": host.get("label", ""),
+        "previous_drain_reason": previous,
+        "new_drain_reason": trimmed if reason_present else previous,
+    }
+
+    # The mandatory-reason branch is pre-validated above (as ValidationError),
+    # so drain_dispatch_host cannot raise its ValueError here — all four
+    # reason/state branches are already accounted for.
+    result = await drain_dispatch_host(db, user_id, host["id"], reason)
+    assert result is not None  # noqa: S101 — just resolved, must exist
+
+    if no_op:
+        # The most likely mistaken invocation — say so at WARNING.
+        logger.warning(
+            "Dispatch host drain no-op: already drained, existing reason kept",
+            extra=record,
+        )
+    else:
+        logger.info("Dispatch host drain applied by reference", extra=record)
+
+    # Write-time tripwire: read back through the exact read path dispatch_worker
+    # reconciliation consumes and compare against what we just wrote.
+    written = result["drain_reason"]
+    read_back = {h["id"]: h for h in await get_dispatch_hosts(db, user_id)}.get(
+        host["id"], {}
+    ).get("drain_reason")
+    if read_back != written:
+        logger.warning(
+            "drain_reason read-back mismatch for host %s: wrote %r, read back %r "
+            "— the column may be missing from the schema the reader sees",
+            host["id"],
+            written,
+            read_back,
+        )
+
+    return result
+
+
+async def clear_dispatch_host_drain(
+    db: Any, user_id: str, host_ref: str
+) -> dict[str, Any]:
+    """Undrain a dispatch host by reference (id, label, or URL substring).
+
+    Clears ``drain_reason`` when set; a no-op when the host is not drained
+    (no ``updated_at`` bump, no error). Returns the full decoded host row.
+    """
+    host, resolved_by = await resolve_dispatch_host(db, user_id, host_ref)
+    previous = host.get("drain_reason")
+    record = {
+        "user_id": user_id,
+        "host_ref": host_ref,
+        "resolved_by": resolved_by,
+        "host_id": host["id"],
+        "label": host.get("label", ""),
+        "previous_drain_reason": previous,
+        "new_drain_reason": None,
+    }
+
+    if previous is None:
+        # The most likely mistaken invocation — already undrained.
+        logger.warning("Dispatch host undrain no-op: host is not drained", extra=record)
+        return host
+
+    result = await undrain_dispatch_host(db, user_id, host["id"])
+    logger.info("Dispatch host undrain applied by reference", extra=record)
+    assert result is not None  # noqa: S101 — just resolved, must exist
     return result
 
 

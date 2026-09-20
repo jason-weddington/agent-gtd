@@ -446,7 +446,7 @@ async def test_list_runs_filter_item(authed_backend: HttpBackend):
 
 
 async def test_list_dispatch_hosts_backend(authed_backend: HttpBackend):
-    """HttpBackend.list_dispatch_hosts returns id/label/url with no secrets."""
+    """HttpBackend.list_dispatch_hosts returns id/label/url/drain_reason, no secrets."""
     from agent_gtd.database import get_db
     from agent_gtd.services import settings_service
 
@@ -470,7 +470,7 @@ async def test_list_dispatch_hosts_backend(authed_backend: HttpBackend):
     # Critical: no secret material — not even the masked preview.
     assert "api_key" not in returned
     assert "api_key_preview" not in returned
-    assert set(returned.keys()) == {"id", "label", "url"}
+    assert set(returned.keys()) == {"id", "label", "url", "drain_reason"}
 
 
 # --- Workspace project fields (LocalBackend via HttpBackend) ---

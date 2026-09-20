@@ -1,6 +1,7 @@
 """Tests for agent_gtd.cli_commands.dispatch.
 
-Covers all three subcommands: dispatch-item, list-runs, list-dispatch-hosts.
+Covers all five subcommands: dispatch-item, list-runs, list-dispatch-hosts,
+drain-host, undrain-host.
 """
 
 from __future__ import annotations
@@ -17,8 +18,10 @@ import pytest
 from agent_gtd.cli import build_parser, main
 from agent_gtd.cli_commands.dispatch import (
     _cmd_dispatch_item,
+    _cmd_drain_host,
     _cmd_list_dispatch_hosts,
     _cmd_list_runs,
+    _cmd_undrain_host,
 )
 
 # ---------------------------------------------------------------------------
@@ -80,6 +83,20 @@ def _list_dispatch_hosts_args() -> argparse.Namespace:
     return argparse.Namespace()
 
 
+def _drain_host_args(**overrides: Any) -> argparse.Namespace:
+    """Return a Namespace for drain-host with defaults."""
+    defaults: dict[str, Any] = {"host": "pironman01", "reason": None}
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
+def _undrain_host_args(**overrides: Any) -> argparse.Namespace:
+    """Return a Namespace for undrain-host with defaults."""
+    defaults: dict[str, Any] = {"host": "pironman01"}
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
 # ---------------------------------------------------------------------------
 # FakeBackend — records calls and returns canned results
 # ---------------------------------------------------------------------------
@@ -92,9 +109,14 @@ class _FakeBackend:
         self.dispatch_item_calls: list[dict[str, Any]] = []
         self.list_runs_calls: list[dict[str, Any]] = []
         self.list_dispatch_hosts_calls: int = 0
+        self.drain_calls: list[dict[str, Any]] = []
+        self.undrain_calls: list[dict[str, Any]] = []
         self._dispatch_item_result: dict[str, Any] = _make_run()
         self._list_runs_result: list[dict[str, Any]] = []
         self._list_dispatch_hosts_result: list[dict[str, Any]] = []
+        self._drain_result: dict[str, Any] = _make_host()
+        self._undrain_result: dict[str, Any] = _make_host()
+        self._drain_error: Exception | None = None
 
     async def dispatch_item(
         self,
@@ -133,6 +155,25 @@ class _FakeBackend:
     async def list_dispatch_hosts(self, user_id: str) -> list[dict[str, Any]]:
         self.list_dispatch_hosts_calls += 1
         return self._list_dispatch_hosts_result
+
+    async def drain_dispatch_host(
+        self,
+        user_id: str,
+        host: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        self.drain_calls.append({"user_id": user_id, "host": host, "reason": reason})
+        if self._drain_error is not None:
+            raise self._drain_error
+        return self._drain_result
+
+    async def undrain_dispatch_host(
+        self,
+        user_id: str,
+        host: str,
+    ) -> dict[str, Any]:
+        self.undrain_calls.append({"user_id": user_id, "host": host})
+        return self._undrain_result
 
     async def close(self) -> None:
         pass
@@ -560,3 +601,211 @@ def test_main_dispatch_item_rollout_id_forwarded_end_to_end(monkeypatch, capsys)
     data = json.loads(captured.out)
     assert data["id"] == run["id"]
     assert fake.dispatch_item_calls[0]["rollout_id"] == rollout_id
+
+
+# ---------------------------------------------------------------------------
+# Tests for _cmd_drain_host / _cmd_undrain_host
+# ---------------------------------------------------------------------------
+
+
+def test_cmd_drain_host_passes_reason_and_prints_json(monkeypatch, capsys):
+    """drain-host with --reason calls backend.drain_dispatch_host and prints JSON."""
+    fake = _FakeBackend()
+    host = _make_host(drain_reason="rolling deploy 2.0.2")
+    fake._drain_result = host
+
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _make_session(fake)
+    )
+
+    _cmd_drain_host(_drain_host_args(host="pironman01", reason="rolling deploy 2.0.2"))
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    data = json.loads(captured.out)
+    assert data["drain_reason"] == "rolling deploy 2.0.2"
+    assert "api_key" not in data
+
+    assert len(fake.drain_calls) == 1
+    call = fake.drain_calls[0]
+    assert call["host"] == "pironman01"
+    assert call["reason"] == "rolling deploy 2.0.2"
+
+
+def test_cmd_drain_host_without_reason_passes_none(monkeypatch, capsys):
+    """drain-host without --reason passes reason=None to the backend."""
+    fake = _FakeBackend()
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _make_session(fake)
+    )
+
+    _cmd_drain_host(_drain_host_args(reason=None))
+
+    assert len(fake.drain_calls) == 1
+    assert fake.drain_calls[0]["reason"] is None
+
+
+def test_cmd_drain_host_missing_reason_error_exits_1_with_reason_hint(
+    monkeypatch, capsys
+):
+    """A non-drained host without --reason exits 1; stderr carries '--reason'."""
+
+    class _ValidationError(Exception):
+        pass
+
+    fake = _FakeBackend()
+    fake._drain_error = _ValidationError(
+        "Dispatch host 'pironman01' is not drained: pass --reason to drain it"
+    )
+
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _make_session(fake)
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_drain_host(_drain_host_args(reason=None))
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "--reason" in captured.err
+    assert captured.out == ""
+
+
+def test_cmd_undrain_host_prints_json(monkeypatch, capsys):
+    """undrain-host calls backend.undrain_dispatch_host and prints JSON."""
+    fake = _FakeBackend()
+    fake._undrain_result = _make_host(drain_reason=None)
+
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _make_session(fake)
+    )
+
+    _cmd_undrain_host(_undrain_host_args(host="pironman01"))
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    data = json.loads(captured.out)
+    assert data["drain_reason"] is None
+    assert "api_key" not in data
+
+    assert len(fake.undrain_calls) == 1
+    assert fake.undrain_calls[0]["host"] == "pironman01"
+
+
+def test_cmd_drain_host_backend_error_prints_stderr_exits_1(monkeypatch, capsys):
+    """Any backend exception on drain-host prints 'Error:' and exits 1."""
+
+    @asynccontextmanager  # type: ignore[misc]
+    async def _error_session() -> Any:
+        class _ErrorBackend:
+            async def drain_dispatch_host(
+                self, *args: Any, **kwargs: Any
+            ) -> dict[str, Any]:
+                raise RuntimeError("drain failed")
+
+            async def close(self) -> None:
+                pass
+
+        yield _ErrorBackend(), "fake-user"
+
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _error_session
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_drain_host(_drain_host_args())
+
+    assert exc_info.value.code == 1
+    assert "Error:" in capsys.readouterr().err
+
+
+def test_cmd_undrain_host_backend_error_prints_stderr_exits_1(monkeypatch, capsys):
+    """Any backend exception on undrain-host prints 'Error:' and exits 1."""
+
+    @asynccontextmanager  # type: ignore[misc]
+    async def _error_session() -> Any:
+        class _ErrorBackend:
+            async def undrain_dispatch_host(
+                self, *args: Any, **kwargs: Any
+            ) -> dict[str, Any]:
+                raise RuntimeError("undrain failed")
+
+            async def close(self) -> None:
+                pass
+
+        yield _ErrorBackend(), "fake-user"
+
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _error_session
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_undrain_host(_undrain_host_args())
+
+    assert exc_info.value.code == 1
+    assert "Error:" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# End-to-end argparse resolution tests for the drain verbs
+# ---------------------------------------------------------------------------
+
+
+def test_build_parser_drain_host_resolves_to_handler():
+    """Parsing 'drain-host <host> --reason <r>' yields func=_cmd_drain_host."""
+    parser = build_parser()
+    args = parser.parse_args(
+        ["drain-host", "pironman01", "--reason", "rolling deploy 2.0.2"]
+    )
+
+    assert args.func is _cmd_drain_host
+    assert args.host == "pironman01"
+    assert args.reason == "rolling deploy 2.0.2"
+
+
+def test_build_parser_drain_host_reason_optional():
+    """--reason is optional for drain-host (defaults to None)."""
+    parser = build_parser()
+    args = parser.parse_args(["drain-host", "pironman01"])
+
+    assert args.func is _cmd_drain_host
+    assert args.reason is None
+
+
+def test_build_parser_undrain_host_resolves_to_handler():
+    """Parsing 'undrain-host <host>' yields func=_cmd_undrain_host."""
+    parser = build_parser()
+    args = parser.parse_args(["undrain-host", "pironman01"])
+
+    assert args.func is _cmd_undrain_host
+    assert args.host == "pironman01"
+
+
+def test_main_drain_host_end_to_end(monkeypatch, capsys):
+    """main() with 'drain-host' forwards to the backend via args.func."""
+    fake = _FakeBackend()
+    fake._drain_result = _make_host(drain_reason="rolling deploy 2.0.2")
+
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _make_session(fake)
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-gtd",
+            "drain-host",
+            "pironman01",
+            "--reason",
+            "rolling deploy 2.0.2",
+        ],
+    )
+
+    main()
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["drain_reason"] == "rolling deploy 2.0.2"
+    assert "api_key" not in data
+    assert fake.drain_calls[0]["host"] == "pironman01"
+    assert fake.drain_calls[0]["reason"] == "rolling deploy 2.0.2"
