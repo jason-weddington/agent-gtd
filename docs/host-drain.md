@@ -50,11 +50,21 @@ So: **a pinned dispatch to a drained host is refused**, and the error carries th
 
 The refusal must read as *wait*, not as *re-route*. A caller pinning for affinity cannot fall back to auto-routing — the data is not on the other hosts — so an error that nudges toward "try another host" sends them somewhere the work cannot run. The message should name the host, say it is draining, quote the reason, and say the work should be retried when it returns. This is what makes the mandatory `--reason` pay for itself: camera-profiles sees `r7-research is draining: rolling deploy 2.0.2` and knows to hold rather than guess.
 
-#### Then how do you test a drained host?
+#### Drain is absolute. There is no override in the CLI contract.
 
-An explicit operator override, separate from pinning: `--allow-drained` on the dispatch path, refused by default.
+An intermediate draft proposed an `--allow-drained` flag for operator verification. That is also wrong, and for a sharper reason: **anything in the public CLI contract that can reach a drained host is a hole, because any agent can find it and use it.** A flag documented in `--help` is not an operator tool, it is an affordance — and the whole point of drain is that callers who do not know about the drain cannot defeat it. A drain an agent can opt out of is not a drain.
 
-The split matters because the two uses of pinning want opposite behaviour under drain. Capability affinity is a routine agent action that must be blocked; operator verification is a deliberate human action by someone who already knows the host is draining and why. Conflating them into one flag is exactly the bug in the earlier draft. Keeping the override separate also means the default is refusal, which is the safe direction: an agent that has never heard of drain cannot accidentally opt into it.
+So there is no flag, no header, no env var, no escape hatch. Every board-side path — MCP `dispatch_item`, the REST route, the CLI, and rollout child dispatch — refuses a drained host, and the refusal lives at the single chokepoint rather than being re-implemented per caller.
+
+**The chokepoint is `pick_dispatch_host`.** It has exactly one caller, `dispatch_worker.py:923`, and every dispatch path funnels through it, so the check cannot be routed around. A second, friendlier rejection belongs at `dispatch_service.create_run` (`:257-272`, where a pinned `dispatch_host_id` is already validated against the owner's host list) so a caller is told immediately rather than after a run row exists — but `pick_dispatch_host` is the one that must be correct, because it is the one nothing can bypass.
+
+#### Then how do you verify a host after upgrading it?
+
+**On the host, as an admin action — not through the board.** Health-checking a machine you are administering is a thing you do by logging into it, and routing it through the public dispatch API is what created the need for an override in the first place.
+
+`deploy.sh --smoke` already covers the layer that actually breaks on a bad deploy: the service starts, `/health` and `/info` return 200, and `EXPECT_VERSION` asserts the installed wheel is the one you meant. Beyond that, an operator on the host has `journalctl -u dispatch-api`, `curl localhost:8100/info`, and the ability to exercise the agent toolchain directly as the `dispatch` user — which is how this morning's umask failure was diagnosed, and it needed no board involvement at all.
+
+The deeper "can it really run an agent end-to-end" question is answered by undraining and watching the first real run, which is the honest test anyway: a synthetic smoke dispatch exercises a path slightly different from production and can pass while production fails.
 
 #### The durable fix is capability labels, not pinning
 
@@ -62,7 +72,7 @@ The root problem is that pinning is being used to express a *requirement* ("this
 
 Item `1bfbfbc4` — host capability labels, letting projects and items declare what a host must provide — landed today and is in review. Once it ships, camera-profiles declares a requirement instead of pinning a host id, the router satisfies it, and drain composes naturally: a drained host simply stops being an eligible candidate, and an item whose only capable host is drained waits for a host rather than failing. No override needed, because nobody is pinning.
 
-This design should be read as the interim: refuse-and-explain now, and expect the override to become unnecessary as capability labels take over the affinity cases.
+This design should be read as the interim: refuse-and-explain now, and expect pinning itself to become rare as capability labels take over the affinity cases. The end state is that nothing pins, so nothing needs to be refused.
 
 ### What drain must NOT break
 
@@ -102,11 +112,18 @@ Wait for a parked host to go idle. **Read `active_runs` twice, ~30s apart, befor
 
 ```bash
 curl -s http://pironman01:8100/info | jq '{active_runs, max_concurrent_runs}'
-DISPATCH_HOST=pironman01 EXPECT_VERSION=2.0.2 ./deploy.sh
+DISPATCH_HOST=pironman01 EXPECT_VERSION=2.0.2 ./deploy.sh   # --smoke asserts /health, /info, version
+```
 
-# Verify while still drained — --allow-drained is required, pinning alone is refused
-agent-gtd dispatch-item <id> --dispatch-host-id <pironman01-id> --allow-drained
+Verify on the host, as an admin — there is no board-side way to reach a drained host and that is deliberate:
 
+```bash
+ssh pironman01 'journalctl -u dispatch-api -n 50 --no-pager; curl -s localhost:8100/info | jq'
+```
+
+Then return it to rotation and watch the first real run land:
+
+```bash
 agent-gtd undrain-host pironman01
 ```
 
