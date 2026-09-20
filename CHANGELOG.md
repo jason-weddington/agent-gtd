@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v2.0.1 (2026-09-20)
+
+### Bug Fixes
+
+- **rollouts**: Accept reviewer-autonomous as a merge actor
+  ([`c2ec8de`](https://github.com/jason-weddington/agent-gtd/commit/c2ec8de066944c061df9df1ab1d6d336fc42c551))
+
+### Documentation
+
+- Board-flag variant of the dispatch host drain design
+  ([`a213e20`](https://github.com/jason-weddington/agent-gtd/commit/a213e20d5896d5630708d486f6ed5be7254f036d))
+
+- Consolidate the host-drain design into one reviewable doc
+  ([`f52a7d6`](https://github.com/jason-weddington/agent-gtd/commit/f52a7d6e09bf91c992fbc2e7699495744fcbdc46))
+
+- Design for non-destructive dispatch host drain
+  ([`cae4eab`](https://github.com/jason-weddington/agent-gtd/commit/cae4eabdfcf3ec3563518cf05459e0e7d9249db5))
+
+- **host-drain**: Drain is absolute — no CLI override at all
+  ([`1f628d3`](https://github.com/jason-weddington/agent-gtd/commit/1f628d32018c04a7016be01c8147ab42c14d2a6b))
+
+- **host-drain**: Drain must refuse pinned dispatch too
+  ([`d8945c7`](https://github.com/jason-weddington/agent-gtd/commit/d8945c70a658a87c82a08d2eb3afe81b084a8acb))
+
+
 ## v2.0.0 (2026-09-20)
 
 ### Bug Fixes
