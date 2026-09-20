@@ -2,6 +2,43 @@
 
 <!-- version list -->
 
+## v2.0.0 (2026-09-20)
+
+### Bug Fixes
+
+- **dispatch-worker**: Already_satisfied is terminal — derive the set from the enum
+  ([`9996d07`](https://github.com/jason-weddington/agent-gtd/commit/9996d070f0e2d6961be708961925242ebe09d03b))
+
+### Documentation
+
+- Dispatched agents cannot read service secrets either — write ACs accordingly
+  ([`d3e6070`](https://github.com/jason-weddington/agent-gtd/commit/d3e60708444f2cf136e71860217b3730f794c74b))
+
+### Features
+
+- **dispatch**: Expose remote_run_id so a run's evidence patch can be found
+  ([`e6f1296`](https://github.com/jason-weddington/agent-gtd/commit/e6f129625932839c1a21276269291a8e71a74575))
+
+- **rollouts**: Add --dispatch-host-id for per-host rollout pinning
+  ([`1742d4d`](https://github.com/jason-weddington/agent-gtd/commit/1742d4de5968e6095b351cb6d7ab735a2cbcedb9))
+
+- **rollouts**: Persist merge notes and give manage its own turn budget
+  ([`89d25b7`](https://github.com/jason-weddington/agent-gtd/commit/89d25b73e4718a546f988ef5c9adec2790368db0))
+
+- **rollouts**: Remove replan_rollout and the planner HTTP clients
+  ([`469fdee`](https://github.com/jason-weddington/agent-gtd/commit/469fdeef48808c30e581e6270cc4629f5e49fd0f))
+
+- **rollouts**: Reviewer engine, review-mode budget and the reset-item seam
+  ([`8e8a413`](https://github.com/jason-weddington/agent-gtd/commit/8e8a4132e76ab720155ab074996c852994132341))
+
+### Breaking Changes
+
+- **rollouts**: The replan_rollout MCP tool, its REST route, its CLI command and its service
+  function are removed. They existed solely to re-run the LLM wave planner, which is gone —
+  plan_rollout now derives its edges from item blockers plus deterministic file-overlap
+  serialisation.
+
+
 ## v1.100.0 (2026-09-19)
 
 ### Bug Fixes
