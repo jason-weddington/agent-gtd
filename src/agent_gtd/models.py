@@ -159,6 +159,14 @@ class MergeActor(StrEnum):
     MANAGER_ALLOWLIST = "manager-allowlist"
     MANAGER_AUTONOMOUS = "manager-autonomous"
     MANAGER_HUMAN_FIXUP = "manager+human-fixup"
+    # The short-lived reviewer the worker-driven wave loop launches per item. A
+    # distinct actor from the manager, so it gets a distinct value rather than
+    # being folded into `manager-autonomous`: the whole point of the redesign is
+    # that no long-lived manager exists, and the merge record should say who
+    # actually decided. Added after the dispatch side began sending it and every
+    # completion 422'd — the merge had already landed and only the bookkeeping
+    # failed, which halted the whole rollout and stopped two unrelated items.
+    REVIEWER_AUTONOMOUS = "reviewer-autonomous"
 
 
 class BuildEngine(StrEnum):
