@@ -178,6 +178,29 @@ async def create_run(
     from agent_gtd.dispatch_worker import DEFAULT_MAX_TURNS, resolve_max_turns
     from agent_gtd.services import settings_service
 
+    # Friendly early rejection: refuse a pin to a draining host BEFORE the
+    # run row exists. OWNER-scoped (the pin validates against the project
+    # owner's host list, like dispatch_rollout_run and the route pre-flight)
+    # — using the caller's user_id would silently no-op for member-initiated
+    # dispatches. Catches both explicit pins and rollout-inherited ones
+    # (the inheritance block above runs before this check).
+    if dispatch_host_id is not None:
+        hosts = await settings_service.get_dispatch_hosts(db, str(project["user_id"]))
+        host = next((h for h in hosts if h["id"] == dispatch_host_id), None)
+        if host is not None and host.get("drain_reason") is not None:
+            host_label = host.get("label") or host.get("url", "unknown")
+            drain_reason = str(host["drain_reason"])
+            logger.warning(
+                "Refused dispatch to draining host %s (reason=%r) item=%s",
+                host_label,
+                drain_reason,
+                item_id,
+            )
+            raise ValidationError(
+                f"Dispatch host '{host_label}' is draining: {drain_reason}. "
+                "Dispatch refused; retry when the host returns to rotation."
+            )
+
     if max_turns is None:
         stored = await settings_service.get_setting(db, "dispatch.default_max_turns")
         global_default = int(stored) if stored is not None else DEFAULT_MAX_TURNS
@@ -364,6 +387,23 @@ async def dispatch_rollout_run(
         hosts = await settings_service.get_dispatch_hosts(db, str(project["user_id"]))
         if not any(h["id"] == dispatch_host_id for h in hosts):
             raise NotFoundError("DispatchHost", dispatch_host_id)
+        # Refuse a pin to a draining host: the rollout row stays pending and
+        # the caller is told to wait, not to re-route (docs/host-drain.md).
+        pinned = next(h for h in hosts if h["id"] == dispatch_host_id)
+        pinned_drain_reason = pinned.get("drain_reason")
+        if pinned_drain_reason is not None:
+            host_label = pinned.get("label") or pinned.get("url", "unknown")
+            logger.warning(
+                "Refused rollout dispatch to draining host %s (reason=%r) rollout=%s",
+                host_label,
+                pinned_drain_reason,
+                rollout_id,
+            )
+            raise ValidationError(
+                f"Dispatch host '{host_label}' is draining: "
+                f"{pinned_drain_reason}. "
+                "Dispatch refused; retry when the host returns to rotation."
+            )
 
     stored = await settings_service.get_setting(db, "dispatch.default_max_turns")
     global_default = int(stored) if stored is not None else DEFAULT_MAX_TURNS

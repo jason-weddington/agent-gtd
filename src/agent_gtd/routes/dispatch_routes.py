@@ -394,6 +394,19 @@ async def dispatch_item(
                 status_code=404,
                 detail=f"Dispatch host {body.dispatch_host_id!r} not found",
             )
+        # Drain is absolute: refuse BEFORE the capacity pre-flight, else a
+        # drained host at capacity (the NORMAL drain window) would report
+        # 'at capacity' and shadow the drain reason (docs/host-drain.md).
+        if host_match.get("drain_reason") is not None:
+            host_label = host_match.get("label") or host_match.get("url", "unknown")
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Dispatch host '{host_label}' is draining: "
+                    f"{host_match['drain_reason']}. "
+                    "Dispatch refused; retry when the host returns to rotation."
+                ),
+            )
         # Check capacity via /info
         try:
             info = await _fetch_host_capabilities(host_match)

@@ -578,3 +578,46 @@ async def test_delete_host_invalidates_capabilities_cache(
     data = caps_res.json()
     assert data.get("engines") == [] or data.get("engine") is None
     fetch_host_cap.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_get_dispatch_hosts_returns_drained_host_with_api_key_intact(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    """AC13 (stranded-run trap): a drained host still returns its full api_key.
+
+    Direct service-level call — the exact function the dispatch worker's
+    reconciliation poll uses to re-authenticate against a drained host.
+    Deliberately NOT asserted through GET /api/settings/dispatch/hosts,
+    which masks api_key to api_key_preview and does not carry drain_reason.
+    """
+    from agent_gtd.database import get_db
+    from agent_gtd.services.settings_service import (
+        add_dispatch_host,
+        get_dispatch_hosts,
+    )
+
+    db = await get_db()
+    alpha = await add_dispatch_host(
+        db, user_id, "alpha", "http://alpha:8100", "key-alpha"
+    )
+    beta = await add_dispatch_host(db, user_id, "beta", "http://beta:8100", "key-beta")
+    await db.execute(
+        "UPDATE dispatch_hosts SET drain_reason = $1 WHERE id = $2",
+        "rolling deploy 2.0.2",
+        alpha["id"],
+    )
+
+    hosts = await get_dispatch_hosts(db, user_id)
+
+    # Both hosts returned, created_at ASC order, nothing filtered out.
+    assert [h["label"] for h in hosts] == ["alpha", "beta"]
+    assert [h["id"] for h in hosts] == [alpha["id"], beta["id"]]
+
+    drained = next(h for h in hosts if h["id"] == alpha["id"])
+    assert drained["drain_reason"] == "rolling deploy 2.0.2"
+    assert drained["api_key"] == "key-alpha"  # full key, not a preview
+
+    undrained = next(h for h in hosts if h["id"] == beta["id"])
+    assert undrained["drain_reason"] is None
+    assert undrained["api_key"] == "key-beta"

@@ -1,5 +1,6 @@
 """Unit tests for dispatch_service (reconcile_orphans and cancel_run forwarding)."""
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -425,3 +426,184 @@ async def test_cancel_run_remote_timeout(
         for r in caplog.records
         if r.name == "agent_gtd.services.dispatch_service"
     ), f"Expected WARNING log containing run_id={run_id!r}, got:\n{caplog.text}"
+
+
+# ---------------------------------------------------------------------------
+# Drain refusal in create_run (AC10 — friendly early rejection, owner-scoped)
+# ---------------------------------------------------------------------------
+
+_DRAIN_REASON = "rolling deploy 2.0.2"
+
+
+async def _create_drained_host_setup(
+    client: Any,
+    auth_headers: dict[str, str],
+    user_id: str,
+    *,
+    label: str = "r7-research",
+) -> tuple[Any, str, str, str]:
+    """Create a monorepo project + item and a drained dispatch host.
+
+    Returns (db, project_id, item_id, host_id).
+    """
+    import uuid
+
+    from agent_gtd.database import get_db
+    from agent_gtd.services.settings_service import add_dispatch_host
+
+    res = await client.post(
+        "/api/projects",
+        json={"name": f"Drain Project {uuid.uuid4().hex[:6]}", "description": "d"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201, res.text
+    project_id = res.json()["id"]
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={"git_origin": "https://github.com/example/repo.git"},
+        headers=auth_headers,
+    )
+    item_res = await client.post(
+        "/api/items",
+        json={
+            "title": "Drain item",
+            "project_id": project_id,
+            "status": "next_action",
+        },
+        headers=auth_headers,
+    )
+    assert item_res.status_code == 201, item_res.text
+    item_id = item_res.json()["id"]
+
+    db = await get_db()
+    host = await add_dispatch_host(
+        db, user_id, label, f"http://{label}:8100", "sk-drain-test"
+    )
+    await db.execute(
+        "UPDATE dispatch_hosts SET drain_reason = $1 WHERE id = $2",
+        _DRAIN_REASON,
+        host["id"],
+    )
+    return db, project_id, item_id, host["id"]
+
+
+@pytest.mark.asyncio
+async def test_create_run_refuses_drained_host_no_run_row(
+    client: Any,
+    auth_headers: dict[str, str],
+    user_id: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AC10a: an explicit pin to a drained host is rejected; no run row is made."""
+    import logging
+
+    from agent_gtd.exceptions import ValidationError
+    from agent_gtd.services.dispatch_service import create_run
+
+    db, _project_id, item_id, host_id = await _create_drained_host_setup(
+        client, auth_headers, user_id
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        await create_run(db, user_id, item_id, mode="build", dispatch_host_id=host_id)
+    text = str(exc_info.value)
+    assert "is draining" in text
+    assert _DRAIN_REASON in text
+    assert "r7-research" in text
+
+    row = await db.fetchrow(
+        "SELECT COUNT(*) AS c FROM claude_runs WHERE item_id = $1", item_id
+    )
+    assert row is not None
+    assert row["c"] == 0
+
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+        and "Refused dispatch to draining host" in r.getMessage()
+    ]
+    assert any("r7-research" in r.getMessage() for r in warnings)
+
+
+@pytest.mark.asyncio
+async def test_create_run_refuses_rollout_inherited_drained_pin(
+    client: Any,
+    auth_headers: dict[str, str],
+    user_id: str,
+) -> None:
+    """AC10b: a build dispatch inheriting a rollout's drained pin is rejected."""
+    import uuid
+    from datetime import UTC, datetime
+
+    from agent_gtd.exceptions import ValidationError
+    from agent_gtd.services.dispatch_service import create_run
+
+    db, project_id, item_id, host_id = await _create_drained_host_setup(
+        client, auth_headers, user_id
+    )
+    rollout_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO autonomous_rollouts"
+        " (id, project_id, lead_user_id, status, dispatch_host_id,"
+        " created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        rollout_id,
+        project_id,
+        user_id,
+        "running",
+        host_id,
+        now,
+        now,
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        await create_run(db, user_id, item_id, mode="build", rollout_id=rollout_id)
+    text = str(exc_info.value)
+    assert "is draining" in text
+    assert _DRAIN_REASON in text
+
+    row = await db.fetchrow(
+        "SELECT COUNT(*) AS c FROM claude_runs WHERE item_id = $1", item_id
+    )
+    assert row is not None
+    assert row["c"] == 0
+
+
+@pytest.mark.asyncio
+async def test_create_run_refuses_drained_host_for_member_caller(
+    client: Any,
+    auth_headers: dict[str, str],
+) -> None:
+    """AC10c: a project MEMBER pinning the owner's drained host is still refused.
+
+    The check is owner-scoped (str(project['user_id'])) — looking the host
+    up under the caller's user_id would silently no-op here, because the
+    member owns no dispatch hosts.
+    """
+    from agent_gtd.auth import register_user
+    from agent_gtd.exceptions import ValidationError
+    from agent_gtd.services.dispatch_service import create_run
+
+    res = await client.get("/api/auth/me", headers=auth_headers)
+    owner_id = res.json()["id"]
+
+    db, project_id, item_id, host_id = await _create_drained_host_setup(
+        client, auth_headers, owner_id
+    )
+    member = await register_user("member-drain@example.com", "memberpass123")
+    await db.execute(
+        "INSERT INTO project_members (project_id, user_id, added_at)"
+        " VALUES ($1, $2, $3)",
+        project_id,
+        member.id,
+        "2026-01-01T00:00:00",
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        await create_run(
+            db, str(member.id), item_id, mode="build", dispatch_host_id=host_id
+        )
+    assert "is draining" in str(exc_info.value)
+    assert _DRAIN_REASON in str(exc_info.value)

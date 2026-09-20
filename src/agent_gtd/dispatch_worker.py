@@ -883,6 +883,7 @@ async def execute_run(
 
     # Get dispatch hosts for the project owner
     from agent_gtd.services.dispatch_router import (
+        HostDrainingError,
         NoCompatibleHostError,
         UnmetCapabilityError,
         pick_dispatch_host,
@@ -936,7 +937,18 @@ async def execute_run(
                     exclude_urls=frozenset(excluded_urls),
                     required_labels=required_labels,
                 )
-            except (NoCompatibleHostError, UnmetCapabilityError, HostFullError) as exc:
+            except (
+                NoCompatibleHostError,
+                UnmetCapabilityError,
+                HostFullError,
+                HostDrainingError,
+            ) as exc:
+                # Refusals (drain, no compatible host, unmet labels, full
+                # host) fail the run — they are never retried against
+                # another host. Log the UNTRUNCATED message so the operator
+                # watching logs sees the full drain reason, then persist the
+                # 500-char-capped version on the run row.
+                logger.warning("Run %s refused: %s", run_id, exc)
                 await _fail_run(str(exc)[:500])
                 return
 

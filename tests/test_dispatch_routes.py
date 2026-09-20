@@ -499,3 +499,81 @@ def test_stale_run_response_remote_run_id_absent():
     row = {k: v for k, v in _STALE_ROW.items() if k != "remote_run_id"}
     resp = dr._stale_run_response(row)
     assert resp.remote_run_id == ""
+
+
+# ---------------------------------------------------------------------------
+# Drain pre-flight: a drained pin is refused before the capacity probe
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_targeted_drained_host_409_before_capacity_probe(
+    client, auth_headers, project_id
+):
+    """A drained pin gets 409 with the drain reason — never a capacity error.
+
+    The drain check must precede the /info capacity pre-flight: a drained
+    host at capacity is the NORMAL drain window, and 'at capacity' would
+    shadow the drain reason. Also proves no claude_runs row is created.
+    """
+    from agent_gtd.database import get_db
+
+    item_res = await client.post(
+        "/api/items",
+        json={
+            "title": "Test drained dispatch",
+            "project_id": project_id,
+            "status": "next_action",
+        },
+        headers=auth_headers,
+    )
+    assert item_res.status_code == 201
+    item_id = item_res.json()["id"]
+
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={"git_origin": "https://github.com/example/repo.git"},
+        headers=auth_headers,
+    )
+
+    _drained_host = {
+        "id": "drained-host-id",
+        "url": "http://r7-research:8100",
+        "api_key": "fake-key",  # gitleaks:allow
+        "label": "r7-research",
+        "drain_reason": "rolling deploy 2.0.2",
+    }
+    with (
+        patch(
+            "agent_gtd.routes.dispatch_routes.get_dispatch_hosts",
+            new_callable=AsyncMock,
+            return_value=[_drained_host],
+        ),
+        patch(
+            "agent_gtd.routes.dispatch_routes._check_dispatch_service",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+            new_callable=AsyncMock,
+            side_effect=AssertionError("must not probe a draining host"),
+        ),
+    ):
+        res = await client.post(
+            f"/api/items/{item_id}/dispatch",
+            json={"mode": "build", "dispatch_host_id": "drained-host-id"},
+            headers=auth_headers,
+        )
+
+    assert res.status_code == 409
+    detail = res.json()["detail"]
+    assert "is draining" in detail
+    assert "r7-research" in detail
+    assert "rolling deploy 2.0.2" in detail
+
+    db = await get_db()
+    row = await db.fetchrow(
+        "SELECT COUNT(*) AS c FROM claude_runs WHERE item_id = $1", item_id
+    )
+    assert row is not None
+    assert row["c"] == 0

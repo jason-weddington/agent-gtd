@@ -698,3 +698,463 @@ def test_effective_required_labels_no_requirement_is_empty() -> None:
 
     assert effective_required_labels({}, {}) == []
     assert effective_required_labels(None, None) == []
+
+
+# ---------------------------------------------------------------------------
+# Host drain (docs/host-drain.md) — drained hosts are refused, never routed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_host_draining_error_message_single_entry() -> None:
+    """AC1: single drained host names the host and quotes the reason verbatim."""
+    from agent_gtd.services.dispatch_router import HostDrainingError
+
+    exc = HostDrainingError(
+        hosts_checked=[{"host": "r7-research", "reason": "rolling deploy 2.0.2"}]
+    )
+    text = str(exc)
+    assert "r7-research" in text
+    assert "rolling deploy 2.0.2" in text
+    assert "is draining" in text
+    assert "retry when the host returns to rotation" in text
+    assert exc.hosts_checked == [
+        {"host": "r7-research", "reason": "rolling deploy 2.0.2"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_host_draining_error_message_multi_entry() -> None:
+    """AC1: two drained hosts join as 'label: reason' with '; ' separators."""
+    from agent_gtd.services.dispatch_router import HostDrainingError
+
+    exc = HostDrainingError(
+        hosts_checked=[
+            {"host": "r7-research", "reason": "rolling deploy 2.0.2"},
+            {"host": "jason-precision", "reason": "kernel upgrade"},
+        ]
+    )
+    text = str(exc)
+    assert "r7-research" in text
+    assert "jason-precision" in text
+    assert "rolling deploy 2.0.2" in text
+    assert "kernel upgrade" in text
+    for text in (str(exc),):
+        assert "try another host" not in text
+        assert "re-route" not in text
+        assert "no compatible host" not in text
+
+
+@pytest.mark.asyncio
+async def test_host_draining_error_never_says_try_another_host() -> None:
+    """AC1: the single-entry message must not nudge toward re-routing."""
+    from agent_gtd.services.dispatch_router import HostDrainingError
+
+    exc = HostDrainingError(
+        hosts_checked=[{"host": "r7-research", "reason": "rolling deploy 2.0.2"}]
+    )
+    text = str(exc)
+    assert "try another host" not in text
+    assert "re-route" not in text
+    assert "no compatible host" not in text
+
+
+@pytest.mark.asyncio
+async def test_pinned_drained_host_refused_before_labels_no_probe() -> None:
+    """AC2: a drained pin is refused before labels and before any /info probe."""
+    from agent_gtd.services.dispatch_router import (
+        HostDrainingError,
+        pick_dispatch_host,
+    )
+
+    host = {
+        "id": "r7-uuid",
+        "label": "r7-research",
+        "url": "http://r7-research:8100",
+        "api_key": "k",
+        "capability_labels": [],
+        "drain_reason": "rolling deploy 2.0.2",
+    }
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            side_effect=AssertionError("must not probe a draining pin"),
+        ),
+        pytest.raises(HostDrainingError) as exc_info,
+    ):
+        await pick_dispatch_host(
+            [host],
+            engine="claude-code",
+            agent_name=None,
+            target_host_id="r7-uuid",
+            required_labels=frozenset({"camera-data"}),
+        )
+    text = str(exc_info.value)
+    assert "r7-research" in text
+    assert "rolling deploy 2.0.2" in text
+
+
+@pytest.mark.asyncio
+async def test_auto_all_drained_raises_host_draining_not_unmet_capability() -> None:
+    """AC3a: a pool whose only host is drained reports drained, not unmet labels."""
+    from agent_gtd.services.dispatch_router import (
+        HostDrainingError,
+        pick_dispatch_host,
+    )
+
+    host = {
+        "id": "a",
+        "url": "http://host-a:8001",
+        "api_key": "keya",
+        "label": "host-a",
+        "capability_labels": ["camera-data"],
+        "drain_reason": "rolling deploy 2.0.2",
+    }
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            side_effect=AssertionError("must not probe a fully-drained pool"),
+        ),
+        pytest.raises(HostDrainingError) as exc_info,
+    ):
+        await pick_dispatch_host(
+            [host],
+            engine="claude-code",
+            agent_name=None,
+            required_labels=frozenset({"camera-data"}),
+        )
+    text = str(exc_info.value)
+    assert "host-a" in text
+    assert "rolling deploy 2.0.2" in text
+
+
+@pytest.mark.asyncio
+async def test_empty_pool_still_raises_no_compatible_host() -> None:
+    """AC3b: zero hosts, zero drained — still the empty-pool NoCompatibleHostError."""
+    from agent_gtd.services.dispatch_router import (
+        NoCompatibleHostError,
+        pick_dispatch_host,
+    )
+
+    with pytest.raises(NoCompatibleHostError) as exc_info:
+        await pick_dispatch_host([], engine="claude-code", agent_name=None)
+    assert exc_info.value.hosts_checked == []
+
+
+@pytest.mark.asyncio
+async def test_mixed_drain_and_label_reports_drained_capable_host() -> None:
+    """AC4: only capable host drained → HostDrainingError, not UnmetCapabilityError."""
+    from agent_gtd.services.dispatch_router import (
+        HostDrainingError,
+        pick_dispatch_host,
+    )
+
+    drained_capable = {
+        "id": "a",
+        "url": "http://host-a:8001",
+        "api_key": "keya",
+        "label": "host-a",
+        "capability_labels": ["camera-data"],
+        "drain_reason": "rolling deploy 2.0.2",
+    }
+    up_unlabeled = {
+        "id": "b",
+        "url": "http://host-b:8001",
+        "api_key": "keyb",
+        "label": "host-b",
+        "capability_labels": [],
+    }
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            side_effect=AssertionError("must not probe when the pool refuses"),
+        ),
+        pytest.raises(HostDrainingError) as exc_info,
+    ):
+        await pick_dispatch_host(
+            [drained_capable, up_unlabeled],
+            engine="claude-code",
+            agent_name=None,
+            required_labels=frozenset({"camera-data"}),
+        )
+    text = str(exc_info.value)
+    assert "host-a" in text
+    assert "rolling deploy 2.0.2" in text
+
+
+@pytest.mark.asyncio
+async def test_mixed_drain_and_label_unmet_lists_drained_first() -> None:
+    """AC4: no label-qualified drained host → UnmetCapabilityError, drained first."""
+    from agent_gtd.services.dispatch_router import (
+        UnmetCapabilityError,
+        pick_dispatch_host,
+    )
+
+    drained_unlabeled = {
+        "id": "a",
+        "url": "http://host-a:8001",
+        "api_key": "keya",
+        "label": "host-a",
+        "capability_labels": [],
+        "drain_reason": "rolling deploy 2.0.2",
+    }
+    up_unlabeled = {
+        "id": "b",
+        "url": "http://host-b:8001",
+        "api_key": "keyb",
+        "label": "host-b",
+        "capability_labels": [],
+    }
+    with pytest.raises(UnmetCapabilityError) as exc_info:
+        await pick_dispatch_host(
+            [drained_unlabeled, up_unlabeled],
+            engine="claude-code",
+            agent_name=None,
+            required_labels=frozenset({"camera-data"}),
+        )
+    checked = exc_info.value.hosts_checked
+    assert checked[0] == {"host": "host-a", "reason": "draining: rolling deploy 2.0.2"}
+    assert checked[1]["host"] == "host-b"
+
+
+@pytest.mark.asyncio
+async def test_auto_partial_drain_drained_entry_is_first_in_hosts_checked() -> None:
+    """AC5: drained hosts precede label/network skips in NoCompatibleHostError."""
+    from agent_gtd.services.dispatch_router import (
+        NoCompatibleHostError,
+        pick_dispatch_host,
+    )
+
+    drained = {
+        "id": "a",
+        "url": "http://host-a:8001",
+        "api_key": "keya",
+        "label": "host-a",
+        "capability_labels": ["camera-data"],
+        "drain_reason": "rolling deploy 2.0.2",
+    }
+    up_wrong_engine = {
+        "id": "b",
+        "url": "http://host-b:8001",
+        "api_key": "keyb",
+        "label": "host-b",
+        "capability_labels": ["camera-data"],
+    }
+    info_b_no_engine = {**INFO_ALL_UP_B, "engines": ["other-engine"]}
+
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            side_effect=[info_b_no_engine],
+        ),
+        pytest.raises(NoCompatibleHostError) as exc_info,
+    ):
+        await pick_dispatch_host(
+            [drained, up_wrong_engine],
+            engine="claude-code",
+            agent_name=None,
+            required_labels=frozenset({"camera-data"}),
+        )
+    checked = exc_info.value.hosts_checked
+    assert checked[0] == {"host": "host-a", "reason": "draining: rolling deploy 2.0.2"}
+
+
+@pytest.mark.asyncio
+async def test_drained_host_skipped_even_when_winning_on_capacity() -> None:
+    """AC6: a drained host is skipped even when it would win on capacity."""
+    from agent_gtd.services.dispatch_router import pick_dispatch_host
+
+    drained = {**HOST_A, "drain_reason": "rolling deploy 2.0.2"}
+    # Only the remaining (undrained) host is probed — A has 10 free, B has 3.
+    with patch(
+        "agent_gtd.services.dispatch_router._fetch_host_info",
+        side_effect=[INFO_ALL_UP_B],
+    ):
+        selected = await pick_dispatch_host(
+            [drained, HOST_B], engine="claude-code", agent_name=None
+        )
+    assert selected["id"] == "b"
+
+
+@pytest.mark.asyncio
+async def test_pinned_empty_drain_reason_still_refused() -> None:
+    """AC7a: drain_reason='' is a drained host in the pinned branch too."""
+    from agent_gtd.services.dispatch_router import (
+        HostDrainingError,
+        pick_dispatch_host,
+    )
+
+    host = {**HOST_A, "drain_reason": ""}
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            side_effect=AssertionError("must not probe a draining pin"),
+        ),
+        pytest.raises(HostDrainingError) as exc_info,
+    ):
+        await pick_dispatch_host(
+            [host],
+            engine="claude-code",
+            agent_name=None,
+            target_host_id="a",
+        )
+    assert "host-a" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_auto_empty_drain_reason_skips_with_verbatim_empty_reason() -> None:
+    """AC7b: '' is non-NULL → skipped, with 'draining: ' as the verbatim reason."""
+    from agent_gtd.services.dispatch_router import (
+        NoCompatibleHostError,
+        pick_dispatch_host,
+    )
+
+    drained = {**HOST_A, "drain_reason": ""}
+    up_wrong_engine = {
+        "id": "b",
+        "url": "http://host-b:8001",
+        "api_key": "keyb",
+        "label": "host-b",
+    }
+    info_b_no_engine = {**INFO_ALL_UP_B, "engines": ["other-engine"]}
+
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            side_effect=[info_b_no_engine],
+        ),
+        pytest.raises(NoCompatibleHostError) as exc_info,
+    ):
+        await pick_dispatch_host(
+            [drained, up_wrong_engine], engine="claude-code", agent_name=None
+        )
+    assert exc_info.value.hosts_checked[0]["reason"] == "draining: "
+
+
+@pytest.mark.asyncio
+async def test_auto_empty_drain_reason_undrained_host_still_wins() -> None:
+    """AC7b: pool of one ''-drained and one undrained → the undrained host wins."""
+    from agent_gtd.services.dispatch_router import pick_dispatch_host
+
+    drained = {**HOST_A, "drain_reason": ""}
+    with patch(
+        "agent_gtd.services.dispatch_router._fetch_host_info",
+        side_effect=[INFO_ALL_UP_B],
+    ):
+        selected = await pick_dispatch_host(
+            [drained, HOST_B], engine="claude-code", agent_name=None
+        )
+    assert selected["id"] == "b"
+
+
+@pytest.mark.asyncio
+async def test_drain_reason_none_routes_exactly_as_before() -> None:
+    """AC7c: an explicitly None drain_reason routes exactly like the pre-drain code."""
+    from agent_gtd.services.dispatch_router import pick_dispatch_host
+
+    host_a = {**HOST_A, "drain_reason": None}
+    with patch(
+        "agent_gtd.services.dispatch_router._fetch_host_info",
+        side_effect=[INFO_ALL_UP_A, INFO_ALL_UP_B],
+    ):
+        selected = await pick_dispatch_host(
+            [host_a, HOST_B], engine="claude-code", agent_name=None
+        )
+    assert selected["id"] == "a"
+
+
+@pytest.mark.asyncio
+async def test_missing_drain_reason_key_logs_tripwire_but_routes(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AC8: a host row without the drain_reason KEY routes but logs one ERROR."""
+    import logging
+
+    from agent_gtd.services.dispatch_router import pick_dispatch_host
+
+    host = {
+        "id": "a",
+        "url": "http://host-a:8001",
+        "api_key": "keya",
+        "label": "host-a",
+    }  # drain_reason KEY absent entirely
+    with patch(
+        "agent_gtd.services.dispatch_router._fetch_host_info",
+        side_effect=[INFO_ALL_UP_A],
+    ):
+        selected = await pick_dispatch_host(
+            [host], engine="claude-code", agent_name=None
+        )
+    assert selected["id"] == "a"  # fail-open: still routes
+    errors = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.ERROR and "host-a" in r.getMessage()
+    ]
+    assert len(errors) == 1
+    assert "drain_reason missing from host row" in errors[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_no_override_combination_reaches_a_drained_host() -> None:
+    """AC14: no argument combination routes work to a drained host."""
+    from agent_gtd.services.dispatch_router import (
+        HostDrainingError,
+        pick_dispatch_host,
+    )
+
+    drained = {
+        "id": "a",
+        "url": "http://host-a:8001",
+        "api_key": "keya",
+        "label": "host-a",
+        "capability_labels": ["camera-data"],
+        "drain_reason": "rolling deploy 2.0.2",
+    }
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            side_effect=AssertionError("no override may reach a drained host"),
+        ),
+        pytest.raises(HostDrainingError),
+    ):
+        await pick_dispatch_host(
+            [drained],
+            engine="claude-code",
+            agent_name=None,
+            target_host_id="a",
+            required_labels=frozenset({"camera-data"}),
+            exclude_urls=frozenset(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_drain_partition_emits_info_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AC15: a partial drain logs which hosts the drain filter excluded."""
+    import logging
+
+    from agent_gtd.services.dispatch_router import pick_dispatch_host
+
+    drained = {**HOST_A, "drain_reason": "rolling deploy 2.0.2"}
+    with (
+        caplog.at_level(logging.INFO, logger="agent_gtd.services.dispatch_router"),
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            side_effect=[INFO_ALL_UP_B],
+        ),
+    ):
+        selected = await pick_dispatch_host(
+            [drained, HOST_B], engine="claude-code", agent_name=None
+        )
+    assert selected["id"] == "b"
+    infos = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.INFO
+        and "Drain filter excluded" in r.getMessage()
+        and "host-a" in r.getMessage()
+        and "rolling deploy 2.0.2" in r.getMessage()
+    ]
+    assert len(infos) == 1

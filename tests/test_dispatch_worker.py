@@ -1894,3 +1894,99 @@ def test_reviewer_engine_rejects_a_non_harness_engine() -> None:
 
     with pytest.raises(ValueError, match="not review-capable"):
         resolve_reviewer_engine("kiro", None)
+
+
+# ---------------------------------------------------------------------------
+# Host drain at the chokepoint (AC9)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_execute_run_drained_host_fails_run_and_warns(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AC9: the chokepoint catches HostDrainingError and fails the run.
+
+    The real pick_dispatch_host runs (only get_dispatch_hosts is patched) —
+    the drained pin is refused before any /info probe, the run is marked
+    failed with the drain reason, a run_failed event is published, and the
+    untruncated refusal is logged as a warning.
+    """
+    import logging
+
+    from agent_gtd.dispatch_worker import execute_run
+
+    owner_id = "owner-uuid"
+    run_id = "run-drain-1"
+    run = {
+        "id": run_id,
+        "item_id": "item-1",
+        "user_id": "caller-uuid",
+        "project_id": "proj-1",
+        "max_turns": 50,
+        "mode": "build",
+        "dispatch_host_id": "r7-uuid",
+    }
+    item: dict[str, object] = {}
+    project: dict[str, object] = {}
+    db = _make_db_mock(project_owner_id=owner_id)
+
+    drained_host = {
+        "id": "r7-uuid",
+        "label": "r7-research",
+        "url": "http://r7-research:8100",
+        "api_key": "k",
+        "capability_labels": [],
+        "drain_reason": "rolling deploy 2.0.2",
+    }
+
+    update_calls: list[dict[str, object]] = []
+
+    async def fake_update_run(
+        db_arg: object,
+        run_id_arg: str,
+        *,
+        status: str = "",
+        finished_at: str = "",
+        error_msg: str = "",
+    ) -> None:
+        update_calls.append({"status": status, "error_msg": error_msg})
+
+    publish_events: list[str] = []
+
+    def fake_publish(
+        db_arg: object,
+        user_id_arg: object,
+        rid: str,
+        item_id_arg: object,
+        run_arg: object,
+        event_type: str,
+    ) -> None:
+        publish_events.append(event_type)
+
+    with (
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(return_value=[drained_host]),
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=fake_update_run),
+        patch("agent_gtd.dispatch_worker._publish_run_event", new=fake_publish),
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            side_effect=AssertionError("must not probe a draining pin"),
+        ),
+        caplog.at_level(logging.WARNING, logger="agent_gtd.dispatch_worker"),
+    ):
+        await execute_run(db, run, item, project)
+
+    assert update_calls, "run must have been marked failed"
+    assert update_calls[-1]["status"] == "failed"
+    error_msg = str(update_calls[-1]["error_msg"])
+    assert "is draining" in error_msg
+    assert "rolling deploy 2.0.2" in error_msg
+    assert publish_events == ["run_failed"]
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(
+        run_id in r.getMessage() and "is draining" in r.getMessage() for r in warnings
+    ), f"expected the refusal warning, got: {[r.getMessage() for r in warnings]}"

@@ -899,3 +899,43 @@ async def test_reset_item_route_404s_for_an_unknown_item(
         headers=auth_headers,
     )
     assert res.status_code == 404, res.text
+
+
+@pytest.mark.asyncio
+async def test_dispatch_rollout_to_drained_host_returns_409(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    """A rollout pinned to a draining host is refused: 409 with the reason.
+
+    The rollout row stays status='pending' — nothing was started.
+    """
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    rollout_id = await _insert_pending_rollout(db, user_id, project_id)
+    host_id = str(uuid.uuid4())
+    await _insert_dispatch_host(db, user_id, host_id)
+    await db.execute(
+        "UPDATE dispatch_hosts SET drain_reason = $1 WHERE id = $2",
+        "rolling deploy 2.0.2",
+        host_id,
+    )
+
+    res = await client.post(
+        f"/api/rollouts/{rollout_id}/dispatch",
+        json={"dispatch_host_id": host_id},
+        headers=auth_headers,
+    )
+
+    assert res.status_code == 409, res.text
+    detail = res.json()["detail"]
+    assert "test-host" in detail
+    assert "is draining" in detail
+    assert "rolling deploy 2.0.2" in detail
+
+    row = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert row is not None
+    assert row["status"] == "pending"

@@ -113,6 +113,40 @@ class UnmetCapabilityError(Exception):
         )
 
 
+class HostDrainingError(Exception):
+    """Every candidate host is draining — dispatch must wait, not re-route.
+
+    Raised BEFORE engine/agent/capacity are ever consulted: a host with a
+    non-NULL ``drain_reason`` is out of rotation whatever capability labels
+    it carries, so it is partitioned out of the pool before anything else.
+    The message deliberately names the host(s) and quotes the drain reason
+    and NEVER nudges toward re-routing — a caller pinning for capability
+    affinity cannot fall back to auto-routing (the data lives only on the
+    drained host), so "try another host" would send it somewhere the work
+    cannot run. The honest reading is: wait for the host to come back.
+    """
+
+    def __init__(self, hosts_checked: list[dict[str, str]]) -> None:
+        """Initialize with the per-host drain entries ({'host', 'reason'})."""
+        self.hosts_checked = hosts_checked
+        if len(hosts_checked) == 1:
+            entry = hosts_checked[0]
+            # Skip entries carry a "draining: " prefix (for NoCompatibleHostError
+            # hosts_checked); strip it so the single-host message reads naturally.
+            reason = entry["reason"].removeprefix("draining: ")
+            message = (
+                f"Dispatch host '{entry['host']}' is draining: {reason}. "
+                "Dispatch refused; retry when the host returns to rotation."
+            )
+        else:
+            reasons = "; ".join(f"{h['host']}: {h['reason']}" for h in hosts_checked)
+            message = (
+                f"All dispatch hosts are draining: {reasons}. "
+                "Retry when a host returns to rotation."
+            )
+        super().__init__(message)
+
+
 # ---------------------------------------------------------------------------
 # Capability-label matching
 # ---------------------------------------------------------------------------
@@ -246,11 +280,21 @@ async def pick_dispatch_host(
     (after validation), bypassing capacity ranking.
 
     Algorithm (auto mode, target_host_id=None):
-    1. Filter by capability label FIRST, using the static, operator-set
+    0. Partition out hosts with a non-NULL ``drain_reason`` (checked before
+       capability labels and before any network call — a drained host is
+       not a candidate whatever labels it carries). If no host remains,
+       raise :class:`HostDrainingError` naming each drained host and its
+       reason. Hosts partitioned out are carried into
+       ``NoCompatibleHostError.hosts_checked`` with reason
+       ``"draining: <reason>"`` when routing later fails.
+    1. Filter by capability label next, using the static, operator-set
        ``capability_labels`` on each host record — no network call needed.
        A host missing any label in ``required_labels`` is never a candidate,
        regardless of capacity. Empty/unset ``required_labels`` is a pure
        no-op (every host proceeds to step 2, matching pre-label behaviour).
+       If the label filter empties the pool but a drained host WAS
+       label-qualified, :class:`HostDrainingError` is raised instead — the
+       pool's only capable host is draining, which asks the caller to wait.
     2. Poll /info on the label-qualified hosts concurrently (5s timeout, no
        cache — real-time).
     3. Filter: skip unreachable hosts, hosts missing the requested engine,
@@ -287,6 +331,11 @@ async def pick_dispatch_host(
 
     Raises:
         NotFoundError: If target_host_id is set but not found in hosts list.
+        HostDrainingError: If the pinned host is draining, or if every host
+            in the pool is draining, or if the label filter empties the
+            pool while a label-qualified drained host exists. Checked
+            before capability labels and before any network call; there is
+            no override.
         UnmetCapabilityError: If no host (or the pinned host) satisfies
             ``required_labels``. Raised before any engine/agent/capacity
             check — a labels failure is a distinct, more specific failure
@@ -306,6 +355,22 @@ async def pick_dispatch_host(
             raise NotFoundError("DispatchHost", target_host_id)
 
         host_label = target.get("label") or target.get("url", "unknown")
+
+        # Drain is absolute and is checked BEFORE capability labels: a host
+        # with a non-NULL drain_reason is out of rotation, so a drained pin
+        # is refused before ANY network call — fail fast with the drain
+        # reason, never a generic routing error (docs/host-drain.md).
+        if "drain_reason" not in target:
+            logger.error(
+                "drain_reason missing from host row for %s — drain filter "
+                "silently inactive; schema/SELECT wiring is broken",
+                host_label,
+            )
+        target_drain_reason = target.get("drain_reason")
+        if target_drain_reason is not None:
+            raise HostDrainingError(
+                hosts_checked=[{"host": host_label, "reason": str(target_drain_reason)}]
+            )
 
         # Capability labels are operator-set and static — validate before any
         # network call. Pinning names which host, not that the requirement no
@@ -377,6 +442,50 @@ async def pick_dispatch_host(
         target["_routing_rationale"] = _pin_rationale(host_label, effective_required)
         return target
 
+    # Auto mode, step 0: partition out drained hosts — before capability
+    # labels, before any network call. A host with a non-NULL drain_reason
+    # is not a candidate whatever labels it carries, and a pool whose only
+    # capable host is drained must report *drained* (wait) rather than
+    # *unmet capability* (fix the requirement) — those call for opposite
+    # responses (docs/host-drain.md).
+    drain_skipped: list[dict[str, str]] = []
+    drained_hosts: list[dict[str, Any]] = []
+    remaining: list[dict[str, Any]] = []
+    for host in hosts:
+        host_label = host.get("label") or host.get("url", "unknown")
+        if "drain_reason" not in host:
+            # Fail-open but LOUD: a missing key reads as not-drained, which
+            # is exactly the silent no-op a missing column or a SELECT that
+            # omits drain_reason produces. No test can catch it (test DBs
+            # come from _SCHEMA_STATEMENTS; production upgrades through the
+            # suppressed _MIGRATIONS runner), so make it the loudest log
+            # line the router can emit.
+            logger.error(
+                "drain_reason missing from host row for %s — drain filter "
+                "silently inactive; schema/SELECT wiring is broken",
+                host_label,
+            )
+            remaining.append(host)
+            continue
+        drain_reason = host.get("drain_reason")
+        if drain_reason is not None:
+            drained_hosts.append(host)
+            drain_skipped.append(
+                {"host": host_label, "reason": f"draining: {drain_reason}"}
+            )
+        else:
+            remaining.append(host)
+    if drain_skipped and not remaining:
+        raise HostDrainingError(drain_skipped)
+    if drain_skipped:
+        logger.info(
+            "Drain filter excluded host(s) %s: %s; routing among %d remaining",
+            ", ".join(e["host"] for e in drain_skipped),
+            "; ".join(e["reason"] for e in drain_skipped),
+            len(remaining),
+        )
+    hosts = remaining
+
     # Auto mode: filter by capability label first — before any network call —
     # so a host missing a required label is never a candidate regardless of
     # capacity, and the failure (if total) names the unmet labels rather than
@@ -399,6 +508,32 @@ async def pick_dispatch_host(
             else:
                 label_ok_hosts.append(host)
         if not label_ok_hosts:
+            # Drain composes with labels here: if some drained host WAS
+            # label-qualified, the pool's only capable host is draining —
+            # report *drained* (wait), not *unmet capability* (fix labels),
+            # because those call for opposite responses.
+            if drain_skipped:
+                qualified_drained = [
+                    h
+                    for h in drained_hosts
+                    if _missing_labels(effective_required, h) == frozenset()
+                ]
+                if qualified_drained:
+                    raise HostDrainingError(
+                        [
+                            {
+                                "host": h.get("label") or h.get("url", "unknown"),
+                                "reason": f"draining: {h['drain_reason']}",
+                            }
+                            for h in qualified_drained
+                        ]
+                    )
+                # No drained host qualified either — the unmet-label failure
+                # must still list the drained hosts, drained entries first.
+                raise UnmetCapabilityError(
+                    required_labels=sorted(effective_required),
+                    hosts_checked=drain_skipped + label_skipped,
+                )
             raise UnmetCapabilityError(
                 required_labels=sorted(effective_required),
                 hosts_checked=label_skipped,
@@ -408,7 +543,10 @@ async def pick_dispatch_host(
     infos = await _gather_host_info(hosts)
 
     candidates: list[dict[str, Any]] = []
-    skipped: list[dict[str, str]] = list(label_skipped)
+    # Drained hosts precede label/network skips so NoCompatibleHostError's
+    # hosts_checked reads [drained…, label-skipped…, network-stage…].
+    skipped: list[dict[str, str]] = list(drain_skipped)
+    skipped.extend(label_skipped)
 
     for host, info in zip(hosts, infos, strict=False):
         host_label = host.get("label") or host.get("url", "unknown")
