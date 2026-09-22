@@ -32,6 +32,33 @@ ssh r7-research 'journalctl --user -u agent-gtd -f'     # Tail logs
 
 The git remote `origin` points to `r7-research`. After `git push origin main --tags`, restart the service to pick up changes. See KB entries `kb-00306` and `kb-00307` for full deployment architecture and bounce guidelines.
 
+### Restarting the service kills in-flight dispatch runs
+
+`./deploy.sh` and `./release.sh` (release calls deploy last) both bounce the
+service, and so does a manual `systemctl --user restart agent-gtd`. **The
+backend holds dispatch run state in memory: on restart it loses it and marks
+any active run `failed`, with `error_msg = "Service restarted while run was
+active"`** (`kb-01486`).
+
+Two things follow, and the second is the one that bites:
+
+- The failure is **loud and correctly labelled** — it is not a silent false
+  completion. (Global steering used to claim it was, describing an `until`
+  loop flipping and a waiter reporting DONE. That came from a polling
+  mechanism that no longer exists, and the claim never matched `kb-01486`.
+  Removed 2026-09-22.)
+- **The dispatch worker on the Pi is a separate service and survives.** It may
+  still be running, may finish, and may push a feature branch that agent_gtd
+  no longer knows anything about. So after an unplanned bounce:
+  `git fetch origin --prune` in the target repo and look for
+  `feat/<item-id>-...`. If it is there, review and merge it like any normal
+  completion. If nothing appears, re-dispatch the item.
+
+So: don't deploy or release agent_gtd while a run is in flight, and don't
+dispatch in the window between "about to release" and "service is `active`
+again". This is an operational property of THIS service, which is why it
+lives here rather than in steering loaded for every project.
+
 ## Headless Dispatch Hosts
 
 **Two provisioning modes.** `setup-dispatch-host.sh` (in the `agent-gtd-dispatch`
