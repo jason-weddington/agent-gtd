@@ -2,6 +2,36 @@
 
 <!-- version list -->
 
+## v2.1.0 (2026-10-09)
+
+### Bug Fixes
+
+- **rollout**: Make complete-item idempotent for a repeated outcome
+  ([`0d153e3`](https://github.com/jason-weddington/agent-gtd/commit/0d153e3b3ae404b70acd661714dc811fcfc0ce98))
+
+### Documentation
+
+- Bouncing the service kills in-flight dispatch runs, and what to do about it
+  ([`ffe1e9a`](https://github.com/jason-weddington/agent-gtd/commit/ffe1e9a4faed3640b6fdda79b00eadfacb2b443d))
+
+- **host-drain**: Fix a wrong code claim and order drain ahead of capability labels
+  ([`b52c9be`](https://github.com/jason-weddington/agent-gtd/commit/b52c9bea715d40c42412442bd772894ceacbe103))
+
+### Features
+
+- **dispatch**: Add drain_reason to dispatch_hosts, with service verbs and a tripwire
+  ([`e52fdab`](https://github.com/jason-weddington/agent-gtd/commit/e52fdabceaf6e66c682e7f58856ef01c472938b5))
+
+- **dispatch**: Drain-host and undrain-host CLI verbs, and drain visibility everywhere
+  ([`6d96ba6`](https://github.com/jason-weddington/agent-gtd/commit/6d96ba69535e2284530175a792a36c681fd565bd))
+
+- **dispatch**: Host capability labels — fail fast at routing when unmet
+  ([`844f345`](https://github.com/jason-weddington/agent-gtd/commit/844f345ecd2afd429293c43add16a542ef0bb869))
+
+- **dispatch**: Refuse to dispatch to a drained host, at the single chokepoint
+  ([`a8d1c47`](https://github.com/jason-weddington/agent-gtd/commit/a8d1c4747e9963f46fcd3af78bc3bf1ebf39a476))
+
+
 ## v2.0.1 (2026-09-20)
 
 ### Bug Fixes
