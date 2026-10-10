@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v2.2.0 (2026-10-10)
+
+### Documentation
+
+- Keep user- and agent-facing copy engine-agnostic
+  ([`02b0834`](https://github.com/jason-weddington/agent-gtd/commit/02b083486b38d2c46fd38bf392bc794bb10c5727))
+
+### Features
+
+- **items**: Groomed commit_type on items, required by plan_rollout
+  ([`1cd6ec5`](https://github.com/jason-weddington/agent-gtd/commit/1cd6ec50a22757f3e15fb1f7642ef9bd49c0d038))
+
+
 ## v2.1.0 (2026-10-09)
 
 ### Bug Fixes
