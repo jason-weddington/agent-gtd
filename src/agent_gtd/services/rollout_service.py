@@ -745,18 +745,25 @@ async def complete_item_in_rollout(
           - wave_plan_item (dict): The updated rollout_items row.
           - newly_ready (list[str]): Item IDs transitioned to 'ready'.
           - graph_complete (bool): True when the wave closed as a result of
-            this call (all items are now terminal); False otherwise.
+            this call (all items are now terminal); False otherwise.  On an
+            idempotent repeat, True iff the rollout is already 'completed'.
+          - already_recorded (bool): True when the item was already terminal
+            with the same outcome and this call changed nothing.
 
     Raises:
         NotFoundError: If wave or item not found or caller doesn't own it.
-        ValidationError: If the item is not in 'ready' or 'dispatched' status,
-            or if outcome is invalid.
+        ValidationError: If the item is not in 'ready' or 'dispatched' status
+            (a repeat of the identical terminal outcome is NOT an error), if
+            the item is already terminal with a different outcome, or if
+            outcome is invalid.
 
     State paths supported:
         - Child-build path: ``ready → dispatched → terminal`` (normal flow where
           a build agent is dispatched and completes the item).
         - Inline-management path: ``ready → terminal`` (manage agent handles the
           item directly without dispatching a child build, e.g. trivial changes).
+        - Idempotent repeat: ``terminal → same terminal`` returns early with
+          ``already_recorded: True`` and performs no writes or events.
     """
     wave = await _get_rollout(db, user_id, rollout_id)
     project_id = str(wave["project_id"])
@@ -768,7 +775,28 @@ async def complete_item_in_rollout(
     )
     if item_row is None:
         raise NotFoundError("RolloutItem", f"{rollout_id}/{item_id}")
-    if item_row["status"] not in ("ready", "dispatched"):
+    outcome_str = str(getattr(outcome, "value", outcome))
+    current_status = str(item_row["status"])
+    if current_status in _TERMINAL_STATUSES:
+        if current_status == outcome_str:
+            # Idempotent repeat of the same outcome: no writes, no events.
+            rollout_row = await db.fetchrow(
+                "SELECT status FROM autonomous_rollouts WHERE id = $1",
+                rollout_id,
+            )
+            return {
+                "rollout_item": row_to_dict(item_row),
+                "newly_ready": [],
+                "graph_complete": bool(
+                    rollout_row is not None and rollout_row["status"] == "completed"
+                ),
+                "already_recorded": True,
+            }
+        raise ValidationError(
+            f"Item {item_id} already has terminal status '{current_status}' — "
+            f"cannot record a different outcome '{outcome_str}'"
+        )
+    if current_status not in ("ready", "dispatched"):
         raise ValidationError(
             f"Item {item_id} has status '{item_row['status']}' — "
             "only 'ready' or 'dispatched' items can be completed in a rollout"
@@ -909,6 +937,7 @@ async def complete_item_in_rollout(
         "rollout_item": row_to_dict(updated_row),
         "newly_ready": newly_ready,
         "graph_complete": graph_complete,
+        "already_recorded": False,
     }
 
 

@@ -224,8 +224,13 @@ async def complete_item_in_rollout(
             merge_note.
         user: Injected authenticated user.
 
+    Idempotent: a repeat of the same terminal outcome returns 200 with
+    ``already_recorded: true`` and changes nothing. A different outcome for an
+    already-terminal item is a 422.
+
     Returns:
-        Dict with wave_plan_item (updated row) and newly_ready list.
+        Dict with rollout_item (updated row), newly_ready list,
+        graph_complete and already_recorded.
     """
     db = await get_db()
     try:

@@ -1443,6 +1443,88 @@ async def test_complete_item_in_rollout_rejects_pending_status(db):
         )
 
 
+async def _count_events(db, rollout_id: str) -> int:
+    row = await db.fetchrow(
+        "SELECT COUNT(*) AS n FROM rollout_events WHERE rollout_id = $1", rollout_id
+    )
+    return int(row["n"])
+
+
+async def _complete_twice_setup(db, *, extra_pending: bool = False):
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, status="review")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, rollout_id, item_id, status="dispatched")
+    return user_id, rollout_id, item_id
+
+
+async def test_complete_item_in_rollout_repeat_is_idempotent(db):
+    user_id, rollout_id, item_id = await _complete_twice_setup(db)
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        first = await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="completed"
+        )
+        events_before = await _count_events(db, rollout_id)
+        row_before = await db.fetchrow(
+            "SELECT completed_at FROM rollout_items"
+            " WHERE rollout_id = $1 AND item_id = $2",
+            rollout_id,
+            item_id,
+        )
+        second = await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="completed"
+        )
+        row_after = await db.fetchrow(
+            "SELECT completed_at FROM rollout_items"
+            " WHERE rollout_id = $1 AND item_id = $2",
+            rollout_id,
+            item_id,
+        )
+    assert first["already_recorded"] is False
+    assert second["already_recorded"] is True
+    assert second["newly_ready"] == []
+    assert await _count_events(db, rollout_id) == events_before
+    assert row_after["completed_at"] == row_before["completed_at"]
+    # Single-item wave: first call closed the rollout, repeat reports it.
+    assert first["graph_complete"] is True
+    assert second["graph_complete"] is True
+
+
+async def test_complete_item_in_rollout_repeat_graph_complete_false_when_open(db):
+    user_id, rollout_id, item_id = await _complete_twice_setup(db)
+    other = await _make_item(db, user_id, await _project_of(db, item_id))
+    await _make_wave_plan_item(db, rollout_id, other, status="dispatched")
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="completed"
+        )
+        second = await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="completed"
+        )
+    assert second["already_recorded"] is True
+    assert second["graph_complete"] is False
+
+
+async def _project_of(db, item_id: str) -> str:
+    row = await db.fetchrow("SELECT project_id FROM items WHERE id = $1", item_id)
+    return str(row["project_id"])
+
+
+async def test_complete_item_in_rollout_different_terminal_outcome_rejected(db):
+    user_id, rollout_id, item_id = await _complete_twice_setup(db)
+    other = await _make_item(db, user_id, await _project_of(db, item_id))
+    await _make_wave_plan_item(db, rollout_id, other, status="dispatched")
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="completed"
+        )
+        with pytest.raises(ValidationError, match=r"completed.*skipped"):
+            await complete_item_in_rollout(
+                db, user_id, rollout_id, item_id, outcome="skipped"
+            )
+
+
 # ---------------------------------------------------------------------------
 # AC-4: Full managed-rollout happy path (state machine end-to-end)
 # ---------------------------------------------------------------------------
