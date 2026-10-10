@@ -285,6 +285,10 @@ Helpers live in `src/agent_gtd/identity.py`.
 When reading old `"mcp-agent"` comments, infer actor from branch names,
 timestamps, and wave context. Attribution is trustworthy only after cutover.
 
+## Keep Copy Engine-Agnostic
+
+Dispatch runs several engines (Claude Code, talos, and others), so anything a user or another agent reads must not name "Claude": MCP tool descriptions, route docstrings, CLI help, UI strings, and the acceptance criteria you write into GTD items. Say "build run", "dispatched run", "the agent", or "the configured engine". Copy that names one engine is quietly wrong for every other engine and turns an engine swap into a hunt through strings. The exception is engine-specific code: `agent-gtd-dispatch`'s `engines.py` and its docs may name the engine they drive. The `claude-*` values in the attribution table above are identifiers, not copy. Background: kb-01555.
+
 ## Where to Put New Code
 
 | What you're adding | Where it goes |
