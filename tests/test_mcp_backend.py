@@ -569,6 +569,7 @@ _EXPECTED_COMPACT_KEYS = {
     "status",
     "priority",
     "build_engine",
+    "commit_type",
     "project_id",
     "project_name",
     "project_repo_mode",
@@ -594,7 +595,7 @@ _HEAVY_KEYS = {
 async def test_http_list_items_compact_keys(
     authed_backend: HttpBackend, project_id: str
 ):
-    """Default list_items returns exactly the 16 compact keys."""
+    """Default list_items returns exactly the 17 compact keys."""
     await authed_backend.create_item(
         "", title="Compact item", status="active", project_id=project_id
     )
@@ -698,7 +699,7 @@ async def test_http_list_items_inbox_pending_count_detail(authed_backend: HttpBa
 async def test_http_list_items_projectless_item_project_name_none(
     authed_backend: HttpBackend,
 ):
-    """A project-less item has project_name=None in compact mode with exact 16 keys."""
+    """A project-less item has project_name=None in compact mode with exact 17 keys."""
     await authed_backend.create_item("", title="Inbox item", status="inbox")
     result = await authed_backend.list_items("", status="inbox")
     items = result["items"]
@@ -707,13 +708,15 @@ async def test_http_list_items_projectless_item_project_name_none(
         assert item["project_id"] is None
         assert item["project_name"] is None
         assert set(item.keys()) == _EXPECTED_COMPACT_KEYS
+        assert len(item) == 17
+        assert "commit_type" in item
 
 
 # --- list_items compact-by-default (LocalBackend) ---
 
 
 async def test_local_list_items_compact_keys():
-    """LocalBackend default list_items returns exactly the 16 compact keys."""
+    """LocalBackend default list_items returns exactly the 17 compact keys."""
     from agent_gtd.auth import register_user
     from agent_gtd.mcp_backend import LocalBackend
 
@@ -806,7 +809,7 @@ async def test_local_list_items_detail_true_returns_full_rows():
 
 
 async def test_local_list_items_projectless_item_project_name_none():
-    """LocalBackend project-less item has project_name=None with exact 16 keys."""
+    """LocalBackend project-less item has project_name=None with exact 17 keys."""
     from agent_gtd.auth import register_user
     from agent_gtd.mcp_backend import LocalBackend
 
@@ -820,6 +823,8 @@ async def test_local_list_items_projectless_item_project_name_none():
         assert item["project_id"] is None
         assert item["project_name"] is None
         assert set(item.keys()) == _EXPECTED_COMPACT_KEYS
+        assert len(item) == 17
+        assert "commit_type" in item
 
 
 async def test_local_list_items_description_snippet_short():
@@ -1171,3 +1176,30 @@ async def test_local_backend_clear_gate_command():
     lb = LocalBackend()
     cleared = await lb.update_project(user.id, pid, clear_gate_command=True)
     assert cleared["gate_command"] is None
+
+
+# --- commit_type threading (HttpBackend) ---
+
+
+async def test_http_create_and_update_item_commit_type(authed_backend: HttpBackend):
+    """HttpBackend threads commit_type on create, and '' clears it on update."""
+    created = await authed_backend.create_item("", title="Typed", commit_type="fix")
+    assert created["commit_type"] == "fix"
+
+    untyped = await authed_backend.create_item("", title="Untyped")
+    assert untyped["commit_type"] == ""
+
+    updated = await authed_backend.update_item(
+        "", created["id"], version=created["version"], commit_type="feat"
+    )
+    assert updated["commit_type"] == "feat"
+
+    kept = await authed_backend.update_item(
+        "", created["id"], version=updated["version"], title="Renamed"
+    )
+    assert kept["commit_type"] == "feat"
+
+    cleared = await authed_backend.update_item(
+        "", created["id"], version=kept["version"], commit_type=""
+    )
+    assert cleared["commit_type"] == ""

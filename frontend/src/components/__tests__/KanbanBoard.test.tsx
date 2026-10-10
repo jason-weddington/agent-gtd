@@ -64,6 +64,7 @@ function makeMockItem(overrides: Partial<Item> = {}): Item {
     version: 1,
     lockedByRolloutId: null,
     buildEngine: null,
+    commitType: '',
     acceptanceCriteria: [],
     filesToModify: [],
     scopeOut: [],

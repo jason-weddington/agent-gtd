@@ -25,7 +25,7 @@ from agent_gtd.exceptions import (
     ValidationError,
     VersionConflictError,
 )
-from agent_gtd.models import BuildEngine, ItemStatus, Priority
+from agent_gtd.models import BuildEngine, CommitType, ItemStatus, Priority
 from agent_gtd.services.project_service import verify_project_access
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,17 @@ _TITLE_LEN = 60
 _PER_COLUMN_CAP = 10
 
 ALLOWED_BUILD_ENGINES: frozenset[str] = frozenset(BuildEngine)
+ALLOWED_COMMIT_TYPES: frozenset[str] = frozenset(m.value for m in CommitType)
+
+
+def _validate_commit_type(commit_type: str | None) -> None:
+    """Raise ValidationError unless commit_type is None, '' or a CommitType."""
+    if commit_type is None or commit_type == "":
+        return
+    if commit_type not in ALLOWED_COMMIT_TYPES:
+        raise ValidationError(
+            f"commit_type must be one of {sorted(ALLOWED_COMMIT_TYPES)} or empty"
+        )
 
 
 async def list_items(
@@ -107,17 +118,20 @@ async def create_item(
     files_to_modify: list[dict[str, Any]] | None = None,
     scope_out: list[str] | None = None,
     required_labels: list[str] | None = None,
+    commit_type: str = "",
 ) -> dict[str, Any]:
     """Create a new item and return its row data.
 
     Raises:
         NotFoundError: If project_id is given but doesn't exist or isn't owned by user.
-        ValidationError: If build_engine is not a recognised value.
+        ValidationError: If build_engine or commit_type is not a recognised
+            value.
     """
     if build_engine is not None and build_engine not in ALLOWED_BUILD_ENGINES:
         raise ValidationError(
             f"build_engine must be one of {sorted(ALLOWED_BUILD_ENGINES)}"
         )
+    _validate_commit_type(commit_type)
 
     if project_id is not None:
         await verify_project_access(db, project_id, user_id)
@@ -130,9 +144,9 @@ async def create_item(
         "(id, project_id, user_id, title, description, status, priority, "
         "due_date, created_by, assigned_to, waiting_on, sort_order, labels, "
         "build_engine, acceptance_criteria, files_to_modify, scope_out, "
-        "required_labels, created_at, updated_at)"
+        "required_labels, commit_type, created_at, updated_at)"
         " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,"
-        " $14, $15, $16, $17, $18, $19, $20)",
+        " $14, $15, $16, $17, $18, $19, $20, $21)",
         item_id,
         project_id,
         user_id,
@@ -151,6 +165,7 @@ async def create_item(
         encode_file_specs(files_to_modify or []),
         encode_json_list(scope_out or []),
         encode_json_list(normalize_labels(required_labels or [])),
+        commit_type,
         now,
         now,
     )
@@ -221,6 +236,7 @@ async def update_item(
     files_to_modify: list[dict[str, Any]] | None = None,
     scope_out: list[str] | None = None,
     required_labels: list[str] | None = None,
+    commit_type: str | None = None,
     version: int | None = None,
     actor_run_id: str | None = None,
     actor_run_mode: str | None = None,
@@ -254,6 +270,8 @@ async def update_item(
         required_labels: New required-labels list (None = unchanged, empty
             list = clear). Normalized (lowercase, stripped, deduped) on
             write.
+        commit_type: New groomed commit type (None = unchanged, "" = clear,
+            otherwise a CommitType value).
         version: If provided, enforces optimistic locking — update fails
             if the current DB version doesn't match.
         actor_run_id: ID of the dispatch run making this call, if any.
@@ -261,7 +279,8 @@ async def update_item(
 
     Raises:
         NotFoundError: If the item doesn't exist or isn't owned by user.
-        ValidationError: If build_engine is not a recognised value.
+        ValidationError: If build_engine or commit_type is not a recognised
+            value.
         VersionConflictError: If version is provided and doesn't match.
         ValidationError: If build_engine is not a recognised engine identifier.
         RolloutItemLockedError: If project_id_set is True and the item is
@@ -278,6 +297,7 @@ async def update_item(
         raise ValidationError(
             f"build_engine must be one of {sorted(ALLOWED_BUILD_ENGINES)}"
         )
+    _validate_commit_type(commit_type)
 
     existing = await get_item(db, user_id, item_id)
 
@@ -404,6 +424,10 @@ async def update_item(
     if build_engine_set:
         params.append(build_engine)
         updates.append(f"build_engine = ${len(params)}")
+
+    if commit_type is not None:
+        params.append(commit_type)
+        updates.append(f"commit_type = ${len(params)}")
 
     if acceptance_criteria is not None:
         params.append(encode_json_list(acceptance_criteria))

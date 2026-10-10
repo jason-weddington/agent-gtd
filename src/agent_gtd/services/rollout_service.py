@@ -54,6 +54,16 @@ MERGE_NOTE_MAX_CHARS = 2000
 # ---------------------------------------------------------------------------
 
 
+COMMIT_TYPE_REQUIRED_FAILURE = (
+    "commit_type must be set for groomed items (one of feat, fix, perf, "
+    "refactor, test, docs, chore) — set it in the item drawer, with MCP "
+    "update_item(commit_type=...), or `agent-gtd update-item <id> "
+    "--commit-type <type>` (requires an agent-gtd CLI/MCP that includes "
+    "commit_type)"
+)
+"""Rule 4c failure string surfaced by plan_rollout for an unset commit_type."""
+
+
 async def validate_legality_contract(
     db: DbPool,
     user_id: str,
@@ -71,6 +81,7 @@ async def validate_legality_contract(
         3. ``acceptance_criteria`` structured field is non-empty.
         4. ``files_to_modify`` structured field is non-empty.
         4b. ``build_engine`` is set (required for groomed items).
+        4c. ``commit_type`` is set (required for groomed items).
         5. No unresolved blockers outside *item_ids*.
 
     Cross-set rules:
@@ -122,6 +133,10 @@ async def validate_legality_contract(
         # Rule 4b: build_engine must be set for groomed items (AC-4)
         if not item.get("build_engine"):
             item_failures.append("build_engine must be set for groomed items")
+
+        # Rule 4c: commit_type must be set for groomed items
+        if not item.get("commit_type"):
+            item_failures.append(COMMIT_TYPE_REQUIRED_FAILURE)
 
         # Rule 5: No unresolved external blockers (blockers in item_ids are OK)
         unresolved = await get_unresolved_blockers(db, item_id)

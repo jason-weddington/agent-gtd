@@ -77,6 +77,8 @@ export type BuildEngine =
   | 'talos-qwen'
   | 'talos-glm'
   | 'talos-glm-flash'
+export type CommitType = 'feat' | 'fix' | 'perf' | 'refactor' | 'test' | 'docs' | 'chore'
+export const COMMIT_TYPE_OPTIONS: readonly CommitType[] = ['feat', 'fix', 'perf', 'refactor', 'test', 'docs', 'chore']
 export type RepoMode = 'monorepo' | 'workspace'
 
 // --- Domain Types ---
@@ -145,6 +147,7 @@ export interface Item {
   version: number
   lockedByRolloutId: string | null
   buildEngine: BuildEngine | null
+  commitType: CommitType | ''
   acceptanceCriteria: string[]
   filesToModify: Record<string, string>[]
   scopeOut: string[]

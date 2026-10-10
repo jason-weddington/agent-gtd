@@ -68,6 +68,7 @@ _SCHEMA_STATEMENTS: list[str] = [
         version INTEGER NOT NULL DEFAULT 1,
         locked_by_rollout_id TEXT,
         build_engine TEXT,
+        commit_type TEXT NOT NULL DEFAULT '',
         acceptance_criteria TEXT NOT NULL DEFAULT '[]',
         files_to_modify TEXT NOT NULL DEFAULT '[]',
         scope_out TEXT NOT NULL DEFAULT '[]',
@@ -488,6 +489,7 @@ _MIGRATIONS: list[str] = [
     "ALTER TABLE autonomous_rollouts ADD COLUMN manage_retry_count INTEGER NOT NULL DEFAULT 0",  # noqa: E501
     # Per-item engine selection for build-mode dispatch.
     "ALTER TABLE items ADD COLUMN build_engine TEXT",
+    "ALTER TABLE items ADD COLUMN commit_type TEXT NOT NULL DEFAULT ''",
     # Structured legality contract fields (replaces prose-section matching).
     "ALTER TABLE items ADD COLUMN acceptance_criteria TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE items ADD COLUMN files_to_modify TEXT NOT NULL DEFAULT '[]'",

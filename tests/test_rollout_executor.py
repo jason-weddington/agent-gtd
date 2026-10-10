@@ -682,8 +682,8 @@ async def _make_ready_item(db: Any, user_id: str, project_id: str, title: str) -
         "INSERT INTO items"
         " (id, project_id, user_id, title, description, status,"
         "  labels, acceptance_criteria, files_to_modify, scope_out,"
-        "  build_engine, created_at, updated_at)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+        "  build_engine, commit_type, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
         item_id,
         project_id,
         user_id,
@@ -697,6 +697,7 @@ async def _make_ready_item(db: Any, user_id: str, project_id: str, title: str) -
         ),
         encode_json_list([]),
         "claude-code",
+        "feat",
         now,
         now,
     )

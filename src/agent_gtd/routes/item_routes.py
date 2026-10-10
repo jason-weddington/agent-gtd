@@ -65,6 +65,7 @@ def _item_response(
         build_engine=BuildEngine(str(row["build_engine"]))
         if row.get("build_engine")
         else None,
+        commit_type=str(row.get("commit_type") or ""),
         acceptance_criteria=decode_json_list(
             str(row.get("acceptance_criteria") or "[]")
         ),
@@ -126,6 +127,7 @@ async def create_item(
             files_to_modify=body.files_to_modify,
             scope_out=body.scope_out,
             required_labels=body.required_labels,
+            commit_type=str(body.commit_type),
         )
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.detail) from None
@@ -222,6 +224,12 @@ async def update_item(
             files_to_modify=body.files_to_modify,
             scope_out=body.scope_out,
             required_labels=body.required_labels,
+            commit_type=(
+                str(body.commit_type)
+                if "commit_type" in body.model_fields_set
+                and body.commit_type is not None
+                else None
+            ),
             version=body.version,
             actor_run_id=run_ctx.run_id if run_ctx else None,
             actor_run_mode=run_ctx.mode if run_ctx else None,

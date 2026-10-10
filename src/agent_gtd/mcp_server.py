@@ -565,6 +565,9 @@ async def add_item(
         "",
     ]
     | None = None,
+    commit_type: Literal[
+        "feat", "fix", "perf", "refactor", "test", "docs", "chore", ""
+    ] = "",
 ) -> dict[str, Any]:
     """Create a new item.
 
@@ -597,6 +600,10 @@ async def add_item(
               → Talos engine variants (build mode only)
             - "talos-glm-flash" → Talos engine via glm-5.3-flash:cloud (Ollama
               Cloud) (build mode only)
+        commit_type: Groomed conventional-commit type the item's squash
+            commit will carry: one of "feat", "fix", "perf", "refactor",
+            "test", "docs", "chore". Default "" (unset). plan_rollout
+            requires it on every item.
 
     Returns:
         The created item dict.
@@ -618,6 +625,7 @@ async def add_item(
             labels=labels,
             due_date=due_date,
             build_engine=build_engine,
+            commit_type=commit_type,
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
@@ -656,6 +664,8 @@ async def update_item(
     files_to_modify: list[dict[str, Any]] | None = None,
     scope_out: list[str] | None = None,
     project_id: str | None = None,
+    commit_type: Literal["feat", "fix", "perf", "refactor", "test", "docs", "chore", ""]
+    | None = None,
     *,
     ctx: Context,
 ) -> dict[str, Any]:
@@ -701,6 +711,11 @@ async def update_item(
             - None (default) → unchanged
             - Empty string "" → detach from project (set project_id to null)
             - Non-empty UUID string → move to that project
+        commit_type: Groomed conventional-commit type the item's squash
+            commit will carry: one of "feat", "fix", "perf", "refactor",
+            "test", "docs", "chore". plan_rollout requires it on every item.
+            - None (default) → unchanged
+            - Empty string "" → clear it (unset)
         ctx: MCP context (injected automatically).
 
     Returns:
@@ -771,6 +786,7 @@ async def update_item(
             scope_out=scope_out,
             project_id=backend_project_id,
             project_id_set=project_id_set,
+            commit_type=commit_type,
         )
     except BlockersUnresolvedError as e:
         raise ToolError(e.detail) from None
@@ -849,8 +865,8 @@ async def list_items(
     """List items, optionally filtered by project and/or status.
 
     By default, returns a **compact** list intended for scanning and finding
-    items.  Each compact item has exactly 16 keys: id, title, status,
-    priority, build_engine, project_id, project_name, project_repo_mode,
+    items.  Each compact item has exactly 17 keys: id, title, status,
+    priority, build_engine, commit_type, project_id, project_name, project_repo_mode,
     labels, assigned_to, created_by, created_at, updated_at, ac_count,
     files_count, and description_snippet.  Heavy fields (description,
     acceptance_criteria, files_to_modify, blockers, etc.) are omitted to
@@ -1586,6 +1602,7 @@ async def plan_rollout(
     - Each item must have a non-empty ``acceptance_criteria`` structured field.
     - Each item must have a non-empty ``files_to_modify`` structured field.
     - Each item must have ``build_engine`` set.
+    - Each item must have ``commit_type`` set.
     - Each item must have no unresolved blockers outside the rollout's own item
       set (internal blockers are fine — they become the ordering).
     - All items must belong to the same project.

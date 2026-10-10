@@ -37,7 +37,7 @@ _ROLLOUT_TERMINAL_STATES: frozenset[str] = frozenset(
 )
 
 #: Payload keys accepted by ``update-item --from-json`` / ``--stdin``.
-#: Matches the 12 content fields in McpBackend.update_item (mcp_backend.py).
+#: Matches the 13 content fields in McpBackend.update_item (mcp_backend.py).
 #: ``version`` and any other key are rejected as unknown.
 _UPDATE_ITEM_FIELDS: frozenset[str] = frozenset(
     {
@@ -53,13 +53,14 @@ _UPDATE_ITEM_FIELDS: frozenset[str] = frozenset(
         "files_to_modify",
         "scope_out",
         "project_id",
+        "commit_type",
     }
 )
 
 #: Payload keys accepted by ``add-item --from-json`` / ``--stdin``.
 #:
 #: Intentionally identical to :data:`_UPDATE_ITEM_FIELDS` today — both commands
-#: accept the same 12 content fields that :func:`item_service.create_item`
+#: accept the same 13 content fields that :func:`item_service.create_item`
 #: understands. Defining a separate name (rather than aliasing) so a future
 #: divergence — a field valid on create but not on update, or vice versa —
 #: becomes a deliberate edit rather than an accidental coupling.
@@ -82,6 +83,7 @@ async def _http_post_create_item(
     priority: str | None = None,
     due_date: str | None = None,
     assigned_to: str | None = None,
+    commit_type: str | None = None,
 ) -> dict[str, Any]:
     """POST /api/items with full structured fields via a direct httpx call.
 
@@ -107,6 +109,8 @@ async def _http_post_create_item(
             POST body when None.
         assigned_to: Optional assignee string; omitted from the POST body when
             None so the server default applies.
+        commit_type: Optional groomed commit type; omitted from the POST body
+            when None so the server default ("" = unset) applies.
 
     Returns:
         Created item dict as returned by the API.
@@ -144,6 +148,8 @@ async def _http_post_create_item(
         body["due_date"] = due_date
     if assigned_to is not None:
         body["assigned_to"] = assigned_to
+    if commit_type is not None:
+        body["commit_type"] = commit_type
 
     async with httpx.AsyncClient(
         base_url=base_url,
@@ -492,6 +498,7 @@ async def _do_update_item(
     status: str | None,
     build_engine: str | None,
     explicit_version: int | None,
+    commit_type: str | None = None,
 ) -> None:
     """Apply a structured update to a GTD item via the configured backend.
 
@@ -503,7 +510,7 @@ async def _do_update_item(
 
     Args:
         item_id: UUID of the item to update.
-        payload: JSON dict with any of the 12 accepted content fields (see
+        payload: JSON dict with any of the 13 accepted content fields (see
             ``_UPDATE_ITEM_FIELDS``). Keys absent from this dict (or present
             with JSON null) are left unchanged on the item. Unknown keys cause
             a ``ValueError`` before any backend call.
@@ -513,6 +520,8 @@ async def _do_update_item(
             or None to use the payload value (with sentinel translation).
         explicit_version: Explicit optimistic-lock version, or None for
             auto-fetch + single retry.
+        commit_type: New commit type from the ``--commit-type`` flag, or None
+            to use the payload value (``""`` in the payload clears it).
 
     Raises:
         ValueError: If the payload contains keys not in ``_UPDATE_ITEM_FIELDS``.
@@ -545,7 +554,7 @@ async def _do_update_item(
             session = await backend.login(api_key, "cli")
             user_id = session["user_id"]
 
-        # Extract all 12 accepted content fields from the payload.
+        # Extract all 13 accepted content fields from the payload.
         # payload.get(key) returns None for both absent keys and JSON null,
         # which the backend treats identically as "leave unchanged".
         title: str | None = payload.get("title")
@@ -596,6 +605,12 @@ async def _do_update_item(
                 backend_build_engine = raw_be
                 build_engine_set = True
 
+        # commit_type: flag-over-payload precedence. None/absent → unchanged;
+        # "" (payload only) → clear; a type → set.
+        effective_commit_type: str | None = (
+            commit_type if commit_type is not None else payload.get("commit_type")
+        )
+
         # project_id sentinel translation (payload only; no flag equivalent).
         # None/absent → unchanged; "" → detach (project_id=None, project_id_set=True);
         # non-empty UUID → move (project_id_set=True).
@@ -636,6 +651,7 @@ async def _do_update_item(
                 scope_out=scope_out,
                 project_id=backend_project_id,
                 project_id_set=project_id_set,
+                commit_type=effective_commit_type,
             )
 
         if explicit_version is not None:
@@ -663,17 +679,18 @@ def _cmd_update_item(args: argparse.Namespace) -> None:
 
     Args:
         args: Parsed namespace containing item_id, from_json, stdin, status,
-            build_engine, and version.
+            build_engine, commit_type, and version.
     """
     if (
         not args.from_json
         and not args.stdin
         and not args.status
         and not args.build_engine
+        and not args.commit_type
     ):
         print(
             "Error: supply at least one of --from-json, --stdin, --status,"
-            " or --build-engine",
+            " --build-engine, or --commit-type",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -692,6 +709,7 @@ def _cmd_update_item(args: argparse.Namespace) -> None:
                 args.status,
                 args.build_engine,
                 args.version,
+                commit_type=args.commit_type,
             )
         )
     except Exception as e:
@@ -769,6 +787,9 @@ async def _do_add_item(
     build_engine: str | None = (
         str(payload["build_engine"]) if "build_engine" in payload else None
     )
+    commit_type: str | None = (
+        str(payload["commit_type"]) if payload.get("commit_type") is not None else None
+    )
     # CLI --labels takes precedence over JSON "labels" when both are present.
     labels: list[str] | None = (
         labels_cli if labels_cli is not None else payload.get("labels")
@@ -795,6 +816,8 @@ async def _do_add_item(
         extra_create_kwargs["due_date"] = due_date
     if assigned_to is not None:
         extra_create_kwargs["assigned_to"] = assigned_to
+    if commit_type is not None:
+        extra_create_kwargs["commit_type"] = commit_type
 
     backend = create_backend()
     try:
@@ -844,6 +867,7 @@ async def _do_add_item(
                 priority=priority,
                 due_date=due_date,
                 assigned_to=assigned_to,
+                commit_type=commit_type,
             )
             return str(item["id"])
     finally:
@@ -1033,6 +1057,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ui.add_argument("--status", help="New status value.")
     ui.add_argument("--build-engine", help="New build engine preference.")
+    ui.add_argument(
+        "--commit-type",
+        choices=["feat", "fix", "perf", "refactor", "test", "docs", "chore"],
+        help=(
+            "Groomed conventional-commit type (required by plan_rollout). "
+            "Takes precedence over the payload. This flag cannot clear the "
+            'field; to clear it pass {"commit_type": ""} via --from-json or '
+            "--stdin."
+        ),
+    )
     ui.add_argument(
         "--version",
         type=int,

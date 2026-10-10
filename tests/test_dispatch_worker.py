@@ -1990,3 +1990,46 @@ async def test_execute_run_drained_host_fails_run_and_warns(
     assert any(
         run_id in r.getMessage() and "is draining" in r.getMessage() for r in warnings
     ), f"expected the refusal warning, got: {[r.getMessage() for r in warnings]}"
+
+
+# ---------------------------------------------------------------------------
+# commit_type is advisory for direct (non-rollout) builds
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_dispatch_accepts_empty_commit_type(
+    client: object, auth_headers: dict[str, str], user_id: str
+) -> None:
+    """A direct build dispatch does not require a groomed commit_type.
+
+    Rule 4c (commit_type required) gates plan_rollout only. A direct build on
+    an item with commit_type '' must create its run row without raising
+    LegalityContractError or ValidationError.
+    """
+    import httpx
+
+    from agent_gtd.database import get_db
+    from agent_gtd.services import item_service
+    from agent_gtd.services.dispatch_service import create_run
+
+    assert isinstance(client, httpx.AsyncClient)
+    proj = await client.post(
+        "/api/projects",
+        json={"name": "AdvisoryType", "git_origin": "git@example.com:t/repo.git"},
+        headers=auth_headers,
+    )
+    project_id = str(proj.json()["id"])
+
+    db = await get_db()
+    item = await item_service.create_item(
+        db, user_id, title="Untyped build", project_id=project_id, status="ready"
+    )
+    assert item["commit_type"] == ""
+
+    run = await create_run(db, user_id, str(item["id"]), mode="build")
+
+    row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run["id"])
+    assert row is not None
+    assert row["item_id"] == item["id"]
+    assert row["mode"] == "build"

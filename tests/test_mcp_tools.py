@@ -1791,6 +1791,65 @@ async def test_update_item_invalid_build_engine(registered_client):
         )
 
 
+# ---------------------------------------------------------------------------
+# commit_type MCP tool tests
+# ---------------------------------------------------------------------------
+
+
+async def test_add_item_with_commit_type(registered_client):
+    """add_item with commit_type 'fix' stores it."""
+    created = await registered_client.call_tool(
+        "add_item", {"title": "Typed", "commit_type": "fix"}
+    )
+    item = _parse_result(created)
+    assert item["commit_type"] == "fix"
+
+
+async def test_add_item_commit_type_defaults_to_unset(registered_client):
+    """add_item without commit_type leaves it ''."""
+    created = await registered_client.call_tool("add_item", {"title": "Untyped"})
+    item = _parse_result(created)
+    assert item["commit_type"] == ""
+
+
+async def test_update_item_set_and_clear_commit_type(registered_client):
+    """update_item sets commit_type, omitting it keeps it, and '' clears it."""
+    created = await registered_client.call_tool("add_item", {"title": "Groom me"})
+    item = _parse_result(created)
+
+    updated = await registered_client.call_tool(
+        "update_item",
+        {"item_id": item["id"], "version": item["version"], "commit_type": "feat"},
+    )
+    item_v2 = _parse_result(updated)
+    assert item_v2["commit_type"] == "feat"
+
+    renamed = await registered_client.call_tool(
+        "update_item",
+        {"item_id": item["id"], "version": item_v2["version"], "title": "Renamed"},
+    )
+    item_v3 = _parse_result(renamed)
+    assert item_v3["commit_type"] == "feat"
+
+    cleared = await registered_client.call_tool(
+        "update_item",
+        {"item_id": item["id"], "version": item_v3["version"], "commit_type": ""},
+    )
+    assert _parse_result(cleared)["commit_type"] == ""
+
+
+async def test_update_item_invalid_commit_type(registered_client):
+    """update_item with commit_type 'build' is rejected."""
+    created = await registered_client.call_tool("add_item", {"title": "Bad type"})
+    item = _parse_result(created)
+
+    with pytest.raises(ToolError):
+        await registered_client.call_tool(
+            "update_item",
+            {"item_id": item["id"], "version": item["version"], "commit_type": "build"},
+        )
+
+
 # --- Dispatch hosts ---
 
 

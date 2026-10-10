@@ -64,6 +64,7 @@ async def _make_project(db, user_id: str) -> str:
 _DEFAULT_ACCEPTANCE_CRITERIA = ["AC-1: Does the thing correctly"]
 _DEFAULT_FILES_TO_MODIFY = [{"path": "src/main.py", "change": "Update logic"}]
 _DEFAULT_BUILD_ENGINE = "claude-code"
+_DEFAULT_COMMIT_TYPE = "feat"
 
 
 async def _make_item(
@@ -77,12 +78,13 @@ async def _make_item(
     acceptance_criteria: list[str] | None = None,
     files_to_modify: list[dict] | None = None,
     build_engine: str | None = _DEFAULT_BUILD_ENGINE,
+    commit_type: str = _DEFAULT_COMMIT_TYPE,
 ) -> str:
     """Insert a test item and return its ID.
 
     Defaults produce a fully-groomed item that passes legality validation.
-    Pass acceptance_criteria=[], files_to_modify=[], or build_engine=None
-    to simulate a partially-groomed item.
+    Pass acceptance_criteria=[], files_to_modify=[], build_engine=None or
+    commit_type="" to simulate a partially-groomed item.
     """
     if acceptance_criteria is None:
         acceptance_criteria = _DEFAULT_ACCEPTANCE_CRITERIA
@@ -93,8 +95,8 @@ async def _make_item(
         "INSERT INTO items "
         "(id, project_id, user_id, title, description, status, "
         " labels, acceptance_criteria, files_to_modify, scope_out, "
-        " build_engine, created_at, updated_at) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+        " build_engine, commit_type, created_at, updated_at) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
         item_id,
         project_id,
         user_id,
@@ -106,6 +108,7 @@ async def _make_item(
         encode_file_specs(files_to_modify),
         encode_json_list([]),
         build_engine,
+        commit_type,
         NOW,
         NOW,
     )
@@ -381,12 +384,50 @@ async def test_validate_multiple_failures_same_item(db):
         acceptance_criteria=[],
         files_to_modify=[],
         build_engine=None,
+        commit_type="",
     )
     with pytest.raises(LegalityContractError) as exc_info:
         await validate_legality_contract(db, user_id, [item_id])
     failure = exc_info.value.failures[0]
     # Should list at least 4 failures (status + AC + files + build_engine)
     assert len(failure["failures"]) >= 4
+
+
+async def test_plan_rollout_rejects_item_without_commit_type(db):
+    """Rule 4c: an otherwise-legal item with commit_type '' is refused."""
+    from agent_gtd.services.rollout_service import (
+        COMMIT_TYPE_REQUIRED_FAILURE,
+        plan_rollout,
+    )
+
+    expected = (
+        "commit_type must be set for groomed items (one of feat, fix, perf, "
+        "refactor, test, docs, chore) — set it in the item drawer, with MCP "
+        "update_item(commit_type=...), or `agent-gtd update-item <id> "
+        "--commit-type <type>` (requires an agent-gtd CLI/MCP that includes "
+        "commit_type)"
+    )
+    assert expected == COMMIT_TYPE_REQUIRED_FAILURE
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, commit_type="")
+
+    with pytest.raises(LegalityContractError) as exc_info:
+        await plan_rollout(db, user_id, [item_id])
+    exc = exc_info.value
+    assert exc.failures[0]["item_id"] == item_id
+    assert expected in exc.failures[0]["failures"]
+    assert item_id[:8] in str(exc)
+
+
+async def test_validate_legality_passes_with_commit_type_set(db):
+    """Rule 4c: the same item with commit_type 'fix' passes validation."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, commit_type="fix")
+
+    await validate_legality_contract(db, user_id, [item_id])
 
 
 # ---------------------------------------------------------------------------
@@ -726,8 +767,8 @@ async def test_plan_rollout_project_not_found(db):
         "INSERT INTO items "
         "(id, project_id, user_id, title, description, status, "
         " labels, acceptance_criteria, files_to_modify, scope_out, "
-        " build_engine, created_at, updated_at) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+        " build_engine, commit_type, created_at, updated_at) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
         item_id,
         None,  # no project
         user_id,
@@ -739,6 +780,7 @@ async def test_plan_rollout_project_not_found(db):
         encode_file_specs([{"path": "src/main.py", "change": "Update"}]),
         encode_json_list([]),
         "claude-code",
+        "feat",
         NOW,
         NOW,
     )

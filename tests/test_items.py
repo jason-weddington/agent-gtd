@@ -1518,3 +1518,151 @@ async def test_move_locked_item_returns_409(
         headers=auth_headers,
     )
     assert res.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# commit_type — groomed conventional-commit type
+# ---------------------------------------------------------------------------
+
+
+def test_commit_type_enum_members_in_order():
+    from agent_gtd.models import CommitType
+    from agent_gtd.services.item_service import ALLOWED_COMMIT_TYPES
+
+    assert [m.value for m in CommitType] == [
+        "feat",
+        "fix",
+        "perf",
+        "refactor",
+        "test",
+        "docs",
+        "chore",
+    ]
+    assert frozenset(m.value for m in CommitType) == ALLOWED_COMMIT_TYPES
+
+
+async def test_commit_type_defaults_to_empty_on_fresh_db(user_id: str):
+    from agent_gtd.database import get_db
+    from agent_gtd.services import item_service
+
+    db = await get_db()
+    row = await item_service.create_item(db, user_id, title="No type")
+    stored = await db.fetchrow(
+        "SELECT commit_type FROM items WHERE id = $1", str(row["id"])
+    )
+    assert stored is not None
+    assert stored["commit_type"] == ""
+
+
+async def test_service_create_item_with_commit_type(user_id: str):
+    from agent_gtd.database import get_db
+    from agent_gtd.services import item_service
+
+    db = await get_db()
+    row = await item_service.create_item(db, user_id, title="Typed", commit_type="fix")
+    assert row["commit_type"] == "fix"
+
+
+async def test_service_update_item_commit_type_set_clear_unchanged(user_id: str):
+    from agent_gtd.database import get_db
+    from agent_gtd.services import item_service
+
+    db = await get_db()
+    row = await item_service.create_item(db, user_id, title="Groom")
+    item_id = str(row["id"])
+
+    row = await item_service.update_item(db, user_id, item_id, commit_type="feat")
+    assert row["commit_type"] == "feat"
+
+    row = await item_service.update_item(db, user_id, item_id, title="Renamed")
+    assert row["commit_type"] == "feat"
+
+    row = await item_service.update_item(
+        db, user_id, item_id, title="Again", commit_type=None
+    )
+    assert row["commit_type"] == "feat"
+
+    row = await item_service.update_item(db, user_id, item_id, commit_type="")
+    assert row["commit_type"] == ""
+
+
+async def test_service_rejects_unknown_commit_type(user_id: str):
+    from agent_gtd.database import get_db
+    from agent_gtd.exceptions import ValidationError
+    from agent_gtd.services import item_service
+
+    expected = (
+        "commit_type must be one of "
+        "['chore', 'docs', 'feat', 'fix', 'perf', 'refactor', 'test'] or empty"
+    )
+    db = await get_db()
+    with pytest.raises(ValidationError) as create_exc:
+        await item_service.create_item(db, user_id, title="Bad", commit_type="build")
+    assert create_exc.value.detail == expected
+
+    row = await item_service.create_item(db, user_id, title="Good")
+    with pytest.raises(ValidationError) as update_exc:
+        await item_service.update_item(db, user_id, str(row["id"]), commit_type="build")
+    assert update_exc.value.detail == expected
+
+
+async def test_api_commit_type_roundtrip(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/items", json={"title": "API typed"}, headers=auth_headers
+    )
+    assert res.status_code == 201
+    assert res.json()["commit_type"] == ""
+    item_id = res.json()["id"]
+
+    res = await client.patch(
+        f"/api/items/{item_id}", json={"commit_type": "fix"}, headers=auth_headers
+    )
+    assert res.status_code == 200
+
+    res = await client.get(f"/api/items/{item_id}", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["commit_type"] == "fix"
+
+    # A PATCH that omits commit_type leaves it unchanged.
+    res = await client.patch(
+        f"/api/items/{item_id}", json={"title": "Renamed"}, headers=auth_headers
+    )
+    assert res.json()["commit_type"] == "fix"
+
+    # An explicit "" clears it.
+    res = await client.patch(
+        f"/api/items/{item_id}", json={"commit_type": ""}, headers=auth_headers
+    )
+    assert res.json()["commit_type"] == ""
+
+
+async def test_api_create_item_with_commit_type(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/items",
+        json={"title": "Created typed", "commit_type": "perf"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["commit_type"] == "perf"
+
+
+async def test_api_rejects_unknown_commit_type(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    res = await client.post(
+        "/api/items",
+        json={"title": "Bad", "commit_type": "build"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+
+    res = await client.post("/api/items", json={"title": "Ok"}, headers=auth_headers)
+    item_id = res.json()["id"]
+    res = await client.patch(
+        f"/api/items/{item_id}", json={"commit_type": "build"}, headers=auth_headers
+    )
+    assert res.status_code == 422

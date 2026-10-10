@@ -36,6 +36,7 @@ import AttachFileIcon from '@mui/icons-material/AttachFile'
 import DeleteIcon from '@mui/icons-material/Delete'
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile'
 import { api, ApiError } from '../api'
+import { COMMIT_TYPE_OPTIONS } from '../types'
 import type { AttachmentResponse, DispatchHost, Item, Comment, MemberSummary, Project, Run, ItemStatus } from '../types'
 import { BUILD_ENGINE_OPTIONS } from '../engineLabels'
 import { isDispatchServiceConfigured, formatRelativeTime, formatFileSize } from '../utils'
@@ -915,6 +916,39 @@ export default function ItemDetailDrawer({
                         {BUILD_ENGINE_OPTIONS.map((opt) => (
                           <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: '0.8rem' }}>
                             {opt.displayLabel}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  )}
+
+                  {/* Commit type select — groomed squash-commit type; required by plan_rollout */}
+                  {localItem.projectId && (
+                    <FormControl size="small" disabled={isSaving}>
+                      <InputLabel
+                        id="drawer-commit-type-label"
+                        sx={{ fontSize: '0.7rem', top: '-4px', '&.MuiInputLabel-shrink': { top: 0 } }}
+                      >
+                        Commit type
+                      </InputLabel>
+                      <Select
+                        labelId="drawer-commit-type-label"
+                        value={localItem.commitType ?? ''}
+                        label="Commit type"
+                        onChange={(e) => void saveField('commitType', e.target.value)}
+                        sx={{
+                          fontSize: '0.75rem',
+                          height: 28,
+                          minWidth: 110,
+                          '& .MuiSelect-select': { py: '2px', px: 1 },
+                        }}
+                      >
+                        <MenuItem value="" sx={{ fontSize: '0.8rem' }}>
+                          <em>Unset</em>
+                        </MenuItem>
+                        {COMMIT_TYPE_OPTIONS.map((ct) => (
+                          <MenuItem key={ct} value={ct} sx={{ fontSize: '0.8rem' }}>
+                            {ct}
                           </MenuItem>
                         ))}
                       </Select>

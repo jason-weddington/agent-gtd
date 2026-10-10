@@ -196,6 +196,23 @@ class BuildEngine(StrEnum):
     TALOS_GLM_FLASH = "talos-glm-flash"
 
 
+class CommitType(StrEnum):
+    """Conventional-commit type groomed onto an item.
+
+    The squash commit a rollout lands for the item carries this type.  The
+    empty string (not a member) means unset.  There is deliberately no
+    ``build`` or ``ci`` member: those describe tooling changes, not items.
+    """
+
+    FEAT = "feat"
+    FIX = "fix"
+    PERF = "perf"
+    REFACTOR = "refactor"
+    TEST = "test"
+    DOCS = "docs"
+    CHORE = "chore"
+
+
 TALOS_ENGINES: frozenset[str] = frozenset(
     member.value for member in BuildEngine if member.value.startswith("talos-")
 )
@@ -403,6 +420,7 @@ class Item(BaseModel):
     version: int = 1
     locked_by_rollout_id: str | None = None
     build_engine: BuildEngine | None = None
+    commit_type: str = ""
     acceptance_criteria: list[str] = []
     files_to_modify: list[dict[str, Any]] = []
     scope_out: list[str] = []
@@ -804,6 +822,7 @@ class CreateItemRequest(BaseModel):
     sort_order: float = 0
     labels: list[str] = []
     build_engine: BuildEngine | None = None
+    commit_type: CommitType | Literal[""] = ""
     acceptance_criteria: list[str] = []
     files_to_modify: list[dict[str, Any]] = []
     scope_out: list[str] = []
@@ -824,6 +843,8 @@ class UpdateItemRequest(BaseModel):
     sort_order: float | None = None
     labels: list[str] | None = None
     build_engine: BuildEngine | None = None
+    # None = unchanged; "" clears the groomed commit type.
+    commit_type: CommitType | Literal[""] | None = None
     acceptance_criteria: list[str] | None = None
     files_to_modify: list[dict[str, Any]] | None = None
     scope_out: list[str] | None = None
@@ -863,6 +884,7 @@ class ItemResponse(BaseModel):
     version: int
     locked_by_rollout_id: str | None = None
     build_engine: BuildEngine | None = None
+    commit_type: str = ""
     acceptance_criteria: list[str] = []
     files_to_modify: list[dict[str, Any]] = []
     scope_out: list[str] = []

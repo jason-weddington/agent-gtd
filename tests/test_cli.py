@@ -662,7 +662,12 @@ def test_cmd_update_item_reads_stdin(monkeypatch, capsys):
     called: dict[str, Any] = {}
 
     async def _fake_do(  # type: ignore[misc]
-        item_id: str, payload: Any, status: Any, be: Any, ver: Any
+        item_id: str,
+        payload: Any,
+        status: Any,
+        be: Any,
+        ver: Any,
+        commit_type: Any = None,
     ) -> None:
         called["payload"] = payload
         called["status"] = status
@@ -828,7 +833,12 @@ def test_cmd_update_item_explicit_version_conflict_exits_nonzero(monkeypatch, ca
     from fastmcp.exceptions import ToolError
 
     async def _fake_do(  # type: ignore[misc]
-        item_id: str, payload: Any, status: Any, be: Any, ver: Any
+        item_id: str,
+        payload: Any,
+        status: Any,
+        be: Any,
+        ver: Any,
+        commit_type: Any = None,
     ) -> None:
         raise ToolError("Version conflict on Item x: expected 1, got 2")
 
@@ -919,7 +929,12 @@ def test_cmd_update_item_invalid_build_engine_exits_nonzero(monkeypatch, capsys)
     from agent_gtd.exceptions import ValidationError
 
     async def _fake_do(  # type: ignore[misc]
-        item_id: str, payload: Any, status: Any, be: Any, ver: Any
+        item_id: str,
+        payload: Any,
+        status: Any,
+        be: Any,
+        ver: Any,
+        commit_type: Any = None,
     ) -> None:
         raise ValidationError("build_engine must be one of [...]")
 
@@ -1005,7 +1020,12 @@ def test_cmd_update_item_invalid_build_engine_via_json_exits_nonzero(
     from agent_gtd.exceptions import ValidationError
 
     async def _fake_do(  # type: ignore[misc]
-        item_id: str, payload: Any, status: Any, be: Any, ver: Any
+        item_id: str,
+        payload: Any,
+        status: Any,
+        be: Any,
+        ver: Any,
+        commit_type: Any = None,
     ) -> None:
         raise ValidationError("build_engine must be one of [...]")
 
@@ -2663,3 +2683,240 @@ def test_poll_interval_floor_clamped_to_five(monkeypatch, capsys):
     assert all(d >= 5.0 for d in sleep_durations), (
         f"expected all sleep durations ≥ 5, got {sleep_durations}"
     )
+
+
+# ---------------------------------------------------------------------------
+# commit_type — payload, --commit-type flag, add-item
+# ---------------------------------------------------------------------------
+
+
+async def _local_item_for_commit_type(monkeypatch: Any) -> tuple[Any, str]:
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+    db = await get_db()
+    row = await item_service.create_item(
+        db, LOCAL_USER_ID, title="Commit type", status="inbox"
+    )
+    return db, str(row["id"])
+
+
+async def test_do_update_item_commit_type_payload_set_and_clear(monkeypatch):
+    """{"commit_type": "fix"} sets the field; {"commit_type": ""} clears it."""
+    db, item_id = await _local_item_for_commit_type(monkeypatch)
+
+    await _do_update_item(item_id, {"commit_type": "fix"}, None, None, None)
+    row = await db.fetchrow("SELECT commit_type FROM items WHERE id = $1", item_id)
+    assert row["commit_type"] == "fix"
+
+    await _do_update_item(item_id, {"title": "Untouched type"}, None, None, None)
+    row = await db.fetchrow("SELECT commit_type FROM items WHERE id = $1", item_id)
+    assert row["commit_type"] == "fix"
+
+    await _do_update_item(item_id, {"commit_type": ""}, None, None, None)
+    row = await db.fetchrow("SELECT commit_type FROM items WHERE id = $1", item_id)
+    assert row["commit_type"] == ""
+
+
+async def test_do_update_item_commit_type_flag_wins_over_payload(monkeypatch):
+    """The --commit-type flag value takes precedence over payload commit_type."""
+    db, item_id = await _local_item_for_commit_type(monkeypatch)
+
+    await _do_update_item(
+        item_id, {"commit_type": "docs"}, None, None, None, commit_type="perf"
+    )
+    row = await db.fetchrow("SELECT commit_type FROM items WHERE id = $1", item_id)
+    assert row["commit_type"] == "perf"
+
+
+def test_cmd_update_item_commit_type_flag_forwarded(monkeypatch):
+    """--commit-type alone is enough to run update-item and is forwarded."""
+    called: dict[str, Any] = {}
+
+    async def _fake_do(
+        item_id: str,
+        payload: Any,
+        status: Any,
+        be: Any,
+        ver: Any,
+        commit_type: Any = None,
+    ) -> None:
+        called["payload"] = payload
+        called["commit_type"] = commit_type
+
+    monkeypatch.setattr("agent_gtd.cli._do_update_item", _fake_do)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-gtd", "update-item", "item-id", "--commit-type", "fix"],
+    )
+
+    main()
+
+    assert called == {"payload": {}, "commit_type": "fix"}
+
+
+def test_cmd_update_item_commit_type_flag_end_to_end(monkeypatch, tmp_path):
+    """update-item --from-json + --commit-type writes the flag's value."""
+    import asyncio
+
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import item_service
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    async def _create() -> str:
+        db = await get_db()
+        row = await item_service.create_item(db, LOCAL_USER_ID, title="E2E")
+        return str(row["id"])
+
+    async def _read(item_id: str) -> str:
+        db = await get_db()
+        row = await db.fetchrow("SELECT commit_type FROM items WHERE id = $1", item_id)
+        return str(row["commit_type"])
+
+    item_id = asyncio.run(_create())
+    payload_file = tmp_path / "f.json"
+    payload_file.write_text(json.dumps({"commit_type": "docs"}))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-gtd",
+            "update-item",
+            item_id,
+            "--from-json",
+            str(payload_file),
+            "--commit-type",
+            "refactor",
+        ],
+    )
+
+    main()
+
+    assert asyncio.run(_read(item_id)) == "refactor"
+
+
+def test_cmd_update_item_commit_type_invalid_choice_exits_nonzero(monkeypatch, capsys):
+    """--commit-type build is not an allowed choice."""
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-gtd", "update-item", "item-id", "--commit-type", "build"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code != 0
+    assert "--commit-type" in capsys.readouterr().err
+
+
+def test_cmd_update_item_no_source_message_names_commit_type(monkeypatch, capsys):
+    """The nothing-to-update guard message lists --commit-type."""
+    monkeypatch.setattr(sys, "argv", ["agent-gtd", "update-item", "item-id"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    assert (
+        "Error: supply at least one of --from-json, --stdin, --status, "
+        "--build-engine, or --commit-type"
+    ) in capsys.readouterr().err
+
+
+async def test_do_update_item_unknown_key_still_rejected_with_commit_type(
+    monkeypatch,
+):
+    """commit_type is allowed, but an unknown key alongside it still fails."""
+    _db, item_id = await _local_item_for_commit_type(monkeypatch)
+
+    with pytest.raises(ValueError, match="unknown field"):
+        await _do_update_item(
+            item_id, {"commit_type": "fix", "bogus": 1}, None, None, None
+        )
+
+
+async def test_do_add_item_local_persists_commit_type(monkeypatch):
+    """add-item --from-json with commit_type creates an item carrying it."""
+    from agent_gtd.database import get_db
+    from agent_gtd.mcp_backend import LocalBackend
+
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: LocalBackend())
+
+    new_id = await _do_add_item(
+        project_id=None,
+        payload={"title": "Typed add", "commit_type": "test"},
+        status=None,
+        labels_cli=None,
+    )
+
+    db = await get_db()
+    row = await db.fetchrow("SELECT commit_type FROM items WHERE id = $1", new_id)
+    assert row["commit_type"] == "test"
+
+
+async def test_do_add_item_http_mode_threads_commit_type(monkeypatch):
+    """HTTP mode: commit_type flows into _http_post_create_item."""
+    http_called: dict[str, Any] = {}
+
+    async def _fake_http_post(
+        base_url: str, api_key: str, *, title: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        http_called.update(kwargs)
+        return {"id": "new-id"}
+
+    class _FakeBackend:
+        async def login(self, api_key: str, agent_name: str) -> dict[str, Any]:
+            return {"user_id": "fake-user"}
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("AGENT_GTD_URL", "http://example.com")
+    monkeypatch.setenv("AGENT_GTD_API_KEY", "test-key")
+    monkeypatch.setattr("agent_gtd.cli.create_backend", lambda: _FakeBackend())
+    monkeypatch.setattr("agent_gtd.cli._http_post_create_item", _fake_http_post)
+
+    await _do_add_item(
+        project_id=None,
+        payload={"title": "HTTP typed", "commit_type": "chore"},
+        status=None,
+        labels_cli=None,
+    )
+
+    assert http_called["commit_type"] == "chore"
+
+
+async def test_http_post_create_item_includes_commit_type_only_when_given():
+    """_http_post_create_item sends commit_type when given, omits it when None."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from agent_gtd.cli import _http_post_create_item
+
+    mock_resp = MagicMock()
+    mock_resp.is_success = True
+    mock_resp.json.return_value = {"id": "x"}
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        await _http_post_create_item(
+            "http://example.com", "k", title="T", commit_type="fix"
+        )
+        body = mock_client.post.call_args.kwargs["json"]
+        assert body["commit_type"] == "fix"
+
+        await _http_post_create_item("http://example.com", "k", title="T")
+        body = mock_client.post.call_args.kwargs["json"]
+        assert "commit_type" not in body

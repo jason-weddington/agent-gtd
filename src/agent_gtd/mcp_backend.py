@@ -98,6 +98,7 @@ _COMPACT_ITEM_KEYS = (
     "status",
     "priority",
     "build_engine",
+    "commit_type",
     "project_id",
     "project_name",
     "project_repo_mode",
@@ -111,7 +112,7 @@ _DESCRIPTION_SNIPPET_LEN = 140
 
 
 def _compact_item(item: dict[str, Any]) -> dict[str, Any]:
-    """Return a compact representation of an item with a 16-key whitelist.
+    """Return a compact representation of an item with a 17-key whitelist.
 
     Computes ac_count, files_count, and description_snippet from the full
     item dict.  Accepts acceptance_criteria and files_to_modify as either
@@ -121,7 +122,7 @@ def _compact_item(item: dict[str, Any]) -> dict[str, Any]:
         item: Full item dict from _format_item or _enrich_item.
 
     Returns:
-        Dict with exactly 16 keys: the 13 whitelist columns plus ac_count,
+        Dict with exactly 17 keys: the 14 whitelist columns plus ac_count,
         files_count, and description_snippet.
     """
     import json as _json
@@ -236,6 +237,7 @@ class McpBackend(Protocol):
         created_by: str = "human",
         due_date: str | None = None,
         build_engine: str | None = None,
+        commit_type: str = "",
     ) -> dict[str, Any]: ...
 
     async def update_item(
@@ -259,6 +261,7 @@ class McpBackend(Protocol):
         scope_out: list[str] | None = None,
         project_id: str | None = None,
         project_id_set: bool = False,
+        commit_type: str | None = None,
     ) -> dict[str, Any]: ...
 
     async def complete_item(self, user_id: str, item_id: str) -> dict[str, Any]: ...
@@ -796,6 +799,7 @@ class LocalBackend:
         created_by: str = "human",
         due_date: str | None = None,
         build_engine: str | None = None,
+        commit_type: str = "",
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import item_service
@@ -815,6 +819,7 @@ class LocalBackend:
             labels=labels,
             due_date=due_date,
             build_engine=build_engine or None,
+            commit_type=commit_type,
         )
         pm = await self._build_project_map(user_id)
         result = self._format_item(row, pm)
@@ -845,6 +850,7 @@ class LocalBackend:
         scope_out: list[str] | None = None,
         project_id: str | None = None,
         project_id_set: bool = False,
+        commit_type: str | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import item_service
@@ -869,6 +875,7 @@ class LocalBackend:
             scope_out=scope_out,
             project_id=project_id,
             project_id_set=project_id_set,
+            commit_type=commit_type,
             version=version,
         )
         pm = await self._build_project_map(user_id)
@@ -1769,6 +1776,7 @@ class HttpBackend:
         created_by: str = "human",
         due_date: str | None = None,
         build_engine: str | None = None,
+        commit_type: str = "",
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "title": title,
@@ -1787,6 +1795,8 @@ class HttpBackend:
         # body so the item is created with no engine (inherits global default).
         if build_engine:
             body["build_engine"] = build_engine
+        if commit_type:
+            body["commit_type"] = commit_type
         resp = await self._client.post(
             "/api/items",
             json=body,
@@ -1823,6 +1833,7 @@ class HttpBackend:
         scope_out: list[str] | None = None,
         project_id: str | None = None,
         project_id_set: bool = False,
+        commit_type: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"version": version}
         if title is not None:
@@ -1849,6 +1860,9 @@ class HttpBackend:
             body["scope_out"] = scope_out
         if project_id_set:
             body["project_id"] = project_id
+        # "" is sent (it clears the field); None leaves it unchanged.
+        if commit_type is not None:
+            body["commit_type"] = commit_type
         resp = await self._client.patch(
             f"/api/items/{item_id}",
             json=body,
