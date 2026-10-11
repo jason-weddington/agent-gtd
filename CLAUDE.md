@@ -59,6 +59,14 @@ dispatch in the window between "about to release" and "service is `active`
 again". This is an operational property of THIS service, which is why it
 lives here rather than in steering loaded for every project.
 
+### Standing authority: the lead deploys without asking (Jason, 2026-10-11)
+
+The agent_gtd lead session releases and deploys both services as needed, without waiting for Jason's go. Report what shipped afterwards.
+
+- **Dispatch hosts (agent-gtd-dispatch):** roll through the fleet with host drain, never a fleet-wide hold. Drain a host, wait until it reads `active_runs == 0` twice ~30s apart, deploy it alone (`DISPATCH_HOST=<host> EXPECT_VERSION=<ver> ./deploy.sh`; to cut the release too, run `DISPATCH_HOST=<idle-host> ./release.sh` for the first host), verify version and the live service env on the host, then undrain. Keep at least one upgraded host accepting work at all times. Full sequence and caveats: `docs/host-drain.md`.
+- **The board itself (agent_gtd):** a restart kills in-flight runs (above), and drain does not help here, so coordinate with peers every time. Check `agent-gtd list-runs --status running` and `--status pending` fleet-wide (other users' runs, Tomoki's included, show up there but not under Jason's projects). Message every live peer to land current items and hold new dispatches, wait for the fleet to go idle, deploy or release, confirm the service is `active` and `/api/health` is green, then tell every peer they can resume.
+- **Always:** never deploy from a stale checkout (`git fetch` + `git merge-base --is-ancestor origin/main HEAD`), read the deploy's real exit status, and verify the deployed state rather than trusting a green signal.
+
 ## Headless Dispatch Hosts
 
 **Two provisioning modes.** `setup-dispatch-host.sh` (in the `agent-gtd-dispatch`
