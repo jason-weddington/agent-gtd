@@ -2,6 +2,37 @@
 
 <!-- version list -->
 
+## v2.3.0 (2026-10-11)
+
+### Bug Fixes
+
+- **9f00b5f1**: A bookkeeping failure after a successful merge halts the whole rollout
+  ([`913059c`](https://github.com/jason-weddington/agent-gtd/commit/913059c9649f1bb4b28c7691d44df617900cfe56))
+
+- **fdeb523f**: A dispatch that fails after its run row is written leaves an orphaned pending run
+  that blocks redispatch
+  ([`5a766e4`](https://github.com/jason-weddington/agent-gtd/commit/5a766e474537750a712a86bcf7863c74d9e5346b))
+
+### Documentation
+
+- Production proxy on r7-research is Caddy, not nginx; add /mcp route
+  ([`76874ff`](https://github.com/jason-weddington/agent-gtd/commit/76874ffdf497287fc3c8a37e5af8eb8b3ca6c174))
+
+- Standing authority for the lead to drain-deploy dispatch and coordinate board restarts
+  ([`68ee4b0`](https://github.com/jason-weddington/agent-gtd/commit/68ee4b02e0d478ce172090e5a16fb9b8ae9420aa))
+
+- **drain**: Mark host drain shipped; record release-to-one-host rolling sequence
+  ([`a79111f`](https://github.com/jason-weddington/agent-gtd/commit/a79111fac5af66747d9e7c6d50ab14a7a9f88155))
+
+### Features
+
+- **183a0f96**: Agent-gtd CLI and MCP cancel-run verb
+  ([`654f3d0`](https://github.com/jason-weddington/agent-gtd/commit/654f3d09d64cd0688d2bfe4a1f8962780bf8d479))
+
+- **56c4dbe4**: Serve the agent-gtd MCP tool set over streamable HTTP at /mcp from the board service
+  ([`ce886ad`](https://github.com/jason-weddington/agent-gtd/commit/ce886ad53b77e4e7a3ae4fa8b7f30b90f7664157))
+
+
 ## v2.2.0 (2026-10-10)
 
 ### Documentation
