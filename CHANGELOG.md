@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v2.3.1 (2026-10-11)
+
+### Bug Fixes
+
+- **0b966bc3**: The rollout loop run is marked failed when its final advance returns 422 on an
+  already-completed rollout
+  ([`1deffa5`](https://github.com/jason-weddington/agent-gtd/commit/1deffa5b55a488599729d095bf7e4bf335934dd1))
+
+
 ## v2.3.0 (2026-10-11)
 
 ### Bug Fixes
