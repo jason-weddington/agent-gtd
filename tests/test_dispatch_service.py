@@ -200,6 +200,10 @@ async def _setup_cancel_run_fixture(
     auth_headers: dict[str, str],
     *,
     remote_run_id: str = "",
+    dispatch_host_url: str = "",
+    status: str | None = None,
+    rollout_id: str | None = None,
+    mode: str | None = None,
 ) -> tuple[str, str]:
     """Create user/project/item/run; return (user_id, run_id).
 
@@ -207,6 +211,10 @@ async def _setup_cancel_run_fixture(
         client: Async HTTP test client.
         auth_headers: Auth headers for the test user.
         remote_run_id: Value to store in ``claude_runs.remote_run_id``.
+        dispatch_host_url: Value for ``claude_runs.dispatch_host_url`` if set.
+        status: Override ``claude_runs.status`` if not None.
+        rollout_id: Owning rollout; an ``autonomous_rollouts`` row is inserted.
+        mode: Override ``claude_runs.mode`` if not None.
 
     Returns:
         Tuple of (user_id, run_id).
@@ -239,6 +247,36 @@ async def _setup_cancel_run_fixture(
         await db.execute(
             "UPDATE claude_runs SET remote_run_id = $1 WHERE id = $2",
             remote_run_id,
+            run_id,
+        )
+    if dispatch_host_url:
+        await db.execute(
+            "UPDATE claude_runs SET dispatch_host_url = $1 WHERE id = $2",
+            dispatch_host_url,
+            run_id,
+        )
+    if status is not None:
+        await db.execute(
+            "UPDATE claude_runs SET status = $1 WHERE id = $2", status, run_id
+        )
+    if mode is not None:
+        await db.execute("UPDATE claude_runs SET mode = $1 WHERE id = $2", mode, run_id)
+    if rollout_id is not None:
+        now = "2026-01-01T00:00:00+00:00"
+        await db.execute(
+            "INSERT INTO autonomous_rollouts"
+            " (id, project_id, lead_user_id, status, created_at, updated_at)"
+            " VALUES ($1, $2, $3, $4, $5, $6)",
+            rollout_id,
+            project_id,
+            user_id,
+            "pending",
+            now,
+            now,
+        )
+        await db.execute(
+            "UPDATE claude_runs SET rollout_id = $1 WHERE id = $2",
+            rollout_id,
             run_id,
         )
 
@@ -607,3 +645,227 @@ async def test_create_run_refuses_drained_host_for_member_caller(
         )
     assert "is draining" in str(exc_info.value)
     assert _DRAIN_REASON in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# cancel_run: terminal no-op, owning-host resolution, refusal, event
+# ---------------------------------------------------------------------------
+
+_SVC_LOGGER = "agent_gtd.services.dispatch_service"
+_EPOCH = "2026-01-01T00:00:00+00:00"
+
+
+def _hosts(drain_b: str | None = None) -> list[dict[str, Any]]:
+    return [
+        {"url": "https://host-a", "api_key": "ka", "drain_reason": None},
+        {"url": "https://host-b", "api_key": "kb", "drain_reason": drain_b},
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["success", "failed", "timeout", "cancelled"])
+async def test_cancel_run_terminal_is_noop(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+    status: str,
+) -> None:
+    """Terminal runs are returned unchanged with no forward."""
+    import logging
+
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    user_id, run_id = await _setup_cancel_run_fixture(
+        client, auth_headers, remote_run_id="remote-x", status=status
+    )
+    db = await get_db()
+    await db.execute(
+        "UPDATE claude_runs SET finished_at = $1, updated_at = $2 WHERE id = $3",
+        _EPOCH,
+        _EPOCH,
+        run_id,
+    )
+    mock_cls = MagicMock()
+    with (
+        patch("httpx.AsyncClient", mock_cls),
+        caplog.at_level(logging.INFO, logger=_SVC_LOGGER),
+    ):
+        result = await cancel_run(db, user_id, run_id)
+
+    row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
+    assert row is not None
+    for got in (result, row):
+        assert got["status"] == status
+        assert got["finished_at"] == _EPOCH
+        assert got["updated_at"] == _EPOCH
+    mock_cls.assert_not_called()
+    assert "cancel_run: noop" in caplog.text
+
+
+async def _cancel_with_hosts(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+    *,
+    host_url: str,
+    hosts: list[dict[str, Any]],
+) -> tuple[MagicMock, AsyncMock, dict[str, Any], str]:
+    import logging
+
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    user_id, run_id = await _setup_cancel_run_fixture(
+        client, auth_headers, remote_run_id="remote-abc", dispatch_host_url=host_url
+    )
+    mock_inst = _make_async_client_mock(status_code=200)
+    legacy = AsyncMock()
+    with (
+        patch("httpx.AsyncClient", return_value=mock_inst),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(return_value=hosts),
+        ),
+        patch("agent_gtd.services.settings_service.get_dispatch_config", new=legacy),
+        caplog.at_level(logging.INFO, logger=_SVC_LOGGER),
+    ):
+        db = await get_db()
+        updated = await cancel_run(db, user_id, run_id)
+    return mock_inst, legacy, updated, run_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drain", [None, "maintenance"])
+async def test_cancel_run_forwards_to_owning_host(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+    drain: str | None,
+) -> None:
+    """The cancel goes to the host matching dispatch_host_url, even if drained."""
+    mock_inst, legacy, updated, _ = await _cancel_with_hosts(
+        client,
+        auth_headers,
+        caplog,
+        host_url="https://host-b",
+        hosts=_hosts(drain),
+    )
+    assert updated["status"] == "cancelled"
+    mock_inst.post.assert_awaited_once()
+    args, kwargs = mock_inst.post.await_args
+    assert args[0] == "https://host-b/runs/remote-abc/cancel"
+    assert kwargs["headers"] == {"Authorization": "Bearer kb"}
+    legacy.assert_not_awaited()
+    assert "resolution=owning_host host=https://host-b" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_unmatched_host_no_forward(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    mock_inst, legacy, updated, run_id = await _cancel_with_hosts(
+        client, auth_headers, caplog, host_url="https://host-z", hosts=_hosts()
+    )
+    assert updated["status"] == "cancelled"
+    mock_inst.post.assert_not_awaited()
+    legacy.assert_not_awaited()
+    assert any(
+        r.name == _SVC_LOGGER
+        and r.levelno == logging.WARNING
+        and run_id in r.message
+        and "no configured host matches" in r.message
+        for r in caplog.records
+    )
+    assert "resolution=unmatched_host" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_legacy_resolution_logged(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    user_id, run_id = await _setup_cancel_run_fixture(
+        client, auth_headers, remote_run_id="remote-abc"
+    )
+    mock_inst = _make_async_client_mock(status_code=200)
+    with (
+        patch("httpx.AsyncClient", return_value=mock_inst),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_config",
+            new=AsyncMock(return_value=_FAKE_DISPATCH_CFG),
+        ),
+        caplog.at_level(logging.INFO, logger=_SVC_LOGGER),
+    ):
+        await cancel_run(await get_db(), user_id, run_id)
+    mock_inst.post.assert_awaited_once()
+    assert "resolution=legacy_config" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["rollout_id", "manage"])
+async def test_cancel_run_refuses_rollout_runs(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+    kind: str,
+) -> None:
+    from agent_gtd.database import get_db
+    from agent_gtd.exceptions import ValidationError
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    kwargs: dict[str, Any] = (
+        {"rollout_id": "11111111-1111-1111-1111-111111111111"}
+        if kind == "rollout_id"
+        else {"mode": "manage"}
+    )
+    user_id, run_id = await _setup_cancel_run_fixture(
+        client, auth_headers, remote_run_id="remote-abc", **kwargs
+    )
+    mock_cls = MagicMock()
+    db = await get_db()
+    with (
+        patch("httpx.AsyncClient", mock_cls),
+        pytest.raises(ValidationError) as exc,
+    ):
+        await cancel_run(db, user_id, run_id)
+    assert "use cancel-rollout or halt-rollout" in str(exc.value)
+    row = await db.fetchrow("SELECT status FROM claude_runs WHERE id = $1", run_id)
+    assert row is not None and row["status"] == "pending"
+    mock_cls.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_publishes_event_only_on_transition(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+) -> None:
+    from agent_gtd.database import get_db
+    from agent_gtd.exceptions import ValidationError
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    user_id, run_id = await _setup_cancel_run_fixture(client, auth_headers)
+    db = await get_db()
+    with patch("agent_gtd.event_helpers.best_effort_publish", new=AsyncMock()) as pub:
+        await cancel_run(db, user_id, run_id)
+        pub.assert_awaited_once()
+        assert pub.await_args.kwargs["event_type"] == "run_failed"
+        assert pub.await_args.kwargs["entity_id"] == run_id
+        # Terminal no-op: no further publish.
+        await cancel_run(db, user_id, run_id)
+        pub.assert_awaited_once()
+
+    _, run2 = await _setup_cancel_run_fixture(client, auth_headers, mode="manage")
+    with patch("agent_gtd.event_helpers.best_effort_publish", new=AsyncMock()) as pub:
+        with pytest.raises(ValidationError):
+            await cancel_run(db, user_id, run2)
+        pub.assert_not_awaited()

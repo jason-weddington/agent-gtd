@@ -2465,3 +2465,59 @@ async def test_runs_expose_engine_and_engine_actual(
     assert row.get("dispatch_host_url") is None
     assert "dispatch_host_url" in body
     assert body["dispatch_host_url"] is None
+
+
+async def test_cancel_run_post(client: AsyncClient, auth_headers: dict[str, str]):
+    """POST /api/runs/{id}/cancel is idempotent and returns the run."""
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch", json={}, headers=auth_headers
+    )
+    run_id = res.json()["id"]
+
+    for _ in range(2):
+        res = await client.post(f"/api/runs/{run_id}/cancel", headers=auth_headers)
+        assert res.status_code == 200
+        assert res.json()["status"] == "cancelled"
+
+
+async def test_cancel_run_post_not_found(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    fake_id = "00000000-0000-0000-0000-000000000000"
+    res = await client.post(f"/api/runs/{fake_id}/cancel", headers=auth_headers)
+    assert res.status_code == 404
+
+
+async def test_cancel_run_post_rollout_owned_409(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    from agent_gtd.database import get_db
+
+    project_id = await _create_project_with_origin(client, auth_headers)
+    item_id = await _create_item_in_project(client, auth_headers, project_id)
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch", json={}, headers=auth_headers
+    )
+    run_id = res.json()["id"]
+    me = await client.get("/api/auth/me", headers=auth_headers)
+    db = await get_db()
+    rollout_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO autonomous_rollouts"
+        " (id, project_id, lead_user_id, status, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6)",
+        rollout_id,
+        project_id,
+        me.json()["id"],
+        "pending",
+        now,
+        now,
+    )
+    await db.execute(
+        "UPDATE claude_runs SET rollout_id = $1 WHERE id = $2", rollout_id, run_id
+    )
+    res = await client.post(f"/api/runs/{run_id}/cancel", headers=auth_headers)
+    assert res.status_code == 409

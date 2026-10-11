@@ -1,9 +1,10 @@
 """CLI dispatch, run, and dispatch-host subcommands for agent-gtd.
 
-Registers five subcommands on the shared subparsers action:
+Registers six subcommands on the shared subparsers action:
 
 - ``dispatch-item``: dispatch an item for autonomous build or plan execution.
 - ``list-runs``: list dispatch runs, optionally filtered by item or status.
+- ``cancel-run``: cancel a single dispatched run (no-op if already finished).
 - ``list-dispatch-hosts``: list registered dispatch hosts (id, label, URL, drain state).
 - ``drain-host``: take a host out of rotation (operator action; --reason mandatory
   unless the host is already drained).
@@ -135,6 +136,20 @@ def _cmd_drain_host(args: argparse.Namespace) -> None:
     emit_json(result)
 
 
+def _cmd_cancel_run(args: argparse.Namespace) -> None:
+    """Cancel a single dispatched run and print the run dict as JSON."""
+
+    async def _run() -> dict[str, Any]:
+        async with backend_session() as (backend, user_id):
+            return await backend.cancel_run(user_id, args.run_id)
+
+    try:
+        result = asyncio.run(_run())
+    except Exception as e:
+        fail(e)
+    emit_json(result)
+
+
 def _cmd_undrain_host(args: argparse.Namespace) -> None:
     """Return a drained dispatch host to rotation.
 
@@ -160,9 +175,9 @@ def _cmd_undrain_host(args: argparse.Namespace) -> None:
 def register(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    """Register the five dispatch/host subparsers.
+    """Register the six dispatch/host subparsers.
 
-    Registers dispatch-item, list-runs, list-dispatch-hosts, drain-host,
+    Registers dispatch-item, list-runs, cancel-run, list-dispatch-hosts, drain-host,
     and undrain-host.
 
     Each subparser calls ``parser.set_defaults(func=<handler>)`` so that
@@ -177,6 +192,19 @@ def register(
         subparsers: The subparsers action returned by
             ``parser.add_subparsers(...)`` in ``cli.py``.
     """
+    # ------------------------------------------------------------------ #
+    # cancel-run
+    # ------------------------------------------------------------------ #
+    cr = subparsers.add_parser(
+        "cancel-run",
+        help=(
+            "Cancel a single dispatched run (no-op if already finished;"
+            " rollout runs are refused)."
+        ),
+    )
+    cr.add_argument("run_id", help="ID of the dispatch run.")
+    cr.set_defaults(func=_cmd_cancel_run)
+
     # ------------------------------------------------------------------ #
     # dispatch-item
     # ------------------------------------------------------------------ #

@@ -1395,6 +1395,37 @@ async def get_run_status(
 
 
 @mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=True, idempotentHint=True
+    ),
+)
+async def cancel_run(
+    run_id: str,
+    ctx: Context,
+) -> dict[str, Any]:
+    """Cancel a single dispatched run.
+
+    An active run is marked cancelled and the dispatch host running it is
+    asked to stop it; a run that never reached a host is just marked
+    cancelled. Cancelling an already-finished run is a no-op that returns its
+    current status. Runs belonging to a rollout are refused (use
+    cancel_rollout or halt_rollout).
+
+    Args:
+        run_id: ID of the dispatch run.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        The run dict with its current status.
+    """
+    session = await _get_session(ctx)
+    try:
+        return await _backend.cancel_run(session["user_id"], run_id)
+    except (NotFoundError, ValidationError) as e:
+        raise ToolError(e.detail) from None
+
+
+@mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def list_runs(

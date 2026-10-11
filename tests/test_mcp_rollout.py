@@ -489,6 +489,37 @@ async def test_cancel_rollout_not_found(mcp_client_authed):
         )
 
 
+async def test_cancel_run_tool_happy_path(mcp_client_authed, user_id):
+    """cancel_run on a pending run returns status='cancelled'."""
+    from agent_gtd.services import dispatch_service
+
+    project_id = await _create_project(user_id)
+    item_id = await _create_ready_item(user_id, project_id)
+    db = await get_db()
+    await db.execute(
+        "UPDATE projects SET git_origin = $1 WHERE id = $2",
+        "git@github.com:test/repo.git",
+        project_id,
+    )
+    run = await dispatch_service.create_run(db, user_id, item_id)
+
+    result = _parse_result(
+        await mcp_client_authed.call_tool("cancel_run", {"run_id": run["id"]})
+    )
+    assert result["status"] == "cancelled"
+
+
+async def test_cancel_run_tool_not_found(mcp_client_authed):
+    with pytest.raises(ToolError):
+        await mcp_client_authed.call_tool("cancel_run", {"run_id": str(uuid.uuid4())})
+
+
+async def test_cancel_run_tool_description_engine_agnostic(mcp_client_authed):
+    tools = await mcp_client_authed.list_tools()
+    tool = next(t for t in tools if t.name == "cancel_run")
+    assert "Claude" not in (tool.description or "")
+
+
 # ---------------------------------------------------------------------------
 # Helper: insert a rollout plan row
 # ---------------------------------------------------------------------------

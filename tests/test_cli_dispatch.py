@@ -17,6 +17,7 @@ import pytest
 
 from agent_gtd.cli import build_parser, main
 from agent_gtd.cli_commands.dispatch import (
+    _cmd_cancel_run,
     _cmd_dispatch_item,
     _cmd_drain_host,
     _cmd_list_dispatch_hosts,
@@ -809,3 +810,50 @@ def test_main_drain_host_end_to_end(monkeypatch, capsys):
     assert "api_key" not in data
     assert fake.drain_calls[0]["host"] == "pironman01"
     assert fake.drain_calls[0]["reason"] == "rolling deploy 2.0.2"
+
+
+# ---------------------------------------------------------------------------
+# Tests for _cmd_cancel_run
+# ---------------------------------------------------------------------------
+
+
+def _cancel_run_args(run_id: str = "run-1") -> argparse.Namespace:
+    return argparse.Namespace(run_id=run_id)
+
+
+def test_cmd_cancel_run_happy_path(monkeypatch, capsys):
+    from unittest.mock import AsyncMock
+
+    result = _make_run(status="cancelled")
+    backend = type("B", (), {})()
+    backend.cancel_run = AsyncMock(return_value=result)  # type: ignore[attr-defined]
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _make_session(backend)
+    )
+
+    _cmd_cancel_run(_cancel_run_args())
+
+    backend.cancel_run.assert_awaited_once_with("fake-user", "run-1")
+    assert json.loads(capsys.readouterr().out) == result
+
+
+def test_cmd_cancel_run_error_exits_1(monkeypatch, capsys):
+    from unittest.mock import AsyncMock
+
+    backend = type("B", (), {})()
+    backend.cancel_run = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[attr-defined]
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _make_session(backend)
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_cancel_run(_cancel_run_args())
+
+    assert exc_info.value.code == 1
+    assert capsys.readouterr().err.startswith("Error:")
+
+
+def test_cancel_run_help_has_no_engine_name(capsys):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["cancel-run", "--help"])
+    assert "Claude" not in capsys.readouterr().out

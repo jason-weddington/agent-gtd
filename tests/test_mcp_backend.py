@@ -1203,3 +1203,12 @@ async def test_http_create_and_update_item_commit_type(authed_backend: HttpBacke
         "", created["id"], version=kept["version"], commit_type=""
     )
     assert cleared["commit_type"] == ""
+
+
+async def test_cancel_run_backend(authed_backend: HttpBackend):
+    _, item_id = await _dispatch_project_and_item(authed_backend)
+    run = await authed_backend.dispatch_item("", item_id)
+    for _ in range(2):
+        cancelled = await authed_backend.cancel_run("", run["id"])
+        assert cancelled["status"] == "cancelled"
+        assert cancelled["id"] == run["id"]

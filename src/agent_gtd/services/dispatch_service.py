@@ -566,19 +566,40 @@ async def cancel_run(
     user_id: str,
     run_id: str,
 ) -> dict[str, Any]:
-    """Cancel a run. Only active runs can be cancelled.
+    """Cancel a single dispatched run.
 
-    After updating the local row to ``cancelled``, best-effort forwards the
-    cancel to the remote dispatch service.  Remote call failures do not roll
-    back the local state — local intent always wins.
+    Cancelling a run that is already in a terminal status is an idempotent
+    no-op: the current row is returned unchanged and nothing is forwarded.
+    Runs owned by a rollout (``rollout_id`` set or ``mode == 'manage'``) are
+    refused with ``ValidationError``; use cancel-rollout or halt-rollout.
+
+    For an active run the local row is updated to ``cancelled`` and the cancel
+    is best-effort forwarded to the dispatch host that owns the run (matched on
+    ``dispatch_host_url``; legacy dispatch config only when that is empty).
+    Remote call failures do not roll back the local state.
 
     Raises:
-        NotFoundError: If run not found or not owned by user.
+        NotFoundError: If run not found or not accessible to the user.
+        ValidationError: If the run belongs to a rollout.
     """
     run = await get_run(db, user_id, run_id)
     if run["status"] not in _ACTIVE_STATUSES:
-        raise NotFoundError("Run", f"{run_id} (not active, status={run['status']})")
+        logger.info(
+            "cancel_run: noop run_id=%s status=%s actor=%s",
+            run_id,
+            run["status"],
+            user_id,
+        )
+        return run
 
+    rollout_id = str(run.get("rollout_id") or "")
+    if run.get("mode") == "manage" or rollout_id:
+        raise ValidationError(
+            f"run {run_id} belongs to rollout {rollout_id};"
+            " use cancel-rollout or halt-rollout"
+        )
+
+    prior_status = run["status"]
     now = datetime.now(UTC).isoformat()
     await db.execute(
         "UPDATE claude_runs SET status = $1, finished_at = $2, updated_at = $3"
@@ -593,17 +614,16 @@ async def cancel_run(
     assert row is not None  # noqa: S101
     updated = row_to_dict(row)
 
-    # Forward cancel to the dispatch service (best-effort; local cancel wins).
+    # Resolve the forward target (best-effort; local cancel wins).
     remote_run_id = str(run.get("remote_run_id", "") or "")
-    if not remote_run_id:
-        logger.warning(
-            "cancel_run: run %s has no remote_run_id; skip dispatch forward",
-            run_id,
+    resolution = "no_remote_run_id"
+    host_url = ""
+    api_key = ""
+    if remote_run_id:
+        from agent_gtd.services.settings_service import (
+            get_dispatch_config,
+            get_dispatch_hosts,
         )
-    else:
-        import httpx
-
-        from agent_gtd.services.settings_service import get_dispatch_config
 
         # Dispatch config belongs to the project owner (mirrors execute_run).
         project_id_val = run.get("project_id")
@@ -615,49 +635,110 @@ async def cancel_run(
         else:
             owner_id = user_id
 
-        settings = await get_dispatch_config(db, owner_id)
-        if not settings:
-            logger.warning(
-                "cancel_run: no dispatch config for owner of run %s;"
-                " cannot forward cancel",
-                run_id,
-            )
+        run_host_url = str(run.get("dispatch_host_url") or "")
+        if run_host_url:
+            resolution = "unmatched_host"
+            for host in await get_dispatch_hosts(db, owner_id):
+                if host["url"] == run_host_url:
+                    resolution = "owning_host"
+                    host_url = str(host["url"])
+                    api_key = str(host["api_key"])
+                    break
         else:
-            try:
-                async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
-                    resp = await client.post(
-                        f"{settings['url']}/runs/{remote_run_id}/cancel",
-                        headers={"Authorization": f"Bearer {settings['api_key']}"},
-                        timeout=15.0,
-                    )
-                    if resp.status_code == 200:
-                        logger.info(
-                            "cancel_run: forwarded cancel to dispatch for run %s"
-                            " (remote_run_id=%s)",
-                            run_id,
-                            remote_run_id,
-                        )
-                    elif resp.status_code == 404:
-                        logger.warning(
-                            "cancel_run: remote run not found; possibly already"
-                            " terminal (run_id=%s remote_run_id=%s)",
-                            run_id,
-                            remote_run_id,
-                        )
-                    else:
-                        logger.warning(
-                            "cancel_run: unexpected status %s forwarding cancel"
-                            " (run_id=%s body=%s)",
-                            resp.status_code,
-                            run_id,
-                            resp.text[:200],
-                        )
-            except Exception:
-                logger.warning(
-                    "cancel_run: exception forwarding cancel for run %s",
-                    run_id,
-                    exc_info=True,
+            settings = await get_dispatch_config(db, owner_id)
+            if settings:
+                resolution = "legacy_config"
+                host_url = str(settings["url"])
+                api_key = str(settings["api_key"])
+            else:
+                resolution = "no_config"
+
+    logger.info(
+        "cancel_run: forward run_id=%s remote_run_id=%s actor=%s"
+        " prior_status=%s resolution=%s host=%s",
+        run_id,
+        remote_run_id,
+        user_id,
+        prior_status,
+        resolution,
+        host_url,
+    )
+    if resolution == "no_remote_run_id":
+        logger.warning(
+            "cancel_run: run %s has no remote_run_id; skip dispatch forward",
+            run_id,
+        )
+    if resolution == "unmatched_host":
+        logger.warning(
+            "cancel_run: run %s dispatch_host_url=%s: no configured host matches;"
+            " cannot forward cancel",
+            run_id,
+            run.get("dispatch_host_url"),
+        )
+
+    if host_url:
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(verify=False) as client:  # noqa: S501
+                resp = await client.post(
+                    f"{host_url}/runs/{remote_run_id}/cancel",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=15.0,
                 )
+                if resp.status_code == 200:
+                    logger.info(
+                        "cancel_run: forwarded cancel to dispatch for run %s"
+                        " (remote_run_id=%s resolution=%s host=%s)",
+                        run_id,
+                        remote_run_id,
+                        resolution,
+                        host_url,
+                    )
+                elif resp.status_code == 404:
+                    logger.warning(
+                        "cancel_run: remote run not found; possibly already"
+                        " terminal (run_id=%s remote_run_id=%s resolution=%s"
+                        " host=%s)",
+                        run_id,
+                        remote_run_id,
+                        resolution,
+                        host_url,
+                    )
+                else:
+                    logger.warning(
+                        "cancel_run: unexpected status %s forwarding cancel"
+                        " (run_id=%s body=%s resolution=%s host=%s)",
+                        resp.status_code,
+                        run_id,
+                        resp.text[:200],
+                        resolution,
+                        host_url,
+                    )
+        except Exception:
+            logger.warning(
+                "cancel_run: exception forwarding cancel for run %s"
+                " (resolution=%s host=%s)",
+                run_id,
+                resolution,
+                host_url,
+                exc_info=True,
+            )
+
+    from agent_gtd.event_bus import get_event_bus
+    from agent_gtd.event_helpers import best_effort_publish
+
+    await best_effort_publish(
+        bus=get_event_bus(),
+        db=db,
+        user_id=user_id,
+        event_type="run_failed",
+        entity_type="run",
+        entity_id=run_id,
+        project_id=str(run["project_id"]) if run.get("project_id") else None,
+        payload={"run_id": run_id, "item_id": run.get("item_id")},
+        context={"run_id": run_id, "item_id": str(run.get("item_id") or "")},
+    )
 
     return updated
 
