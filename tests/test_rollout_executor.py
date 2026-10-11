@@ -590,6 +590,24 @@ async def test_advance_rollout_not_running(
     assert resp.status_code == 422
 
 
+async def test_advance_rollout_completed_rollout_is_422(
+    client: AsyncClient, linear_wave: dict
+) -> None:
+    """advance_rollout on a completed wave → 422 (terminal, not running)."""
+    w = linear_wave
+    db = w["db"]
+    await db.execute(
+        "UPDATE autonomous_rollouts SET status = 'completed' WHERE id = $1",
+        w["rollout_id"],
+    )
+    resp = await client.get(
+        f"/api/rollouts/{w['rollout_id']}/advance",
+        headers=w["headers"],
+    )
+    assert resp.status_code == 422
+    assert "is not running (status=completed)" in resp.json()["detail"]
+
+
 async def test_complete_item_in_rollout_invalid_outcome(
     client: AsyncClient, linear_wave: dict
 ) -> None:
