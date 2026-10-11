@@ -150,24 +150,22 @@ workspace projects.
 client (HTTPS 443)
    │
    ▼
-nginx (r7-research)              ← terminates TLS
+Caddy (r7-research, /etc/caddy/Caddyfile)   ← terminates TLS
    ├── /              → frontend/dist/  (static files, SPA fallback)
-   ├── /api/events    → uvicorn :8000   (SSE, proxy_buffering off)
+   ├── /api/events    → uvicorn :8000   (SSE, flush_interval -1)
+   ├── /mcp           → uvicorn :8000   (MCP streamable HTTP)
    └── /api/*         → uvicorn :8000   (FastAPI REST)
 ```
 
 **Key points for agents and contributors:**
 
-- **`serve.sh`** is the production entry point — launches uvicorn only, no Vite.
-  The systemd unit on r7 runs `serve.sh`.
+- **The production proxy on r7-research is Caddy, not nginx.** nginx is installed there but not running; its site file is dead config. `docs/deploy.md` documents nginx as a generic option for other installs. Live proxy changes go in `/etc/caddy/Caddyfile` (`caddy validate`, then `systemctl reload caddy`), and homelab-ops keeps the tracked copy.
+- **`serve.sh`** is the production entry point — launches uvicorn only, no Vite. The systemd unit on r7 runs `serve.sh`.
 - **`start.sh`** is the dev entry point — launches uvicorn + Vite dev server. Use this locally.
-- **Vite is dev-only.** Never start Vite in production. nginx serves the pre-built
-  `frontend/dist/` instead. This eliminates HMR WebSocket reconnect reloads in prod.
-- **nginx serves static files**, not uvicorn. Do not add a `StaticFiles` mount to FastAPI.
-- **Build step belongs in `deploy.sh`** (operator-local, gitignored), not in `serve.sh`.
-  Run `npm --prefix frontend run build` before restarting the service after a deploy.
-- See `docs/deploy.md` for the full operator runbook (nginx config, systemd unit change,
-  deploy.sh template).
+- **Vite is dev-only.** Never start Vite in production. The proxy serves the pre-built `frontend/dist/` instead. This eliminates HMR WebSocket reconnect reloads in prod.
+- **The proxy serves static files**, not uvicorn. Do not add a `StaticFiles` mount to FastAPI.
+- **Build step belongs in `deploy.sh`** (operator-local, gitignored), not in `serve.sh`. Run `npm --prefix frontend run build` before restarting the service after a deploy.
+- See `docs/deploy.md` for the operator runbook (proxy config, systemd unit change, deploy.sh template).
 
 ## Build and Test Commands
 ```bash
