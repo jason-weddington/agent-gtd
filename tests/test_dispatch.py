@@ -1,7 +1,8 @@
 """Tests for dispatch run CRUD API and remote dispatch worker."""
 
+import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -9,6 +10,116 @@ from agent_gtd_dispatch_protocol import RunResponse as RemoteRunResponse
 from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 from fastapi import HTTPException
 from httpx import AsyncClient
+
+from agent_gtd.services.dispatch_service import (
+    STALE_PENDING_RUN_ERROR,
+    STALE_PENDING_RUN_SECONDS,
+)
+
+_SVC_LOGGER = "agent_gtd.services.dispatch_service"
+
+
+async def _dispatch_once(client: AsyncClient, headers: dict[str, str], item_id: str):
+    return await client.post(f"/api/items/{item_id}/dispatch", json={}, headers=headers)
+
+
+async def _setup_run_a(
+    client: AsyncClient, headers: dict[str, str], age_s: int, **sets: str
+):
+    from agent_gtd.database import get_db
+
+    project_id = await _create_project_with_origin(client, headers)
+    item_id = await _create_item_in_project(client, headers, project_id)
+    res = await _dispatch_once(client, headers, item_id)
+    assert res.status_code == 201
+    run_a = res.json()["id"]
+    db = await get_db()
+    created = (datetime.now(UTC) - timedelta(seconds=age_s)).isoformat()
+    await db.execute(
+        "UPDATE claude_runs SET created_at = $1 WHERE id = $2", created, run_a
+    )
+    for col, val in sets.items():
+        await db.execute(f"UPDATE claude_runs SET {col} = $1 WHERE id = $2", val, run_a)  # noqa: S608
+    return db, item_id, run_a
+
+
+async def test_dispatch_reaps_stale_orphaned_pending_run(
+    client: AsyncClient, auth_headers: dict[str, str], caplog: pytest.LogCaptureFixture
+):
+    db, item_id, run_a = await _setup_run_a(
+        client, auth_headers, STALE_PENDING_RUN_SECONDS + 1
+    )
+    with caplog.at_level(logging.WARNING, logger=_SVC_LOGGER):
+        res = await _dispatch_once(client, auth_headers, item_id)
+    assert res.status_code == 201
+    assert res.json()["id"] != run_a
+    row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_a)
+    assert row["status"] == "failed"
+    assert row["error_msg"] == STALE_PENDING_RUN_ERROR
+    assert row["finished_at"] is not None
+    assert any(
+        "stale_pending_reap" in r.getMessage() and run_a in r.getMessage()
+        for r in caplog.records
+    )
+
+
+async def test_dispatch_fresh_pending_still_blocks(
+    client: AsyncClient, auth_headers: dict[str, str], caplog: pytest.LogCaptureFixture
+):
+    db, item_id, run_a = await _setup_run_a(
+        client, auth_headers, STALE_PENDING_RUN_SECONDS - 1
+    )
+    with caplog.at_level(logging.INFO, logger=_SVC_LOGGER):
+        res = await _dispatch_once(client, auth_headers, item_id)
+    assert res.status_code == 409
+    row = await db.fetchrow("SELECT status FROM claude_runs WHERE id = $1", run_a)
+    assert row["status"] == "pending"
+    assert any("dispatch_blocked_active_run" in r.getMessage() for r in caplog.records)
+
+
+async def test_dispatch_old_pending_with_remote_id_not_reaped(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    db, item_id, run_a = await _setup_run_a(
+        client, auth_headers, STALE_PENDING_RUN_SECONDS * 5, remote_run_id="remote-abc"
+    )
+    res = await _dispatch_once(client, auth_headers, item_id)
+    assert res.status_code == 409
+    row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_a)
+    assert row["status"] == "pending"
+    assert not row["error_msg"]
+
+
+async def test_dispatch_old_running_not_reaped(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    db, item_id, run_a = await _setup_run_a(
+        client, auth_headers, STALE_PENDING_RUN_SECONDS * 5, status="running"
+    )
+    res = await _dispatch_once(client, auth_headers, item_id)
+    assert res.status_code == 409
+    row = await db.fetchrow("SELECT status FROM claude_runs WHERE id = $1", run_a)
+    assert row["status"] == "running"
+
+
+async def test_dispatch_reap_lost_race_blocks(
+    client: AsyncClient, auth_headers: dict[str, str]
+):
+    db, item_id, run_a = await _setup_run_a(
+        client, auth_headers, STALE_PENDING_RUN_SECONDS * 5, remote_run_id="remote-abc"
+    )
+    with patch(
+        "agent_gtd.services.dispatch_service._is_stale_pending_run",
+        return_value=True,
+    ):
+        res = await _dispatch_once(client, auth_headers, item_id)
+    assert res.status_code == 409
+    row = await db.fetchrow("SELECT status FROM claude_runs WHERE id = $1", run_a)
+    assert row["status"] == "pending"
+    cnt = await db.fetchrow(
+        "SELECT COUNT(*) AS c FROM claude_runs WHERE item_id = $1", item_id
+    )
+    assert cnt["c"] == 1
 
 
 def _remote_run(

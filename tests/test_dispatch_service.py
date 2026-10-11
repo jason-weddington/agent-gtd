@@ -869,3 +869,151 @@ async def test_cancel_run_publishes_event_only_on_transition(
         with pytest.raises(ValidationError):
             await cancel_run(db, user_id, run2)
         pub.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Stale pending predicate and post-INSERT failure cleanup
+# ---------------------------------------------------------------------------
+
+
+def _stale_cases() -> list[tuple[dict[str, Any], bool]]:
+    from datetime import UTC, datetime, timedelta
+
+    from agent_gtd.services.dispatch_service import STALE_PENDING_RUN_SECONDS as T
+
+    now = datetime(2026, 10, 10, 20, 0, tzinfo=UTC)
+
+    def ago(sec: int) -> datetime:
+        return now - timedelta(seconds=sec)
+
+    def run(age: int, **kw: Any) -> dict[str, Any]:
+        base: dict[str, Any] = {
+            "status": "pending",
+            "remote_run_id": "",
+            "created_at": ago(age).isoformat(),
+        }
+        base.update(kw)
+        return base
+
+    return [
+        (run(T + 1), True),
+        (run(T + 1, remote_run_id=None), True),
+        (run(T - 1), False),
+        (run(T), False),
+        (run(T + 1, remote_run_id="x"), False),
+        (run(10 * T, status="running"), False),
+        (run(10 * T, status="cloning"), False),
+        (run(0, created_at=ago(T + 1).strftime("%Y-%m-%dT%H:%M:%SZ")), True),
+        (run(0, created_at=ago(T + 1).replace(tzinfo=None).isoformat()), True),
+        (run(0, created_at=ago(T + 1)), True),
+        (run(0, created_at="garbage"), False),
+        ({"status": "pending", "remote_run_id": ""}, False),
+    ]
+
+
+def test_is_stale_pending_run_cases() -> None:
+    from datetime import UTC, datetime
+
+    from agent_gtd.services.dispatch_service import _is_stale_pending_run
+
+    now = datetime(2026, 10, 10, 20, 0, tzinfo=UTC)
+    for case, expected in _stale_cases():
+        assert _is_stale_pending_run(case, now) is expected, case
+
+
+async def _setup_failing_rollout(
+    client: Any, auth_headers: dict[str, str], user_id: str
+) -> tuple[Any, str, str, str]:
+    import uuid
+    from datetime import UTC, datetime
+
+    db, project_id, item_id, _host = await _create_drained_host_setup(
+        client, auth_headers, user_id
+    )
+    rollout_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO autonomous_rollouts"
+        " (id, project_id, lead_user_id, status, dispatch_host_id,"
+        " created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        rollout_id,
+        project_id,
+        user_id,
+        "running",
+        None,
+        now,
+        now,
+    )
+    return db, item_id, rollout_id, project_id
+
+
+@pytest.mark.asyncio
+async def test_create_run_marks_run_failed_when_setup_raises_after_insert(
+    client: Any,
+    auth_headers: dict[str, str],
+    user_id: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from agent_gtd.services.dispatch_service import create_run
+
+    db, item_id, rollout_id, _ = await _setup_failing_rollout(
+        client, auth_headers, user_id
+    )
+    with (
+        patch(
+            "agent_gtd.services.rollout_service._append_rollout_event",
+            AsyncMock(side_effect=RuntimeError("seq collision")),
+        ),
+        pytest.raises(RuntimeError),
+    ):
+        await create_run(db, user_id, item_id, mode="build", rollout_id=rollout_id)
+    rows = await db.fetch("SELECT * FROM claude_runs WHERE item_id = $1", item_id)
+    assert len(rows) == 1
+    assert rows[0]["status"] == "failed"
+    assert (
+        rows[0]["error_msg"]
+        == "Dispatch setup failed after run creation: RuntimeError: seq collision"
+    )
+    assert any(
+        "dispatch_setup_failed" in r.getMessage()
+        and "cleanup=marked_failed" in r.getMessage()
+        for r in caplog.records
+    )
+    new = await create_run(db, user_id, item_id, mode="build")
+    assert new["status"] == "pending"
+    assert new["id"] != rows[0]["id"]
+
+
+@pytest.mark.asyncio
+async def test_create_run_reraises_original_when_cleanup_fails(
+    client: Any,
+    auth_headers: dict[str, str],
+    user_id: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from agent_gtd.services.dispatch_service import create_run
+
+    db, item_id, rollout_id, _ = await _setup_failing_rollout(
+        client, auth_headers, user_id
+    )
+    original = db.execute
+
+    async def wrapper(sql: str, *args: Any, **kw: Any) -> Any:
+        if sql.startswith("UPDATE claude_runs SET status = 'failed'"):
+            raise RuntimeError("cleanup boom")
+        return await original(sql, *args, **kw)
+
+    with (
+        patch(
+            "agent_gtd.services.rollout_service._append_rollout_event",
+            AsyncMock(side_effect=RuntimeError("seq collision")),
+        ),
+        patch.object(db, "execute", side_effect=wrapper),
+        pytest.raises(RuntimeError) as exc_info,
+    ):
+        await create_run(db, user_id, item_id, mode="build", rollout_id=rollout_id)
+    assert str(exc_info.value) == "seq collision"
+    assert any(
+        "dispatch_setup_cleanup_failed" in r.getMessage() for r in caplog.records
+    )

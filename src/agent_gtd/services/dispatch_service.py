@@ -9,7 +9,7 @@ import asyncio
 import logging
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from agent_gtd.database import decode_json_list, row_to_dict
@@ -31,8 +31,51 @@ from agent_gtd.services.project_service import get_project
 logger = logging.getLogger(__name__)
 
 _ACTIVE_STATUSES = ("pending", "cloning", "running")
+
+# On the HTTP route path (dispatch_routes.dispatch_item ->
+# dispatch_worker.enqueue_run -> execute_run) a run is board-pending with an
+# empty remote_run_id only while execute_run routes it (dispatch_router.
+# _fetch_host_info timeout 5.0s, then _dispatch_to_remote POST timeout 30.0s,
+# per host on 503), at most about 35s per host; host-side queueing happens only
+# after the POST returns, when execute_run has already set status 'running' and
+# remote_run_id. Runs created through mcp_backend.LocalBackend.dispatch_item are
+# never enqueued, so they are pending forever by construction and reaping them
+# is intended. A reap whose age_s is under 2x this threshold is the signature of
+# a legitimately-routing run being reaped and means this constant is too low.
+STALE_PENDING_RUN_SECONDS: int = 600
+STALE_PENDING_RUN_ERROR: str = (
+    "Orphaned pending run reaped: never handed to a dispatch host within "
+    f"{STALE_PENDING_RUN_SECONDS}s of creation (no remote run id)"
+)
 # Note: manage-mode runs are created via dispatch_rollout_run (item_id=NULL) and
 # therefore never appear in the _ACTIVE_STATUSES check below, which filters by item_id.
+
+
+def _parse_created_at(run: dict[str, Any]) -> datetime | None:
+    """Return created_at as an aware datetime, or None if unavailable."""
+    raw = run.get("created_at")
+    try:
+        if isinstance(raw, datetime):
+            parsed = raw
+        elif isinstance(raw, str):
+            parsed = datetime.fromisoformat(raw)
+        else:
+            return None
+    except (ValueError, TypeError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def _is_stale_pending_run(run: dict[str, Any], now: datetime) -> bool:
+    """True iff the run is a pending run with no remote id older than the TTL."""
+    if run.get("status") != "pending" or run.get("remote_run_id"):
+        return False
+    created = _parse_created_at(run)
+    if created is None:
+        return False
+    return now - created > timedelta(seconds=STALE_PENDING_RUN_SECONDS)
 
 
 def _decode_label_list(raw: object) -> list[str]:
@@ -131,14 +174,78 @@ async def create_run(
                 f"Project '{project['name']}' has no git_origin configured",
             )
 
-    # Check for active run on this item
-    existing = await db.fetchrow(
-        "SELECT id FROM claude_runs WHERE item_id = $1 AND status IN ($2, $3, $4)",
-        item_id,
-        *_ACTIVE_STATUSES,
-    )
-    if existing:
-        raise RunActiveError(item_id, str(existing["id"]))
+    # Check for active runs on this item; reap stale orphaned pending ones.
+    active_rows = [
+        row_to_dict(r)
+        for r in await db.fetch(
+            "SELECT id, status, remote_run_id, created_at FROM claude_runs"
+            " WHERE item_id = $1 AND status IN ($2, $3, $4)",
+            item_id,
+            *_ACTIVE_STATUSES,
+        )
+    ]
+    now_dt = datetime.now(UTC)
+    non_stale = [r for r in active_rows if not _is_stale_pending_run(r, now_dt)]
+    for r in non_stale:
+        if (
+            r.get("status") == "pending"
+            and not r.get("remote_run_id")
+            and _parse_created_at(r) is None
+        ):
+            logger.warning(
+                "stale_pending_unparseable_created_at run_id=%s created_at=%r",
+                r["id"],
+                r.get("created_at"),
+            )
+    if non_stale:
+        first = non_stale[0]
+        first_created = _parse_created_at(first)
+        age_s: int | str = (
+            int((now_dt - first_created).total_seconds())
+            if first_created is not None
+            else "unknown"
+        )
+        logger.info(
+            "dispatch_blocked_active_run item_id=%s run_id=%s status=%s"
+            " remote_run_id=%r age_s=%s threshold_s=%d",
+            item_id,
+            first["id"],
+            first["status"],
+            first.get("remote_run_id"),
+            age_s,
+            STALE_PENDING_RUN_SECONDS,
+        )
+        raise RunActiveError(item_id, str(first["id"]))
+    for r in active_rows:
+        reaped_at = now_dt.isoformat()
+        await db.execute(
+            "UPDATE claude_runs SET status = 'failed', error_msg = $1,"
+            " finished_at = $2, updated_at = $3"
+            " WHERE id = $4 AND status = 'pending'"
+            " AND (remote_run_id = '' OR remote_run_id IS NULL)",
+            STALE_PENDING_RUN_ERROR,
+            reaped_at,
+            reaped_at,
+            r["id"],
+        )
+        check = await db.fetchrow(
+            "SELECT status FROM claude_runs WHERE id = $1", r["id"]
+        )
+        if check is None or check["status"] != "failed":
+            logger.info(
+                "stale_pending_reap_lost_race run_id=%s item_id=%s", r["id"], item_id
+            )
+            raise RunActiveError(item_id, str(r["id"]))
+        reaped_created = _parse_created_at(r)
+        logger.warning(
+            "stale_pending_reap run_id=%s item_id=%s age_s=%d threshold_s=%d"
+            " created_at=%s outcome=reaped",
+            r["id"],
+            item_id,
+            int((now_dt - reaped_created).total_seconds()) if reaped_created else 0,
+            STALE_PENDING_RUN_SECONDS,
+            r.get("created_at"),
+        )
 
     # Blocker enforcement: cannot dispatch an item with unresolved blockers
     unresolved = await get_unresolved_blockers(db, item_id)
@@ -238,50 +345,82 @@ async def create_run(
         dispatch_host_id,
     )
 
-    # Build-mode wave linkage: transition rollout_items ready → dispatched
-    if mode == "build" and rollout_id is not None:
-        await db.execute(
-            "UPDATE rollout_items"
-            " SET status = 'dispatched', claude_run_id = $1"
-            " WHERE rollout_id = $2 AND item_id = $3 AND status = 'ready'",
+    try:
+        # Build-mode wave linkage: transition rollout_items ready → dispatched
+        if mode == "build" and rollout_id is not None:
+            await db.execute(
+                "UPDATE rollout_items"
+                " SET status = 'dispatched', claude_run_id = $1"
+                " WHERE rollout_id = $2 AND item_id = $3 AND status = 'ready'",
+                run_id,
+                rollout_id,
+                item_id,
+            )
+            # Append item_dispatched event and fan out via SSE
+            from agent_gtd.services.rollout_service import (
+                _append_rollout_event,
+                _publish_rollout_event,
+            )
+
+            item_dispatched_event = await _append_rollout_event(
+                db,
+                rollout_id,
+                kind="item_dispatched",
+                actor="manager",
+                payload={"item_id": item_id, "run_id": run_id},
+            )
+            _publish_rollout_event(
+                db,
+                lead_user_id=user_id,
+                rollout_event=item_dispatched_event,
+                project_id=str(project_id),
+            )
+
+        # Manage-mode wave status flip: pending → running
+        if mode == "manage" and rollout_id is not None and rollout is not None:
+            from agent_gtd.services.rollout_service import start_rollout
+
+            await start_rollout(
+                db,
+                user_id,
+                rollout_id,
+                actor="manager",
+                extra_payload={"manage_run_id": run_id},
+            )
+
+        row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
+        assert row is not None  # noqa: S101
+    except Exception as exc:
+        from agent_gtd.dispatch_worker import ERROR_MSG_MAX_CHARS
+
+        cleanup = "marked_failed"
+        setup_error = (
+            f"Dispatch setup failed after run creation: {type(exc).__name__}: {exc}"
+        )
+        try:
+            failed_at = datetime.now(UTC).isoformat()
+            await db.execute(
+                "UPDATE claude_runs SET status = 'failed', error_msg = $1,"
+                " finished_at = $2, updated_at = $3"
+                " WHERE id = $4 AND status = 'pending'",
+                setup_error[:ERROR_MSG_MAX_CHARS],
+                failed_at,
+                failed_at,
+                run_id,
+            )
+        except Exception:
+            cleanup = "cleanup_error"
+            logger.exception("dispatch_setup_cleanup_failed run_id=%s", run_id)
+        logger.exception(
+            "dispatch_setup_failed run_id=%s item_id=%s rollout_id=%s mode=%s"
+            " cleanup=%s",
             run_id,
-            rollout_id,
             item_id,
-        )
-        # Append item_dispatched event and fan out via SSE
-        from agent_gtd.services.rollout_service import (
-            _append_rollout_event,
-            _publish_rollout_event,
-        )
-
-        item_dispatched_event = await _append_rollout_event(
-            db,
             rollout_id,
-            kind="item_dispatched",
-            actor="manager",
-            payload={"item_id": item_id, "run_id": run_id},
+            mode,
+            cleanup,
         )
-        _publish_rollout_event(
-            db,
-            lead_user_id=user_id,
-            rollout_event=item_dispatched_event,
-            project_id=str(project_id),
-        )
-
-    # Manage-mode wave status flip: pending → running
-    if mode == "manage" and rollout_id is not None and rollout is not None:
-        from agent_gtd.services.rollout_service import start_rollout
-
-        await start_rollout(
-            db,
-            user_id,
-            rollout_id,
-            actor="manager",
-            extra_payload={"manage_run_id": run_id},
-        )
-
-    row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
-    assert row is not None  # noqa: S101
+        raise
 
     # Set item status to active — skip for manage mode, where the item_id is a
     # positional placeholder that the manage agent ignores entirely; its status
