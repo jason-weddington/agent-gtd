@@ -136,6 +136,25 @@ The app includes an MCP server for managing GTD items from AI agents (Claude Cod
 > `uvx --from git+https://github.com/jason-weddington/agent_gtd agent-gtd-mcp`.
 > See the config examples below.
 
+### Streamable HTTP endpoint (/mcp on the board)
+
+The board serves the full MCP tool set itself, as an authenticated, stateless streamable-HTTP endpoint at `/mcp`. Every MCP client that points at it gets the tools of the running board, so there is no local copy to go stale and no restart after the board ships.
+
+Register it with a bearer API key (or JWT). Example for one MCP client:
+
+```bash
+claude mcp add --transport http agent-gtd https://<board-host>/mcp --header "Authorization: Bearer <key>"
+```
+
+- The registration name MUST stay `agent-gtd`: dispatch prompts reference the tools as `mcp__agent-gtd__<tool>`, and a different name breaks every one of those references.
+- The board authenticates the `Authorization: Bearer` token before the MCP layer, exactly as the REST API does. A missing or invalid token gets a 401.
+- Attribution (`created_by`) is computed by the board. An optional `X-Agent-Name` header sets it when it matches `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`; anything else falls back to `claude-lead-<user8>`. A dispatched run's callback token carries its own run identity, and the header is ignored for it.
+- A registration that needs per-run identity on a token without run claims (for example a static host API key) must send the header from the environment, e.g. `--header "X-Agent-Name: ${AGENT_GTD_AGENT_NAME}"`. An unexpanded or empty value fails the pattern and falls back to `claude-lead-<user8>`.
+- `login` is stdio-only; it is not exposed over HTTP.
+- In local (SQLite) mode the endpoint needs no `Authorization` header.
+
+The stdio server described below still works, but pointing it at a remote board is deprecated in favour of this endpoint.
+
 ### Local mode
 
 In local mode (no `AGENT_GTD_DATABASE_URL`), the MCP server uses SQLite and auto-authenticates — no setup needed.
@@ -405,5 +424,5 @@ Use this sparingly — most decisions are validated by cheap iteration. Reserve 
 
 - **Backend:** FastAPI, asyncpg/aiosqlite, Pydantic v2, uvicorn
 - **Frontend:** React 19, TypeScript, MUI 7, TipTap editor, Vite
-- **MCP:** FastMCP 2.x (stdio transport)
+- **MCP:** FastMCP 3.x (stdio and streamable HTTP at /mcp)
 - **Python:** 3.13+

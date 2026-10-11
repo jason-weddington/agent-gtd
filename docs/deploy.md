@@ -180,6 +180,17 @@ server {
         proxy_read_timeout 86400s;
     }
 
+    # MCP streamable HTTP endpoint — without this block the SPA fallback swallows /mcp
+    location /mcp {
+        proxy_pass         http://127.0.0.1:<API_PORT>;
+        proxy_http_version 1.1;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+    }
+
     # API — proxy to uvicorn
     location /api/ {
         proxy_pass         http://127.0.0.1:<API_PORT>;

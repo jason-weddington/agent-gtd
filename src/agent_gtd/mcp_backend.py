@@ -262,6 +262,8 @@ class McpBackend(Protocol):
         project_id: str | None = None,
         project_id_set: bool = False,
         commit_type: str | None = None,
+        actor_run_id: str | None = None,
+        actor_run_mode: str | None = None,
     ) -> dict[str, Any]: ...
 
     async def complete_item(self, user_id: str, item_id: str) -> dict[str, Any]: ...
@@ -853,6 +855,8 @@ class LocalBackend:
         project_id: str | None = None,
         project_id_set: bool = False,
         commit_type: str | None = None,
+        actor_run_id: str | None = None,
+        actor_run_mode: str | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services import item_service
@@ -879,6 +883,8 @@ class LocalBackend:
             project_id_set=project_id_set,
             commit_type=commit_type,
             version=version,
+            actor_run_id=actor_run_id,
+            actor_run_mode=actor_run_mode,
         )
         pm = await self._build_project_map(user_id)
         result = self._format_item(row, pm)
@@ -1843,7 +1849,12 @@ class HttpBackend:
         project_id: str | None = None,
         project_id_set: bool = False,
         commit_type: str | None = None,
+        actor_run_id: str | None = None,
+        actor_run_mode: str | None = None,
     ) -> dict[str, Any]:
+        # actor_run_id / actor_run_mode are accepted for Protocol parity and
+        # ignored: the REST route derives the run context from the token.
+        del actor_run_id, actor_run_mode
         body: dict[str, Any] = {"version": version}
         if title is not None:
             body["title"] = title

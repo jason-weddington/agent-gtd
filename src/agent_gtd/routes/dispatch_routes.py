@@ -339,28 +339,27 @@ async def get_dispatch_capabilities(
     return result
 
 
-@router.post(
-    "/api/items/{item_id}/dispatch",
-    response_model=RunResponse,
-    status_code=201,
-)
-async def dispatch_item(
-    item_id: str,
-    body: CreateRunRequest,
-    user: Annotated[User, Depends(get_current_user)],
-) -> RunResponse | Response:
-    """Dispatch a Claude Code agent to work on an item.
+async def dispatch_preflight(
+    db: Any, user_id: str, item_id: str, dispatch_host_id: str | None
+) -> None:
+    """Run the REST dispatch pre-flight checks for *item_id*.
 
-    Only the project owner may dispatch agents.  Project-less (inbox) items
-    are always dispatchable by their owner.
+    Shared by the ``POST /api/items/{item_id}/dispatch`` route and the board's
+    in-process MCP backend so both refuse the same dispatches with the same
+    status codes and details.  ``_check_dispatch_service`` and
+    ``_fetch_host_capabilities`` are looked up as module globals at call time.
+
+    Raises:
+        HTTPException: 403 when the caller is not a project member, the
+            dispatch-service errors from ``_check_dispatch_service``, 404 for
+            an unknown ``dispatch_host_id``, 409 when that host is draining or
+            at capacity.
     """
-    db = await get_db()
-
     # --- Access check + owner discovery ---
     # Fetch the item's project_id without an access filter (we need the raw
     # project_id to check membership, even for items whose project the caller
     # only belongs to as a member).
-    owner_id = user.id  # default for inbox items
+    owner_id = user_id  # default for inbox items
     item_check = await db.fetchrow(
         "SELECT project_id FROM items WHERE id = $1", item_id
     )
@@ -370,9 +369,9 @@ async def dispatch_item(
             "(user_id = $2 OR EXISTS "
             "(SELECT 1 FROM project_members WHERE project_id = $3 AND user_id = $4))",
             str(item_check["project_id"]),
-            user.id,
+            user_id,
             str(item_check["project_id"]),
-            user.id,
+            user_id,
         )
         if project_check is None:
             raise HTTPException(
@@ -386,13 +385,13 @@ async def dispatch_item(
     await _check_dispatch_service(db, owner_id)
 
     # Validate dispatch_host_id when explicitly provided
-    if body.dispatch_host_id is not None:
+    if dispatch_host_id is not None:
         hosts = await get_dispatch_hosts(db, owner_id)
-        host_match = next((h for h in hosts if h["id"] == body.dispatch_host_id), None)
+        host_match = next((h for h in hosts if h["id"] == dispatch_host_id), None)
         if host_match is None:
             raise HTTPException(
                 status_code=404,
-                detail=f"Dispatch host {body.dispatch_host_id!r} not found",
+                detail=f"Dispatch host {dispatch_host_id!r} not found",
             )
         # Drain is absolute: refuse BEFORE the capacity pre-flight, else a
         # drained host at capacity (the NORMAL drain window) would report
@@ -425,6 +424,26 @@ async def dispatch_item(
                         )
                     ),
                 )
+
+
+@router.post(
+    "/api/items/{item_id}/dispatch",
+    response_model=RunResponse,
+    status_code=201,
+)
+async def dispatch_item(
+    item_id: str,
+    body: CreateRunRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> RunResponse | Response:
+    """Dispatch a Claude Code agent to work on an item.
+
+    Only the project owner may dispatch agents.  Project-less (inbox) items
+    are always dispatchable by their owner.
+    """
+    db = await get_db()
+
+    await dispatch_preflight(db, user.id, item_id, body.dispatch_host_id)
 
     try:
         row = await dispatch_service.create_run(

@@ -7,11 +7,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.routing import Route
 
 from agent_gtd.auth import get_current_user, get_local_user
 from agent_gtd.database import close_db, init_db, is_local_mode
 from agent_gtd.event_bus import get_event_bus
-from agent_gtd.mcp_server import mcp
+from agent_gtd.mcp_http import McpEndpoint, mcp_http_lifespan
 from agent_gtd.routes.admin_routes import router as admin_router
 from agent_gtd.routes.attachment_routes import router as attachment_router
 from agent_gtd.routes.auth_routes import router as auth_router
@@ -179,16 +180,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # Reconcile runs that were active before the restart
     await reconcile_active_runs()
 
-    yield
+    try:
+        async with mcp_http_lifespan(_app):
+            yield
+    finally:
+        # Shutdown (runs after the MCP app exits, even if its lifespan raised)
+        worker_task.cancel()
+        await shutdown_worker()
+        await get_event_bus().drain()
+        await close_db()
 
-    # Shutdown
-    worker_task.cancel()
-    await shutdown_worker()
-    await get_event_bus().drain()
-    await close_db()
-
-
-mcp_app = mcp.http_app(path="/")
 
 app = FastAPI(title="Agent GTD", version="0.1.0", lifespan=lifespan)
 
@@ -217,7 +218,11 @@ app.include_router(settings_router)
 app.include_router(rollout_router)
 app.include_router(project_rollout_router)
 
-app.mount("/mcp", mcp_app)
+# Streamable HTTP MCP endpoint: bearer auth enforced by McpEndpoint before
+# the MCP layer; the FastMCP app itself is built in mcp_http_lifespan.
+app.router.routes.append(
+    Route("/mcp", endpoint=McpEndpoint(), methods=["GET", "POST", "DELETE"])
+)
 
 
 @app.get("/api/health")

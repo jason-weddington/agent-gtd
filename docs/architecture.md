@@ -20,7 +20,7 @@ nginx (r7-research)              ← terminates TLS, serves frontend/dist/
    ├── /              → static files (SPA fallback to index.html)
    ├── /api/events    → uvicorn :8000   (SSE — proxy_buffering off)
    ├── /api/*         → uvicorn :8000   (FastAPI REST)
-   └── /mcp           → uvicorn :8000   (FastMCP HTTP transport)
+   └── /mcp           → uvicorn :8000   (MCP, authenticated stateless streamable HTTP)
 ```
 
 ## Component Diagram
@@ -75,7 +75,7 @@ nginx (r7-research)              ← terminates TLS, serves frontend/dist/
 
 4. **Frontend receives live updates:** React's `EventSource` listens on `/api/events`. nginx disables `proxy_buffering` for this endpoint so events are not batched. Each SSE event carries a full entity snapshot so the client can update state without a follow-up fetch. On reconnect, the client passes `?since=<last_event_id>` to replay missed events from the persisted `events` table.
 
-5. **MCP client reconnects:** The MCP server is stateless between tool calls. Session context is resolved per-call from `AGENT_GTD_API_KEY` env var (auto-auth) or a prior `login()` call stored in FastMCP context state.
+5. **MCP client reconnects:** The MCP server is stateless between tool calls. Over HTTP (`/mcp`) the principal is resolved per request from the bearer token, which the board authenticates before the MCP layer. On stdio, session context is resolved per call from the `AGENT_GTD_API_KEY` env var (auto-auth) or a prior `login()` call stored in FastMCP context state.
 
 ## Key Components
 
@@ -88,8 +88,8 @@ nginx (r7-research)              ← terminates TLS, serves frontend/dist/
 
 ### MCP Server (`mcp_server.py`)
 
-- **Purpose:** Serves 40+ MCP tools for AI agents over FastMCP's HTTP transport, mounted at `/mcp`.
-- **Interfaces:** FastMCP `Server` instance; shares the same database pool and service layer as the REST API.
+- **Purpose:** Defines 40+ MCP tools for agents. `create_mcp_server(transport=...)` builds the stdio server (`agent-gtd-mcp`) and the server the board serves at `/mcp`.
+- **`/mcp` (`mcp_http.py`):** An authenticated stateless streamable-HTTP endpoint, authenticated by a bearer API key or JWT that the board enforces before the MCP layer; `login` is not exposed there. The HTTP server shares the board's database pool and service layer, and applies the REST dispatch pre-flight and attachment cleanup.
 - **Session management:** Resolution order: (1) existing session from prior `login()` call, (2) local SQLite mode auto-creates a default session, (3) `AGENT_GTD_API_KEY` env var auto-authenticates, (4) raises `ToolError("Not logged in")`.
 - **Tool groups:** Projects (CRUD + sharing), Items (CRUD + blockers + claim/release), Notes (CRUD), Comments, Dispatch runs, Rollout manager (plan/start/advance/halt/cancel).
 - **Destructive hints:** Tools that delete data or halt rollouts carry `annotations={"destructiveHint": True}` for MCP-aware clients.
@@ -165,8 +165,7 @@ any shared project events. Results are returned in ascending order.
 
 ## MCP Server Surface
 
-The MCP server is mounted at `/mcp` using FastMCP's HTTP transport (Streamable HTTP). It shares
-the same FastAPI `app` instance and database pool.
+The MCP server is served at `/mcp` as an authenticated stateless streamable-HTTP endpoint, authenticated by a bearer API key or JWT that the board enforces before the MCP layer; `login` is not exposed there. It shares the same FastAPI `app` instance and database pool.
 
 **Tool groups:**
 - **Projects:** `list_projects`, `add_project`, `update_project`, `share_project`, `unshare_project`, `list_project_members`

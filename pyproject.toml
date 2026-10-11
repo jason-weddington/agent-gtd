@@ -9,8 +9,9 @@ dependencies = [
     "asyncpg>=0.30",
     "bcrypt>=4.0",
     "fastapi>=0.115",
-    "fastmcp>=2.0",
+    "fastmcp>=3.0,<4",
     "httpx>=0.28",
+    "mcp>=1.26,<2",
     "pydantic>=2.10",
     "pyjwt>=2.9",
     "truststore>=0.10",
@@ -103,7 +104,7 @@ omit = [
 
 [tool.coverage.report]
 precision = 1
-fail_under = 97.2
+fail_under = 97.5
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]

@@ -2,12 +2,15 @@
 
 import logging
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Any, Literal
+from dataclasses import dataclass
+from typing import Any, Literal, TypeVar
+from urllib.parse import urlsplit
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.server.dependencies import get_http_request
 from mcp.types import ToolAnnotations
 
 from agent_gtd.dispatch_constants import (
@@ -20,12 +23,13 @@ from agent_gtd.exceptions import (
     BlockersUnresolvedError,
     LegalityContractError,
     NotFoundError,
+    PlanEngineOverrideError,
     RolloutItemLockedError,
     ValidationError,
     VersionConflictError,
 )
 from agent_gtd.identity import compute_lead_attribution
-from agent_gtd.mcp_backend import LocalBackend, create_backend
+from agent_gtd.mcp_backend import LocalBackend, McpBackend, create_backend
 
 logger = logging.getLogger(__name__)
 
@@ -76,11 +80,41 @@ _instructions = (
     )
 )
 
-mcp = FastMCP(
-    name="Agent GTD",
-    instructions=_instructions,
-    lifespan=mcp_lifespan,
+_HTTP_INSTRUCTIONS = (
+    "GTD (Getting Things Done) task management system. "
+    "Use item, note, and comment tools to manage work."
 )
+
+# --- Tool registry ---
+#
+# Every tool is a plain module-level async function.  ``_tool`` records it in
+# ``_TOOL_REGISTRY``; ``create_mcp_server`` registers the registry on a fresh
+# FastMCP instance per transport (stdio below, streamable HTTP in mcp_http).
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+_TOOL_REGISTRY: list[tuple[Callable[..., Any], ToolAnnotations]] = []
+
+
+def _tool(annotations: ToolAnnotations) -> Callable[[_F], _F]:
+    """Record *fn* in the tool registry and return it unchanged."""
+
+    def decorator(fn: _F) -> _F:
+        _TOOL_REGISTRY.append((fn, annotations))
+        return fn
+
+    return decorator
+
+
+@dataclass(frozen=True)
+class CallContext:
+    """The principal a single tool call runs as."""
+
+    user_id: str
+    agent_name: str
+    backend: McpBackend
+    run_id: str | None = None
+    run_mode: str | None = None
 
 
 # --- Session management ---
@@ -134,60 +168,119 @@ async def _get_session(ctx: Context) -> dict[str, str]:
     raise ToolError("Not logged in — call login first")
 
 
+async def _resolve_call(ctx: Context) -> CallContext:
+    """Resolve the principal for one tool call.
+
+    On the module-level stdio server the session comes from ``_get_session``.
+    On any other server (the board's ``/mcp`` endpoint) the principal was put
+    on the request by ``McpEndpoint`` after bearer auth; if it is missing the
+    call fails closed — there is no fallback to env vars or the local user.
+    """
+    if ctx.fastmcp is mcp:
+        session = await _get_session(ctx)
+        return CallContext(
+            user_id=session["user_id"],
+            agent_name=session["agent_name"],
+            backend=_backend,
+        )
+    call: object = None
+    try:
+        request = get_http_request()
+    except RuntimeError:
+        pass
+    else:
+        call = getattr(request.state, "agtd_mcp_call", None)
+    if not isinstance(call, CallContext):
+        logger.error(
+            "mcp tool call without authenticated principal",
+            extra={
+                "event": "mcp_http.principal_missing",
+                "server": ctx.fastmcp.name,
+            },
+        )
+        raise ToolError("MCP tool call reached without an authenticated principal")
+    return call
+
+
 # --- Auth tools (when login is required) ---
 
 
-if _show_login:
+_LOGIN_ANNOTATIONS = ToolAnnotations(readOnlyHint=False, destructiveHint=False)
 
-    @mcp.tool(
-        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+
+async def login(
+    api_key: str,
+    agent_name: str,
+    ctx: Context,
+) -> dict[str, str]:
+    """Authenticate with an API key to start a session.
+
+    Must be called before using any other tools. Validates the API key
+    and establishes a session for the owning user.
+
+    Args:
+        api_key: API key (starts with agtd_).
+        agent_name: Name of the agent (used for created_by, assigned_to).
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        Login confirmation with status, user email, and agent_name.
+    """
+    result = await _backend.login(api_key, agent_name)
+    # Guard against empty agent_name — fall back to lead attribution so that
+    # session["agent_name"] is never "" (which would propagate as created_by=""
+    # and trigger the human fallback on the server).
+    resolved_name = agent_name or compute_lead_attribution(result["user_id"])
+    logger.debug(
+        "login tool: agent_name=%r resolved_name=%r user_id=%r",
+        agent_name,
+        resolved_name,
+        result["user_id"],
     )
-    async def login(
-        api_key: str,
-        agent_name: str,
-        ctx: Context,
-    ) -> dict[str, str]:
-        """Authenticate with an API key to start a session.
+    session = {
+        "user_id": result["user_id"],
+        "agent_name": resolved_name,
+    }
+    await ctx.set_state("agent_session", session)
 
-        Must be called before using any other tools. Validates the API key
-        and establishes a session for the owning user.
+    return {
+        "status": "logged_in",
+        "user_email": result.get("email", ""),
+        "agent_name": resolved_name,
+    }
 
-        Args:
-            api_key: API key (starts with agtd_).
-            agent_name: Name of the agent (used for created_by, assigned_to).
-            ctx: MCP context (injected automatically).
 
-        Returns:
-            Login confirmation with status, user email, and agent_name.
-        """
-        result = await _backend.login(api_key, agent_name)
-        # Guard against empty agent_name — fall back to lead attribution so that
-        # session["agent_name"] is never "" (which would propagate as created_by=""
-        # and trigger the human fallback on the server).
-        resolved_name = agent_name or compute_lead_attribution(result["user_id"])
-        logger.debug(
-            "login tool: agent_name=%r resolved_name=%r user_id=%r",
-            agent_name,
-            resolved_name,
-            result["user_id"],
-        )
-        session = {
-            "user_id": result["user_id"],
-            "agent_name": resolved_name,
-        }
-        await ctx.set_state("agent_session", session)
+def _enqueue_if_local(call: CallContext, run: dict[str, Any], tool: str) -> None:
+    """Hand a freshly created run to the in-process dispatch worker.
 
-        return {
-            "status": "logged_in",
-            "user_email": result.get("email", ""),
-            "agent_name": resolved_name,
-        }
+    Only in-process backends enqueue (HttpBackend's REST route does it
+    server-side).  A worker that is not running raises AssertionError; on the
+    board that is worth a WARNING, on a stdio LocalBackend it stays silent.
+    """
+    if not isinstance(call.backend, LocalBackend):
+        return
+    from agent_gtd import dispatch_worker
+
+    try:
+        dispatch_worker.enqueue_run(str(run["id"]))
+    except AssertionError:
+        from agent_gtd.mcp_http import BoardBackend
+
+        if isinstance(call.backend, BoardBackend):
+            logger.warning(
+                "mcp-http enqueue skipped: dispatch worker not running",
+                extra={
+                    "event": "mcp_http.enqueue_failed",
+                    "run_id": str(run["id"]),
+                    "tool": tool,
+                },
+            )
 
 
 # --- Project tools ---
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def list_projects(
@@ -204,11 +297,11 @@ async def list_projects(
     Returns:
         List of project dicts.
     """
-    session = await _get_session(ctx)
-    return await _backend.list_projects(session["user_id"], status=status)
+    call = await _resolve_call(ctx)
+    return await call.backend.list_projects(call.user_id, status=status)
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def add_project(
@@ -273,10 +366,10 @@ async def add_project(
             f"dispatch_timeout_minutes must be between "
             f"{MIN_TIMEOUT_MINUTES} and {MAX_TIMEOUT_MINUTES}"
         )
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.create_project(
-            session["user_id"],
+        return await call.backend.create_project(
+            call.user_id,
             name=name,
             description=description,
             area=area,
@@ -295,7 +388,7 @@ async def add_project(
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def update_project(
@@ -386,11 +479,11 @@ async def update_project(
             f"{MIN_TIMEOUT_MINUTES} and {MAX_TIMEOUT_MINUTES}"
         )
 
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
 
     try:
-        return await _backend.update_project(
-            session["user_id"],
+        return await call.backend.update_project(
+            call.user_id,
             project_id,
             name=name,
             description=description,
@@ -420,7 +513,7 @@ async def update_project(
 # --- Project member tools ---
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def share_project(
@@ -441,14 +534,14 @@ async def share_project(
     Returns:
         Member summary dict: user_id, email, added_at.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.add_project_member(session["user_id"], project_id, email)
+        return await call.backend.add_project_member(call.user_id, project_id, email)
     except (NotFoundError, ValidationError) as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def unshare_project(
@@ -468,15 +561,15 @@ async def unshare_project(
     Returns:
         {"ok": true}
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        await _backend.remove_project_member(session["user_id"], project_id, email)
+        await call.backend.remove_project_member(call.user_id, project_id, email)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     return {"ok": True}
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def list_project_members(
@@ -495,9 +588,9 @@ async def list_project_members(
     Returns:
         List of member dicts: user_id, email, added_at.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.list_project_members(session["user_id"], project_id)
+        return await call.backend.list_project_members(call.user_id, project_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
@@ -505,7 +598,7 @@ async def list_project_members(
 # --- Item tools ---
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def inbox_capture(
@@ -525,19 +618,19 @@ async def inbox_capture(
     Returns:
         The created item dict.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
 
     try:
-        return await _backend.inbox_capture(
-            session["user_id"],
+        return await call.backend.inbox_capture(
+            call.user_id,
             title,
-            created_by=session["agent_name"],
+            created_by=call.agent_name,
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def add_item(
@@ -608,20 +701,20 @@ async def add_item(
     Returns:
         The created item dict.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
 
     # Inbox items are project-less (global capture bucket).
     effective_project_id = None if status == "inbox" else project_id
 
     try:
-        return await _backend.create_item(
-            session["user_id"],
+        return await call.backend.create_item(
+            call.user_id,
             title=title,
             description=description,
             project_id=effective_project_id,
             status=status,
             priority=priority,
-            created_by=session["agent_name"],
+            created_by=call.agent_name,
             labels=labels,
             due_date=due_date,
             build_engine=build_engine,
@@ -631,7 +724,7 @@ async def add_item(
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def update_item(
@@ -729,7 +822,7 @@ async def update_item(
             "update_item called with empty item_id — tool-call body may be malformed"
         )
 
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
 
     # Translate MCP due_date sentinel into (due_date, due_date_set) pair for backend.
     # None means "don't touch it"; "" means "clear it"; date string means "set it".
@@ -767,8 +860,8 @@ async def update_item(
         project_id_set = True
 
     try:
-        return await _backend.update_item(
-            session["user_id"],
+        return await call.backend.update_item(
+            call.user_id,
             item_id,
             version=version,
             title=title,
@@ -787,7 +880,19 @@ async def update_item(
             project_id=backend_project_id,
             project_id_set=project_id_set,
             commit_type=commit_type,
+            actor_run_id=call.run_id,
+            actor_run_mode=call.run_mode,
         )
+    except PlanEngineOverrideError as e:
+        logger.warning(
+            "plan-mode run refused build_engine change on item %s",
+            item_id,
+            extra={
+                "event": "mcp_http.plan_engine_override_refused",
+                "item_id": item_id,
+            },
+        )
+        raise ToolError(e.detail) from None
     except BlockersUnresolvedError as e:
         raise ToolError(e.detail) from None
     except NotFoundError as e:
@@ -800,7 +905,7 @@ async def update_item(
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def complete_item(
@@ -816,15 +921,15 @@ async def complete_item(
     Returns:
         The updated item dict.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
 
     try:
-        return await _backend.complete_item(session["user_id"], item_id)
+        return await call.backend.complete_item(call.user_id, item_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
 )
 async def delete_item(
@@ -843,15 +948,15 @@ async def delete_item(
     Returns:
         Confirmation dict with status and item_id.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
 
     try:
-        return await _backend.delete_item(session["user_id"], item_id)
+        return await call.backend.delete_item(call.user_id, item_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def list_items(
@@ -901,9 +1006,9 @@ async def list_items(
     Returns:
         Dict with ``items`` list and optional ``inbox_pending_count``.
     """
-    session = await _get_session(ctx)
-    return await _backend.list_items(
-        session["user_id"],
+    call = await _resolve_call(ctx)
+    return await call.backend.list_items(
+        call.user_id,
         status=status,
         project_id=project_id,
         priority=priority,
@@ -912,7 +1017,7 @@ async def list_items(
     )
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def get_item(
@@ -936,10 +1041,10 @@ async def get_item(
     Returns:
         The item dict.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
 
     try:
-        return await _backend.get_item(session["user_id"], item_id)
+        return await call.backend.get_item(call.user_id, item_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
@@ -947,7 +1052,7 @@ async def get_item(
 # --- Blocker tools ---
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def add_blocker(
@@ -970,16 +1075,16 @@ async def add_blocker(
         The blocker as a BlockerSummary dict: id, title, status,
         project_id, project_name.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.add_blocker(session["user_id"], item_id, blocker_item_id)
+        return await call.backend.add_blocker(call.user_id, item_id, blocker_item_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except ValidationError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
 )
 async def remove_blocker(
@@ -999,15 +1104,15 @@ async def remove_blocker(
     Returns:
         Confirmation dict with ok=True.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        await _backend.remove_blocker(session["user_id"], item_id, blocker_item_id)
+        await call.backend.remove_blocker(call.user_id, item_id, blocker_item_id)
         return {"ok": True}
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def list_blockers(
@@ -1023,9 +1128,9 @@ async def list_blockers(
     Returns:
         List of blocker dicts: id, title, status, project_id, project_name.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.list_blockers(session["user_id"], item_id)
+        return await call.backend.list_blockers(call.user_id, item_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
@@ -1033,7 +1138,7 @@ async def list_blockers(
 # --- Note tools ---
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def add_note(
@@ -1055,11 +1160,11 @@ async def add_note(
     Returns:
         The created note dict.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
 
     try:
-        return await _backend.create_note(
-            session["user_id"],
+        return await call.backend.create_note(
+            call.user_id,
             project_id,
             title=title,
             content_markdown=content_markdown,
@@ -1069,7 +1174,7 @@ async def add_note(
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def update_note(
@@ -1091,11 +1196,11 @@ async def update_note(
     Returns:
         The updated note dict.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
 
     try:
-        return await _backend.update_note(
-            session["user_id"],
+        return await call.backend.update_note(
+            call.user_id,
             note_id,
             title=title,
             content_markdown=content_markdown,
@@ -1105,7 +1210,7 @@ async def update_note(
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
 )
 async def delete_note(
@@ -1123,15 +1228,15 @@ async def delete_note(
     Returns:
         Confirmation dict with deleted status and note_id.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
 
     try:
-        return await _backend.delete_note(session["user_id"], note_id)
+        return await call.backend.delete_note(call.user_id, note_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def list_notes(
@@ -1149,15 +1254,15 @@ async def list_notes(
     Returns:
         List of note dicts.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
 
     try:
-        return await _backend.list_notes(session["user_id"], project_id=project_id)
+        return await call.backend.list_notes(call.user_id, project_id=project_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def get_note(
@@ -1173,10 +1278,10 @@ async def get_note(
     Returns:
         The note dict.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
 
     try:
-        return await _backend.get_note(session["user_id"], note_id)
+        return await call.backend.get_note(call.user_id, note_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
@@ -1184,7 +1289,7 @@ async def get_note(
 # --- Comment tools ---
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def add_comment(
@@ -1211,20 +1316,20 @@ async def add_comment(
     if project_id and item_id:
         raise ToolError("Provide only one of project_id or item_id")
 
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.create_comment(
-            session["user_id"],
+        return await call.backend.create_comment(
+            call.user_id,
             project_id=project_id,
             item_id=item_id,
             content_markdown=content_markdown,
-            created_by=session["agent_name"],
+            created_by=call.agent_name,
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def list_comments(
@@ -1244,16 +1349,16 @@ async def list_comments(
     Returns:
         List of comment dicts, oldest first.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.list_comments(
-            session["user_id"], project_id=project_id, item_id=item_id
+        return await call.backend.list_comments(
+            call.user_id, project_id=project_id, item_id=item_id
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def update_comment(
@@ -1271,10 +1376,10 @@ async def update_comment(
     Returns:
         The updated comment dict.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.update_comment(
-            session["user_id"],
+        return await call.backend.update_comment(
+            call.user_id,
             comment_id,
             content_markdown=content_markdown,
         )
@@ -1285,7 +1390,7 @@ async def update_comment(
 # --- Dispatch tools ---
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def dispatch_item(
@@ -1322,6 +1427,8 @@ async def dispatch_item(
     Returns:
         The created run dict with status and branch name.
     """
+    from fastapi import HTTPException
+
     from agent_gtd.exceptions import (
         RolloutItemLockedError,
         RunActiveError,
@@ -1331,16 +1438,30 @@ async def dispatch_item(
     if mode == "manage" and rollout_id is None:
         raise ToolError("rollout_id is required when mode='manage'")
 
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        run = await _backend.dispatch_item(
-            session["user_id"],
+        run = await call.backend.dispatch_item(
+            call.user_id,
             item_id,
             max_turns=max_turns,
             mode=mode,
             rollout_id=rollout_id,
             dispatch_host_id=dispatch_host_id,
         )
+    except HTTPException as exc:
+        # Only the board's BoardBackend raises this (REST dispatch pre-flight).
+        logger.info(
+            "mcp-http dispatch refused",
+            extra={
+                "event": "mcp_http.dispatch_refused",
+                "tool": "dispatch_item",
+                "item_id": item_id,
+                "dispatch_host_id": dispatch_host_id,
+                "status": exc.status_code,
+                "detail": exc.detail,
+            },
+        )
+        raise ToolError(str(exc.detail)) from None
     except RolloutItemLockedError as e:
         raise ToolError(e.detail) from None
     except BlockersUnresolvedError as e:
@@ -1352,20 +1473,13 @@ async def dispatch_item(
     except ValidationError as e:
         raise ToolError(e.detail) from None
 
-    # Enqueue for background processing (local mode only — HTTP mode
-    # enqueues server-side in the dispatch route)
-    if isinstance(_backend, LocalBackend):
-        try:
-            from agent_gtd.dispatch_worker import enqueue_run
-
-            enqueue_run(str(run["id"]))
-        except AssertionError:
-            pass  # Worker not started
-
+    # Enqueue for background processing (in-process backends only — HTTP
+    # mode enqueues server-side in the dispatch route)
+    _enqueue_if_local(call, run, "dispatch_item")
     return run
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def get_run_status(
@@ -1387,14 +1501,14 @@ async def get_run_status(
         directory on the dispatch host is keyed by it, not by this
         agent_gtd-side run id.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.get_run(session["user_id"], run_id)
+        return await call.backend.get_run(call.user_id, run_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(
         readOnlyHint=False, destructiveHint=True, idempotentHint=True
     ),
@@ -1418,14 +1532,14 @@ async def cancel_run(
     Returns:
         The run dict with its current status.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.cancel_run(session["user_id"], run_id)
+        return await call.backend.cancel_run(call.user_id, run_id)
     except (NotFoundError, ValidationError) as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def list_runs(
@@ -1443,11 +1557,11 @@ async def list_runs(
     Returns:
         List of run dicts.
     """
-    session = await _get_session(ctx)
-    return await _backend.list_runs(session["user_id"], item_id=item_id, status=status)
+    call = await _resolve_call(ctx)
+    return await call.backend.list_runs(call.user_id, item_id=item_id, status=status)
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def list_dispatch_hosts(
@@ -1473,14 +1587,14 @@ async def list_dispatch_hosts(
         List of host dicts, each with keys ``id``, ``label``, ``url``, and
         ``drain_reason``.
     """
-    session = await _get_session(ctx)
-    return await _backend.list_dispatch_hosts(session["user_id"])
+    call = await _resolve_call(ctx)
+    return await call.backend.list_dispatch_hosts(call.user_id)
 
 
 # --- Rollout manager tools ---
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
 )
 async def advance_rollout(
@@ -1503,16 +1617,16 @@ async def advance_rollout(
           - blocked (list[str]): Item IDs waiting on unfinished predecessors.
           - graph_complete (bool): True if every item is in a terminal state.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.advance_rollout(session["user_id"], rollout_id)
+        return await call.backend.advance_rollout(call.user_id, rollout_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except ValidationError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False))
+@_tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False))
 async def get_rollout(
     rollout_id: str,
     ctx: Context,
@@ -1538,14 +1652,14 @@ async def get_rollout(
     Raises:
         ToolError: If the rollout is not found or not owned by the caller.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.get_rollout(session["user_id"], rollout_id)
+        return await call.backend.get_rollout(call.user_id, rollout_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False))
+@_tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False))
 async def list_rollouts(
     ctx: Context,
     project_id: str | None = None,
@@ -1570,17 +1684,17 @@ async def list_rollouts(
         List of rollout dicts ordered by created_at DESC (newest first).
         Each dict has the same shape as ``get_rollout``.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     clamped = min(max(1, limit), 100)
-    return await _backend.list_rollouts(
-        session["user_id"],
+    return await call.backend.list_rollouts(
+        call.user_id,
         project_id=project_id,
         status=status,
         limit=clamped,
     )
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False))
+@_tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False))
 async def get_rollout_plan(
     rollout_id: str,
     ctx: Context,
@@ -1611,14 +1725,14 @@ async def get_rollout_plan(
         ToolError: If the rollout is not found, not owned by the caller,
             or has no plan yet.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.get_rollout_plan(session["user_id"], rollout_id)
+        return await call.backend.get_rollout_plan(call.user_id, rollout_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def plan_rollout(
@@ -1672,9 +1786,9 @@ async def plan_rollout(
     """
     import json
 
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.plan_rollout(session["user_id"], item_ids)
+        return await call.backend.plan_rollout(call.user_id, item_ids)
     except LegalityContractError as exc:
         raise ToolError(
             f"Legality contract failed for {len(exc.failures)} item(s):\n"
@@ -1689,7 +1803,7 @@ async def plan_rollout(
         raise ToolError(str(exc)) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def start_rollout(
@@ -1710,16 +1824,16 @@ async def start_rollout(
     Returns:
         The updated autonomous_rollouts row dict.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.start_rollout(session["user_id"], rollout_id)
+        return await call.backend.start_rollout(call.user_id, rollout_id)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except ValidationError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def complete_item_in_rollout(
@@ -1760,10 +1874,10 @@ async def complete_item_in_rollout(
           - rollout_item (dict): The updated rollout_items row.
           - newly_ready (list[str]): Item IDs newly transitioned to 'ready'.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.complete_item_in_rollout(
-            session["user_id"],
+        return await call.backend.complete_item_in_rollout(
+            call.user_id,
             rollout_id,
             item_id,
             outcome,
@@ -1777,7 +1891,7 @@ async def complete_item_in_rollout(
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
 )
 async def halt_rollout(
@@ -1805,10 +1919,10 @@ async def halt_rollout(
     Returns:
         The updated autonomous_rollouts row dict.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.halt_rollout(
-            session["user_id"],
+        return await call.backend.halt_rollout(
+            call.user_id,
             rollout_id,
             reason,
             comment=comment,
@@ -1820,7 +1934,7 @@ async def halt_rollout(
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True))
+@_tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True))
 async def cancel_rollout(
     rollout_id: str,
     reason: str,
@@ -1839,16 +1953,16 @@ async def cancel_rollout(
     Returns:
         The updated autonomous_rollouts row dict.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.cancel_rollout(session["user_id"], rollout_id, reason)
+        return await call.backend.cancel_rollout(call.user_id, rollout_id, reason)
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except ValidationError as e:
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def update_rollout_state(
@@ -1886,10 +2000,10 @@ async def update_rollout_state(
         Dict with keys ``rollout_id``, ``ts``, ``phase``,
         ``current_item_id``, ``current_step``.
     """
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.update_rollout_state(
-            session["user_id"],
+        return await call.backend.update_rollout_state(
+            call.user_id,
             rollout_id,
             phase=phase,
             current_item_id=current_item_id,
@@ -1901,7 +2015,7 @@ async def update_rollout_state(
         raise ToolError(e.detail) from None
 
 
-@mcp.tool(
+@_tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
 )
 async def dispatch_rollout(
@@ -1934,20 +2048,78 @@ async def dispatch_rollout(
         ValidationError as _ValidationError,
     )
 
-    session = await _get_session(ctx)
+    call = await _resolve_call(ctx)
     try:
-        return await _backend.dispatch_rollout(
-            session["user_id"], rollout_id, dispatch_host_id=dispatch_host_id
+        run = await call.backend.dispatch_rollout(
+            call.user_id, rollout_id, dispatch_host_id=dispatch_host_id
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
     except _ValidationError as e:
         raise ToolError(e.detail) from None
+    _enqueue_if_local(call, run, "dispatch_rollout")
+    return run
+
+
+# --- Server factory ---
+
+
+def create_mcp_server(*, transport: Literal["stdio", "http"]) -> FastMCP:
+    """Build a new FastMCP server carrying every registered tool.
+
+    Args:
+        transport: ``"stdio"`` builds the standalone server (own lifespan,
+            ``login`` when credentials are not in the env).  ``"http"`` builds
+            the server the board mounts at ``/mcp``: no lifespan (the board
+            owns the DB), no ``login`` (the board authenticates the bearer
+            token before the MCP layer) and per-call logging middleware.
+
+    Returns:
+        A fresh FastMCP instance.
+    """
+    if transport == "stdio":
+        server = FastMCP(
+            name="Agent GTD",
+            instructions=_instructions,
+            lifespan=mcp_lifespan,
+        )
+        if _show_login:
+            server.tool(login, annotations=_LOGIN_ANNOTATIONS)
+    else:
+        from agent_gtd.mcp_http import ToolCallLogMiddleware
+
+        server = FastMCP(name="Agent GTD", instructions=_HTTP_INSTRUCTIONS)
+        server.add_middleware(ToolCallLogMiddleware())
+    for fn, annotations in _TOOL_REGISTRY:
+        server.tool(fn, annotations=annotations)
+    return server
+
+
+mcp = create_mcp_server(transport="stdio")
 
 
 # --- Entry point ---
 
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _warn_if_remote_stdio() -> None:
+    """Point users of a remote board at its streamable HTTP endpoint."""
+    url = os.environ.get("AGENT_GTD_URL")
+    if not url:
+        return
+    if urlsplit(url).hostname in _LOOPBACK_HOSTS:
+        return
+    base = url.rstrip("/")
+    logger.warning(
+        "agent-gtd stdio MCP server is deprecated for remote boards; "
+        "register %s/mcp as a streamable HTTP MCP server with header "
+        '"Authorization: Bearer <key>" instead',
+        base,
+    )
+
 
 def main() -> None:
     """Run the MCP server (stdio transport)."""
+    _warn_if_remote_stdio()
     mcp.run(transport="stdio")

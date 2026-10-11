@@ -5,7 +5,7 @@
 Agent GTD exposes two API surfaces:
 
 1. **REST API** (`/api/*`) — used by the React web frontend. Authenticated via JWT bearer tokens. Returns JSON.
-2. **MCP Server** (`/mcp`) — used by AI agents. Served via FastMCP's HTTP transport (Streamable HTTP). Authenticated via API key or JWT.
+2. **MCP Server** (`/mcp`) — used by AI agents. Served as an authenticated stateless streamable-HTTP endpoint, authenticated by a bearer API key or JWT that the board enforces before the MCP layer; `login` is not exposed there. The same tools are also available from the stdio `agent-gtd-mcp` server.
 
 Both surfaces share the same service layer and database. A mutation through the REST API is
 immediately visible via MCP tools, and vice versa.
@@ -30,7 +30,9 @@ Authorization: Bearer agtd_<key>
 
 ### MCP Server
 
-MCP tools authenticate using one of:
+Over HTTP (`/mcp` on the board), every request carries `Authorization: Bearer <api key or JWT>`; the board authenticates it before the MCP layer and returns 401 without it. `created_by` is computed by the board: a dispatched run's callback token sets it, otherwise a valid `X-Agent-Name` header, otherwise `claude-lead-<user8>`. `login` is not exposed over HTTP.
+
+The stdio `agent-gtd-mcp` server authenticates using one of:
 - `AGENT_GTD_API_KEY` env var → auto-authenticates at tool call time (no `login()` needed)
 - `AGENT_GTD_URL` + `AGENT_GTD_API_KEY` → HTTP remote mode
 - `login(api_key, agent_name)` MCP tool → manual authentication
@@ -497,8 +499,7 @@ List rollouts for a project.
 
 ## MCP Tools
 
-All MCP tools are served at `/mcp` via FastMCP's HTTP transport. Tools are called by AI agents
-using the MCP protocol. The session resolves the calling user from the API key context.
+All MCP tools are served at `/mcp` as an authenticated stateless streamable-HTTP endpoint, authenticated by a bearer API key or JWT that the board enforces before the MCP layer; `login` is not exposed there. Tools are called by agents using the MCP protocol. Over HTTP the calling user is the bearer token's owner; on stdio it comes from the API key context.
 
 ### Authentication
 

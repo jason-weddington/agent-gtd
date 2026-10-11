@@ -49,7 +49,7 @@ screen, the relevant context is *which project* you're working in.
   (pending → running → success/failed/timeout/cancelled). Many runs may belong to one rollout.
 
 - **MCP:** Model Context Protocol — the tool interface used by AI agents. Agent GTD exposes
-  its full feature set as MCP tools, served over FastMCP's HTTP transport at `/mcp`.
+  its full feature set as MCP tools, served at `/mcp` as an authenticated stateless streamable-HTTP endpoint, authenticated by a bearer API key or JWT that the board enforces before the MCP layer; `login` is not exposed there.
 
 - **Attribution (`created_by`):** A string identifying who created an entity. Dispatched
   agents carry a structured identifier (e.g., `claude-build-abc12345`). Humans carry their

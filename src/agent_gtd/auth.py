@@ -100,7 +100,16 @@ async def get_run_context(
     """
     if credentials is None:
         return None
-    token = credentials.credentials
+    return run_context_from_token(credentials.credentials)
+
+
+def run_context_from_token(token: str) -> RunTokenContext | None:
+    """Extract the run identity from a raw bearer token, if it carries one.
+
+    Returns ``None`` for a static API key (``agtd_`` prefix), a JWT that fails
+    to decode (expired, bad signature, garbage), and a JWT without both the
+    ``run_id`` and ``run_mode`` claims.  Never raises.
+    """
     if token.startswith("agtd_"):
         return None
     try:
@@ -165,7 +174,16 @@ async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
 ) -> User:
     """FastAPI dependency: authenticate via JWT or API key."""
-    token = credentials.credentials
+    return await authenticate_bearer_token(credentials.credentials)
+
+
+async def authenticate_bearer_token(token: str) -> User:
+    """Authenticate a raw bearer token as a JWT, falling back to an API key.
+
+    Raises:
+        HTTPException: 401 when the token is neither a valid JWT for an
+            existing user nor a known API key.
+    """
     try:
         return await get_current_user_from_token(token)
     except HTTPException:
