@@ -642,6 +642,198 @@ def _build_successor_map(
     return succs
 
 
+async def _load_item_statuses(db: DbPool, rollout_id: str) -> dict[str, str]:
+    """Return ``item_id → status`` for every rollout_items row of a rollout."""
+    all_rows = await db.fetch(
+        "SELECT item_id, status FROM rollout_items WHERE rollout_id = $1",
+        rollout_id,
+    )
+    return {str(r["item_id"]): str(r["status"]) for r in all_rows}
+
+
+async def _unblock_successors(
+    db: DbPool,
+    rollout_id: str,
+    item_id: str,
+    item_statuses: dict[str, str],
+) -> list[str]:
+    """Move ready-to-run ``pending`` successors of *item_id* to ``ready``.
+
+    A successor qualifies when every one of its predecessors is terminal.
+
+    Mutates *item_statuses* to reflect the transitions and returns the IDs
+    that became ready, in DAG edge order.
+    """
+    plan = await _get_latest_plan(db, rollout_id)
+    edges: list[dict[str, str]] = json.loads(plan["edges"]) if plan else []
+    preds = _build_predecessor_map(edges)
+    succs = _build_successor_map(edges)
+
+    newly_ready: list[str] = []
+    for downstream_id in succs.get(item_id, []):
+        if item_statuses.get(downstream_id) != "pending":
+            continue
+        item_preds = preds.get(downstream_id, [])
+        all_done = all(
+            item_statuses.get(p, "pending") in _TERMINAL_STATUSES for p in item_preds
+        )
+        if all_done:
+            await db.execute(
+                "UPDATE rollout_items SET status = 'ready'"
+                " WHERE rollout_id = $1 AND item_id = $2 AND status = 'pending'",
+                rollout_id,
+                downstream_id,
+            )
+            item_statuses[downstream_id] = "ready"
+            newly_ready.append(downstream_id)
+    return newly_ready
+
+
+async def _close_rollout(db: DbPool, rollout_id: str, now: str) -> None:
+    """Mark the rollout ``completed`` (every item is terminal)."""
+    await db.execute(
+        "UPDATE autonomous_rollouts"
+        " SET status = 'completed', ended_at = $1, updated_at = $2"
+        " WHERE id = $3",
+        now,
+        now,
+        rollout_id,
+    )
+
+
+async def _emit_wave_completed(
+    db: DbPool,
+    user_id: str,
+    rollout_id: str,
+    project_id: str,
+    total_items: int,
+) -> None:
+    """Append and publish the ``wave_completed`` lifecycle event."""
+    wave_completed_event = await _append_rollout_event(
+        db,
+        rollout_id,
+        kind="wave_completed",
+        actor="manager",
+        payload={"total_items": total_items},
+    )
+    _publish_rollout_event(db, user_id, wave_completed_event, project_id)
+
+
+async def _append_merge_note(
+    db: DbPool,
+    user_id: str,
+    rollout_id: str,
+    item_id: str,
+    outcome: str,
+    merge_note: str,
+    project_id: str,
+) -> bool:
+    """Append and publish a ``merge_note`` event when *merge_note* is non-blank.
+
+    Returns True when an event was appended.
+    """
+    trimmed_note = merge_note.strip()[:MERGE_NOTE_MAX_CHARS]
+    if not trimmed_note:
+        return False
+    note_event = await _append_rollout_event(
+        db,
+        rollout_id,
+        kind=MERGE_NOTE_EVENT_KIND,
+        actor="manager",
+        payload={
+            "item_id": item_id,
+            "outcome": outcome,
+            "note": trimmed_note,
+        },
+    )
+    _publish_rollout_event(db, user_id, note_event, project_id)
+    return True
+
+
+def _event_payload(raw: Any) -> dict[str, Any]:
+    """Decode a rollout_events payload column (JSON text or already a dict)."""
+    if isinstance(raw, str):
+        try:
+            decoded = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    return raw or {}
+
+
+async def _has_merge_note_for_item(db: DbPool, rollout_id: str, item_id: str) -> bool:
+    """True when a ``merge_note`` event already exists for *item_id*."""
+    rows = await db.fetch(
+        "SELECT payload FROM rollout_events WHERE rollout_id = $1 AND kind = $2",
+        rollout_id,
+        MERGE_NOTE_EVENT_KIND,
+    )
+    return any(_event_payload(r["payload"]).get("item_id") == item_id for r in rows)
+
+
+async def _heal_repeat_completion(
+    db: DbPool,
+    user_id: str,
+    rollout_id: str,
+    item_id: str,
+    outcome_str: str,
+    merge_note: str,
+    project_id: str,
+    item_row: Any,
+) -> dict[str, Any]:
+    """Complete side effects a partially-failed earlier call left undone.
+
+    Called for an idempotent repeat (the rollout item is already terminal
+    with the same outcome).  Performs no writes and appends no events when
+    nothing is missing.
+    """
+    # (1) Cascade the GTD item to done.
+    if outcome_str == "completed":
+        gtd_row = await db.fetchrow("SELECT status FROM items WHERE id = $1", item_id)
+        if gtd_row is not None and str(gtd_row["status"]) != "done":
+            from agent_gtd.services.item_service import complete_item
+
+            await complete_item(db, user_id, item_id)
+
+    # (2) Unblock downstream items.
+    item_statuses = await _load_item_statuses(db, rollout_id)
+    newly_ready = await _unblock_successors(db, rollout_id, item_id, item_statuses)
+
+    # (3) Close the rollout if every item is terminal but it is still open.
+    rollout_row = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1",
+        rollout_id,
+    )
+    rollout_completed = rollout_row is not None and rollout_row["status"] == "completed"
+    if (
+        rollout_row is not None
+        and not rollout_completed
+        and item_statuses
+        and all(s in _TERMINAL_STATUSES for s in item_statuses.values())
+    ):
+        now = datetime.now(UTC).isoformat()
+        await _close_rollout(db, rollout_id, now)
+        await _emit_wave_completed(
+            db, user_id, rollout_id, project_id, len(item_statuses)
+        )
+        rollout_completed = True
+
+    # (4) Append a missing merge note.
+    if merge_note.strip() and not await _has_merge_note_for_item(
+        db, rollout_id, item_id
+    ):
+        await _append_merge_note(
+            db, user_id, rollout_id, item_id, outcome_str, merge_note, project_id
+        )
+
+    return {
+        "rollout_item": row_to_dict(item_row),
+        "newly_ready": newly_ready,
+        "graph_complete": rollout_completed,
+        "already_recorded": True,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Public service functions
 # ---------------------------------------------------------------------------
@@ -777,8 +969,11 @@ async def complete_item_in_rollout(
           a build agent is dispatched and completes the item).
         - Inline-management path: ``ready → terminal`` (manage agent handles the
           item directly without dispatching a child build, e.g. trivial changes).
-        - Idempotent repeat: ``terminal → same terminal`` returns early with
-          ``already_recorded: True`` and performs no writes or events.
+        - Idempotent repeat: ``terminal → same terminal`` returns
+          ``already_recorded: True``.  It heals any side effect an earlier,
+          partially-failed call left undone (GTD item cascade to ``done``,
+          downstream unblock, rollout close + ``wave_completed``, missing
+          ``merge_note`` event) and is otherwise write-free.
     """
     wave = await _get_rollout(db, user_id, rollout_id)
     project_id = str(wave["project_id"])
@@ -794,19 +989,18 @@ async def complete_item_in_rollout(
     current_status = str(item_row["status"])
     if current_status in _TERMINAL_STATUSES:
         if current_status == outcome_str:
-            # Idempotent repeat of the same outcome: no writes, no events.
-            rollout_row = await db.fetchrow(
-                "SELECT status FROM autonomous_rollouts WHERE id = $1",
+            # Idempotent repeat of the same outcome: heal any side effect an
+            # earlier, partially-failed call left undone; otherwise write-free.
+            return await _heal_repeat_completion(
+                db,
+                user_id,
                 rollout_id,
+                item_id,
+                outcome_str,
+                merge_note,
+                project_id,
+                item_row,
             )
-            return {
-                "rollout_item": row_to_dict(item_row),
-                "newly_ready": [],
-                "graph_complete": bool(
-                    rollout_row is not None and rollout_row["status"] == "completed"
-                ),
-                "already_recorded": True,
-            }
         raise ValidationError(
             f"Item {item_id} already has terminal status '{current_status}' — "
             f"cannot record a different outcome '{outcome_str}'"
@@ -860,50 +1054,17 @@ async def complete_item_in_rollout(
     assert updated_row is not None  # noqa: S101
 
     # Reload all item statuses (including the just-updated item)
-    all_rows = await db.fetch(
-        "SELECT item_id, status FROM rollout_items WHERE rollout_id = $1",
-        rollout_id,
-    )
-    item_statuses: dict[str, str] = {r["item_id"]: r["status"] for r in all_rows}
+    item_statuses = await _load_item_statuses(db, rollout_id)
     # The DB row was just updated; keep our view consistent.
-    item_statuses[item_id] = outcome
-
-    # Load DAG for downstream traversal
-    plan = await _get_latest_plan(db, rollout_id)
-    edges: list[dict[str, str]] = json.loads(plan["edges"]) if plan else []
-    preds = _build_predecessor_map(edges)
-    succs = _build_successor_map(edges)
+    item_statuses[item_id] = outcome_str
 
     # Unblock downstream items whose last blocking predecessor was this item
-    newly_ready: list[str] = []
-    for downstream_id in succs.get(item_id, []):
-        if item_statuses.get(downstream_id) != "pending":
-            continue
-        item_preds = preds.get(downstream_id, [])
-        all_done = all(
-            item_statuses.get(p, "pending") in _TERMINAL_STATUSES for p in item_preds
-        )
-        if all_done:
-            await db.execute(
-                "UPDATE rollout_items SET status = 'ready'"
-                " WHERE rollout_id = $1 AND item_id = $2 AND status = 'pending'",
-                rollout_id,
-                downstream_id,
-            )
-            item_statuses[downstream_id] = "ready"
-            newly_ready.append(downstream_id)
+    newly_ready = await _unblock_successors(db, rollout_id, item_id, item_statuses)
 
     # Close the wave if every item is now terminal
     graph_complete = all(s in _TERMINAL_STATUSES for s in item_statuses.values())
     if graph_complete:
-        await db.execute(
-            "UPDATE autonomous_rollouts"
-            " SET status = 'completed', ended_at = $1, updated_at = $2"
-            " WHERE id = $3",
-            now,
-            now,
-            rollout_id,
-        )
+        await _close_rollout(db, rollout_id, now)
 
     # Emit item_outcome wave event and publish to SSE subscribers
     wave_event = await _append_rollout_event(
@@ -922,31 +1083,15 @@ async def complete_item_in_rollout(
 
     # Persist the merge note as its own event so the next manage prompt can
     # read the last N without having to parse item_outcome payloads.
-    trimmed_note = merge_note.strip()[:MERGE_NOTE_MAX_CHARS]
-    if trimmed_note:
-        note_event = await _append_rollout_event(
-            db,
-            rollout_id,
-            kind=MERGE_NOTE_EVENT_KIND,
-            actor="manager",
-            payload={
-                "item_id": item_id,
-                "outcome": outcome,
-                "note": trimmed_note,
-            },
-        )
-        _publish_rollout_event(db, user_id, note_event, project_id)
+    await _append_merge_note(
+        db, user_id, rollout_id, item_id, outcome_str, merge_note, project_id
+    )
 
     # If all items are done, emit wave_completed lifecycle event (AC-5)
     if graph_complete:
-        wave_completed_event = await _append_rollout_event(
-            db,
-            rollout_id,
-            kind="wave_completed",
-            actor="manager",
-            payload={"total_items": len(item_statuses)},
+        await _emit_wave_completed(
+            db, user_id, rollout_id, project_id, len(item_statuses)
         )
-        _publish_rollout_event(db, user_id, wave_completed_event, project_id)
 
     return {
         "rollout_item": row_to_dict(updated_row),

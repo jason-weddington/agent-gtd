@@ -1548,6 +1548,105 @@ async def test_complete_item_in_rollout_repeat_graph_complete_false_when_open(db
     assert second["graph_complete"] is False
 
 
+async def test_complete_item_in_rollout_repeat_heals_partial_write(db):
+    """AC11(a): a repeat completes a downstream unblock + item cascade that an
+    earlier, partially-failed call left undone."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_a = await _make_item(db, user_id, project_id, title="A", status="review")
+    item_b = await _make_item(db, user_id, project_id, title="B", status="ready")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _make_wave_plan_item(db, rollout_id, item_a, status="dispatched")
+    await _make_wave_plan_item(db, rollout_id, item_b, status="pending")
+    await _make_rollout_plan(
+        db,
+        rollout_id,
+        [item_a, item_b],
+        [{"from_item_id": item_a, "to_item_id": item_b}],
+    )
+    # Simulate a partial earlier write: the row went terminal, nothing else.
+    await db.execute(
+        "UPDATE rollout_items SET status = 'completed'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
+        item_a,
+    )
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        result = await complete_item_in_rollout(
+            db, user_id, rollout_id, item_a, outcome="completed"
+        )
+    assert result["already_recorded"] is True
+    assert result["newly_ready"] == [item_b]
+    assert result["graph_complete"] is False
+    b_row = await db.fetchrow(
+        "SELECT status FROM rollout_items WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
+        item_b,
+    )
+    assert b_row["status"] == "ready"
+    a_item = await db.fetchrow("SELECT status FROM items WHERE id = $1", item_a)
+    assert a_item["status"] == "done"
+
+
+async def test_complete_item_in_rollout_repeat_closes_open_rollout(db):
+    """AC11: a repeat closes a rollout whose items are all terminal."""
+    user_id, rollout_id, item_id = await _complete_twice_setup(db)
+    await db.execute(
+        "UPDATE rollout_items SET status = 'completed'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
+        item_id,
+    )
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        result = await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="completed"
+        )
+    assert result["already_recorded"] is True
+    assert result["graph_complete"] is True
+    row = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert row["status"] == "completed"
+    n = await db.fetchrow(
+        "SELECT COUNT(*) AS n FROM rollout_events"
+        " WHERE rollout_id = $1 AND kind = 'wave_completed'",
+        rollout_id,
+    )
+    assert int(n["n"]) == 1
+
+
+async def test_complete_item_in_rollout_repeat_heals_missing_merge_note(db):
+    """AC11(b): a repeat appends a missing merge_note event exactly once."""
+    user_id, rollout_id, item_id = await _complete_twice_setup(db)
+    other = await _make_item(db, user_id, await _project_of(db, item_id))
+    await _make_wave_plan_item(db, rollout_id, other, status="dispatched")
+    await db.execute(
+        "UPDATE rollout_items SET status = 'completed'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
+        item_id,
+    )
+
+    async def _note_count() -> int:
+        row = await db.fetchrow(
+            "SELECT COUNT(*) AS n FROM rollout_events"
+            " WHERE rollout_id = $1 AND kind = $2",
+            rollout_id,
+            MERGE_NOTE_EVENT_KIND,
+        )
+        return int(row["n"])
+
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="completed", merge_note="n"
+        )
+        assert await _note_count() == 1
+        await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="completed", merge_note="n"
+        )
+        assert await _note_count() == 1
+
+
 async def _project_of(db, item_id: str) -> str:
     row = await db.fetchrow("SELECT project_id FROM items WHERE id = $1", item_id)
     return str(row["project_id"])
