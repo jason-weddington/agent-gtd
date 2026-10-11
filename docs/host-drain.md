@@ -1,6 +1,6 @@
 # Non-destructive host drain (rolling dispatch-side releases)
 
-**Status:** design, awaiting review. Supersedes three competing drafts produced during design exploration.
+**Status:** shipped and used in production. First full rolling deploy: agent-gtd-dispatch 2.5.0 across all four hosts on 2026-10-11, no in-flight run lost. Supersedes three competing drafts produced during design exploration.
 
 ## The problem
 
@@ -136,6 +136,10 @@ agent-gtd undrain-host pironman01
 Peer sessions pinning to a drained host get a refusal naming the host and quoting the reason, and should hold rather than re-route — a caller pinning for capability affinity has nowhere else to go.
 
 Repeat per host. The fleet never drops below one host accepting work.
+
+**Cutting the release and deploying the first host together.** `release.sh` ends by calling `deploy.sh`, which honours `DISPATCH_HOST`, so `DISPATCH_HOST=<idle-host> ./release.sh` publishes the wheels and deploys only that host. Drain it first. Once it is verified and undrained, drain every host still on the old version so the upgraded host takes all new work, then deploy each one with `DISPATCH_HOST=<host> EXPECT_VERSION=<ver> ./deploy.sh` as it goes idle.
+
+**A host driving a rollout loop can be drained when the rollout is not pinned** (`dispatch_host_id` null on the rollout). Its child builds auto-route to other hosts. The loop itself counts in `active_runs`, so that host only goes idle when the rollout finishes.
 
 Hosts should be addressable by **label**, not UUID — operators think in `pironman01`, the registry thinks in `c941111f-…`. A ~20-line resolver (exact id → unique label → unique URL substring → error listing candidates) removes a lookup from every command.
 
