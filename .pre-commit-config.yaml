@@ -58,7 +58,7 @@ repos:
 
       - id: coverage
         name: test coverage
-        entry: bash -c 'uv run --frozen pytest --cov --cov-report=term-missing > /tmp/pre-push-coverage.txt 2>&1; rc=$?; tail -6 /tmp/pre-push-coverage.txt; exit $rc'
+        entry: bash -c 'out=$(mktemp); uv run --frozen pytest --cov --cov-report=term-missing > "$out" 2>&1; rc=$?; tail -6 "$out"; rm -f "$out"; exit $rc'
         language: system
         pass_filenames: false
         always_run: true
