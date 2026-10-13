@@ -456,7 +456,7 @@ async def test_list_dispatch_hosts_backend(authed_backend: HttpBackend):
     host = await settings_service.add_dispatch_host(
         db,
         user_id,
-        "pironman01",
+        "host-a",
         "https://dispatch.example.com",
         "super-secret-key",
     )
@@ -465,7 +465,7 @@ async def test_list_dispatch_hosts_backend(authed_backend: HttpBackend):
     assert len(hosts) == 1
     returned = hosts[0]
     assert returned["id"] == host["id"]
-    assert returned["label"] == "pironman01"
+    assert returned["label"] == "host-a"
     assert returned["url"] == "https://dispatch.example.com"
     # Critical: no secret material — not even the masked preview.
     assert "api_key" not in returned

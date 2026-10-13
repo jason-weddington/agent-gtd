@@ -415,7 +415,7 @@ async def resolve_dispatch_host(
 ) -> tuple[dict[str, Any], str]:
     """Resolve a host reference (id, label, or URL substring) to a host row.
 
-    Operators think in labels (``pironman01``), the registry thinks in UUIDs.
+    Operators think in labels (``host-a``), the registry thinks in UUIDs.
     Resolution order, each step scoped to the caller's own hosts in
     ``created_at`` ASC order (the order :func:`get_dispatch_hosts` returns):
 

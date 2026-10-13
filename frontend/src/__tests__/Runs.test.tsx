@@ -203,14 +203,14 @@ describe('Runs page', () => {
 
   it('renders dispatch host URL in failed runs table when present', async () => {
     const api = await getApi()
-    const run = makeFailedRun({ dispatchHostUrl: 'http://pironman01:8001' })
+    const run = makeFailedRun({ dispatchHostUrl: 'http://host-a:8001' })
     vi.mocked(api.runs.failures).mockResolvedValue([run])
     vi.mocked(api.runs.stale).mockResolvedValue([])
 
     render(<Runs />)
 
     await waitFor(() => {
-      expect(screen.getByText('http://pironman01:8001')).toBeInTheDocument()
+      expect(screen.getByText('http://host-a:8001')).toBeInTheDocument()
     })
     expect(screen.queryByText('undefined')).not.toBeInTheDocument()
   })
@@ -232,14 +232,14 @@ describe('Runs page', () => {
 
   it('renders dispatch host URL in stale runs table when present', async () => {
     const api = await getApi()
-    const run = makeStaleRun({ dispatchHostUrl: 'http://pironman01:8001' })
+    const run = makeStaleRun({ dispatchHostUrl: 'http://host-a:8001' })
     vi.mocked(api.runs.failures).mockResolvedValue([])
     vi.mocked(api.runs.stale).mockResolvedValue([run])
 
     render(<Runs />)
 
     await waitFor(() => {
-      expect(screen.getByText('http://pironman01:8001')).toBeInTheDocument()
+      expect(screen.getByText('http://host-a:8001')).toBeInTheDocument()
     })
     expect(screen.queryByText('undefined')).not.toBeInTheDocument()
   })

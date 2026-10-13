@@ -228,7 +228,7 @@ async def test_get_dispatch_settings_preview_last4_after_patch(
     await client.patch(
         "/api/settings/dispatch",
         json={
-            "service_url": "http://pironman01:8100",
+            "service_url": "http://host-a:8100",
             "service_api_key": "abcd1234XYZjL54",  # gitleaks:allow
         },
         headers=auth_headers,

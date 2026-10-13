@@ -86,14 +86,14 @@ def _list_dispatch_hosts_args() -> argparse.Namespace:
 
 def _drain_host_args(**overrides: Any) -> argparse.Namespace:
     """Return a Namespace for drain-host with defaults."""
-    defaults: dict[str, Any] = {"host": "pironman01", "reason": None}
+    defaults: dict[str, Any] = {"host": "host-a", "reason": None}
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
 
 
 def _undrain_host_args(**overrides: Any) -> argparse.Namespace:
     """Return a Namespace for undrain-host with defaults."""
-    defaults: dict[str, Any] = {"host": "pironman01"}
+    defaults: dict[str, Any] = {"host": "host-a"}
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
 
@@ -619,7 +619,7 @@ def test_cmd_drain_host_passes_reason_and_prints_json(monkeypatch, capsys):
         "agent_gtd.cli_commands.dispatch.backend_session", _make_session(fake)
     )
 
-    _cmd_drain_host(_drain_host_args(host="pironman01", reason="rolling deploy 2.0.2"))
+    _cmd_drain_host(_drain_host_args(host="host-a", reason="rolling deploy 2.0.2"))
 
     captured = capsys.readouterr()
     assert captured.err == ""
@@ -629,7 +629,7 @@ def test_cmd_drain_host_passes_reason_and_prints_json(monkeypatch, capsys):
 
     assert len(fake.drain_calls) == 1
     call = fake.drain_calls[0]
-    assert call["host"] == "pironman01"
+    assert call["host"] == "host-a"
     assert call["reason"] == "rolling deploy 2.0.2"
 
 
@@ -656,7 +656,7 @@ def test_cmd_drain_host_missing_reason_error_exits_1_with_reason_hint(
 
     fake = _FakeBackend()
     fake._drain_error = _ValidationError(
-        "Dispatch host 'pironman01' is not drained: pass --reason to drain it"
+        "Dispatch host 'host-a' is not drained: pass --reason to drain it"
     )
 
     monkeypatch.setattr(
@@ -681,7 +681,7 @@ def test_cmd_undrain_host_prints_json(monkeypatch, capsys):
         "agent_gtd.cli_commands.dispatch.backend_session", _make_session(fake)
     )
 
-    _cmd_undrain_host(_undrain_host_args(host="pironman01"))
+    _cmd_undrain_host(_undrain_host_args(host="host-a"))
 
     captured = capsys.readouterr()
     assert captured.err == ""
@@ -690,7 +690,7 @@ def test_cmd_undrain_host_prints_json(monkeypatch, capsys):
     assert "api_key" not in data
 
     assert len(fake.undrain_calls) == 1
-    assert fake.undrain_calls[0]["host"] == "pironman01"
+    assert fake.undrain_calls[0]["host"] == "host-a"
 
 
 def test_cmd_drain_host_backend_error_prints_stderr_exits_1(monkeypatch, capsys):
@@ -756,18 +756,18 @@ def test_build_parser_drain_host_resolves_to_handler():
     """Parsing 'drain-host <host> --reason <r>' yields func=_cmd_drain_host."""
     parser = build_parser()
     args = parser.parse_args(
-        ["drain-host", "pironman01", "--reason", "rolling deploy 2.0.2"]
+        ["drain-host", "host-a", "--reason", "rolling deploy 2.0.2"]
     )
 
     assert args.func is _cmd_drain_host
-    assert args.host == "pironman01"
+    assert args.host == "host-a"
     assert args.reason == "rolling deploy 2.0.2"
 
 
 def test_build_parser_drain_host_reason_optional():
     """--reason is optional for drain-host (defaults to None)."""
     parser = build_parser()
-    args = parser.parse_args(["drain-host", "pironman01"])
+    args = parser.parse_args(["drain-host", "host-a"])
 
     assert args.func is _cmd_drain_host
     assert args.reason is None
@@ -776,10 +776,10 @@ def test_build_parser_drain_host_reason_optional():
 def test_build_parser_undrain_host_resolves_to_handler():
     """Parsing 'undrain-host <host>' yields func=_cmd_undrain_host."""
     parser = build_parser()
-    args = parser.parse_args(["undrain-host", "pironman01"])
+    args = parser.parse_args(["undrain-host", "host-a"])
 
     assert args.func is _cmd_undrain_host
-    assert args.host == "pironman01"
+    assert args.host == "host-a"
 
 
 def test_main_drain_host_end_to_end(monkeypatch, capsys):
@@ -796,7 +796,7 @@ def test_main_drain_host_end_to_end(monkeypatch, capsys):
         [
             "agent-gtd",
             "drain-host",
-            "pironman01",
+            "host-a",
             "--reason",
             "rolling deploy 2.0.2",
         ],
@@ -808,7 +808,7 @@ def test_main_drain_host_end_to_end(monkeypatch, capsys):
     data = json.loads(captured.out)
     assert data["drain_reason"] == "rolling deploy 2.0.2"
     assert "api_key" not in data
-    assert fake.drain_calls[0]["host"] == "pironman01"
+    assert fake.drain_calls[0]["host"] == "host-a"
     assert fake.drain_calls[0]["reason"] == "rolling deploy 2.0.2"
 
 

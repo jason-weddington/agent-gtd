@@ -1,3 +1,5 @@
+> Maintainer-local operational steering, if present, lives in the gitignored `CLAUDE.local.md`, which Claude Code loads automatically.
+
 ## Setup (do this first)
 
 ```bash
@@ -23,14 +25,12 @@ The KB contains deployment details, architectural decisions, debugging lessons, 
 
 ## Deployment
 
-The app runs on `r7-research` as a **user-level** systemd service (no sudo):
+The production board runs as a **user-level** systemd service (no sudo) on a single host, behind a reverse proxy; `docs/deploy.md` is the generic runbook. The host, deploy glue and bounce guidelines are maintainer-specific: `./deploy.sh` is operator-local and gitignored, and the maintainer's steering for it lives in `CLAUDE.local.md`. After pushing to the deploy remote, restart the service to pick up changes:
 ```bash
-ssh r7-research 'systemctl --user restart agent-gtd'   # Restart
-ssh r7-research 'systemctl --user status agent-gtd'     # Check status
-ssh r7-research 'journalctl --user -u agent-gtd -f'     # Tail logs
+systemctl --user restart agent-gtd   # Restart (on the production host)
+systemctl --user status agent-gtd    # Check status
+journalctl --user -u agent-gtd -f    # Tail logs
 ```
-
-The git remote `origin` points to `r7-research`. After `git push origin main --tags`, restart the service to pick up changes. See KB entries `kb-00306` and `kb-00307` for full deployment architecture and bounce guidelines.
 
 ### Restarting the service kills in-flight dispatch runs
 
@@ -47,7 +47,7 @@ Two things follow, and the second is the one that bites:
   loop flipping and a waiter reporting DONE. That came from a polling
   mechanism that no longer exists, and the claim never matched `kb-01486`.
   Removed 2026-09-22.)
-- **The dispatch worker on the Pi is a separate service and survives.** It may
+- **The dispatch worker on its dispatch host is a separate service and survives.** It may
   still be running, may finish, and may push a feature branch that agent_gtd
   no longer knows anything about. So after an unplanned bounce:
   `git fetch origin --prune` in the target repo and look for
@@ -59,18 +59,10 @@ dispatch in the window between "about to release" and "service is `active`
 again". This is an operational property of THIS service, which is why it
 lives here rather than in steering loaded for every project.
 
-### Standing authority: the lead deploys without asking (Jason, 2026-10-11)
-
-The agent_gtd lead session releases and deploys both services as needed, without waiting for Jason's go. Report what shipped afterwards.
-
-- **Dispatch hosts (agent-gtd-dispatch):** roll through the fleet with host drain, never a fleet-wide hold. Since 2.8.0 the lab's publish and deploy glue lives in homelab-ops `dispatch-fleet/` (runbook: its README), and the dispatch checkout's gitignored `release.local.sh` symlinks to its `publish-and-deploy.sh`. So `./release.sh` in agent-gtd-dispatch publishes both wheels and then does the rolling drain deploy itself: drain, wait for `active_runs == 0` twice, deploy, check `/info`, undrain, one host at a time. A failing host stays drained and the hook exits 10. To redeploy or roll back a released version, run `~/git/homelab-ops/dispatch-fleet/publish-and-deploy.sh --skip-publish <ver>` from the dispatch checkout. The product's own `deploy.sh` needs the lab env vars and does not drain, so don't run it bare. Verify the live service env on the host afterwards. Background: `docs/host-drain.md`.
-- **The board itself (agent_gtd):** a restart kills in-flight runs (above), and drain does not help here, so coordinate with peers every time. Check `agent-gtd list-runs --status running` and `--status pending` fleet-wide (other users' runs, Tomoki's included, show up there but not under Jason's projects). Message every live peer to land current items and hold new dispatches, wait for the fleet to go idle, deploy or release, confirm the service is `active` and `/api/health` is green, then tell every peer they can resume.
-- **Always:** never deploy from a stale checkout (`git fetch` + `git merge-base --is-ancestor origin/main HEAD`), read the deploy's real exit status, and verify the deployed state rather than trusting a green signal.
-
 ## Headless Dispatch Hosts
 
 **Two provisioning modes.** `setup-dispatch-host.sh` (in the `agent-gtd-dispatch`
-repo) supports the **two-user split** described below (production homelab hosts) and a
+repo) supports the **two-user split** described below (production hosts) and a
 **single-user mode** for a personal/dev machine: run
 `sudo DISPATCH_SINGLE_USER=1 ./setup-dispatch-host.sh` — no sudoers rules, no user
 split; the agent and the dispatch service run as the invoking user, and the
@@ -78,15 +70,13 @@ split; the agent and the dispatch service run as the invoking user, and the
 live under the invoking user's home). The script refuses to create a mixed state on a
 host already provisioned in the other mode, and it mints a `DISPATCH_API_KEY` into the
 service env file when one is absent. Single-user mode is the right starting point on a
-fresh machine outside this homelab; everything below describes the two-user production
+fresh machine outside an existing fleet; everything below describes the two-user production
 setup — adapt usernames/paths accordingly.
 
-Dispatch runs on three hosts: `pironman01`, `r7-research`, and `r7-server` (added
-2026-09-13; provisioning runbook incl. the manual steps the setup script skips:
-**`kb-01537`**). `ubuntu-pi-01` was removed from the rotation 2026-06-10 — too slow. On
-each host the dispatch API runs as user **`dispatch-svc`**, and it launches Claude
+On each dispatch host the dispatch API runs as user **`dispatch-svc`**, and it launches Claude
 Code as user **`dispatch`** (the two-user split). The dispatch code lives in the
-separate `agent-gtd-dispatch` repo, not here.
+separate `agent-gtd-dispatch` repo, not here. Which hosts are in the fleet is
+deployment-specific: `agent-gtd list-dispatch-hosts` shows the live registry.
 
 **Dispatched agents are unprivileged and cannot install tooling.** Any tool a
 dispatched repo's hooks or gate needs (lefthook, pre-commit, cargo tools, gitleaks,
@@ -118,13 +108,12 @@ to edit `agent-gtd-dispatch/templates/mcp-servers.sh` and re-register (setup scr
 `claude mcp add --scope user`), not to hand-jq the JSON. The four registered servers:
 `agent-gtd`, `personal-kb`, `team-kb`, `aws-documentation-mcp-server`.
 
-**Both KB servers are thin clients of the hosted KB web services** (as of 2026-09-16 —
-the old DB-direct mode is retired and its config makes the servers refuse to start).
-Each carries `PERSONAL_KB_URL` + `PERSONAL_KB_API_KEY` in its *per-server* MCP `env`
-block: `personal-kb` → `https://kb.lab.jasonweddington.com` (plus `KB_CONTRIBUTOR=jason`,
-`KB_AUTO_EXPLORE=FALSE`), `team-kb` → `https://team-kb.lab.jasonweddington.com` (plus
-`KB_TEAM=grit-mile`, `KB_INSTANCE_ROLE=team`). Both services are LAN-only. The values
-live in `/home/dispatch-svc/.env` as `PERSONAL_KB_URL` / `PERSONAL_KB_API_KEY` /
+**Both KB servers are thin clients of the hosted KB web services** (the old DB-direct
+mode is retired and its config makes the servers refuse to start). Each carries
+`PERSONAL_KB_URL` + `PERSONAL_KB_API_KEY` in its *per-server* MCP `env` block, plus
+per-instance settings (`KB_CONTRIBUTOR`, `KB_AUTO_EXPLORE`, `KB_TEAM`,
+`KB_INSTANCE_ROLE`) that depend on the deployment. The values live in
+`/home/dispatch-svc/.env` as `PERSONAL_KB_URL` / `PERSONAL_KB_API_KEY` /
 `TEAM_KB_URL` / `TEAM_KB_API_KEY` for the setup script to inject. `KB_ANTHROPIC_API_KEY`
 and `KB_DATABASE_URL` no longer drive the KB servers; an `ANTHROPIC_API_KEY` must still
 **never** reach the agent's own process env, or Claude Code billing flips off the Max
@@ -135,7 +124,7 @@ subscription (`kb-01512`). How env crosses the `dispatch-svc → dispatch` sudo 
 every server as failed when run from a shell whose cwd or PATH differs from the agent's,
 which has caused a real misdiagnosis. Pipe an `initialize` request into the registered
 command as the agent user instead. A cold first launch builds the package from git
-(minutes on the Pi), so pre-warm `~/.cache/uv` on a new host or the first run sees the
+(minutes on a slow host), so pre-warm `~/.cache/uv` on a new host or the first run sees the
 server time out.
 
 **Workspace (multi-repo) projects.** GTD projects have a `repo_mode`
@@ -150,7 +139,7 @@ workspace projects.
 client (HTTPS 443)
    │
    ▼
-Caddy (r7-research, /etc/caddy/Caddyfile)   ← terminates TLS
+Caddy (production host, /etc/caddy/Caddyfile)   ← terminates TLS
    ├── /              → frontend/dist/  (static files, SPA fallback)
    ├── /api/events    → uvicorn :8000   (SSE, flush_interval -1)
    ├── /mcp           → uvicorn :8000   (MCP streamable HTTP)
@@ -159,8 +148,8 @@ Caddy (r7-research, /etc/caddy/Caddyfile)   ← terminates TLS
 
 **Key points for agents and contributors:**
 
-- **The production proxy on r7-research is Caddy, not nginx.** nginx is installed there but not running; its site file is dead config. `docs/deploy.md` documents nginx as a generic option for other installs. Live proxy changes go in `/etc/caddy/Caddyfile` (`caddy validate`, then `systemctl reload caddy`), and homelab-ops keeps the tracked copy.
-- **`serve.sh`** is the production entry point — launches uvicorn only, no Vite. The systemd unit on r7 runs `serve.sh`.
+- **The production proxy is Caddy.** `docs/deploy.md` documents nginx as a generic option for other installs. Live proxy changes go in `/etc/caddy/Caddyfile` (`caddy validate`, then `systemctl reload caddy`).
+- **`serve.sh`** is the production entry point — launches uvicorn only, no Vite. The production systemd unit runs `serve.sh`.
 - **`start.sh`** is the dev entry point — launches uvicorn + Vite dev server. Use this locally.
 - **Vite is dev-only.** Never start Vite in production. The proxy serves the pre-built `frontend/dist/` instead. This eliminates HMR WebSocket reconnect reloads in prod.
 - **The proxy serves static files**, not uvicorn. Do not add a `StaticFiles` mount to FastAPI.

@@ -1933,8 +1933,8 @@ async def test_execute_run_drained_host_fails_run_and_warns(
 
     drained_host = {
         "id": "r7-uuid",
-        "label": "r7-research",
-        "url": "http://r7-research:8100",
+        "label": "host-b",
+        "url": "http://host-b:8100",
         "api_key": "k",
         "capability_labels": [],
         "drain_reason": "rolling deploy 2.0.2",

@@ -2,6 +2,8 @@
 
 **Status:** shipped and used in production. First full rolling deploy: agent-gtd-dispatch 2.5.0 across all four hosts on 2026-10-11, no in-flight run lost. Supersedes three competing drafts produced during design exploration.
 
+Host names below (`host-a` through `host-d`) stand in for the four hosts of the fleet this was designed on.
+
 ## The problem
 
 A dispatch-side fix cannot be deployed while the fleet is busy, because deploying restarts `dispatch-api`, and `main.py:284-293` cancels every in-flight run's task on shutdown while `db.py:173-196` then marks each one `failed` on the way back up. So a restart destroys live agent work and actively reports it as failed.
@@ -18,7 +20,7 @@ Worth stating because they shrink the work considerably.
 
 **`active_runs` is an honest idle signal.** `_start_rollout_loop` registers its task in `_active_processes` (`agent-gtd-dispatch/main.py:2961-2964`), so a host driving a rollout counts as busy even when it is only waiting between waves. `active_runs == 0` genuinely means idle, including no rollout loop.
 
-**The re-adoption bug is narrower than it looked.** 2.0.2 is already live on jason-precision, and the bug is startup-only. The residual exposure is an unattended `Restart=on-failure` bounce of a host still on 2.0.1 — which drain does **not** cover, because nobody is there to drain first.
+**The re-adoption bug is narrower than it looked.** 2.0.2 is already live on host-d, and the bug is startup-only. The residual exposure is an unattended `Restart=on-failure` bounce of a host still on 2.0.1 — which drain does **not** cover, because nobody is there to drain first.
 
 ## Design
 
@@ -28,7 +30,7 @@ One nullable column, one router clause, two CLI verbs. No new service, no state 
 
 `drain_reason TEXT` on `dispatch_hosts`. `NULL` means accepting work; any non-NULL string means out of rotation, and the string says why.
 
-The reason string *is* the flag. Two states, no enum, no lifecycle. An unexplained drain is indistinguishable from a host that is quietly broken — which is precisely the confusion that cost camera-profiles two runs on a half-provisioned jason-precision this morning — so `--reason` is **mandatory** when draining a host that is not already drained.
+The reason string *is* the flag. Two states, no enum, no lifecycle. An unexplained drain is indistinguishable from a host that is quietly broken — which is precisely the confusion that cost camera-profiles two runs on a half-provisioned host-d this morning — so `--reason` is **mandatory** when draining a host that is not already drained.
 
 It must be added in **three** places in `agent_gtd/src/agent_gtd/database.py`, and missing one fails *silently* because the router reads `host.get("drain_reason")` and a missing column yields `None`, which reads as "not drained":
 
@@ -46,11 +48,11 @@ A skip clause in the **auto** branch of `pick_dispatch_host` — and a **refusal
 
 An earlier draft of this design left `--dispatch-host-id` untouched, on the theory that pinning is how an operator tests a freshly upgraded host. That was wrong, and it would have defeated the entire feature in practice.
 
-Pinning is not primarily an operator tool. It is how agents express **capability affinity**. camera-profiles pins to r7-research because that is the only host where hundreds of gigabytes of sample images are staged; nowhere else can run those items at all. Those dispatches come from a peer session that has no idea a drain is in progress, and under the earlier design they would have kept landing on r7-research indefinitely — so the host would never have gone idle, and drain would have silently failed to do the one thing it exists for.
+Pinning is not primarily an operator tool. It is how agents express **capability affinity**. camera-profiles pins to host-b because that is the only host where hundreds of gigabytes of sample images are staged; nowhere else can run those items at all. Those dispatches come from a peer session that has no idea a drain is in progress, and under the earlier design they would have kept landing on host-b indefinitely — so the host would never have gone idle, and drain would have silently failed to do the one thing it exists for.
 
 So: **a pinned dispatch to a drained host is refused**, and the error carries the drain reason.
 
-The refusal must read as *wait*, not as *re-route*. A caller pinning for affinity cannot fall back to auto-routing — the data is not on the other hosts — so an error that nudges toward "try another host" sends them somewhere the work cannot run. The message should name the host, say it is draining, quote the reason, and say the work should be retried when it returns. This is what makes the mandatory `--reason` pay for itself: camera-profiles sees `r7-research is draining: rolling deploy 2.0.2` and knows to hold rather than guess.
+The refusal must read as *wait*, not as *re-route*. A caller pinning for affinity cannot fall back to auto-routing — the data is not on the other hosts — so an error that nudges toward "try another host" sends them somewhere the work cannot run. The message should name the host, say it is draining, quote the reason, and say the work should be retried when it returns. This is what makes the mandatory `--reason` pay for itself: camera-profiles sees `host-b is draining: rolling deploy 2.0.2` and knows to hold rather than guess.
 
 #### Drain is absolute. There is no override in the CLI contract.
 
@@ -107,30 +109,30 @@ This is the one place drain needs real logic rather than a filter, and it is dis
 ```bash
 agent-gtd list-dispatch-hosts          # shows draining + reason per host
 
-agent-gtd drain-host pironman01   --reason "rolling deploy 2.0.2 (re-adoption fix cb7491a)"
-agent-gtd drain-host r7-research  --reason "rolling deploy 2.0.2"
-agent-gtd drain-host r7-server    --reason "rolling deploy 2.0.2"
+agent-gtd drain-host host-a --reason "rolling deploy 2.0.2 (re-adoption fix cb7491a)"
+agent-gtd drain-host host-b --reason "rolling deploy 2.0.2"
+agent-gtd drain-host host-c --reason "rolling deploy 2.0.2"
 ```
 
-Three hosts parked; in-flight runs continue untouched; jason-precision absorbs all new work.
+Three hosts parked; in-flight runs continue untouched; host-d absorbs all new work.
 
 Wait for a parked host to go idle. **Read `active_runs` twice, ~30s apart, before believing a zero** — `_pending_queue` (`main.py:139`) is an in-process list that is never exposed on `/info`, and `_try_start_pending` (`main.py:1011-1032`) promotes queued runs the instant a slot frees. A single zero can be a gap between two runs.
 
 ```bash
-curl -s http://pironman01:8100/info | jq '{active_runs, max_concurrent_runs}'
-DISPATCH_HOST=pironman01 EXPECT_VERSION=2.0.2 ./deploy.sh   # --smoke asserts /health, /info, version
+curl -s http://host-a:8100/info | jq '{active_runs, max_concurrent_runs}'
+DISPATCH_HOST=host-a EXPECT_VERSION=2.0.2 ./deploy.sh   # --smoke asserts /health, /info, version
 ```
 
 Verify on the host, as an admin — there is no board-side way to reach a drained host and that is deliberate:
 
 ```bash
-ssh pironman01 'journalctl -u dispatch-api -n 50 --no-pager; curl -s localhost:8100/info | jq'
+ssh host-a 'journalctl -u dispatch-api -n 50 --no-pager; curl -s localhost:8100/info | jq'
 ```
 
 Then return it to rotation and watch the first real run land:
 
 ```bash
-agent-gtd undrain-host pironman01
+agent-gtd undrain-host host-a
 ```
 
 Peer sessions pinning to a drained host get a refusal naming the host and quoting the reason, and should hold rather than re-route — a caller pinning for capability affinity has nowhere else to go.
@@ -141,7 +143,7 @@ Repeat per host. The fleet never drops below one host accepting work.
 
 **A host driving a rollout loop can be drained when the rollout is not pinned** (`dispatch_host_id` null on the rollout). Its child builds auto-route to other hosts. The loop itself counts in `active_runs`, so that host only goes idle when the rollout finishes.
 
-Hosts should be addressable by **label**, not UUID — operators think in `pironman01`, the registry thinks in `c941111f-…`. A ~20-line resolver (exact id → unique label → unique URL substring → error listing candidates) removes a lookup from every command.
+Hosts should be addressable by **label**, not UUID — operators think in `host-a`, the registry thinks in `c941111f-…`. A ~20-line resolver (exact id → unique label → unique URL substring → error listing candidates) removes a lookup from every command.
 
 ### A guard in `deploy.sh`
 

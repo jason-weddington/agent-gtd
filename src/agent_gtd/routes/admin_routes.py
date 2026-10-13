@@ -27,7 +27,7 @@ def _public_base_url(request: Request) -> str:
     Behind a reverse proxy that doesn't forward the original Host header,
     `request.url.netloc` reports the inner bind address (e.g. `localhost:8000`)
     which is useless for sharing. Set ``AGENT_GTD_PUBLIC_URL`` (e.g.
-    ``https://r7-research``) to override.
+    ``https://gtd.example.com``) to override.
     """
     override = os.environ.get("AGENT_GTD_PUBLIC_URL", "").rstrip("/")
     if override:

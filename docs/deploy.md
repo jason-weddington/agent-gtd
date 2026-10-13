@@ -395,7 +395,7 @@ one — without it, frontend changes from a `git pull` won't show up.
 pins to a specific commit SHA at lock time.
 
 > **Adapt this to your environment.** In this checkout the source URL is
-> `ssh://git@ubuntu-vm01/~/repos/agent-gtd-dispatch` — Jason's homelab
+> an `ssh://git@<git-host>/...` URL on the maintainer's private
 > git server. Both `uv lock` **and** `uv sync` fetch from that URL, so on
 > any machine without SSH reachability to the configured git host they
 > fail outright with an unreachable-host fetch error — the deploy scripts

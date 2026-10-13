@@ -201,7 +201,7 @@ async def test_create_invite_url_uses_public_url_env(
     admin_headers: dict[str, str],
 ) -> None:
     """When AGENT_GTD_PUBLIC_URL is set, the issued invite URL uses it as the base."""
-    monkeypatch.setenv("AGENT_GTD_PUBLIC_URL", "https://r7-research")
+    monkeypatch.setenv("AGENT_GTD_PUBLIC_URL", "https://gtd.example.com")
     res = await client.post(
         "/api/admin/invites",
         json={"note": "for alice"},
@@ -209,7 +209,7 @@ async def test_create_invite_url_uses_public_url_env(
     )
     assert res.status_code == 201
     url = res.json()["url"]
-    assert url.startswith("https://r7-research/register?token=")
+    assert url.startswith("https://gtd.example.com/register?token=")
 
 
 async def test_create_invite_as_non_admin_returns_403(

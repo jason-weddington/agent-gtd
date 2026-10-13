@@ -94,8 +94,8 @@ function makeItem(overrides: Partial<Item> = {}): Item {
 function makeHost(drainReason: string | null) {
   return {
     id: 'host-1',
-    label: 'pironman01',
-    url: 'http://pironman01.local:8100',
+    label: 'host-a',
+    url: 'http://host-a.local:8100',
     drainReason,
     apiKeyPreview: '****key1',
     capabilityLabels: [],
@@ -156,14 +156,14 @@ describe('ItemDetailDrawer host Select drain indicator', () => {
     await openDispatchDialog('rolling deploy 2.0.2')
 
     expect(
-      await screen.findByText('pironman01 — draining: rolling deploy 2.0.2'),
+      await screen.findByText('host-a — draining: rolling deploy 2.0.2'),
     ).toBeInTheDocument()
   })
 
   it('renders no draining suffix for a host with a null drainReason', async () => {
     await openDispatchDialog(null)
 
-    expect(await screen.findByText('pironman01')).toBeInTheDocument()
+    expect(await screen.findByText('host-a')).toBeInTheDocument()
     expect(screen.queryByText(/draining:/)).not.toBeInTheDocument()
   })
 })

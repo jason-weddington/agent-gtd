@@ -73,7 +73,7 @@ async def test_add_dispatch_host_with_capability_labels(
     res = await client.post(
         "/api/settings/dispatch/hosts",
         json={  # gitleaks:allow
-            "label": "r7-research",
+            "label": "host-b",
             "url": "http://r7.local:8001",
             "api_key": "some-key",
             "capability_labels": ["  Camera-Data ", "camera-data", "GPU"],
@@ -93,7 +93,7 @@ async def test_update_dispatch_host_labels(
     add_res = await client.post(
         "/api/settings/dispatch/hosts",
         json={  # gitleaks:allow
-            "label": "r7-server",
+            "label": "host-c",
             "url": "http://r7server.local:8001",
             "api_key": "some-key",
             "capability_labels": ["gpu"],

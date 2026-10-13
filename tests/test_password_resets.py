@@ -110,14 +110,14 @@ async def test_issue_url_uses_public_url_env(
     target_user_id: str,
 ) -> None:
     """When AGENT_GTD_PUBLIC_URL is set, the issued URL uses it as the base."""
-    monkeypatch.setenv("AGENT_GTD_PUBLIC_URL", "https://r7-research")
+    monkeypatch.setenv("AGENT_GTD_PUBLIC_URL", "https://gtd.example.com")
     res = await client.post(
         f"/api/admin/users/{target_user_id}/password-reset",
         headers=admin_headers,
     )
     assert res.status_code == 200
     url = res.json()["url"]
-    assert url.startswith("https://r7-research/reset-password?token=")
+    assert url.startswith("https://gtd.example.com/reset-password?token=")
 
 
 # ---------------------------------------------------------------------------

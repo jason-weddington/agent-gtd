@@ -385,9 +385,9 @@ _STALE_ROW: dict[str, object] = {**_FAILED_ROW, "item_status": "active"}
 
 def test_run_response_dispatch_host_url_value():
     """_run_response propagates a non-empty dispatch_host_url."""
-    row = {**_BASE_ROW, "dispatch_host_url": "http://pironman01:8001"}
+    row = {**_BASE_ROW, "dispatch_host_url": "http://host-a:8001"}
     resp = dr._run_response(row)
-    assert resp.dispatch_host_url == "http://pironman01:8001"
+    assert resp.dispatch_host_url == "http://host-a:8001"
 
 
 def test_run_response_dispatch_host_url_empty_string():
@@ -406,9 +406,9 @@ def test_run_response_dispatch_host_url_absent():
 
 def test_failed_run_response_dispatch_host_url_value():
     """_failed_run_response propagates a non-empty dispatch_host_url."""
-    row = {**_FAILED_ROW, "dispatch_host_url": "http://pironman01:8001"}
+    row = {**_FAILED_ROW, "dispatch_host_url": "http://host-a:8001"}
     resp = dr._failed_run_response(row)
-    assert resp.dispatch_host_url == "http://pironman01:8001"
+    assert resp.dispatch_host_url == "http://host-a:8001"
 
 
 def test_failed_run_response_dispatch_host_url_empty_string():
@@ -427,9 +427,9 @@ def test_failed_run_response_dispatch_host_url_absent():
 
 def test_stale_run_response_dispatch_host_url_value():
     """_stale_run_response propagates a non-empty dispatch_host_url."""
-    row = {**_STALE_ROW, "dispatch_host_url": "http://pironman01:8001"}
+    row = {**_STALE_ROW, "dispatch_host_url": "http://host-a:8001"}
     resp = dr._stale_run_response(row)
-    assert resp.dispatch_host_url == "http://pironman01:8001"
+    assert resp.dispatch_host_url == "http://host-a:8001"
 
 
 def test_stale_run_response_dispatch_host_url_empty_string():
@@ -538,9 +538,9 @@ async def test_dispatch_targeted_drained_host_409_before_capacity_probe(
 
     _drained_host = {
         "id": "drained-host-id",
-        "url": "http://r7-research:8100",
+        "url": "http://host-b:8100",
         "api_key": "fake-key",  # gitleaks:allow
-        "label": "r7-research",
+        "label": "host-b",
         "drain_reason": "rolling deploy 2.0.2",
     }
     with (
@@ -568,7 +568,7 @@ async def test_dispatch_targeted_drained_host_409_before_capacity_probe(
     assert res.status_code == 409
     detail = res.json()["detail"]
     assert "is draining" in detail
-    assert "r7-research" in detail
+    assert "host-b" in detail
     assert "rolling deploy 2.0.2" in detail
 
     db = await get_db()

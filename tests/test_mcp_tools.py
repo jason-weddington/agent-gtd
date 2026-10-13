@@ -1868,7 +1868,7 @@ async def test_list_dispatch_hosts(registered_client, user_id):
     host = await settings_service.add_dispatch_host(
         db,
         user_id,
-        label="pironman01",
+        label="host-a",
         url="https://dispatch.example.com",
         api_key="super-secret-key",
     )
@@ -1879,7 +1879,7 @@ async def test_list_dispatch_hosts(registered_client, user_id):
     assert len(data) == 1
     returned = data[0]
     assert returned["id"] == host["id"]
-    assert returned["label"] == "pironman01"
+    assert returned["label"] == "host-a"
     assert returned["url"] == "https://dispatch.example.com"
     # Critical: no secret material is ever returned.
     assert "api_key" not in returned

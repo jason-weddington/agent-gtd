@@ -16,7 +16,7 @@ REST API and the MCP server.
 client (HTTPS 443)
    │
    ▼
-nginx (r7-research)              ← terminates TLS, serves frontend/dist/
+nginx (production host)          ← terminates TLS, serves frontend/dist/
    ├── /              → static files (SPA fallback to index.html)
    ├── /api/events    → uvicorn :8000   (SSE — proxy_buffering off)
    ├── /api/*         → uvicorn :8000   (FastAPI REST)

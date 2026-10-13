@@ -49,6 +49,7 @@ data/
 
 # Deploy (contains host-specific details)
 deploy.sh
+CLAUDE.local.md
 deploy/
 .claude/
 .kiro/

@@ -500,7 +500,7 @@ async def test_dispatch_refused_for_draining_host(
     item_id = await _create_item(user_id, project_id)
     db = await get_db()
     # Host helpers as in tests/test_dispatch_drain.py (add + drain).
-    host = await add_dispatch_host(db, user_id, "pironman01", "http://h:8100", "k")
+    host = await add_dispatch_host(db, user_id, "host-a", "http://h:8100", "k")
     await drain_dispatch_host(db, user_id, host["id"], "rolling deploy 2.0.2")
 
     text = await _dispatch_refusal(

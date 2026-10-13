@@ -711,16 +711,14 @@ async def test_host_draining_error_message_single_entry() -> None:
     from agent_gtd.services.dispatch_router import HostDrainingError
 
     exc = HostDrainingError(
-        hosts_checked=[{"host": "r7-research", "reason": "rolling deploy 2.0.2"}]
+        hosts_checked=[{"host": "host-b", "reason": "rolling deploy 2.0.2"}]
     )
     text = str(exc)
-    assert "r7-research" in text
+    assert "host-b" in text
     assert "rolling deploy 2.0.2" in text
     assert "is draining" in text
     assert "retry when the host returns to rotation" in text
-    assert exc.hosts_checked == [
-        {"host": "r7-research", "reason": "rolling deploy 2.0.2"}
-    ]
+    assert exc.hosts_checked == [{"host": "host-b", "reason": "rolling deploy 2.0.2"}]
 
 
 @pytest.mark.asyncio
@@ -730,13 +728,13 @@ async def test_host_draining_error_message_multi_entry() -> None:
 
     exc = HostDrainingError(
         hosts_checked=[
-            {"host": "r7-research", "reason": "rolling deploy 2.0.2"},
-            {"host": "jason-precision", "reason": "kernel upgrade"},
+            {"host": "host-b", "reason": "rolling deploy 2.0.2"},
+            {"host": "host-d", "reason": "kernel upgrade"},
         ]
     )
     text = str(exc)
-    assert "r7-research" in text
-    assert "jason-precision" in text
+    assert "host-b" in text
+    assert "host-d" in text
     assert "rolling deploy 2.0.2" in text
     assert "kernel upgrade" in text
     for text in (str(exc),):
@@ -751,7 +749,7 @@ async def test_host_draining_error_never_says_try_another_host() -> None:
     from agent_gtd.services.dispatch_router import HostDrainingError
 
     exc = HostDrainingError(
-        hosts_checked=[{"host": "r7-research", "reason": "rolling deploy 2.0.2"}]
+        hosts_checked=[{"host": "host-b", "reason": "rolling deploy 2.0.2"}]
     )
     text = str(exc)
     assert "try another host" not in text
@@ -769,8 +767,8 @@ async def test_pinned_drained_host_refused_before_labels_no_probe() -> None:
 
     host = {
         "id": "r7-uuid",
-        "label": "r7-research",
-        "url": "http://r7-research:8100",
+        "label": "host-b",
+        "url": "http://host-b:8100",
         "api_key": "k",
         "capability_labels": [],
         "drain_reason": "rolling deploy 2.0.2",
@@ -790,7 +788,7 @@ async def test_pinned_drained_host_refused_before_labels_no_probe() -> None:
             required_labels=frozenset({"camera-data"}),
         )
     text = str(exc_info.value)
-    assert "r7-research" in text
+    assert "host-b" in text
     assert "rolling deploy 2.0.2" in text
 
 

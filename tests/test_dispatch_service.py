@@ -478,7 +478,7 @@ async def _create_drained_host_setup(
     auth_headers: dict[str, str],
     user_id: str,
     *,
-    label: str = "r7-research",
+    label: str = "host-b",
 ) -> tuple[Any, str, str, str]:
     """Create a monorepo project + item and a drained dispatch host.
 
@@ -547,7 +547,7 @@ async def test_create_run_refuses_drained_host_no_run_row(
     text = str(exc_info.value)
     assert "is draining" in text
     assert _DRAIN_REASON in text
-    assert "r7-research" in text
+    assert "host-b" in text
 
     row = await db.fetchrow(
         "SELECT COUNT(*) AS c FROM claude_runs WHERE item_id = $1", item_id
@@ -561,7 +561,7 @@ async def test_create_run_refuses_drained_host_no_run_row(
         if r.levelno == logging.WARNING
         and "Refused dispatch to draining host" in r.getMessage()
     ]
-    assert any("r7-research" in r.getMessage() for r in warnings)
+    assert any("host-b" in r.getMessage() for r in warnings)
 
 
 @pytest.mark.asyncio

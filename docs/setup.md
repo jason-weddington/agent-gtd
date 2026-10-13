@@ -261,9 +261,9 @@ All configuration is done via environment variables. **`.env` is NOT loaded auto
 | `AGENT_GTD_DATABASE_URL` | No | asyncpg-style connection string: `postgresql://user:pass@host:5432/dbname`. If absent, the app uses SQLite at `$XDG_DATA_HOME/agent_gtd/gtd.db` (falling back to `~/.local/share/agent_gtd/gtd.db`) in local mode with no authentication. |
 | `AGENT_GTD_URL` | No | Base URL of a remote Agent GTD instance. Set this in MCP client config to use remote mode (HTTP backend for MCP tools). |
 | `AGENT_GTD_API_KEY` | No | API key for MCP authentication. When set, the MCP server auto-authenticates — no `login()` call needed. Also used by dispatched agents. |
-| `AGENT_GTD_PUBLIC_URL` | No | Public-facing base URL for issued links (invite URLs, password-reset links). Set to your public hostname (e.g. `https://r7-research`) when behind a reverse proxy that does not forward the original `Host` header. |
+| `AGENT_GTD_PUBLIC_URL` | No | Public-facing base URL for issued links (invite URLs, password-reset links). Set to your public hostname (e.g. `https://gtd.example.com`) when behind a reverse proxy that does not forward the original `Host` header. |
 | `AGENT_GTD_AGENT_NAME` | No | Attribution name for the current MCP session (e.g., `claude-build-abc12345`). Set automatically by the dispatch worker for dispatched agents. |
-| `DISPATCH_SERVICE_URL` | No | URL of a remote Claude Code dispatch service (e.g., `http://pironman01:8100`). Required to dispatch items to remote agents. |
+| `DISPATCH_SERVICE_URL` | No | URL of a remote Claude Code dispatch service (e.g., `http://dispatch-host:8100`). Required to dispatch items to remote agents. |
 | `DISPATCH_SERVICE_API_KEY` | No | API key for the remote dispatch service. |
 | `DISPATCH_DEFAULT_MAX_TURNS` | No | Default maximum agent turns per dispatch run (default: 100). |
 | `HOSTNAME` | No | Hostname added to CORS allowed origins. Set to the production hostname. |
@@ -553,4 +553,4 @@ local mode (SQLite), data persists in `$XDG_DATA_HOME/agent_gtd/gtd.db` (falling
 > `docs/deploy.md` — production nginx + systemd deployment runbook.
 > `docs/testing.md` — running tests, coverage, pre-push enforcement.
 > `docs/architecture.md` — local mode vs PostgreSQL mode in more detail.
-> KB entry `kb-00306` — deployment details for the r7-research server.
+> KB entry `kb-00306` — deployment details for the maintainer's production server.

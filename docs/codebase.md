@@ -323,7 +323,7 @@ See `docs/setup.md` for the complete setup guide including PostgreSQL creation a
 
 ## Pointers
 
-> - `kb-00306`: Deployment architecture details (r7-research server setup)
+> - `kb-00306`: Deployment architecture details (maintainer's production server setup)
 > - `kb-00307`: Bounce guidelines and operational procedures
 > - `docs/deploy.md`: Full nginx + systemd deployment runbook
 > - `docs/architecture.md`: System design and component relationships
