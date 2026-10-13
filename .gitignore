@@ -53,3 +53,4 @@ CLAUDE.local.md
 deploy/
 .claude/
 .kiro/
+release.guard.local.sh
