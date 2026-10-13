@@ -8,6 +8,7 @@ remote dispatch service via the GTD API.
 import asyncio
 import logging
 import os
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -383,6 +384,7 @@ def _publish_run_event(
     event_type: str,
     *,
     reconciled: bool = False,
+    extra: Mapping[str, object] | None = None,
 ) -> None:
     """Fire-and-forget SSE event publish (best effort).
 
@@ -395,6 +397,8 @@ def _publish_run_event(
         event_type: SSE event type string (e.g. ``"run_completed"``).
         reconciled: When ``True``, adds ``reconciled: True`` to the payload so
             the UI can distinguish reconciled events from live-path events.
+        extra: Additional payload keys merged after ``run_id`` / ``item_id``
+            / ``reconciled`` (e.g. the reaper's ``reaped`` marker).
     """
     from agent_gtd.event_bus import get_event_bus
     from agent_gtd.event_helpers import best_effort_publish
@@ -403,6 +407,8 @@ def _publish_run_event(
     payload: dict[str, Any] = {"run_id": run_id, "item_id": item_id}
     if reconciled:
         payload["reconciled"] = True
+    if extra:
+        payload.update(extra)
     supervise_task(
         asyncio.create_task(
             best_effort_publish(

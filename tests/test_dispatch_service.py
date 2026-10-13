@@ -872,6 +872,201 @@ async def test_cancel_run_publishes_event_only_on_transition(
 
 
 # ---------------------------------------------------------------------------
+# Force cancel (operator escape hatch for rollout-owned and manage runs)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_force_manage_run(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Force on a manage run cancels it, forwards to the host, rollout untouched."""
+    import logging
+    import uuid
+
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    rollout_id = str(uuid.uuid4())
+    user_id, run_id = await _setup_cancel_run_fixture(
+        client,
+        auth_headers,
+        remote_run_id="remote-abc",
+        dispatch_host_url="https://host-b",
+        mode="manage",
+        rollout_id=rollout_id,
+    )
+    db = await get_db()
+    await db.execute(
+        "UPDATE autonomous_rollouts SET status = 'running' WHERE id = $1", rollout_id
+    )
+
+    mock_inst = _make_async_client_mock(status_code=200)
+    with (
+        patch("httpx.AsyncClient", return_value=mock_inst),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(return_value=_hosts()),
+        ),
+        caplog.at_level(logging.WARNING, logger=_SVC_LOGGER),
+    ):
+        updated = await cancel_run(db, user_id, run_id, force=True)
+
+    assert updated["status"] == "cancelled"
+    assert updated["error_msg"] == "forced by operator"
+    mock_inst.post.assert_awaited_once()
+    args, _kwargs = mock_inst.post.await_args
+    assert args[0] == "https://host-b/runs/remote-abc/cancel"
+
+    rollout = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert rollout is not None
+    assert rollout["status"] == "running"
+    assert f"cancel_run: forced run_id={run_id}" in caplog.text
+    assert "prior_status=pending" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_force_rollout_build_child(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+) -> None:
+    """Force on a rollout's build child cancels it and records the operator."""
+    import uuid
+
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    rollout_id = str(uuid.uuid4())
+    user_id, run_id = await _setup_cancel_run_fixture(
+        client, auth_headers, remote_run_id="remote-child", rollout_id=rollout_id
+    )
+    db = await get_db()
+
+    updated = await cancel_run(db, user_id, run_id, force=True)
+    assert updated["status"] == "cancelled"
+    assert updated["error_msg"] == "forced by operator"
+
+    rollout = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert rollout is not None
+    assert rollout["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_force_plain_build_run(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+) -> None:
+    """Force on a plain build run cancels it with the operator marker + event."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    user_id, run_id = await _setup_cancel_run_fixture(client, auth_headers)
+    db = await get_db()
+
+    with patch("agent_gtd.event_helpers.best_effort_publish", new=AsyncMock()) as pub:
+        updated = await cancel_run(db, user_id, run_id, force=True)
+
+    assert updated["status"] == "cancelled"
+    assert updated["error_msg"] == "forced by operator"
+    pub.assert_awaited_once()
+    assert pub.await_args.kwargs["payload"]["forced"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["success", "failed", "timeout", "cancelled"])
+async def test_cancel_run_force_terminal_is_noop(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+    status: str,
+) -> None:
+    """Force on an already-terminal run returns the row unchanged."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    user_id, run_id = await _setup_cancel_run_fixture(
+        client, auth_headers, remote_run_id="remote-x", status=status
+    )
+    db = await get_db()
+    await db.execute(
+        "UPDATE claude_runs SET finished_at = $1, updated_at = $2, error_msg = $3"
+        " WHERE id = $4",
+        _EPOCH,
+        _EPOCH,
+        "kept",
+        run_id,
+    )
+
+    mock_cls = MagicMock()
+    with patch("httpx.AsyncClient", mock_cls):
+        result = await cancel_run(db, user_id, run_id, force=True)
+
+    row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
+    assert row is not None
+    for got in (result, dict(row)):
+        assert got["status"] == status
+        assert got["error_msg"] == "kept"
+        assert got["finished_at"] == _EPOCH
+    mock_cls.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_without_force_leaves_error_msg(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+) -> None:
+    """Without force, the plain cancel writes only status/finished_at/updated_at."""
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    user_id, run_id = await _setup_cancel_run_fixture(client, auth_headers)
+    db = await get_db()
+    await db.execute(
+        "UPDATE claude_runs SET error_msg = 'prior failure text' WHERE id = $1",
+        run_id,
+    )
+
+    updated = await cancel_run(db, user_id, run_id, force=False)
+    assert updated["status"] == "cancelled"
+    assert updated["error_msg"] == "prior failure text"
+
+
+def test_parse_run_timestamp_variants() -> None:
+    """_parse_run_timestamp reads any timestamp key; _parse_created_at delegates."""
+    from datetime import UTC, datetime
+
+    from agent_gtd.services.dispatch_service import (
+        _parse_created_at,
+        _parse_run_timestamp,
+    )
+
+    aware = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
+    run = {
+        "created_at": aware,
+        "started_at": "2026-10-13T11:00:00+00:00",
+    }
+    assert _parse_run_timestamp(run, "created_at") == aware
+    assert _parse_run_timestamp(run, "started_at") == datetime(
+        2026, 10, 13, 11, 0, tzinfo=UTC
+    )
+    assert _parse_created_at(run) == aware
+
+    naive = {"started_at": "2026-10-13T11:00:00"}
+    assert _parse_run_timestamp(naive, "started_at") == datetime(
+        2026, 10, 13, 11, 0, tzinfo=UTC
+    )
+
+    assert _parse_run_timestamp({"started_at": "garbage"}, "started_at") is None
+    assert _parse_run_timestamp({"started_at": None}, "started_at") is None
+    assert _parse_run_timestamp({}, "started_at") is None
+
+
+# ---------------------------------------------------------------------------
 # Stale pending predicate and post-INSERT failure cleanup
 # ---------------------------------------------------------------------------
 

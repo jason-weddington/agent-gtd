@@ -1516,6 +1516,7 @@ async def get_run_status(
 async def cancel_run(
     run_id: str,
     ctx: Context,
+    force: bool = False,
 ) -> dict[str, Any]:
     """Cancel a single dispatched run.
 
@@ -1523,18 +1524,27 @@ async def cancel_run(
     asked to stop it; a run that never reached a host is just marked
     cancelled. Cancelling an already-finished run is a no-op that returns its
     current status. Runs belonging to a rollout are refused (use
-    cancel_rollout or halt_rollout).
+    cancel_rollout or halt_rollout) unless ``force`` is set.
+
+    With ``force=True`` a run that belongs to a rollout is cancelled anyway
+    and ``'forced by operator'`` is recorded on it; the rollout's own status
+    is not changed. Force-cancelling a rollout's loop run stops that loop on
+    its dispatch host, leaving the rollout running without a driver — follow
+    it with cancel-rollout or halt-rollout, because otherwise the next
+    restart of that host resumes the loop.
 
     Args:
         run_id: ID of the dispatch run.
         ctx: MCP context (injected automatically).
+        force: Cancel a rollout-owned run anyway, recording
+            'forced by operator'; the rollout's own status is not changed.
 
     Returns:
         The run dict with its current status.
     """
     call = await _resolve_call(ctx)
     try:
-        return await call.backend.cancel_run(call.user_id, run_id)
+        return await call.backend.cancel_run(call.user_id, run_id, force=force)
     except (NotFoundError, ValidationError) as e:
         raise ToolError(e.detail) from None
 

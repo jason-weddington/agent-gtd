@@ -817,8 +817,8 @@ def test_main_drain_host_end_to_end(monkeypatch, capsys):
 # ---------------------------------------------------------------------------
 
 
-def _cancel_run_args(run_id: str = "run-1") -> argparse.Namespace:
-    return argparse.Namespace(run_id=run_id)
+def _cancel_run_args(run_id: str = "run-1", force: bool = False) -> argparse.Namespace:
+    return argparse.Namespace(run_id=run_id, force=force)
 
 
 def test_cmd_cancel_run_happy_path(monkeypatch, capsys):
@@ -833,7 +833,7 @@ def test_cmd_cancel_run_happy_path(monkeypatch, capsys):
 
     _cmd_cancel_run(_cancel_run_args())
 
-    backend.cancel_run.assert_awaited_once_with("fake-user", "run-1")
+    backend.cancel_run.assert_awaited_once_with("fake-user", "run-1", force=False)
     assert json.loads(capsys.readouterr().out) == result
 
 
@@ -857,3 +857,27 @@ def test_cancel_run_help_has_no_engine_name(capsys):
     with pytest.raises(SystemExit):
         build_parser().parse_args(["cancel-run", "--help"])
     assert "Claude" not in capsys.readouterr().out
+
+
+def test_cmd_cancel_run_force(monkeypatch, capsys):
+    """--force is threaded through to backend.cancel_run as force=True."""
+    from unittest.mock import AsyncMock
+
+    result = _make_run(status="cancelled", error_msg="forced by operator")
+    backend = type("B", (), {})()
+    backend.cancel_run = AsyncMock(return_value=result)  # type: ignore[attr-defined]
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _make_session(backend)
+    )
+
+    _cmd_cancel_run(_cancel_run_args(run_id="run-9", force=True))
+
+    backend.cancel_run.assert_awaited_once_with("fake-user", "run-9", force=True)
+    assert json.loads(capsys.readouterr().out) == result
+
+
+def test_cancel_run_parser_accepts_force_flag():
+    """build_parser wires --force onto the cancel-run subparser (store_true)."""
+    args = build_parser().parse_args(["cancel-run", "run-1", "--force"])
+    assert args.run_id == "run-1"
+    assert args.force is True

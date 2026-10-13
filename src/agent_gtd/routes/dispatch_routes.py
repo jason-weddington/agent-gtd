@@ -611,11 +611,12 @@ async def get_run(
 async def cancel_run(
     run_id: str,
     user: Annotated[User, Depends(get_current_user)],
+    force: bool = False,
 ) -> None:
     """Cancel a dispatch run (no-op if already terminal)."""
     db = await get_db()
     try:
-        await dispatch_service.cancel_run(db, user.id, run_id)
+        await dispatch_service.cancel_run(db, user.id, run_id, force=force)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from None
     except ValidationError as e:
@@ -626,11 +627,12 @@ async def cancel_run(
 async def cancel_run_post(
     run_id: str,
     user: Annotated[User, Depends(get_current_user)],
+    force: bool = False,
 ) -> RunResponse:
     """Cancel a dispatch run and return it (idempotent for terminal runs)."""
     db = await get_db()
     try:
-        row = await dispatch_service.cancel_run(db, user.id, run_id)
+        row = await dispatch_service.cancel_run(db, user.id, run_id, force=force)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from None
     except ValidationError as e:

@@ -141,7 +141,7 @@ def _cmd_cancel_run(args: argparse.Namespace) -> None:
 
     async def _run() -> dict[str, Any]:
         async with backend_session() as (backend, user_id):
-            return await backend.cancel_run(user_id, args.run_id)
+            return await backend.cancel_run(user_id, args.run_id, force=args.force)
 
     try:
         result = asyncio.run(_run())
@@ -199,10 +199,22 @@ def register(
         "cancel-run",
         help=(
             "Cancel a single dispatched run (no-op if already finished;"
-            " rollout runs are refused)."
+            " rollout runs are refused unless --force is given)."
         ),
     )
     cr.add_argument("run_id", help="ID of the dispatch run.")
+    cr.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Cancel a run that belongs to a rollout anyway and record"
+            " 'forced by operator'; the rollout's own status is not changed."
+            " Force-cancelling a rollout's loop run stops that loop on its"
+            " dispatch host, leaving the rollout running without a driver —"
+            " follow it with cancel-rollout or halt-rollout, because otherwise"
+            " the next restart of that host resumes the loop."
+        ),
+    )
     cr.set_defaults(func=_cmd_cancel_run)
 
     # ------------------------------------------------------------------ #

@@ -2376,6 +2376,75 @@ def test_cmd_run_status_wait_to_failed(monkeypatch, capsys):
     assert data["status"] == "failed"
 
 
+def test_cmd_run_status_wait_to_reaped_timeout(monkeypatch, capsys):
+    """--wait: a reaper timeout run ends the wait with exit 2 and final JSON."""
+    results = [
+        _make_run(status="running"),
+        _make_run(
+            status="timeout", error_msg="reaped: dispatch host unreachable for 300m"
+        ),
+    ]
+    call_count = 0
+
+    async def _fake_fetch(run_id: str) -> dict[str, Any]:
+        nonlocal call_count
+        r = results[min(call_count, len(results) - 1)]
+        call_count += 1
+        return r
+
+    async def _no_sleep(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_run_status", _fake_fetch)
+    monkeypatch.setattr("asyncio.sleep", _no_sleep)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_run_status(_run_status_args(run_id="run-1", wait=True, poll_interval=0))
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    data = json.loads(captured.out)
+    assert data["status"] == "timeout"
+    assert data["error_msg"] == "reaped: dispatch host unreachable for 300m"
+
+
+def test_cmd_run_status_wait_to_reaped_no_record(monkeypatch, capsys):
+    """--wait: a reaper 'no record' failure ends the wait with exit 2."""
+    results = [
+        _make_run(status="running"),
+        _make_run(
+            status="failed",
+            error_msg=(
+                "reaped: dispatch host has no record of this run (running for 12m)"
+            ),
+        ),
+    ]
+    call_count = 0
+
+    async def _fake_fetch(run_id: str) -> dict[str, Any]:
+        nonlocal call_count
+        r = results[min(call_count, len(results) - 1)]
+        call_count += 1
+        return r
+
+    async def _no_sleep(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr("agent_gtd.cli._fetch_run_status", _fake_fetch)
+    monkeypatch.setattr("asyncio.sleep", _no_sleep)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_run_status(_run_status_args(run_id="run-1", wait=True, poll_interval=0))
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    data = json.loads(captured.out)
+    assert data["status"] == "failed"
+    assert "no record of this run" in data["error_msg"]
+
+
 def test_cmd_run_status_wait_exit_codes_non_success(monkeypatch, capsys):
     """--wait: each non-success terminal run state maps to exit 2."""
     for terminal_status in ("failed", "cancelled", "error", "timeout"):

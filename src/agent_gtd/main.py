@@ -1,5 +1,6 @@
 """Agent GTD FastAPI application."""
 
+import contextlib
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -25,6 +26,7 @@ from agent_gtd.routes.project_routes import router as project_router
 from agent_gtd.routes.rollout_routes import project_rollout_router
 from agent_gtd.routes.rollout_routes import router as rollout_router
 from agent_gtd.routes.settings_routes import router as settings_router
+from agent_gtd.services.run_reaper import run_reaper_loop
 
 logger = logging.getLogger(__name__)
 
@@ -180,11 +182,17 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # Reconcile runs that were active before the restart
     await reconcile_active_runs()
 
+    # Server-side reaper: releases items whose dispatch worker died.
+    reaper_task = asyncio.create_task(run_reaper_loop())
+
     try:
         async with mcp_http_lifespan(_app):
             yield
     finally:
         # Shutdown (runs after the MCP app exits, even if its lifespan raised)
+        reaper_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await reaper_task
         worker_task.cancel()
         await shutdown_worker()
         await get_event_bus().drain()

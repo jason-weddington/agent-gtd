@@ -51,9 +51,9 @@ STALE_PENDING_RUN_ERROR: str = (
 # therefore never appear in the _ACTIVE_STATUSES check below, which filters by item_id.
 
 
-def _parse_created_at(run: dict[str, Any]) -> datetime | None:
-    """Return created_at as an aware datetime, or None if unavailable."""
-    raw = run.get("created_at")
+def _parse_run_timestamp(run: dict[str, Any], key: str) -> datetime | None:
+    """Return ``run[key]`` as an aware datetime, or None if unavailable."""
+    raw = run.get(key)
     try:
         if isinstance(raw, datetime):
             parsed = raw
@@ -66,6 +66,11 @@ def _parse_created_at(run: dict[str, Any]) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed
+
+
+def _parse_created_at(run: dict[str, Any]) -> datetime | None:
+    """Return created_at as an aware datetime, or None if unavailable."""
+    return _parse_run_timestamp(run, "created_at")
 
 
 def _is_stale_pending_run(run: dict[str, Any], now: datetime) -> bool:
@@ -704,22 +709,39 @@ async def cancel_run(
     db: DbPool,
     user_id: str,
     run_id: str,
+    *,
+    force: bool = False,
 ) -> dict[str, Any]:
     """Cancel a single dispatched run.
 
     Cancelling a run that is already in a terminal status is an idempotent
     no-op: the current row is returned unchanged and nothing is forwarded.
-    Runs owned by a rollout (``rollout_id`` set or ``mode == 'manage'``) are
-    refused with ``ValidationError``; use cancel-rollout or halt-rollout.
+
+    Without ``force``, runs owned by a rollout (``rollout_id`` set or
+    ``mode == 'manage'``) are refused with ``ValidationError``; use
+    cancel-rollout or halt-rollout. With ``force=True`` every active run —
+    plain, rollout child, or manage — is accepted and written with
+    ``status='cancelled'`` and ``error_msg='forced by operator'``, without
+    touching ``autonomous_rollouts``, ``rollout_items`` or ``items``. A forced
+    cancel of a rollout's loop run stops that loop on its dispatch host but
+    leaves the rollout running without a driver; follow it with cancel-rollout
+    or halt-rollout.
 
     For an active run the local row is updated to ``cancelled`` and the cancel
     is best-effort forwarded to the dispatch host that owns the run (matched on
     ``dispatch_host_url``; legacy dispatch config only when that is empty).
     Remote call failures do not roll back the local state.
 
+    Args:
+        db: Database pool.
+        user_id: The calling user's ID.
+        run_id: The run to cancel.
+        force: Accept rollout-owned and manage runs; write
+            ``error_msg='forced by operator'``. Never changes rollout state.
+
     Raises:
         NotFoundError: If run not found or not accessible to the user.
-        ValidationError: If the run belongs to a rollout.
+        ValidationError: If the run belongs to a rollout and force is False.
     """
     run = await get_run(db, user_id, run_id)
     if run["status"] not in _ACTIVE_STATUSES:
@@ -732,7 +754,17 @@ async def cancel_run(
         return run
 
     rollout_id = str(run.get("rollout_id") or "")
-    if run.get("mode") == "manage" or rollout_id:
+    if force:
+        logger.warning(
+            "cancel_run: forced run_id=%s mode=%s rollout_id=%s"
+            " prior_status=%s user_id=%s",
+            run_id,
+            run.get("mode"),
+            rollout_id,
+            run["status"],
+            user_id,
+        )
+    elif run.get("mode") == "manage" or rollout_id:
         raise ValidationError(
             f"run {run_id} belongs to rollout {rollout_id};"
             " use cancel-rollout or halt-rollout"
@@ -740,14 +772,25 @@ async def cancel_run(
 
     prior_status = run["status"]
     now = datetime.now(UTC).isoformat()
-    await db.execute(
-        "UPDATE claude_runs SET status = $1, finished_at = $2, updated_at = $3"
-        " WHERE id = $4",
-        "cancelled",
-        now,
-        now,
-        run_id,
-    )
+    if force:
+        await db.execute(
+            "UPDATE claude_runs SET status = $1, finished_at = $2, updated_at = $3,"
+            " error_msg = $4 WHERE id = $5",
+            "cancelled",
+            now,
+            now,
+            "forced by operator",
+            run_id,
+        )
+    else:
+        await db.execute(
+            "UPDATE claude_runs SET status = $1, finished_at = $2, updated_at = $3"
+            " WHERE id = $4",
+            "cancelled",
+            now,
+            now,
+            run_id,
+        )
 
     row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
     assert row is not None  # noqa: S101
@@ -867,6 +910,9 @@ async def cancel_run(
     from agent_gtd.event_bus import get_event_bus
     from agent_gtd.event_helpers import best_effort_publish
 
+    payload: dict[str, Any] = {"run_id": run_id, "item_id": run.get("item_id")}
+    if force:
+        payload["forced"] = True
     await best_effort_publish(
         bus=get_event_bus(),
         db=db,
@@ -875,7 +921,7 @@ async def cancel_run(
         entity_type="run",
         entity_id=run_id,
         project_id=str(run["project_id"]) if run.get("project_id") else None,
-        payload={"run_id": run_id, "item_id": run.get("item_id")},
+        payload=payload,
         context={"run_id": run_id, "item_id": str(run.get("item_id") or "")},
     )
 

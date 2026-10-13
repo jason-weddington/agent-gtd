@@ -1212,3 +1212,27 @@ async def test_cancel_run_backend(authed_backend: HttpBackend):
         cancelled = await authed_backend.cancel_run("", run["id"])
         assert cancelled["status"] == "cancelled"
         assert cancelled["id"] == run["id"]
+
+
+async def test_http_cancel_run_force_sends_force_query_param():
+    """HttpBackend.cancel_run(force=True) sends force=true; default omits it."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    backend = HttpBackend("http://test")
+    backend._api_key = "sk-test"
+    resp = MagicMock()
+    resp.is_success = True
+    resp.json.return_value = {"id": "r1", "status": "cancelled"}
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(return_value=resp)
+    backend._client = mock_client
+
+    await backend.cancel_run("u", "r1", force=True)
+    args, kwargs = mock_client.post.await_args
+    assert args[0] == "/api/runs/r1/cancel"
+    assert kwargs["params"] == {"force": "true"}
+
+    mock_client.post.reset_mock()
+    await backend.cancel_run("u", "r1")
+    _, kwargs = mock_client.post.await_args
+    assert not kwargs.get("params")

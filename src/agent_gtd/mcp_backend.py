@@ -351,7 +351,9 @@ class McpBackend(Protocol):
 
     async def get_run(self, user_id: str, run_id: str) -> dict[str, Any]: ...
 
-    async def cancel_run(self, user_id: str, run_id: str) -> dict[str, Any]: ...
+    async def cancel_run(
+        self, user_id: str, run_id: str, *, force: bool = False
+    ) -> dict[str, Any]: ...
 
     async def get_rollout(self, user_id: str, rollout_id: str) -> dict[str, Any]: ...
 
@@ -1159,12 +1161,14 @@ class LocalBackend:
         db = await get_db()
         return await get_run(db, user_id, run_id)
 
-    async def cancel_run(self, user_id: str, run_id: str) -> dict[str, Any]:
+    async def cancel_run(
+        self, user_id: str, run_id: str, *, force: bool = False
+    ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services.dispatch_service import cancel_run
 
         db = await get_db()
-        return await cancel_run(db, user_id, run_id)
+        return await cancel_run(db, user_id, run_id, force=force)
 
     async def get_rollout(self, user_id: str, rollout_id: str) -> dict[str, Any]:
         from agent_gtd.database import get_db
@@ -2164,9 +2168,12 @@ class HttpBackend:
         result: dict[str, Any] = resp.json()
         return result
 
-    async def cancel_run(self, user_id: str, run_id: str) -> dict[str, Any]:
+    async def cancel_run(
+        self, user_id: str, run_id: str, *, force: bool = False
+    ) -> dict[str, Any]:
+        params: dict[str, str] | None = {"force": "true"} if force else None
         resp = await self._client.post(
-            f"/api/runs/{run_id}/cancel", headers=self._headers()
+            f"/api/runs/{run_id}/cancel", headers=self._headers(), params=params
         )
         self._check(resp)
         result: dict[str, Any] = resp.json()
