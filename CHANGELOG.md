@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v2.3.2 (2026-10-12)
+
+### Bug Fixes
+
+- **61404530**: Reap runs left at running when their worker dies or loses the board
+  ([`0218c24`](https://github.com/jason-weddington/agent-gtd/commit/0218c24d8187d42560e31a1e181c0b35a5d7a2da))
+
+
 ## v2.3.1 (2026-10-11)
 
 ### Bug Fixes
