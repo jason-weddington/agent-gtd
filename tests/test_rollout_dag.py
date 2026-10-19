@@ -401,6 +401,56 @@ class TestPathsOverlap:
         assert _is_directory_entry("src/foo") is True
         assert _is_directory_entry("src/foo.py") is False
 
+    @pytest.mark.parametrize(
+        ("path_a", "path_b", "expected"),
+        [
+            # Brace patterns expand to the literal paths they name.
+            ("ui/pages/{Pools,Datasets}.svelte", "ui/pages/Datasets.svelte", True),
+            ("ui/pages/{Pools,Disks}.svelte", "ui/pages/Datasets.svelte", False),
+            ("a/{b,c}/{d,e}.ts", "a/c/e.ts", True),
+            # A glob overlaps the literal paths it selects, and only those.
+            ("core/sections/*.rs", "core/sections/pools.rs", True),
+            ("core/sections/*.rs", "core/other.rs", False),
+            ("ui/pages/*.test.ts", "ui/pages/Datasets.svelte", False),
+            # Glob vs directory, and glob vs glob, fail closed on shared prefixes.
+            ("ui/pages/*.test.ts", "ui/pages/", True),
+            ("ui/*/a.ts", "ui/pages/*.ts", True),
+            ("ui/pages/*.ts", "core/*.rs", False),
+            # Prose entries are split into their path-like tokens.
+            ("ui/e2e/a.ts, ui/e2e/b.ts (or new ui/e2e/c.ts)", "ui/e2e/c.ts", True),
+            (
+                "ui/pages/*.test.ts and ui/pages/*/model.test.ts",
+                "ui/pages/x/model.test.ts",
+                True,
+            ),
+            ("ui/e2e/a.ts, ui/e2e/b.ts", "ui/e2e/z.ts", False),
+            # Literal entries keep their existing behaviour.
+            ("Makefile", "Makefile", True),
+            ("src/foo", "src/foobar.py", False),
+        ],
+    )
+    def test_patterns_and_prose(self, path_a: str, path_b: str, expected: bool) -> None:
+        assert _paths_overlap(path_a, path_b) is expected
+        assert _paths_overlap(path_b, path_a) is expected
+
+    def test_poolhouse_a465e3a6_pair_now_serialises(self) -> None:
+        # Rollout a465e3a6 ran these in parallel and the second build was discarded.
+        items = [
+            {"id": "a", "files_to_modify": [{"path": "ui/src/pages/Datasets.svelte"}]},
+            {
+                "id": "b",
+                "files_to_modify": [
+                    {
+                        "path": "ui/src/pages/{Pools,Disks,Datasets,Protection,"
+                        "Shares,Services,Vms,Containers}.svelte"
+                    }
+                ],
+            },
+        ]
+        assert compute_overlap_edges(items, ["a", "b"]) == [
+            {"from_item_id": "a", "to_item_id": "b"}
+        ]
+
 
 # ---------------------------------------------------------------------------
 # Ported: TestComputeOverlapEdges

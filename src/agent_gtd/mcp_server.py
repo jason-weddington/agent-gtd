@@ -1771,7 +1771,9 @@ async def plan_rollout(
     - **File overlap.** Any two items whose ``files_to_modify`` paths overlap
       are additionally serialised in the order they appear in ``item_ids``, so
       two build agents are never handed the same file concurrently.  A
-      directory entry overlaps files nested beneath it.
+      directory entry overlaps files nested beneath it; brace patterns
+      (``{a,b}``) are expanded, globs overlap the paths they match, and an
+      entry listing several paths in prose is split into them.
     Both sources are unioned and deduplicated, and the result is checked for
     cycles before anything is persisted.
 

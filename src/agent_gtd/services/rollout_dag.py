@@ -21,6 +21,8 @@ every downstream consumer already expects.
 
 from __future__ import annotations
 
+import fnmatch
+import re
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING, Any
 
@@ -91,20 +93,97 @@ def _is_directory_entry(path: str) -> bool:
     return "." not in last_component
 
 
-def _paths_overlap(path_a: str, path_b: str) -> bool:
-    """Return True if *path_a* and *path_b* represent overlapping filesystem paths.
+_GLOB_CHARS = frozenset("*?[")
+_BRACE_RE = re.compile(r"\{([^{}]*)\}")
 
-    Two paths overlap when they are identical (after normalising trailing
-    slashes), or when one is a directory entry that is an ancestor of the
-    other (e.g. ``agent-gtd-dispatch/tests/`` overlaps with
-    ``agent-gtd-dispatch/tests/test_foo.py``).
+
+def _expand_braces(path: str) -> list[str]:
+    """Expand shell-style ``{a,b}`` alternations, innermost first."""
+    match = _BRACE_RE.search(path)
+    if match is None or "," not in match.group(1):
+        return [path]
+    head, tail = path[: match.start()], path[match.end() :]
+    return [
+        expanded
+        for option in match.group(1).split(",")
+        for expanded in _expand_braces(head + option + tail)
+    ]
+
+
+def _path_candidates(entry: str) -> list[str]:
+    """Turn one ``files_to_modify`` entry into the concrete paths/patterns it names.
+
+    Grooming agents do not always write one literal path per entry: they write
+    brace patterns (``pages/{A,B}.svelte``), globs (``sections/*.rs``) and prose
+    (``a.ts, b.ts (or new c.ts)``).  Comparing those as literal strings misses
+    real overlaps, so two parallel build agents edit the same file.  An entry
+    with whitespace is split into its path-like tokens (any token containing
+    ``/`` or ``.``); every candidate then has its braces expanded.
     """
+    entry = entry.strip()
+    if any(c.isspace() for c in entry):
+        tokens = [t.strip("()[]`'\",;:") for t in re.split(r"[\s,]+", entry)]
+        raw = [t for t in tokens if "/" in t or "." in t] or [entry]
+    else:
+        raw = [entry]
+    return [expanded for token in raw for expanded in _expand_braces(token)]
+
+
+def _static_prefix(path: str) -> str:
+    """The part of *path* before its first glob character."""
+    for index, char in enumerate(path):
+        if char in _GLOB_CHARS:
+            return path[:index]
+    return path
+
+
+def _literal_paths_overlap(path_a: str, path_b: str) -> bool:
     norm_a = path_a.rstrip("/")
     norm_b = path_b.rstrip("/")
     if norm_a == norm_b:
         return True
     return (_is_directory_entry(path_a) and norm_b.startswith(norm_a + "/")) or (
         _is_directory_entry(path_b) and norm_a.startswith(norm_b + "/")
+    )
+
+
+def _candidates_overlap(path_a: str, path_b: str) -> bool:
+    glob_a = any(c in _GLOB_CHARS for c in path_a)
+    glob_b = any(c in _GLOB_CHARS for c in path_b)
+    if not glob_a and not glob_b:
+        return _literal_paths_overlap(path_a, path_b)
+    if glob_a and not glob_b and fnmatch.fnmatchcase(path_b.rstrip("/"), path_a):
+        return True
+    if glob_b and not glob_a and fnmatch.fnmatchcase(path_a.rstrip("/"), path_b):
+        return True
+    # Fail closed when a glob meets a directory entry or another glob: the
+    # entries overlap if their fixed prefixes lie on one path.  This can
+    # serialise two items that never touch the same file; it never lets two
+    # that do run in parallel.
+    if (glob_a and glob_b) or (
+        _is_directory_entry(path_b) if glob_a else _is_directory_entry(path_a)
+    ):
+        prefix_a = _static_prefix(path_a)
+        prefix_b = _static_prefix(path_b)
+        return prefix_a.startswith(prefix_b) or prefix_b.startswith(prefix_a)
+    return False
+
+
+def _paths_overlap(path_a: str, path_b: str) -> bool:
+    """Return True if *path_a* and *path_b* represent overlapping filesystem paths.
+
+    Two literal paths overlap when they are identical (after normalising
+    trailing slashes), or when one is a directory entry that is an ancestor of
+    the other (e.g. ``agent-gtd-dispatch/tests/`` overlaps with
+    ``agent-gtd-dispatch/tests/test_foo.py``).  Entries that are not one
+    literal path (brace patterns, globs, prose listing several paths) are
+    expanded first, see :func:`_path_candidates`, and globs match the paths
+    they would select.
+    """
+    return any(
+        _candidates_overlap(a, b)
+        for a in _path_candidates(path_a)
+        for b in _path_candidates(path_b)
     )
 
 
