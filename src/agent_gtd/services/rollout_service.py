@@ -26,6 +26,13 @@ _HALTED_FROM_STATUSES = ("pending", "ready", "dispatched")
 # status is NOT in this set (i.e. pending / cloning / running).
 _TERMINAL_RUN_STATUSES = frozenset(("success", "failed", "cancelled", "timeout"))
 
+# Terminal statuses for autonomous_rollouts rows: no manager loop will collect
+# a child run's result once the rollout is in one of these.  The single
+# definition — dispatch_service.cancel_run imports it.
+TERMINAL_ROLLOUT_STATUSES = frozenset(
+    ("halted", "cancelled", "failed", "done", "completed")
+)
+
 # Merge notes.
 #
 # A merge note is the durable artifact the reviewing manager writes when it
@@ -466,6 +473,61 @@ async def _fetch_in_flight_build_runs_batch(
                 }
             )
     return result
+
+
+async def _fetch_active_child_runs(
+    db: DbPool,
+    rollout_id: str,
+) -> list[dict[str, Any]]:
+    """Return the rollout's active child (non-manage) ``claude_runs`` rows.
+
+    Active means status pending / cloning / running (dispatch_service's
+    ``_ACTIVE_STATUSES``).  The manage/loop run is excluded: halt and cancel
+    leave it alone and the loop exits by itself.
+    """
+    from agent_gtd.services.dispatch_service import _ACTIVE_STATUSES
+
+    placeholders = ", ".join(f"${i + 2}" for i in range(len(_ACTIVE_STATUSES)))
+    sql = (
+        "SELECT * FROM claude_runs"  # noqa: S608
+        " WHERE rollout_id = $1 AND COALESCE(mode, 'build') != 'manage'"
+        f" AND status IN ({placeholders})"
+        " ORDER BY created_at"
+    )
+    rows = await db.fetch(
+        sql,
+        rollout_id,
+        *_ACTIVE_STATUSES,
+    )
+    return [row_to_dict(r) for r in rows]
+
+
+async def _cancel_child_runs(
+    db: DbPool,
+    user_id: str,
+    runs: list[dict[str, Any]],
+    *,
+    reason: str,
+) -> list[str]:
+    """Cancel *runs* via the shared cancel+forward helper; return their ids.
+
+    Forward failures are swallowed inside the helper; an unexpected local
+    error on one run is logged and does not stop the others or fail the
+    calling halt/cancel.
+    """
+    from agent_gtd.services.dispatch_service import cancel_run_and_forward
+
+    cancelled: list[str] = []
+    for run in runs:
+        try:
+            await cancel_run_and_forward(db, user_id, run, error_msg=reason)
+        except Exception:
+            logger.warning(
+                "failed to cancel child run %s", run.get("id"), exc_info=True
+            )
+            continue
+        cancelled.append(str(run["id"]))
+    return cancelled
 
 
 # ---------------------------------------------------------------------------
@@ -1126,8 +1188,20 @@ async def halt_rollout(
             the event payload so the halt card can wire the "Skip this item"
             button.
 
+    Halt is the NON-destructive stop: it stops further dispatches but does
+    not kill child builds that are already on a dispatch host — they finish
+    and push their branches, so a halt never destroys work (a reviewer halt
+    in a parallel wave must not kill sibling builds).  Only child runs that
+    have not yet been handed to a host (status ``pending`` with an empty
+    ``remote_run_id``) are cancelled, since launching them now would start
+    new work on a halted rollout.  To stop the in-flight builds, cancel them
+    individually with cancel-run (allowed once the rollout is terminal) or
+    use cancel-rollout.  The manage/loop run is never touched.
+
     Returns:
-        The updated autonomous_rollouts row dict.
+        The updated autonomous_rollouts row dict, plus
+        ``cancelled_run_ids`` (not-yet-routed child runs cancelled here) and
+        ``in_flight_run_ids`` (child runs left running on their hosts).
 
     Raises:
         NotFoundError: If wave not found or caller doesn't own it.
@@ -1156,6 +1230,21 @@ async def halt_rollout(
         " WHERE rollout_id = $1 AND status IN ('pending', 'ready', 'dispatched')",
         rollout_id,
     )
+
+    # Stop further dispatches: cancel child runs not yet handed to a host;
+    # leave the ones already running alone (halt never destroys work).
+    child_runs = await _fetch_active_child_runs(db, rollout_id)
+    unrouted = [
+        r
+        for r in child_runs
+        if r["status"] == "pending" and not str(r.get("remote_run_id") or "")
+    ]
+    cancelled_run_ids = await _cancel_child_runs(
+        db, user_id, unrouted, reason=f"rollout halted: {reason}"
+    )
+    in_flight_run_ids = [
+        str(r["id"]) for r in child_runs if str(r["id"]) not in cancelled_run_ids
+    ]
 
     # Release all wave-scoped item locks (item c85cae60)
     from agent_gtd.services.rollout_lock_service import release_rollout_locks
@@ -1234,7 +1323,10 @@ async def halt_rollout(
         "SELECT * FROM autonomous_rollouts WHERE id = $1", rollout_id
     )
     assert row is not None  # noqa: S101
-    return row_to_dict(row)
+    result = row_to_dict(row)
+    result["cancelled_run_ids"] = cancelled_run_ids
+    result["in_flight_run_ids"] = in_flight_run_ids
+    return result
 
 
 async def get_rollout(
@@ -1560,8 +1652,15 @@ async def cancel_rollout(
         rollout_id: ID of the rollout to cancel.
         reason: Short human-readable reason for cancellation.
 
+    Cancel is the DESTRUCTIVE stop: every active child (non-manage) build
+    run of the rollout — including ones a prior halt left running — is
+    cancelled locally and the cancel is best-effort forwarded to its dispatch
+    host (by the host-local ``remote_run_id``).  Forward failures never fail
+    the cancel.  The manage/loop run is not cancelled; the loop exits itself.
+
     Returns:
-        The updated autonomous_rollouts row dict.
+        The updated autonomous_rollouts row dict, plus ``cancelled_run_ids``
+        (child runs stopped by this call; empty on an idempotent re-cancel).
 
     Raises:
         NotFoundError: If wave not found or caller doesn't own it.
@@ -1576,7 +1675,9 @@ async def cancel_rollout(
             "SELECT * FROM autonomous_rollouts WHERE id = $1", rollout_id
         )
         assert row is not None  # noqa: S101
-        return row_to_dict(row)
+        noop = row_to_dict(row)
+        noop["cancelled_run_ids"] = []
+        return noop
 
     cancellable_statuses = {"pending", "planning", "running", "halted", "failed"}
     if wave["status"] not in cancellable_statuses:
@@ -1604,6 +1705,14 @@ async def cancel_rollout(
         rollout_id,
     )
 
+    # Stop every still-active child build run (local + host forward).
+    cancelled_run_ids = await _cancel_child_runs(
+        db,
+        user_id,
+        await _fetch_active_child_runs(db, rollout_id),
+        reason=f"rollout cancelled: {reason}",
+    )
+
     # Release any remaining wave-scoped item locks (best effort).
     from agent_gtd.services.rollout_lock_service import release_rollout_locks
 
@@ -1615,7 +1724,7 @@ async def cancel_rollout(
         rollout_id,
         kind="wave_cancelled",
         actor="human",
-        payload={"reason": reason},
+        payload={"reason": reason, "cancelled_run_ids": cancelled_run_ids},
     )
     _publish_rollout_event(db, user_id, wave_event, str(wave["project_id"]))
 
@@ -1623,7 +1732,9 @@ async def cancel_rollout(
         "SELECT * FROM autonomous_rollouts WHERE id = $1", rollout_id
     )
     assert row is not None  # noqa: S101
-    return row_to_dict(row)
+    result = row_to_dict(row)
+    result["cancelled_run_ids"] = cancelled_run_ids
+    return result
 
 
 async def start_rollout(

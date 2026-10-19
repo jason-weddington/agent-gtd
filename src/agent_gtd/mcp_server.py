@@ -1535,8 +1535,13 @@ async def cancel_run(
     An active run is marked cancelled and the dispatch host running it is
     asked to stop it; a run that never reached a host is just marked
     cancelled. Cancelling an already-finished run is a no-op that returns its
-    current status. Runs belonging to a rollout are refused (use
-    cancel_rollout or halt_rollout) unless ``force`` is set.
+    current status. A rollout's manage/loop run, and child build runs of a
+    rollout that is still live (pending/planning/running), are refused (use
+    cancel_rollout or halt_rollout) unless ``force`` is set. A child build
+    run of a rollout that is already terminal (halted/cancelled/failed/done/
+    completed) — e.g. one a halt left running — is cancelled without
+    ``force``. The cancel is forwarded to the host using the host's own run
+    id (``remote_run_id``), so pass the board run id here.
 
     With ``force=True`` a run that belongs to a rollout is cancelled anyway
     and ``'forced by operator'`` is recorded on it; the rollout's own status
@@ -1972,6 +1977,13 @@ async def halt_rollout(
     (if any) and the comment ID so the halt card UI can render both without
     an extra round trip.
 
+    Halt is the non-destructive stop: it stops further dispatches (child runs
+    not yet handed to a host are cancelled) but child builds already running
+    on a dispatch host are left to finish and push their branches, so a halt
+    never destroys work. They are listed in ``in_flight_run_ids``; to stop
+    them, cancel each with cancel_run (allowed once the rollout is halted) or
+    use cancel_rollout. The rollout's manage/loop run is not touched.
+
     Args:
         rollout_id: ID of the rollout to halt.
         reason: Short machine-readable halt reason (e.g. ``"merge_rejected"``).
@@ -1980,7 +1992,9 @@ async def halt_rollout(
         item_id: Optional ID of the item that triggered the halt.
 
     Returns:
-        The updated autonomous_rollouts row dict.
+        The updated autonomous_rollouts row dict plus ``cancelled_run_ids``
+        (not-yet-routed child runs cancelled) and ``in_flight_run_ids``
+        (child runs left running).
     """
     call = await _resolve_call(ctx)
     try:
@@ -2008,13 +2022,19 @@ async def cancel_rollout(
     Accepts rollouts in any non-terminal status (pending, planning, running,
     halted, failed). Idempotent for already-cancelled rollouts.
 
+    Cancel is the destructive stop: every active child build run of the
+    rollout (including ones a halt left running) is cancelled and the cancel
+    is forwarded to its dispatch host. The manage/loop run is not cancelled;
+    it exits by itself.
+
     Args:
         rollout_id: ID of the rollout to cancel.
         reason: Short machine-readable cancellation reason (e.g. "superseded").
         ctx: MCP context (injected automatically).
 
     Returns:
-        The updated autonomous_rollouts row dict.
+        The updated autonomous_rollouts row dict plus ``cancelled_run_ids``
+        (child runs stopped; empty when the rollout was already cancelled).
     """
     call = await _resolve_call(ctx)
     try:

@@ -2145,3 +2145,275 @@ async def test_reset_rollout_item_unknown_item_is_not_found(db):
 
     with pytest.raises(NotFoundError):
         await reset_rollout_item(db, user_id, rollout_id, "no-such-item")
+
+
+# ---------------------------------------------------------------------------
+# halt/cancel and the rollout's child build runs
+# ---------------------------------------------------------------------------
+
+
+async def _make_child_run(
+    db,
+    user_id: str,
+    project_id: str,
+    rollout_id: str,
+    *,
+    status: str = "running",
+    mode: str = "build",
+    remote_run_id: str = "",
+    dispatch_host_url: str = "",
+) -> str:
+    run_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO claude_runs"
+        " (id, project_id, user_id, status, mode, rollout_id, remote_run_id,"
+        "  dispatch_host_url, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        run_id,
+        project_id,
+        user_id,
+        status,
+        mode,
+        rollout_id,
+        remote_run_id,
+        dispatch_host_url,
+        NOW,
+        NOW,
+    )
+    return run_id
+
+
+async def _run_status(db, run_id: str) -> str:
+    row = await db.fetchrow("SELECT status FROM claude_runs WHERE id = $1", run_id)
+    assert row is not None
+    return str(row["status"])
+
+
+_CHILD_HOSTS = [{"url": "https://host-b", "api_key": "kb", "drain_reason": None}]
+
+
+def _forward_client_mock(*, side_effect: Exception | None = None):
+    from unittest.mock import MagicMock
+
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.text = "OK"
+    inst = MagicMock()
+    inst.__aenter__ = AsyncMock(return_value=inst)
+    inst.__aexit__ = AsyncMock(return_value=None)
+    inst.post = AsyncMock(return_value=resp, side_effect=side_effect)
+    return inst
+
+
+def _halt_cancel_patches(client_mock):
+    from contextlib import ExitStack
+
+    stack = ExitStack()
+    stack.enter_context(patch("httpx.AsyncClient", return_value=client_mock))
+    stack.enter_context(
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(return_value=_CHILD_HOSTS),
+        )
+    )
+    stack.enter_context(
+        patch(
+            "agent_gtd.services.rollout_lock_service.release_rollout_locks",
+            new_callable=AsyncMock,
+        )
+    )
+    stack.enter_context(
+        patch("agent_gtd.services.rollout_service._publish_rollout_event")
+    )
+    stack.enter_context(
+        patch(
+            "agent_gtd.services.comment_service.create_comment",
+            new_callable=AsyncMock,
+            return_value={"id": "comment-id"},
+        )
+    )
+    return stack
+
+
+async def test_cancel_rollout_cancels_active_child_runs_and_forwards(db):
+    """AC-1: active non-manage children cancelled + forwarded by remote_run_id."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    running = await _make_child_run(
+        db,
+        user_id,
+        project_id,
+        rollout_id,
+        remote_run_id="remote-1",
+        dispatch_host_url="https://host-b",
+    )
+    done = await _make_child_run(
+        db, user_id, project_id, rollout_id, status="success", remote_run_id="r-2"
+    )
+    manage = await _make_child_run(
+        db,
+        user_id,
+        project_id,
+        rollout_id,
+        mode="manage",
+        remote_run_id="remote-m",
+        dispatch_host_url="https://host-b",
+    )
+    other_rollout = await _make_rollout(db, user_id, project_id, status="running")
+    foreign = await _make_child_run(db, user_id, project_id, other_rollout)
+
+    client_mock = _forward_client_mock()
+    with _halt_cancel_patches(client_mock):
+        result = await cancel_rollout(db, user_id, rollout_id, "abort")
+
+    assert result["status"] == "cancelled"
+    assert result["cancelled_run_ids"] == [running]
+    assert await _run_status(db, running) == "cancelled"
+    assert await _run_status(db, done) == "success"
+    assert await _run_status(db, manage) == "running"
+    assert await _run_status(db, foreign) == "running"
+    client_mock.post.assert_awaited_once()
+    assert client_mock.post.await_args.args[0] == (
+        "https://host-b/runs/remote-1/cancel"
+    )
+
+
+async def test_cancel_rollout_forward_failure_keeps_local_cancel(db):
+    """AC-6: a failing host forward never fails the cancel or rolls back."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    run_id = await _make_child_run(
+        db,
+        user_id,
+        project_id,
+        rollout_id,
+        remote_run_id="remote-1",
+        dispatch_host_url="https://host-b",
+    )
+
+    client_mock = _forward_client_mock(side_effect=httpx.ConnectError("down"))
+    with _halt_cancel_patches(client_mock):
+        result = await cancel_rollout(db, user_id, rollout_id, "abort")
+
+    assert result["status"] == "cancelled"
+    assert result["cancelled_run_ids"] == [run_id]
+    assert await _run_status(db, run_id) == "cancelled"
+
+
+async def test_cancel_rollout_recancel_is_noop(db):
+    """AC-3: re-cancelling forwards nothing and returns empty cancelled_run_ids."""
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="cancelled")
+    # A straggler on an already-cancelled rollout is left for cancel-run.
+    run_id = await _make_child_run(
+        db, user_id, project_id, rollout_id, remote_run_id="remote-1"
+    )
+
+    client_mock = _forward_client_mock()
+    with _halt_cancel_patches(client_mock):
+        result = await cancel_rollout(db, user_id, rollout_id, "again")
+
+    assert result["status"] == "cancelled"
+    assert result["cancelled_run_ids"] == []
+    client_mock.post.assert_not_awaited()
+    assert await _run_status(db, run_id) == "running"
+
+
+async def test_cancel_rollout_of_halted_rollout_cancels_running_children(db):
+    """AC-3: halt leaves a build running; a later cancel-rollout stops it."""
+    from agent_gtd.services.rollout_service import halt_rollout
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    run_id = await _make_child_run(
+        db,
+        user_id,
+        project_id,
+        rollout_id,
+        remote_run_id="remote-1",
+        dispatch_host_url="https://host-b",
+    )
+
+    client_mock = _forward_client_mock()
+    with _halt_cancel_patches(client_mock):
+        halted = await halt_rollout(db, user_id, rollout_id, "reviewer_halt")
+        assert halted["in_flight_run_ids"] == [run_id]
+        assert await _run_status(db, run_id) == "running"
+        client_mock.post.assert_not_awaited()
+
+        result = await cancel_rollout(db, user_id, rollout_id, "stop it")
+
+    assert result["cancelled_run_ids"] == [run_id]
+    assert await _run_status(db, run_id) == "cancelled"
+    client_mock.post.assert_awaited_once()
+
+
+async def test_halt_rollout_leaves_running_children_and_cancels_unrouted(db):
+    """AC-2/AC-5: halt keeps routed builds, cancels not-yet-routed ones."""
+    from agent_gtd.services.rollout_service import halt_rollout
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    running = await _make_child_run(
+        db,
+        user_id,
+        project_id,
+        rollout_id,
+        remote_run_id="remote-1",
+        dispatch_host_url="https://host-b",
+    )
+    unrouted = await _make_child_run(
+        db, user_id, project_id, rollout_id, status="pending"
+    )
+    manage = await _make_child_run(
+        db, user_id, project_id, rollout_id, mode="manage", remote_run_id="m"
+    )
+
+    client_mock = _forward_client_mock()
+    with _halt_cancel_patches(client_mock):
+        result = await halt_rollout(db, user_id, rollout_id, "merge_rejected")
+
+    assert result["status"] == "halted"
+    assert result["in_flight_run_ids"] == [running]
+    assert result["cancelled_run_ids"] == [unrouted]
+    assert await _run_status(db, running) == "running"
+    assert await _run_status(db, unrouted) == "cancelled"
+    assert await _run_status(db, manage) == "running"
+    # The unrouted run has no remote id, so nothing is forwarded.
+    client_mock.post.assert_not_awaited()
+
+
+async def test_cancel_run_of_child_after_halt_is_allowed(db):
+    """AC-4: after a halt, cancel-run (no force) stops the orphaned child."""
+    from agent_gtd.services.dispatch_service import cancel_run
+    from agent_gtd.services.rollout_service import halt_rollout
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    run_id = await _make_child_run(
+        db,
+        user_id,
+        project_id,
+        rollout_id,
+        remote_run_id="remote-1",
+        dispatch_host_url="https://host-b",
+    )
+
+    client_mock = _forward_client_mock()
+    with _halt_cancel_patches(client_mock):
+        with pytest.raises(ValidationError):
+            await cancel_run(db, user_id, run_id)
+        await halt_rollout(db, user_id, rollout_id, "reviewer_halt")
+        updated = await cancel_run(db, user_id, run_id)
+
+    assert updated["status"] == "cancelled"
+    client_mock.post.assert_awaited_once()
+    assert client_mock.post.await_args.args[0] == (
+        "https://host-b/runs/remote-1/cancel"
+    )

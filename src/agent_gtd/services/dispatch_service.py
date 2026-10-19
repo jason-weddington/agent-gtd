@@ -717,20 +717,23 @@ async def cancel_run(
     Cancelling a run that is already in a terminal status is an idempotent
     no-op: the current row is returned unchanged and nothing is forwarded.
 
-    Without ``force``, runs owned by a rollout (``rollout_id`` set or
-    ``mode == 'manage'``) are refused with ``ValidationError``; use
-    cancel-rollout or halt-rollout. With ``force=True`` every active run —
-    plain, rollout child, or manage — is accepted and written with
-    ``status='cancelled'`` and ``error_msg='forced by operator'``, without
+    Without ``force``, manage runs are always refused with ``ValidationError``,
+    and so are child runs (``rollout_id`` set) of a rollout that is still live
+    (pending/planning/running); use cancel-rollout or halt-rollout. A child run
+    of a rollout that is already terminal (halted/cancelled/failed/done/
+    completed) is accepted without ``force`` — nothing would collect its
+    result, so stopping it only frees the host slot. With ``force=True`` every
+    active run — plain, rollout child, or manage — is accepted and written
+    with ``status='cancelled'`` and ``error_msg='forced by operator'``, without
     touching ``autonomous_rollouts``, ``rollout_items`` or ``items``. A forced
     cancel of a rollout's loop run stops that loop on its dispatch host but
     leaves the rollout running without a driver; follow it with cancel-rollout
     or halt-rollout.
 
     For an active run the local row is updated to ``cancelled`` and the cancel
-    is best-effort forwarded to the dispatch host that owns the run (matched on
-    ``dispatch_host_url``; legacy dispatch config only when that is empty).
-    Remote call failures do not roll back the local state.
+    is best-effort forwarded to the dispatch host that owns the run (see
+    :func:`cancel_run_and_forward`). Remote call failures do not roll back the
+    local state.
 
     Args:
         db: Database pool.
@@ -741,7 +744,8 @@ async def cancel_run(
 
     Raises:
         NotFoundError: If run not found or not accessible to the user.
-        ValidationError: If the run belongs to a rollout and force is False.
+        ValidationError: If the run is a manage run, or a child of a live
+            rollout, and force is False.
     """
     run = await get_run(db, user_id, run_id)
     if run["status"] not in _ACTIVE_STATUSES:
@@ -764,22 +768,81 @@ async def cancel_run(
             run["status"],
             user_id,
         )
-    elif run.get("mode") == "manage" or rollout_id:
+    elif run.get("mode") == "manage" or (
+        rollout_id and not await _rollout_is_terminal(db, rollout_id)
+    ):
         raise ValidationError(
             f"run {run_id} belongs to rollout {rollout_id};"
             " use cancel-rollout or halt-rollout"
         )
 
+    return await cancel_run_and_forward(
+        db,
+        user_id,
+        run,
+        error_msg="forced by operator" if force else None,
+        forced=force,
+    )
+
+
+async def _rollout_is_terminal(db: DbPool, rollout_id: str) -> bool:
+    """Return True when *rollout_id* is in a terminal rollout status.
+
+    A missing rollout row counts as terminal: nothing can collect the run's
+    result, so there is no live rollout to protect.
+    """
+    from agent_gtd.services.rollout_service import TERMINAL_ROLLOUT_STATUSES
+
+    row = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    return row is None or str(row["status"]) in TERMINAL_ROLLOUT_STATUSES
+
+
+async def cancel_run_and_forward(
+    db: DbPool,
+    user_id: str,
+    run: dict[str, Any],
+    *,
+    error_msg: str | None = None,
+    forced: bool = False,
+) -> dict[str, Any]:
+    """Cancel *run* locally and best-effort forward the cancel to its host.
+
+    The single implementation of "stop this run" shared by ``cancel_run`` and
+    the rollout halt/cancel paths. No permission checks are done here; callers
+    have already authorised the cancel.
+
+    The local ``claude_runs`` row is set to ``cancelled`` first, so a run that
+    has not yet been routed (empty ``remote_run_id``) is stopped by
+    ``execute_run`` re-checking the status before and after it hands the run
+    to a host. The forward uses ``remote_run_id`` — the dispatch host's own
+    run id — sent to the host matched on ``dispatch_host_url`` (legacy
+    dispatch config only when that is empty); the board run id never reaches
+    the dispatch API. Remote failures are logged and never roll back the
+    local state or raise.
+
+    Args:
+        db: Database pool.
+        user_id: The acting user's ID (for config lookup fallback and events).
+        run: The ``claude_runs`` row dict to cancel.
+        error_msg: Optional ``error_msg`` to write on the row.
+        forced: Mark the published event payload as forced.
+
+    Returns:
+        The updated ``claude_runs`` row dict.
+    """
+    run_id = str(run["id"])
     prior_status = run["status"]
     now = datetime.now(UTC).isoformat()
-    if force:
+    if error_msg is not None:
         await db.execute(
             "UPDATE claude_runs SET status = $1, finished_at = $2, updated_at = $3,"
             " error_msg = $4 WHERE id = $5",
             "cancelled",
             now,
             now,
-            "forced by operator",
+            error_msg,
             run_id,
         )
     else:
@@ -911,7 +974,7 @@ async def cancel_run(
     from agent_gtd.event_helpers import best_effort_publish
 
     payload: dict[str, Any] = {"run_id": run_id, "item_id": run.get("item_id")}
-    if force:
+    if forced:
         payload["forced"] = True
     await best_effort_publish(
         bus=get_event_bus(),

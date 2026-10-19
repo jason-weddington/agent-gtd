@@ -2033,3 +2033,100 @@ async def test_build_dispatch_accepts_empty_commit_type(
     assert row is not None
     assert row["item_id"] == item["id"]
     assert row["mode"] == "build"
+
+
+# ---------------------------------------------------------------------------
+# A run cancelled before/while routing is never launched (rollout halt/cancel)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_execute_run_skips_run_cancelled_before_routing() -> None:
+    """A run already 'cancelled' when execute_run starts is never routed."""
+    from agent_gtd.dispatch_worker import execute_run
+
+    run = {
+        "id": "run-c1",
+        "item_id": "item-1",
+        "user_id": "user-1",
+        "project_id": "proj-1",
+        "max_turns": 50,
+        "mode": "build",
+        "rollout_id": "rollout-1",
+    }
+    db = _make_db_mock(project_owner_id="user-1")
+    pick = AsyncMock()
+    update = AsyncMock()
+    with (
+        patch(
+            "agent_gtd.dispatch_worker._run_status",
+            new=AsyncMock(return_value="cancelled"),
+        ),
+        patch("agent_gtd.services.dispatch_router.pick_dispatch_host", new=pick),
+        patch("agent_gtd.dispatch_worker._update_run", new=update),
+    ):
+        await execute_run(db, run, {}, {})
+
+    pick.assert_not_awaited()
+    update.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_execute_run_cancelled_during_routing_cancels_remote() -> None:
+    """Cancelled locally while routing: remote cancelled, status not overwritten."""
+    from agent_gtd.dispatch_worker import execute_run
+
+    run = {
+        "id": "run-c2",
+        "item_id": "item-1",
+        "user_id": "user-1",
+        "project_id": "proj-1",
+        "max_turns": 50,
+        "mode": "build",
+        "rollout_id": "rollout-1",
+    }
+    db = _make_db_mock(project_owner_id="user-1")
+
+    remote = MagicMock()
+    remote.id = "remote-xyz"
+    update_calls: list[dict[str, object]] = []
+
+    async def fake_update_run(
+        db_arg: object, run_id_arg: str, **fields: object
+    ) -> None:
+        update_calls.append(fields)
+
+    cancel_remote = AsyncMock()
+    with (
+        patch(
+            "agent_gtd.dispatch_worker._run_status",
+            new=AsyncMock(side_effect=["pending", "cancelled"]),
+        ),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(
+                return_value=[
+                    {"id": "h1", "url": "http://host", "api_key": "key", "label": ""}
+                ]
+            ),
+        ),
+        patch(
+            "agent_gtd.services.dispatch_router.pick_dispatch_host",
+            new=AsyncMock(return_value={"url": "http://host", "api_key": "key"}),
+        ),
+        patch(
+            "agent_gtd.dispatch_worker._dispatch_to_remote",
+            new=AsyncMock(return_value=remote),
+        ),
+        patch("agent_gtd.dispatch_worker._cancel_remote_run", new=cancel_remote),
+        patch("agent_gtd.dispatch_worker._update_run", new=fake_update_run),
+        patch("agent_gtd.dispatch_worker._publish_run_event") as publish,
+    ):
+        await execute_run(db, run, {}, {})
+
+    cancel_remote.assert_awaited_once()
+    assert cancel_remote.await_args.args[1] == "remote-xyz"
+    assert cancel_remote.await_args.kwargs["url"] == "http://host"
+    assert all("status" not in c for c in update_calls)
+    assert update_calls and update_calls[-1]["remote_run_id"] == "remote-xyz"
+    publish.assert_not_called()

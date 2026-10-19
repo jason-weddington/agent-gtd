@@ -245,7 +245,11 @@ def register(subparsers: argparse._SubParsersAction[Any]) -> None:
     # -- halt-rollout ----------------------------------------------------------
     p_halt = subparsers.add_parser(
         "halt-rollout",
-        help="Halt a running rollout.",
+        help=(
+            "Halt a running rollout. Stops further dispatches but leaves child"
+            " builds already running to finish (listed in in_flight_run_ids);"
+            " stop them with cancel-run or cancel-rollout."
+        ),
     )
     p_halt.add_argument("rollout_id", help="ID of the rollout to halt.")
     p_halt.add_argument("--reason", required=True, help="Reason for halting.")
@@ -261,7 +265,10 @@ def register(subparsers: argparse._SubParsersAction[Any]) -> None:
     # -- cancel-rollout --------------------------------------------------------
     p_cancel = subparsers.add_parser(
         "cancel-rollout",
-        help="Cancel a rollout.",
+        help=(
+            "Cancel a rollout and every active child build run"
+            " (returns cancelled_run_ids)."
+        ),
     )
     p_cancel.add_argument("rollout_id", help="ID of the rollout to cancel.")
     p_cancel.add_argument("--reason", required=True, help="Reason for cancellation.")

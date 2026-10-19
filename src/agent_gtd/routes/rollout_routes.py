@@ -256,13 +256,17 @@ async def halt_rollout(
 ) -> dict[str, Any]:
     """Halt a running wave, releasing all locks and posting a comment.
 
+    Child builds already on a dispatch host keep running (non-destructive);
+    only not-yet-routed child runs are cancelled.
+
     Args:
         rollout_id: The wave run to halt.
         body: reason, optional comment, optional offending item_id.
         user: Injected authenticated user.
 
     Returns:
-        The updated autonomous_rollouts row dict.
+        The updated autonomous_rollouts row dict plus ``cancelled_run_ids``
+        and ``in_flight_run_ids``.
     """
     db = await get_db()
     try:
@@ -287,7 +291,8 @@ async def cancel_rollout(
     """Cancel a wave, marking any remaining items as skipped.
 
     Accepts waves in any non-terminal status (pending, planning, running,
-    halted, failed).  Idempotent for already-cancelled waves.
+    halted, failed).  Idempotent for already-cancelled waves.  Cancels every
+    active child build run (forwarded to its dispatch host).
 
     Args:
         rollout_id: The wave run to cancel.
@@ -295,7 +300,7 @@ async def cancel_rollout(
         user: Injected authenticated user.
 
     Returns:
-        The updated autonomous_rollouts row dict.
+        The updated autonomous_rollouts row dict plus ``cancelled_run_ids``.
     """
     db = await get_db()
     try:

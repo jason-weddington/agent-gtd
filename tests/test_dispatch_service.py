@@ -813,26 +813,44 @@ async def test_cancel_run_legacy_resolution_logged(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["rollout_id", "manage"])
+@pytest.mark.parametrize(
+    ("kind", "rollout_status"),
+    [
+        ("rollout_id", "pending"),
+        ("rollout_id", "planning"),
+        ("rollout_id", "running"),
+        ("manage", None),
+        ("manage_of_terminal_rollout", "halted"),
+    ],
+)
 async def test_cancel_run_refuses_rollout_runs(
     client: "httpx.AsyncClient",
     auth_headers: dict[str, str],
     kind: str,
+    rollout_status: str | None,
 ) -> None:
+    """Children of LIVE rollouts and manage runs are refused without force."""
     from agent_gtd.database import get_db
     from agent_gtd.exceptions import ValidationError
     from agent_gtd.services.dispatch_service import cancel_run
 
-    kwargs: dict[str, Any] = (
-        {"rollout_id": "11111111-1111-1111-1111-111111111111"}
-        if kind == "rollout_id"
-        else {"mode": "manage"}
-    )
+    rollout_id = "11111111-1111-1111-1111-111111111111"
+    kwargs: dict[str, Any] = {}
+    if kind in ("rollout_id", "manage_of_terminal_rollout"):
+        kwargs["rollout_id"] = rollout_id
+    if kind in ("manage", "manage_of_terminal_rollout"):
+        kwargs["mode"] = "manage"
     user_id, run_id = await _setup_cancel_run_fixture(
         client, auth_headers, remote_run_id="remote-abc", **kwargs
     )
     mock_cls = MagicMock()
     db = await get_db()
+    if rollout_status is not None:
+        await db.execute(
+            "UPDATE autonomous_rollouts SET status = $1 WHERE id = $2",
+            rollout_status,
+            rollout_id,
+        )
     with (
         patch("httpx.AsyncClient", mock_cls),
         pytest.raises(ValidationError) as exc,
@@ -842,6 +860,61 @@ async def test_cancel_run_refuses_rollout_runs(
     row = await db.fetchrow("SELECT status FROM claude_runs WHERE id = $1", run_id)
     assert row is not None and row["status"] == "pending"
     mock_cls.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "rollout_status", ["halted", "cancelled", "failed", "done", "completed"]
+)
+async def test_cancel_run_allows_child_of_terminal_rollout(
+    client: "httpx.AsyncClient",
+    auth_headers: dict[str, str],
+    rollout_status: str,
+) -> None:
+    """A child build run of a terminal rollout is cancellable without force.
+
+    The cancel is forwarded to the owning host by remote_run_id (the host's
+    own id), never the board run id.
+    """
+    import uuid
+
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import cancel_run
+
+    rollout_id = str(uuid.uuid4())
+    user_id, run_id = await _setup_cancel_run_fixture(
+        client,
+        auth_headers,
+        remote_run_id="remote-child",
+        dispatch_host_url="https://host-b",
+        status="running",
+        rollout_id=rollout_id,
+    )
+    db = await get_db()
+    await db.execute(
+        "UPDATE autonomous_rollouts SET status = $1 WHERE id = $2",
+        rollout_status,
+        rollout_id,
+    )
+    mock_inst = _make_async_client_mock(status_code=200)
+    with (
+        patch("httpx.AsyncClient", return_value=mock_inst),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(return_value=_hosts()),
+        ),
+    ):
+        updated = await cancel_run(db, user_id, run_id)
+
+    assert updated["status"] == "cancelled"
+    assert updated["error_msg"] != "forced by operator"
+    mock_inst.post.assert_awaited_once()
+    args, _kwargs = mock_inst.post.await_args
+    assert args[0] == "https://host-b/runs/remote-child/cancel"
+    rollout = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert rollout is not None and rollout["status"] == rollout_status
 
 
 @pytest.mark.asyncio

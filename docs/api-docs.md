@@ -360,6 +360,11 @@ List dispatch runs.
 Get a single run's current status and details.
 - **Response:** `RunResponse`
 
+#### `POST /api/runs/{run_id}/cancel`
+Cancel a run (idempotent no-op for terminal runs). The local row becomes `cancelled` and the cancel is best-effort forwarded to the owning dispatch host using the run's `remote_run_id` (the host-local id) — the dispatch API never sees the board run id. Without `?force=true`, a rollout's manage run and child runs of a live rollout (`pending`/`planning`/`running`) are refused with 409; a child run of a terminal rollout (`halted`/`cancelled`/`failed`/`done`/`completed`) is accepted.
+- **Query params:** `force` (bool, default false)
+- **Response:** `RunResponse`
+
 #### `GET /api/runs/failures`
 List recent failed/timed-out runs (with item and project context).
 - **Response:** `[{"id", "item_id", "item_title", "project_id", "project_name", "status", "error_msg", "started_at", "finished_at", ...}]`
@@ -463,14 +468,14 @@ Mark an item as completed, halted, or skipped within the rollout. Unblocks downs
 - **Response:** `{"rollout_item": dict, "newly_ready": ["uuid"]}`
 
 #### `POST /api/rollouts/{rollout_id}/halt`
-Halt the rollout (pauses manager, marks in-flight items halted).
+Halt the rollout (pauses manager, marks in-flight items halted). Non-destructive: child build runs already on a dispatch host keep running and push their branches; only child runs not yet handed to a host (`pending`, empty `remote_run_id`) are cancelled. Stop the rest with `POST /api/runs/{run_id}/cancel` or cancel the rollout.
 - **Request body:** `{"reason": str, "comment"?: str, "item_id"?: str}`
-- **Response:** Updated rollout dict.
+- **Response:** Updated rollout dict plus `cancelled_run_ids: [str]` and `in_flight_run_ids: [str]`.
 
 #### `POST /api/rollouts/{rollout_id}/cancel`
-Cancel the rollout. Idempotent for already-cancelled rollouts.
+Cancel the rollout. Idempotent for already-cancelled rollouts. Destructive: every active child (non-manage) build run — including ones a halt left running — is cancelled and forwarded to its dispatch host (best-effort; forward failures never fail the cancel). The manage run is not cancelled.
 - **Request body:** `{"reason": str}`
-- **Response:** Updated rollout dict.
+- **Response:** Updated rollout dict plus `cancelled_run_ids: [str]` (empty on a re-cancel).
 
 #### `POST /api/rollouts/{rollout_id}/state`
 Update the manager's semantic phase for the real-time dashboard.
@@ -726,10 +731,13 @@ complete_item_in_rollout(
 # Closes rollout if all items are terminal.
 
 halt_rollout(rollout_id: str, reason: str, comment: str | None = None, item_id: str | None = None) → dict
-# Destructive. Transitions in-flight items to halted, releases locks, posts comment.
+# Transitions in-flight items to halted, releases locks, posts comment.
+# Leaves running child builds alone (returns in_flight_run_ids); cancels only
+# not-yet-routed child runs (returns cancelled_run_ids).
 
 cancel_rollout(rollout_id: str, reason: str) → dict
-# Destructive. Idempotent for already-cancelled rollouts.
+# Destructive. Idempotent for already-cancelled rollouts. Cancels every active
+# child build run and forwards to its host; returns cancelled_run_ids.
 
 update_rollout_state(
     rollout_id: str,

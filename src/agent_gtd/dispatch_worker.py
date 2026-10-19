@@ -375,6 +375,12 @@ async def _update_run(
     await db.execute(sql, *params)
 
 
+async def _run_status(db: Any, run_id: str) -> str:
+    """Return the current ``claude_runs.status`` of *run_id* ('' if missing)."""
+    row = await db.fetchrow("SELECT status FROM claude_runs WHERE id = $1", run_id)
+    return str(row["status"]) if row is not None else ""
+
+
 def _publish_run_event(
     db: Any,
     user_id: str,
@@ -902,6 +908,13 @@ async def execute_run(
     # relax one the project declares.
     required_labels = frozenset(effective_required_labels(project, item))
 
+    # The run may have been cancelled (cancel-run / cancel-rollout / halt)
+    # while it sat in the queue; never launch a run that is no longer pending.
+    status_now = await _run_status(db, run_id)
+    if status_now and status_now != "pending":
+        logger.info("Run %s is %s before routing; not launching it", run_id, status_now)
+        return
+
     hosts = await get_dispatch_hosts(db, owner_id)
     if not hosts:
         msg = "Project owner has not configured dispatch hosts"
@@ -1007,6 +1020,28 @@ async def execute_run(
                 logger.exception("Failed to dispatch run %s to remote service", run_id)
                 await _fail_run(f"Dispatch service error: {exc}"[:500])
                 return
+
+        # Cancelled locally while we were routing (empty remote_run_id at the
+        # time, so the cancel could not be forwarded): stop it on the host now
+        # and record where it went, without overwriting 'cancelled'.
+        if await _run_status(db, run_id) == "cancelled":
+            logger.info(
+                "Run %s cancelled during routing; cancelling remote %s on %s",
+                run_id,
+                remote_run_id,
+                dispatch_url,
+            )
+            await _cancel_remote_run(
+                client, remote_run_id, url=dispatch_url, api_key=dispatch_api_key
+            )
+            await _update_run(
+                db,
+                run_id,
+                remote_run_id=remote_run_id,
+                dispatch_host_url=dispatch_url,
+                engine=engine,
+            )
+            return
 
         # --- Running ---
         now = datetime.now(UTC).isoformat()
