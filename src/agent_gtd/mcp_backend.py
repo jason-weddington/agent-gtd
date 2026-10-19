@@ -4,13 +4,14 @@
 
 from __future__ import annotations
 
-import os
 import ssl
 from typing import Any, Literal, Protocol
 
 import httpx
 import truststore
 from fastmcp.exceptions import ToolError
+
+from agent_gtd.client_config import resolve_client_config
 
 # ---------------------------------------------------------------------------
 # Board-snapshot constants (mirrors item_service._TRACKED_STATUSES et al.)
@@ -2610,12 +2611,12 @@ class HttpBackend:
 # Factory
 # ---------------------------------------------------------------------------
 
-_AGENT_GTD_URL = os.environ.get("AGENT_GTD_URL", "")
+_AGENT_GTD_URL = resolve_client_config()[0]
 
 
 def create_backend() -> LocalBackend | HttpBackend:
     """Create the appropriate backend based on environment variables."""
     if _AGENT_GTD_URL:
-        api_key = os.environ.get("AGENT_GTD_API_KEY", "")
+        api_key = resolve_client_config()[1]
         return HttpBackend(base_url=_AGENT_GTD_URL, api_key=api_key)
     return LocalBackend()

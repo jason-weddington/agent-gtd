@@ -3,13 +3,13 @@
 import argparse
 import asyncio
 import json
-import os
 import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from agent_gtd.cli_commands import register_all
 from agent_gtd.cli_commands._shared import load_json_payload as _load_json_payload
+from agent_gtd.client_config import missing_api_key_message, resolve_client_config
 from agent_gtd.mcp_backend import create_backend
 
 # ``_load_json_payload`` is re-exported here (aliased from the canonical
@@ -193,16 +193,16 @@ async def _fetch_run_status(run_id: str) -> dict[str, Any]:
     """
     backend = create_backend()
     try:
-        if not os.environ.get("AGENT_GTD_URL", ""):
+        if not resolve_client_config()[0]:
             # Local mode — no auth needed
             from agent_gtd.database import LOCAL_USER_ID, init_db
 
             await init_db()
             user_id = LOCAL_USER_ID
         else:
-            api_key = os.environ.get("AGENT_GTD_API_KEY", "")
+            api_key = resolve_client_config()[1]
             if not api_key:
-                raise RuntimeError("AGENT_GTD_API_KEY environment variable is required")
+                raise RuntimeError(missing_api_key_message())
             session = await backend.login(api_key, "cli")
             user_id = session["user_id"]
         return await backend.get_run(user_id, run_id)
@@ -379,16 +379,16 @@ async def _fetch_rollout_status(rollout_id: str) -> dict[str, Any]:
     """
     backend = create_backend()
     try:
-        if not os.environ.get("AGENT_GTD_URL", ""):
+        if not resolve_client_config()[0]:
             # Local mode — no auth needed
             from agent_gtd.database import LOCAL_USER_ID, init_db
 
             await init_db()
             user_id = LOCAL_USER_ID
         else:
-            api_key = os.environ.get("AGENT_GTD_API_KEY", "")
+            api_key = resolve_client_config()[1]
             if not api_key:
-                raise RuntimeError("AGENT_GTD_API_KEY environment variable is required")
+                raise RuntimeError(missing_api_key_message())
             session = await backend.login(api_key, "cli")
             user_id = session["user_id"]
         return await backend.get_rollout(user_id, rollout_id)
@@ -547,15 +547,15 @@ async def _do_update_item(
 
     backend = create_backend()
     try:
-        if not os.environ.get("AGENT_GTD_URL", ""):
+        if not resolve_client_config()[0]:
             from agent_gtd.database import LOCAL_USER_ID, init_db
 
             await init_db()
             user_id = LOCAL_USER_ID
         else:
-            api_key = os.environ.get("AGENT_GTD_API_KEY", "")
+            api_key = resolve_client_config()[1]
             if not api_key:
-                raise RuntimeError("AGENT_GTD_API_KEY environment variable is required")
+                raise RuntimeError(missing_api_key_message())
             session = await backend.login(api_key, "cli")
             user_id = session["user_id"]
 
@@ -846,7 +846,7 @@ async def _do_add_item(
 
     backend = create_backend()
     try:
-        if not os.environ.get("AGENT_GTD_URL", ""):
+        if not resolve_client_config()[0]:
             # Local mode: call item_service.create_item directly so that heavy
             # fields (ac/ftm/scope_out/build_engine) are NOT dropped.
             from agent_gtd.database import LOCAL_USER_ID, get_db, init_db
@@ -872,11 +872,11 @@ async def _do_add_item(
         else:
             # HTTP mode: POST /api/items directly (bypasses HttpBackend.create_item
             # which omits the heavy fields from the request body).
-            api_key = os.environ.get("AGENT_GTD_API_KEY", "")
+            api_key = resolve_client_config()[1]
             if not api_key:
-                raise RuntimeError("AGENT_GTD_API_KEY environment variable is required")
+                raise RuntimeError(missing_api_key_message())
             await backend.login(api_key, "cli")
-            base_url = os.environ.get("AGENT_GTD_URL", "").rstrip("/")
+            base_url = resolve_client_config()[0].rstrip("/")
             item = await _http_post_create_item(
                 base_url,
                 api_key,
@@ -956,6 +956,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agent-gtd",
         description="Agent GTD command-line interface.",
+        epilog=(
+            "AGENT_GTD_URL and AGENT_GTD_API_KEY are read from the environment, "
+            "else from ~/.config/agent-gtd/agent-gtd.env (mode 600)."
+        ),
     )
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
 

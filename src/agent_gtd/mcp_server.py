@@ -13,6 +13,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_http_request
 from mcp.types import ToolAnnotations
 
+from agent_gtd.client_config import resolve_client_config
 from agent_gtd.dispatch_constants import (
     MAX_TIMEOUT_MINUTES,
     MAX_TURNS,
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 _backend = create_backend()
 _HTTP_MODE = not isinstance(_backend, LocalBackend)
 
-_ENV_API_KEY = os.environ.get("AGENT_GTD_API_KEY", "")
+_ENV_API_KEY = resolve_client_config()[1]
 _ENV_AGENT_NAME: str | None = os.environ.get("AGENT_GTD_AGENT_NAME")
 
 
@@ -2188,7 +2189,7 @@ _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 def _warn_if_remote_stdio() -> None:
     """Point users of a remote board at its streamable HTTP endpoint."""
-    url = os.environ.get("AGENT_GTD_URL")
+    url = resolve_client_config()[0]
     if not url:
         return
     if urlsplit(url).hostname in _LOOPBACK_HOSTS:

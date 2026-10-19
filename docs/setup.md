@@ -277,6 +277,29 @@ All configuration is done via environment variables. **`.env` is NOT loaded auto
 | Registration | Not available | Invite token required |
 | Use case | Single-user developer install, quick demos | Multi-user production deployment |
 
+### Client config file
+
+The CLI and the stdio MCP server read `AGENT_GTD_URL` and `AGENT_GTD_API_KEY` from a per-tool env file first. For any variable the file does not set (or sets empty), they fall back to the process environment, so writing the file fixes a machine whatever its shell exports:
+
+```bash
+mkdir -p ~/.config/agent-gtd
+cat > ~/.config/agent-gtd/agent-gtd.env <<'EOT'
+AGENT_GTD_URL=https://agent-gtd.example.com
+AGENT_GTD_API_KEY=agtd_...
+EOT
+chmod 600 ~/.config/agent-gtd/agent-gtd.env
+```
+
+- Path: `$AGENT_GTD_CONFIG` if set, else `$XDG_CONFIG_HOME/agent-gtd/agent-gtd.env`,
+  else `~/.config/agent-gtd/agent-gtd.env`. A missing file is fine.
+- Format: `KEY=value` lines; blank lines and `#` comments are skipped, an
+  optional `export ` prefix is accepted, and one pair of surrounding quotes is
+  stripped. Other keys are ignored. The file is parsed, never sourced.
+- Keep it mode 600; if group or others can read it, a warning is printed to
+  stderr (the values are never printed) and the file is still used.
+- Do not put this file in a dispatch host's agent user home: the dispatch service passes each run its dispatching user's key through the environment, and the file would override it.
+- Precedence: environment, then file, then unset (local SQLite mode when no URL).
+
 ### MCP Client Configuration
 
 The MCP server supports two transports. Choose the one that fits your setup:

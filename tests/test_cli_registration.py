@@ -310,9 +310,7 @@ async def test_backend_session_http_missing_key_raises(monkeypatch):
     fake = _FakeBackend()
     monkeypatch.setattr(_shared, "create_backend", lambda: fake)
 
-    with pytest.raises(
-        RuntimeError, match="AGENT_GTD_API_KEY environment variable is required"
-    ):
+    with pytest.raises(RuntimeError, match="AGENT_GTD_API_KEY is required"):
         async with _shared.backend_session():
             pass
 

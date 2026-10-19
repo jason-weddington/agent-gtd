@@ -1,10 +1,30 @@
 """Shared test fixtures for Agent GTD."""
 
-import pytest
-from httpx import ASGITransport, AsyncClient
+import os
+import tempfile
 
-from agent_gtd.database import init_db
-from agent_gtd.main import app
+# The client config file (~/.config/agent-gtd/agent-gtd.env) wins over the
+# environment, and mcp_backend resolves it at import time. Point it at a path
+# that cannot exist BEFORE agent_gtd is imported, so a developer's real file
+# never leaks into the suite (it did: tests went to HTTP mode with a live key).
+_NO_CLIENT_CONFIG = os.path.join(tempfile.mkdtemp(), "absent-agent-gtd.env")
+os.environ["AGENT_GTD_CONFIG"] = _NO_CLIENT_CONFIG
+
+import pytest  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+
+from agent_gtd.database import init_db  # noqa: E402
+from agent_gtd.main import app  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolate_client_config(monkeypatch):
+    """Keep every test off the developer's real client config file.
+
+    Tests that exercise the file set AGENT_GTD_CONFIG (or delete it and point
+    XDG_CONFIG_HOME/HOME at tmp_path) themselves.
+    """
+    monkeypatch.setenv("AGENT_GTD_CONFIG", _NO_CLIENT_CONFIG)
 
 
 @pytest.fixture(autouse=True)

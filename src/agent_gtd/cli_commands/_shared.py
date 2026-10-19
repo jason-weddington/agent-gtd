@@ -14,12 +14,12 @@ lazily inside the context manager, mirroring the existing ``cli.py`` handlers.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, NoReturn
 
+from agent_gtd.client_config import missing_api_key_message, resolve_client_config
 from agent_gtd.mcp_backend import McpBackend, create_backend
 
 if TYPE_CHECKING:
@@ -109,16 +109,16 @@ async def backend_session() -> AsyncIterator[tuple[McpBackend, str]]:
     """
     backend = create_backend()
     try:
-        if not os.environ.get("AGENT_GTD_URL", ""):
+        if not resolve_client_config()[0]:
             # Local mode — no auth needed.
             from agent_gtd.database import LOCAL_USER_ID, init_db
 
             await init_db()
             user_id = LOCAL_USER_ID
         else:
-            api_key = os.environ.get("AGENT_GTD_API_KEY", "")
+            api_key = resolve_client_config()[1]
             if not api_key:
-                raise RuntimeError("AGENT_GTD_API_KEY environment variable is required")
+                raise RuntimeError(missing_api_key_message())
             session = await backend.login(api_key, "cli")
             user_id = session["user_id"]
         yield backend, user_id
