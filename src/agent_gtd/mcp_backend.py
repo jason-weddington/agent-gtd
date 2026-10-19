@@ -25,7 +25,8 @@ _PER_COLUMN_CAP = 10
 def _host_projection(host: dict[str, Any]) -> dict[str, Any]:
     """Project a dispatch host to the peer-visibility shape (no secrets).
 
-    Exactly ``{id, label, url, drain_reason}`` — never ``api_key`` or
+    Exactly ``{id, label, url, capability_labels, drain_reason}`` — never
+    ``api_key`` or
     ``api_key_preview``. Used by BOTH backends so CLI output is
     mode-invariant.
     """
@@ -33,6 +34,7 @@ def _host_projection(host: dict[str, Any]) -> dict[str, Any]:
         "id": host["id"],
         "label": host["label"],
         "url": host["url"],
+        "capability_labels": list(host.get("capability_labels") or []),
         "drain_reason": host.get("drain_reason"),
     }
 
@@ -209,6 +211,7 @@ class McpBackend(Protocol):
         clear_build_dispatch_agent: bool = False,
         gate_command: str | None = None,
         clear_gate_command: bool = False,
+        required_labels: list[str] | None = None,
     ) -> dict[str, Any]: ...
 
     async def list_items(
@@ -262,6 +265,7 @@ class McpBackend(Protocol):
         project_id: str | None = None,
         project_id_set: bool = False,
         commit_type: str | None = None,
+        required_labels: list[str] | None = None,
         actor_run_id: str | None = None,
         actor_run_mode: str | None = None,
     ) -> dict[str, Any]: ...
@@ -396,6 +400,13 @@ class McpBackend(Protocol):
         self,
         user_id: str,
         host: str,
+    ) -> dict[str, Any]: ...
+
+    async def set_dispatch_host_labels(
+        self,
+        user_id: str,
+        host: str,
+        labels: list[str],
     ) -> dict[str, Any]: ...
 
     async def add_blocker(
@@ -634,6 +645,7 @@ class LocalBackend:
         clear_build_dispatch_agent: bool = False,
         gate_command: str | None = None,
         clear_gate_command: bool = False,
+        required_labels: list[str] | None = None,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.exceptions import ValidationError
@@ -658,6 +670,7 @@ class LocalBackend:
             or git_origin is not None
             or repo_mode is not None
             or workspace_repos is not None
+            or required_labels is not None
         )
         if dispatch_only_touched:
             row = await db.fetchrow(
@@ -690,6 +703,7 @@ class LocalBackend:
             clear_build_dispatch_agent=clear_build_dispatch_agent,
             gate_command=gate_command,
             clear_gate_command=clear_gate_command,
+            required_labels=required_labels,
         )
 
     async def _build_project_map(self, user_id: str) -> dict[str, dict[str, Any]]:
@@ -857,6 +871,7 @@ class LocalBackend:
         project_id: str | None = None,
         project_id_set: bool = False,
         commit_type: str | None = None,
+        required_labels: list[str] | None = None,
         actor_run_id: str | None = None,
         actor_run_mode: str | None = None,
     ) -> dict[str, Any]:
@@ -884,6 +899,7 @@ class LocalBackend:
             project_id=project_id,
             project_id_set=project_id_set,
             commit_type=commit_type,
+            required_labels=required_labels,
             version=version,
             actor_run_id=actor_run_id,
             actor_run_mode=actor_run_mode,
@@ -1257,6 +1273,25 @@ class LocalBackend:
         result = await settings_service.clear_dispatch_host_drain(db, user_id, host)
         # Never return api_key or api_key_preview to peers.
         return _host_projection(result)
+
+    async def set_dispatch_host_labels(
+        self,
+        user_id: str,
+        host: str,
+        labels: list[str],
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.exceptions import NotFoundError
+        from agent_gtd.services import settings_service
+
+        db = await get_db()
+        resolved, _ = await settings_service.resolve_dispatch_host(db, user_id, host)
+        updated = await settings_service.update_dispatch_host(
+            db, user_id, resolved["id"], labels
+        )
+        if updated is None:
+            raise NotFoundError("DispatchHost", host)
+        return _host_projection(updated)
 
     async def add_blocker(
         self,
@@ -1684,6 +1719,7 @@ class HttpBackend:
         clear_build_dispatch_agent: bool = False,
         gate_command: str | None = None,
         clear_gate_command: bool = False,
+        required_labels: list[str] | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {}
         if name is not None:
@@ -1726,6 +1762,8 @@ class HttpBackend:
             body["gate_command"] = gate_command
         elif clear_gate_command:
             body["gate_command"] = None
+        if required_labels is not None:
+            body["required_labels"] = required_labels
         resp = await self._client.patch(
             f"/api/projects/{project_id}",
             json=body,
@@ -1853,6 +1891,7 @@ class HttpBackend:
         project_id: str | None = None,
         project_id_set: bool = False,
         commit_type: str | None = None,
+        required_labels: list[str] | None = None,
         actor_run_id: str | None = None,
         actor_run_mode: str | None = None,
     ) -> dict[str, Any]:
@@ -1887,6 +1926,8 @@ class HttpBackend:
         # "" is sent (it clears the field); None leaves it unchanged.
         if commit_type is not None:
             body["commit_type"] = commit_type
+        if required_labels is not None:
+            body["required_labels"] = required_labels
         resp = await self._client.patch(
             f"/api/items/{item_id}",
             json=body,
@@ -2275,6 +2316,43 @@ class HttpBackend:
         resp = await self._client.post(
             "/api/settings/dispatch/hosts/undrain",
             json={"host": host},
+            headers=self._headers(),
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return _host_projection(result)
+
+    async def set_dispatch_host_labels(
+        self,
+        user_id: str,
+        host: str,
+        labels: list[str],
+    ) -> dict[str, Any]:
+        from agent_gtd.exceptions import NotFoundError, ValidationError
+
+        resp = await self._client.get(
+            "/api/settings/dispatch/hosts", headers=self._headers()
+        )
+        self._check(resp)
+        hosts: list[dict[str, Any]] = resp.json()
+        # Same resolution order as settings_service.resolve_dispatch_host:
+        # exact id, unique exact label, unique URL substring.
+        matches = [h for h in hosts if h["id"] == host]
+        if not matches:
+            matches = [h for h in hosts if h.get("label") == host]
+        if not matches:
+            matches = [h for h in hosts if host in h["url"]]
+        if not matches:
+            raise NotFoundError("DispatchHost", host)
+        if len(matches) > 1:
+            cands = "; ".join(
+                f"label={h.get('label', '')} id={h['id']} url={h['url']}"
+                for h in matches
+            )
+            raise ValidationError(f"Multiple dispatch hosts match '{host}': {cands}")
+        resp = await self._client.patch(
+            f"/api/settings/dispatch/hosts/{matches[0]['id']}",
+            json={"capability_labels": labels},
             headers=self._headers(),
         )
         self._check(resp)

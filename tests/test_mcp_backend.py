@@ -470,7 +470,85 @@ async def test_list_dispatch_hosts_backend(authed_backend: HttpBackend):
     # Critical: no secret material — not even the masked preview.
     assert "api_key" not in returned
     assert "api_key_preview" not in returned
-    assert set(returned.keys()) == {"id", "label", "url", "drain_reason"}
+    assert set(returned.keys()) == {
+        "id",
+        "label",
+        "url",
+        "capability_labels",
+        "drain_reason",
+    }
+
+
+async def test_set_dispatch_host_labels_roundtrip(authed_backend: HttpBackend):
+    """Setting labels by label/URL ref replaces the list and list shows it back."""
+    from agent_gtd.database import get_db
+    from agent_gtd.exceptions import NotFoundError
+    from agent_gtd.services import settings_service
+
+    db = await get_db()
+    row = await db.fetchrow("SELECT id FROM users WHERE email = $1", "test@example.com")
+    user_id = row["id"]
+    host = await settings_service.add_dispatch_host(
+        db, user_id, "host-a", "https://a.example.com", "k1"
+    )
+    await settings_service.add_dispatch_host(
+        db, user_id, "host-b", "https://b.example.com", "k2"
+    )
+
+    updated = await authed_backend.set_dispatch_host_labels(
+        "", "host-a", ["Camera-Data", "tauri-linux"]
+    )
+    assert updated["id"] == host["id"]
+    assert updated["capability_labels"] == ["camera-data", "tauri-linux"]
+
+    listed = {h["label"]: h for h in await authed_backend.list_dispatch_hosts("")}
+    assert listed["host-a"]["capability_labels"] == ["camera-data", "tauri-linux"]
+    assert listed["host-b"]["capability_labels"] == []
+
+    # URL-substring resolution; replace is a full replacement.
+    again = await authed_backend.set_dispatch_host_labels("", "a.example", ["x"])
+    assert again["capability_labels"] == ["x"]
+
+    cleared = await authed_backend.set_dispatch_host_labels("", host["id"], [])
+    assert cleared["capability_labels"] == []
+
+    with pytest.raises(NotFoundError):
+        await authed_backend.set_dispatch_host_labels("", "nope", ["x"])
+
+
+async def test_local_backend_host_labels_and_required_labels():
+    """LocalBackend lists real labels and updates project/item required_labels."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+    from agent_gtd.services import settings_service
+
+    backend = LocalBackend()
+    db = await get_db()
+    await settings_service.add_dispatch_host(
+        db, LOCAL_USER_ID, "h1", "https://h1.example.com", "k"
+    )
+    out = await backend.set_dispatch_host_labels(LOCAL_USER_ID, "h1", ["gpu"])
+    assert out["capability_labels"] == ["gpu"]
+    hosts = await backend.list_dispatch_hosts(LOCAL_USER_ID)
+    assert hosts[0]["capability_labels"] == ["gpu"]
+
+    project = await backend.create_project(LOCAL_USER_ID, name="p")
+    updated = await backend.update_project(
+        LOCAL_USER_ID, project["id"], required_labels=["gpu"]
+    )
+    assert updated["required_labels"] == ["gpu"]
+    kept = await backend.update_project(LOCAL_USER_ID, project["id"], name="p2")
+    assert kept["required_labels"] == ["gpu"]
+    cleared = await backend.update_project(
+        LOCAL_USER_ID, project["id"], required_labels=[]
+    )
+    assert cleared["required_labels"] == []
+
+    item = await backend.create_item(LOCAL_USER_ID, title="t", project_id=project["id"])
+    got = await backend.update_item(
+        LOCAL_USER_ID, item["id"], version=item["version"], required_labels=["gpu"]
+    )
+    assert got["required_labels"] == ["gpu"]
 
 
 # --- Workspace project fields (LocalBackend via HttpBackend) ---

@@ -54,6 +54,7 @@ _UPDATE_ITEM_FIELDS: frozenset[str] = frozenset(
         "scope_out",
         "project_id",
         "commit_type",
+        "required_labels",
     }
 )
 
@@ -499,6 +500,7 @@ async def _do_update_item(
     build_engine: str | None,
     explicit_version: int | None,
     commit_type: str | None = None,
+    required_labels: list[str] | None = None,
 ) -> None:
     """Apply a structured update to a GTD item via the configured backend.
 
@@ -522,6 +524,9 @@ async def _do_update_item(
             auto-fetch + single retry.
         commit_type: New commit type from the ``--commit-type`` flag, or None
             to use the payload value (``""`` in the payload clears it).
+        required_labels: Full replacement required-labels list from the
+            ``--required-label`` / ``--clear-required-labels`` flags (``[]``
+            clears), or None to use the payload value (None = unchanged).
 
     Raises:
         ValueError: If the payload contains keys not in ``_UPDATE_ITEM_FIELDS``.
@@ -611,6 +616,12 @@ async def _do_update_item(
             commit_type if commit_type is not None else payload.get("commit_type")
         )
 
+        effective_required_labels: list[str] | None = (
+            required_labels
+            if required_labels is not None
+            else payload.get("required_labels")
+        )
+
         # project_id sentinel translation (payload only; no flag equivalent).
         # None/absent → unchanged; "" → detach (project_id=None, project_id_set=True);
         # non-empty UUID → move (project_id_set=True).
@@ -652,6 +663,7 @@ async def _do_update_item(
                 project_id=backend_project_id,
                 project_id_set=project_id_set,
                 commit_type=effective_commit_type,
+                required_labels=effective_required_labels,
             )
 
         if explicit_version is not None:
@@ -687,10 +699,13 @@ def _cmd_update_item(args: argparse.Namespace) -> None:
         and not args.status
         and not args.build_engine
         and not args.commit_type
+        and not getattr(args, "required_labels", None)
+        and not getattr(args, "clear_required_labels", False)
     ):
         print(
             "Error: supply at least one of --from-json, --stdin, --status,"
-            " --build-engine, or --commit-type",
+            " --build-engine, --commit-type, --required-label, or"
+            " --clear-required-labels",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -701,6 +716,15 @@ def _cmd_update_item(args: argparse.Namespace) -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    required_labels: list[str] | None = (
+        []
+        if getattr(args, "clear_required_labels", False)
+        else getattr(args, "required_labels", None)
+    )
+    extra: dict[str, Any] = (
+        {} if required_labels is None else {"required_labels": required_labels}
+    )
+
     try:
         asyncio.run(
             _do_update_item(
@@ -710,6 +734,7 @@ def _cmd_update_item(args: argparse.Namespace) -> None:
                 args.build_engine,
                 args.version,
                 commit_type=args.commit_type,
+                **extra,
             )
         )
     except Exception as e:
@@ -1066,6 +1091,22 @@ def build_parser() -> argparse.ArgumentParser:
             'field; to clear it pass {"commit_type": ""} via --from-json or '
             "--stdin."
         ),
+    )
+    ui_labels = ui.add_mutually_exclusive_group()
+    ui_labels.add_argument(
+        "--required-label",
+        action="append",
+        dest="required_labels",
+        metavar="LABEL",
+        help=(
+            "Capability label a dispatch host must carry to run this item"
+            " (repeatable; replaces the full list)."
+        ),
+    )
+    ui_labels.add_argument(
+        "--clear-required-labels",
+        action="store_true",
+        help="Clear the item's required labels.",
     )
     ui.add_argument(
         "--version",

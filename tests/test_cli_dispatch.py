@@ -112,6 +112,7 @@ class _FakeBackend:
         self.list_dispatch_hosts_calls: int = 0
         self.drain_calls: list[dict[str, Any]] = []
         self.undrain_calls: list[dict[str, Any]] = []
+        self.label_calls: list[dict[str, Any]] = []
         self._dispatch_item_result: dict[str, Any] = _make_run()
         self._list_runs_result: list[dict[str, Any]] = []
         self._list_dispatch_hosts_result: list[dict[str, Any]] = []
@@ -175,6 +176,12 @@ class _FakeBackend:
     ) -> dict[str, Any]:
         self.undrain_calls.append({"user_id": user_id, "host": host})
         return self._undrain_result
+
+    async def set_dispatch_host_labels(
+        self, user_id: str, host: str, labels: list[str]
+    ) -> dict[str, Any]:
+        self.label_calls.append({"host": host, "labels": labels})
+        return {"id": "h", "label": host, "capability_labels": labels}
 
     async def close(self) -> None:
         pass
@@ -881,3 +888,31 @@ def test_cancel_run_parser_accepts_force_flag():
     args = build_parser().parse_args(["cancel-run", "run-1", "--force"])
     assert args.run_id == "run-1"
     assert args.force is True
+
+
+def test_set_host_labels_replaces_and_clears(monkeypatch, capsys):
+    """set-host-labels sends the full list; --clear sends []; bare call errors."""
+    from agent_gtd.cli import build_parser
+    from agent_gtd.cli_commands.dispatch import _cmd_set_host_labels
+
+    fake = _FakeBackend()
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.dispatch.backend_session", _make_session(fake)
+    )
+    parser = build_parser()
+
+    args = parser.parse_args(["set-host-labels", "host-a", "gpu", "camera-data"])
+    assert args.func is _cmd_set_host_labels
+    _cmd_set_host_labels(args)
+    assert fake.label_calls[-1] == {"host": "host-a", "labels": ["gpu", "camera-data"]}
+    assert "gpu" in capsys.readouterr().out
+
+    _cmd_set_host_labels(parser.parse_args(["set-host-labels", "host-a", "--clear"]))
+    assert fake.label_calls[-1] == {"host": "host-a", "labels": []}
+
+    with pytest.raises(SystemExit):
+        _cmd_set_host_labels(parser.parse_args(["set-host-labels", "host-a"]))
+    with pytest.raises(SystemExit):
+        _cmd_set_host_labels(
+            parser.parse_args(["set-host-labels", "host-a", "gpu", "--clear"])
+        )

@@ -174,6 +174,24 @@ def _register_update_project(subparsers: argparse._SubParsersAction[Any]) -> Non
         help="Workspace repo URL (repeatable; replaces existing list).",
     )
 
+    grp_labels = parser.add_mutually_exclusive_group()
+    grp_labels.add_argument(
+        "--required-label",
+        action="append",
+        dest="required_labels",
+        metavar="LABEL",
+        help=(
+            "Capability label a dispatch host must carry to run this"
+            " project's work (repeatable; replaces the full list)."
+        ),
+    )
+    grp_labels.add_argument(
+        "--clear-required-labels",
+        action="store_true",
+        dest="clear_required_labels",
+        help="Clear the project's required labels.",
+    )
+
     # Mutually exclusive value/clear pairs for nullable dispatch fields.
     grp_turns = parser.add_mutually_exclusive_group()
     grp_turns.add_argument(
@@ -404,6 +422,11 @@ def _cmd_update_project(args: argparse.Namespace) -> None:
                 clear_build_dispatch_agent=args.clear_build_dispatch_agent,
                 gate_command=getattr(args, "gate_command", None),
                 clear_gate_command=getattr(args, "clear_gate_command", False),
+                required_labels=(
+                    []
+                    if getattr(args, "clear_required_labels", False)
+                    else getattr(args, "required_labels", None)
+                ),
             )
 
     try:

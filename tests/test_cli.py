@@ -2896,7 +2896,7 @@ def test_cmd_update_item_no_source_message_names_commit_type(monkeypatch, capsys
     assert exc_info.value.code == 1
     assert (
         "Error: supply at least one of --from-json, --stdin, --status, "
-        "--build-engine, or --commit-type"
+        "--build-engine, --commit-type, --required-label, or --clear-required-labels"
     ) in capsys.readouterr().err
 
 

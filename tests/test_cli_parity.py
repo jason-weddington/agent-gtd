@@ -46,6 +46,7 @@ MCP_ONLY_EXCLUSIONS = {"login"}
 ALIAS_MAP = {
     "get_run_status": "run-status",
     "get_rollout": "rollout-status",
+    "set_dispatch_host_labels": "set-host-labels",
 }
 
 # CLI subcommands that legitimately have no MCP counterpart. ``promote-admin``

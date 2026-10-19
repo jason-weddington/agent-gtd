@@ -1884,7 +1884,13 @@ async def test_list_dispatch_hosts(registered_client, user_id):
     # Critical: no secret material is ever returned.
     assert "api_key" not in returned
     assert "api_key_preview" not in returned
-    assert set(returned.keys()) == {"id", "label", "url", "drain_reason"}
+    assert set(returned.keys()) == {
+        "id",
+        "label",
+        "url",
+        "capability_labels",
+        "drain_reason",
+    }
 
 
 async def test_list_items_compact_by_default(registered_client, project_id):

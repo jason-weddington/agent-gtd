@@ -425,6 +425,7 @@ def test_update_project_happy_path(monkeypatch, capsys):
         clear_build_dispatch_agent=False,
         gate_command=None,
         clear_gate_command=False,
+        required_labels=None,
     )
 
 
@@ -876,3 +877,31 @@ def test_update_project_parser_gate_and_clear_mutually_exclusive():
             ]
         )
     assert exc_info.value.code == 2
+
+
+def test_update_project_required_label_flags(monkeypatch):
+    """--required-label (repeatable) replaces; --clear-required-labels sends []."""
+    from agent_gtd.cli import build_parser
+
+    fake_backend = AsyncMock()
+    fake_backend.update_project.return_value = {"id": "p"}
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands.projects.backend_session",
+        _fake_session(fake_backend),
+    )
+    parser = build_parser()
+    args = parser.parse_args(
+        ["update-project", "p", "--required-label", "a", "--required-label", "b"]
+    )
+    args.func(args)
+    assert fake_backend.update_project.call_args.kwargs["required_labels"] == [
+        "a",
+        "b",
+    ]
+    args = parser.parse_args(["update-project", "p", "--clear-required-labels"])
+    args.func(args)
+    assert fake_backend.update_project.call_args.kwargs["required_labels"] == []
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            ["update-project", "p", "--required-label", "a", "--clear-required-labels"]
+        )

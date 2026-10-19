@@ -953,7 +953,13 @@ async def test_local_backend_list_carries_drain_reason():
     assert len(hosts) == 1
     returned = hosts[0]
     assert returned["drain_reason"] == REASON
-    assert set(returned.keys()) == {"id", "label", "url", "drain_reason"}
+    assert set(returned.keys()) == {
+        "id",
+        "label",
+        "url",
+        "capability_labels",
+        "drain_reason",
+    }
 
 
 async def test_local_backend_drain_returns_secret_free_dict():
@@ -964,7 +970,13 @@ async def test_local_backend_drain_returns_secret_free_dict():
         LOCAL_USER_ID, "host-a", "rolling deploy 2.0.2"
     )
     assert result["drain_reason"] == "rolling deploy 2.0.2"
-    assert set(result.keys()) == {"id", "label", "url", "drain_reason"}
+    assert set(result.keys()) == {
+        "id",
+        "label",
+        "url",
+        "capability_labels",
+        "drain_reason",
+    }
     assert "api_key" not in result
     assert "api_key_preview" not in result
 
@@ -976,7 +988,13 @@ async def test_local_backend_undrain_returns_secret_free_dict():
     await backend.drain_dispatch_host(LOCAL_USER_ID, "host-a", "deploy")
     result = await backend.undrain_dispatch_host(LOCAL_USER_ID, "host-a")
     assert result["drain_reason"] is None
-    assert set(result.keys()) == {"id", "label", "url", "drain_reason"}
+    assert set(result.keys()) == {
+        "id",
+        "label",
+        "url",
+        "capability_labels",
+        "drain_reason",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1022,7 +1040,13 @@ async def test_http_backend_drain_undrain_roundtrip(drain_http_backend):
     )
     drained = await backend.drain_dispatch_host(user_id, "host-a", REASON)
     assert drained["drain_reason"] == REASON
-    assert set(drained.keys()) == {"id", "label", "url", "drain_reason"}
+    assert set(drained.keys()) == {
+        "id",
+        "label",
+        "url",
+        "capability_labels",
+        "drain_reason",
+    }
     assert "api_key" not in drained
     assert "api_key_preview" not in drained
 
@@ -1033,7 +1057,13 @@ async def test_http_backend_drain_undrain_roundtrip(drain_http_backend):
 
     undrained = await backend.undrain_dispatch_host(user_id, "host-a")
     assert undrained["drain_reason"] is None
-    assert set(undrained.keys()) == {"id", "label", "url", "drain_reason"}
+    assert set(undrained.keys()) == {
+        "id",
+        "label",
+        "url",
+        "capability_labels",
+        "drain_reason",
+    }
 
 
 async def test_http_backend_drain_missing_reason_propagates_detail(

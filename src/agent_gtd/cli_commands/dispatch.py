@@ -1,6 +1,6 @@
 """CLI dispatch, run, and dispatch-host subcommands for agent-gtd.
 
-Registers six subcommands on the shared subparsers action:
+Registers seven subcommands on the shared subparsers action:
 
 - ``dispatch-item``: dispatch an item for autonomous build or plan execution.
 - ``list-runs``: list dispatch runs, optionally filtered by item or status.
@@ -9,6 +9,7 @@ Registers six subcommands on the shared subparsers action:
 - ``drain-host``: take a host out of rotation (operator action; --reason mandatory
   unless the host is already drained).
 - ``undrain-host``: return a drained host to rotation.
+- ``set-host-labels``: replace a host's operator-set capability labels.
 """
 
 from __future__ import annotations
@@ -88,10 +89,10 @@ def _cmd_list_dispatch_hosts(args: argparse.Namespace) -> None:
     """List registered dispatch hosts.
 
     Calls ``backend.list_dispatch_hosts``; prints the ``{id, label, url,
-    drain_reason}`` list as JSON to stdout.  A non-null ``drain_reason`` means
-    the host is out of rotation and the string says why.  No secret fields
-    are printed — the backend projection already excludes ``api_key`` and
-    related fields.
+    capability_labels, drain_reason}`` list as JSON to stdout.  A non-null
+    ``drain_reason`` means the host is out of rotation and the string says
+    why.  No secret fields are printed — the backend projection already
+    excludes ``api_key`` and related fields.
 
     Args:
         args: Parsed namespace (no filtering arguments for this subcommand).
@@ -128,6 +129,32 @@ def _cmd_drain_host(args: argparse.Namespace) -> None:
             return await backend.drain_dispatch_host(
                 user_id, args.host, reason=args.reason
             )
+
+    try:
+        result = asyncio.run(_run())
+    except Exception as e:
+        fail(e)
+    emit_json(result)
+
+
+def _cmd_set_host_labels(args: argparse.Namespace) -> None:
+    """Replace a dispatch host's capability labels.
+
+    Calls ``backend.set_dispatch_host_labels`` with the host reference (id,
+    unique label, or unique URL substring) and the full replacement list
+    (``--clear`` sends an empty list); prints the resulting host dict as JSON.
+
+    Args:
+        args: Parsed namespace with ``host``, ``labels`` and ``clear``.
+    """
+    if args.clear == bool(args.labels):
+        fail(ValueError("supply one or more labels, or --clear (not both)"))
+
+    labels: list[str] = [] if args.clear else list(args.labels)
+
+    async def _run() -> dict[str, Any]:
+        async with backend_session() as (backend, user_id):
+            return await backend.set_dispatch_host_labels(user_id, args.host, labels)
 
     try:
         result = asyncio.run(_run())
@@ -175,10 +202,10 @@ def _cmd_undrain_host(args: argparse.Namespace) -> None:
 def register(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    """Register the six dispatch/host subparsers.
+    """Register the seven dispatch/host subparsers.
 
     Registers dispatch-item, list-runs, cancel-run, list-dispatch-hosts, drain-host,
-    and undrain-host.
+    undrain-host, and set-host-labels.
 
     Each subparser calls ``parser.set_defaults(func=<handler>)`` so that
     ``cli.main()``'s ``args.func(args)`` fall-through invokes the right
@@ -328,3 +355,22 @@ def register(
     )
     uh.add_argument("host", type=str, help="Host id, unique label, or URL substring.")
     uh.set_defaults(func=_cmd_undrain_host)
+
+    # ------------------------------------------------------------------ #
+    # set-host-labels
+    # ------------------------------------------------------------------ #
+    shl = subparsers.add_parser(
+        "set-host-labels",
+        help=(
+            "Replace a dispatch host's capability labels (full list). Work"
+            " whose required labels the host lacks is never routed to it."
+        ),
+    )
+    shl.add_argument(
+        "host", help="Host id, exact label, or a unique substring of its URL."
+    )
+    shl.add_argument("labels", nargs="*", metavar="LABEL", help="Labels to set.")
+    shl.add_argument(
+        "--clear", action="store_true", help="Remove all capability labels."
+    )
+    shl.set_defaults(func=_cmd_set_host_labels)

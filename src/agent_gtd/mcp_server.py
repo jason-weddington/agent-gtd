@@ -412,6 +412,7 @@ async def update_project(
     clear_build_dispatch_agent: bool = False,
     gate_command: str | None = None,
     clear_gate_command: bool = False,
+    required_labels: list[str] | None = None,
 ) -> dict[str, Any]:
     """Update an existing project. None on any field = unchanged.
 
@@ -461,6 +462,10 @@ async def update_project(
             None = unchanged.
         clear_gate_command: Set True to reset gate_command to NULL.
             Mutually exclusive with gate_command.
+        required_labels: Capability labels a dispatch host must carry to take
+            any run in this project (unioned with each item's own
+            required_labels at routing time). None = unchanged, [] = clear,
+            non-empty = replace the full list.
 
     Returns:
         The updated project dict.
@@ -503,6 +508,7 @@ async def update_project(
             clear_build_dispatch_agent=clear_build_dispatch_agent,
             gate_command=gate_command,
             clear_gate_command=clear_gate_command,
+            required_labels=required_labels,
         )
     except NotFoundError as e:
         raise ToolError(e.detail) from None
@@ -759,6 +765,7 @@ async def update_item(
     project_id: str | None = None,
     commit_type: Literal["feat", "fix", "perf", "refactor", "test", "docs", "chore", ""]
     | None = None,
+    required_labels: list[str] | None = None,
     *,
     ctx: Context,
 ) -> dict[str, Any]:
@@ -809,6 +816,10 @@ async def update_item(
             "test", "docs", "chore". plan_rollout requires it on every item.
             - None (default) → unchanged
             - Empty string "" → clear it (unset)
+        required_labels: Capability labels a dispatch host must carry to take
+            this item's runs (unioned with the project's required_labels at
+            routing time). None = unchanged, [] = clear, non-empty = replace
+            the full list.
         ctx: MCP context (injected automatically).
 
     Returns:
@@ -880,6 +891,7 @@ async def update_item(
             project_id=backend_project_id,
             project_id_set=project_id_set,
             commit_type=commit_type,
+            required_labels=required_labels,
             actor_run_id=call.run_id,
             actor_run_mode=call.run_mode,
         )
@@ -1587,18 +1599,57 @@ async def list_dispatch_hosts(
     (drained) and the string says why — do not dispatch to it and do not
     expect work on it to start; hold until it is undrained.
 
-    No secret material is returned — only ``id``, ``label``, ``url``, and
-    ``drain_reason``.
+    ``capability_labels`` is the operator-set list of labels the host
+    carries; work whose effective required_labels are not a subset of it is
+    never routed there.
+
+    No secret material is returned — only ``id``, ``label``, ``url``,
+    ``capability_labels``, and ``drain_reason``.
 
     Args:
         ctx: MCP context (injected automatically).
 
     Returns:
-        List of host dicts, each with keys ``id``, ``label``, ``url``, and
-        ``drain_reason``.
+        List of host dicts, each with keys ``id``, ``label``, ``url``,
+        ``capability_labels``, and ``drain_reason``.
     """
     call = await _resolve_call(ctx)
     return await call.backend.list_dispatch_hosts(call.user_id)
+
+
+@_tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+async def set_dispatch_host_labels(
+    host: str,
+    labels: list[str],
+    ctx: Context,
+) -> dict[str, Any]:
+    """Replace a dispatch host's capability labels.
+
+    Capability labels are operator-set facts about what the host can do
+    (installed toolchain, local data). Work whose effective required_labels
+    (project plus item) are not a subset of a host's labels is never routed
+    to that host.
+
+    Args:
+        host: The host to update — its id, its exact label, or a substring of
+            its URL that matches exactly one host.
+        labels: The full replacement label list (normalized to lowercase,
+            deduplicated). An empty list clears all labels.
+        ctx: MCP context (injected automatically).
+
+    Returns:
+        The updated host dict with keys ``id``, ``label``, ``url``,
+        ``capability_labels``, and ``drain_reason``.
+    """
+    call = await _resolve_call(ctx)
+    try:
+        return await call.backend.set_dispatch_host_labels(call.user_id, host, labels)
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+    except ValidationError as e:
+        raise ToolError(e.detail) from None
 
 
 # --- Rollout manager tools ---
