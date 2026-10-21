@@ -805,20 +805,24 @@ class TestResumeRollout404:
 
 
 # ---------------------------------------------------------------------------
-# AC-6: POST /api/rollouts/{id}/relaunch-manage — 404 branch (lines 579-583)
+# POST /api/rollouts/{id}/relaunch-manage — retired with the resident manager
 # ---------------------------------------------------------------------------
 
 
-class TestRelaunchManageRollout:
-    async def test_relaunch_manage_404_unknown(
+class TestRelaunchManageRouteRetired:
+    async def test_relaunch_manage_route_is_gone(
         self, client: AsyncClient, auth_headers: dict[str, str]
     ) -> None:
-        """POST to nonexistent rollout ID returns 404."""
+        """No route exists: nothing may relaunch a manager any more."""
+        from agent_gtd.main import app
+
+        paths = {getattr(r, "path", "") for r in app.routes}
+        assert "/api/rollouts/{rollout_id}/relaunch-manage" not in paths
         resp = await client.post(
             "/api/rollouts/00000000-0000-0000-0000-000000000000/relaunch-manage",
             headers=auth_headers,
         )
-        assert resp.status_code == 404
+        assert resp.status_code in (404, 405)
 
 
 # ---------------------------------------------------------------------------

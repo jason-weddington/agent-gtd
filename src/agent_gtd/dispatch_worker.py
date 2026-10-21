@@ -336,7 +336,7 @@ def resolve_timeout_minutes(
         global_worker: The deployment-wide default for worker modes (build,
             plan) from app_settings (hard-coded fallback: 30).
         global_manager: The deployment-wide default for manager-mode runs from
-            app_settings (hard-coded fallback: 240).
+            app_settings (fallback: ``MANAGER_DEFAULT_TIMEOUT_MINUTES``, 45).
 
     Returns:
         The resolved timeout_minutes integer.

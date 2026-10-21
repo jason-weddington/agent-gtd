@@ -601,7 +601,7 @@ async def get_rollout(
         user: Injected authenticated user.
 
     Returns:
-        The rollout dict including status, manage_retry_count, halt_reason, etc.
+        The rollout dict including status, halt_reason, etc.
 
     Raises:
         404 if rollout not found or caller doesn't own it.
@@ -643,32 +643,6 @@ async def dismiss_rollout(
             rollout_id,
             "Dismissed by operator",
         )
-    except (NotFoundError, ValidationError) as exc:
-        raise _map_exc(exc) from exc
-
-
-@router.post("/{rollout_id}/relaunch-manage")
-async def relaunch_manage(
-    rollout_id: str,
-    user: Annotated[User, Depends(get_current_user)],
-) -> dict[str, Any]:
-    """Atomically increment manage_retry_count and emit a manage_relaunched event.
-
-    Called by the dispatch service when a manage subprocess exits unexpectedly.
-
-    Args:
-        rollout_id: The rollout whose manager is being relaunched.
-        user: Injected authenticated user.
-
-    Returns:
-        The updated rollout dict (includes manage_retry_count).
-
-    Raises:
-        404 if rollout not found or caller doesn't own it.
-    """
-    db = await get_db()
-    try:
-        return await rollout_service.relaunch_manage_rollout(db, user.id, rollout_id)
     except (NotFoundError, ValidationError) as exc:
         raise _map_exc(exc) from exc
 

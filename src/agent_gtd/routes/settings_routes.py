@@ -9,7 +9,11 @@ from fastapi.responses import Response
 
 from agent_gtd.auth import get_current_user
 from agent_gtd.database import get_db
-from agent_gtd.dispatch_constants import MAX_TIMEOUT_MINUTES, MIN_TIMEOUT_MINUTES
+from agent_gtd.dispatch_constants import (
+    MANAGER_DEFAULT_TIMEOUT_MINUTES,
+    MAX_TIMEOUT_MINUTES,
+    MIN_TIMEOUT_MINUTES,
+)
 from agent_gtd.exceptions import NotFoundError, ValidationError
 from agent_gtd.models import (
     AddDispatchHostRequest,
@@ -70,7 +74,9 @@ async def _build_dispatch_response(db: Any, user_id: str) -> DispatchSettingsRes
         db, _MANAGER_TIMEOUT_MINUTES_KEY
     )
     manager_default_timeout_minutes = (
-        int(manager_timeout_val) if manager_timeout_val is not None else 240
+        int(manager_timeout_val)
+        if manager_timeout_val is not None
+        else MANAGER_DEFAULT_TIMEOUT_MINUTES
     )
 
     service_url = (

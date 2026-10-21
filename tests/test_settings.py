@@ -923,7 +923,7 @@ async def test_migrate_engine_default_to_sonnet_idempotent() -> None:
 async def test_get_dispatch_settings_manager_timeout_default(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    """AC-1: GET returns manager_default_timeout_minutes=240 when DB key is absent."""
+    """AC-1: GET returns manager_default_timeout_minutes=45 when DB key is absent."""
     from agent_gtd.database import get_db as _get_db
 
     db = await _get_db()
@@ -936,7 +936,7 @@ async def test_get_dispatch_settings_manager_timeout_default(
     res = await client.get("/api/settings/dispatch", headers=auth_headers)
     assert res.status_code == 200
     data = res.json()
-    assert data["manager_default_timeout_minutes"] == 240
+    assert data["manager_default_timeout_minutes"] == 45
 
 
 @pytest.mark.asyncio
@@ -1005,7 +1005,7 @@ async def test_patch_dispatch_settings_manager_timeout_boundary(
 
 @pytest.mark.asyncio
 async def test_manager_timeout_migration_writes_default_when_absent() -> None:
-    """AC-10: Boot migration writes manager_default_timeout_minutes=240 when absent."""
+    """AC-10: Boot migration writes manager_default_timeout_minutes=45 when absent."""
     from agent_gtd.database import get_db as _get_db
     from agent_gtd.main import _migrate_manager_timeout_default
     from agent_gtd.services.settings_service import get_setting
@@ -1020,7 +1020,7 @@ async def test_manager_timeout_migration_writes_default_when_absent() -> None:
     await _migrate_manager_timeout_default()
 
     val = await get_setting(db, "dispatch.manager_default_timeout_minutes")
-    assert val == "240"
+    assert val == "45"
 
 
 @pytest.mark.asyncio

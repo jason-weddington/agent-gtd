@@ -317,6 +317,9 @@ class RolloutEventKind(StrEnum):
     WAVE_COMPLETED = "wave_completed"
     COMMENT_POSTED = "comment_posted"
     WAVE_HALTED = "wave_halted"
+    # Historical only: emitted by the retired resident-manager relaunch path
+    # (removed in item 7baf77d0).  Nothing emits it any more; it is kept so
+    # existing rollout_events rows still deserialise.
     MANAGE_RELAUNCHED = "manage_relaunched"
     WAVE_CANCELLED = "wave_cancelled"
     WAVE_STARTED = "wave_started"

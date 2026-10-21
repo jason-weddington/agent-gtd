@@ -1712,7 +1712,8 @@ async def get_rollout(
         The autonomous_rollouts row dict with fields: id, project_id, status,
         halt_reason, started_at, ended_at, created_at, updated_at,
         manager_phase, manager_current_item_id, manager_current_step,
-        manager_state_updated_at, manage_retry_count, and
+        manager_state_updated_at, manage_retry_count (historical; no
+        longer written), and
         inFlightBuildRuns (list of {runId, itemId, status} for child build
         runs whose status is non-terminal — pending, cloning, or running).
 

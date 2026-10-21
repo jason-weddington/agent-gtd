@@ -759,7 +759,7 @@ async def test_unmatched_host_is_a_config_fault_logged_at_error(
 async def test_global_setting_fallbacks(
     client: Any, auth_headers: dict[str, str]
 ) -> None:
-    """Missing/non-integer settings fall back to 30 / MANAGER_DEFAULT (240)."""
+    """Missing/non-integer settings fall back to 30 / MANAGER_DEFAULT (45)."""
     from agent_gtd.dispatch_constants import MANAGER_DEFAULT_TIMEOUT_MINUTES
 
     db = await get_db()
@@ -773,7 +773,7 @@ async def test_global_setting_fallbacks(
     build_id = await _insert_run(
         db, user_id=user_id, project_id=project_id, started_minutes=100
     )
-    # Manage run: 300m > 240+30 limit → timeout (global_manager fallback).
+    # Manage run: 300m > 45+30 limit → timeout (global_manager fallback).
     manage_id = await _insert_run(
         db,
         user_id=user_id,
@@ -782,13 +782,13 @@ async def test_global_setting_fallbacks(
         started_minutes=300,
         remote_run_id="",
     )
-    # Manage run under the 270 limit → untouched.
+    # Manage run under the 75 limit → untouched.
     young_manage_id = await _insert_run(
         db,
         user_id=user_id,
         project_id=project_id,
         mode="manage",
-        started_minutes=260,
+        started_minutes=60,
         remote_run_id="",
     )
 
@@ -796,7 +796,7 @@ async def test_global_setting_fallbacks(
     assert (await _get_run(db, build_id))["status"] == "timeout"
     assert (await _get_run(db, manage_id))["status"] == "timeout"
     assert (await _get_run(db, young_manage_id))["status"] == "running"
-    assert MANAGER_DEFAULT_TIMEOUT_MINUTES == 240
+    assert MANAGER_DEFAULT_TIMEOUT_MINUTES == 45
 
 
 async def test_project_timeout_non_integer_is_ignored(

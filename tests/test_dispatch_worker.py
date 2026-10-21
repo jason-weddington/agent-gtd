@@ -285,7 +285,7 @@ async def test_execute_run_inbox_item_uses_caller_config() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_run_manage_mode_uses_manager_timeout() -> None:
-    """AC-12: mode=manage uses timeout_minutes=240 when no project/DB overrides."""
+    """AC-12: mode=manage uses timeout_minutes=45 when no project/DB overrides."""
     from agent_gtd.dispatch_worker import execute_run
 
     dispatched_timeouts: list[int] = []
@@ -345,8 +345,8 @@ async def test_execute_run_manage_mode_uses_manager_timeout() -> None:
     ):
         await execute_run(db, run, None, project)
 
-    assert dispatched_timeouts == [240], (
-        f"Expected manage-mode timeout=240, got {dispatched_timeouts}"
+    assert dispatched_timeouts == [45], (
+        f"Expected manage-mode timeout=45, got {dispatched_timeouts}"
     )
 
 
@@ -1770,13 +1770,14 @@ def test_resolve_max_turns_project_override_wins_over_manage_value(
 
 
 def test_manager_default_timeout_is_the_single_source_of_truth() -> None:
-    """The GTD-side manage timeout constant is authoritative for 240 minutes.
+    """The GTD-side manage timeout constant is authoritative for 45 minutes.
 
     The dispatch service's ``config.MANAGE_TIMEOUT_SECONDS`` backstop derives
-    from this value and must stay numerically equal to it.
+    from this value and must stay numerically equal to it.  Sized for a
+    short-lived reviewer since the resident manager was retired.
     """
-    assert MANAGER_DEFAULT_TIMEOUT_MINUTES == 240
-    assert MANAGER_DEFAULT_TIMEOUT_MINUTES * 60 == 14400
+    assert MANAGER_DEFAULT_TIMEOUT_MINUTES == 45
+    assert MANAGER_DEFAULT_TIMEOUT_MINUTES * 60 == 2700
 
 
 class TestTerminalStatusCoverage:

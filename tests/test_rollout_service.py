@@ -1176,14 +1176,14 @@ async def test_complete_item_in_rollout_graph_complete_false_when_items_remain(d
 
 
 # ---------------------------------------------------------------------------
-# relaunch_manage_rollout — new for manage subprocess auto-recovery
+# get_rollout / halt_rollout
 # ---------------------------------------------------------------------------
 
 
+from agent_gtd.services import rollout_service as _rollout_service  # noqa: E402
 from agent_gtd.services.rollout_service import (  # noqa: E402
     get_rollout,
     halt_rollout,
-    relaunch_manage_rollout,
 )
 
 
@@ -1219,82 +1219,22 @@ async def test_get_rollout_wrong_user_raises(db):
         await get_rollout(db, other_user_id, rollout_id)
 
 
-async def test_relaunch_manage_increments_count(db):
-    """relaunch_manage_rollout atomically increments manage_retry_count."""
+def test_relaunch_manage_rollout_is_retired():
+    """The resident-manager relaunch surface is gone (item 7baf77d0)."""
+    assert not hasattr(_rollout_service, "relaunch_manage_rollout")
+
+
+async def test_nothing_writes_manage_retry_count(db):
+    """The column stays for historical rows; no rollout operation bumps it."""
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)
     rollout_id = await _make_rollout(db, user_id, project_id, status="running")
 
     with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
-        result = await relaunch_manage_rollout(db, user_id, rollout_id)
+        await halt_rollout(db, user_id, rollout_id, "test halt")
 
-    assert result["manage_retry_count"] == 1
-
-    # Second call increments again
-    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
-        result2 = await relaunch_manage_rollout(db, user_id, rollout_id)
-
-    assert result2["manage_retry_count"] == 2
-
-
-async def test_relaunch_manage_emits_correct_event(db):
-    """relaunch_manage_rollout emits a manage_relaunched event with retry_count."""
-    user_id = await _make_user(db)
-    project_id = await _make_project(db, user_id)
-    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
-
-    emitted_events: list[dict] = []
-
-    def _capture_publish(db, lead_user_id, event, proj_id):
-        emitted_events.append(event)
-
-    with patch(
-        "agent_gtd.services.rollout_service._publish_rollout_event",
-        side_effect=_capture_publish,
-    ):
-        result = await relaunch_manage_rollout(db, user_id, rollout_id)
-
-    assert len(emitted_events) == 1
-    event = emitted_events[0]
-    assert event["kind"] == "manage_relaunched"
-    assert event["actor"] == "dispatch"
-    assert event["payload"]["retry_count"] == 1
-    assert result["manage_retry_count"] == 1
-
-
-async def test_relaunch_manage_not_found_raises(db):
-    """relaunch_manage_rollout raises NotFoundError for unknown rollout."""
-    user_id = await _make_user(db)
-
-    with pytest.raises(NotFoundError):
-        await relaunch_manage_rollout(db, user_id, "no-such-rollout")
-
-
-async def test_relaunch_manage_wrong_user_raises(db):
-    """relaunch_manage_rollout raises NotFoundError for wrong user."""
-    user_id = await _make_user(db)
-    other_user_id = await _make_user(db)
-    project_id = await _make_project(db, user_id)
-    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
-
-    with pytest.raises(NotFoundError):
-        await relaunch_manage_rollout(db, other_user_id, rollout_id)
-
-
-async def test_relaunch_manage_returns_updated_dict(db):
-    """relaunch_manage_rollout returns the updated row as a dict."""
-    user_id = await _make_user(db)
-    project_id = await _make_project(db, user_id)
-    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
-
-    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
-        result = await relaunch_manage_rollout(db, user_id, rollout_id)
-
-    assert isinstance(result, dict)
-    assert "id" in result
-    assert "status" in result
-    assert "manage_retry_count" in result
-    assert result["manage_retry_count"] == 1
+    row = await get_rollout(db, user_id, rollout_id)
+    assert row["manage_retry_count"] == 0
 
 
 # ---------------------------------------------------------------------------
