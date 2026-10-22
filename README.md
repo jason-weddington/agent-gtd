@@ -370,6 +370,8 @@ The workflow above gets you to "ship one feature with one dispatched agent." Onc
 
 This section assumes the basic grooming and dispatch flow is already familiar.
 
+Ready-to-copy versions of this guidance live in [`examples/`](examples/README.md): the full dispatch steering file we run with, plus two Claude Code Workflow scripts, `groom-to-ready` (adversarially groom items into dispatch-ready specs) and `review-against-intent` (check that a landed multi-item wave delivers what it was groomed to deliver).
+
 ### Treat the interactive context as the scarce resource
 
 The session that drives orchestration has a finite context window. Every token it spends reading files, grepping, or doing implementation work inline is a token it can't spend later on review, judgment, or coordinating the next wave. Past ~60% utilization, quality degrades noticeably.
