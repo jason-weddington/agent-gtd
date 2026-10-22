@@ -2,6 +2,51 @@
 
 <!-- version list -->
 
+## v2.4.0 (2026-10-22)
+
+### Bug Fixes
+
+- **hooks**: Pre-push coverage hook writes to a mktemp file, not a shared /tmp path
+  ([`9bfa0d1`](https://github.com/jason-weddington/agent-gtd/commit/9bfa0d1a382978a4a82f339653931bad1e7fa72d))
+
+- **rollouts**: Cancel-rollout stops the rollout's in-flight builds; halt leaves them running and
+  cancel-run can stop them afterwards
+  ([`649f1a1`](https://github.com/jason-weddington/agent-gtd/commit/649f1a165908ce9393b7b2690dc471d00464771a))
+
+- **rollouts**: Retire the relaunch-manage surface and resize the manager timeout
+  ([`0982f78`](https://github.com/jason-weddington/agent-gtd/commit/0982f78ac5f82b497825568de88cadbf3adc6afe))
+
+- **rollouts**: The planner serialises items whose files_to_modify use brace patterns, globs or
+  prose
+  ([`e818cad`](https://github.com/jason-weddington/agent-gtd/commit/e818cadfbe707e92b754d829febbf1a0441c8271))
+
+### Chores
+
+- Move lab-specific steering and hostnames out of the public repo
+  ([`d8faf4a`](https://github.com/jason-weddington/agent-gtd/commit/d8faf4a13541cc9516fb9854df1096b2037b1ad5))
+
+- **release**: Run the maintainer-local release guard before anything is published to github
+  ([`8a58515`](https://github.com/jason-weddington/agent-gtd/commit/8a58515341374ff2ce92dec597298b0d593f25f2))
+
+### Documentation
+
+- Dispatch releases run through the homelab-ops release hook
+  ([`f0ee73e`](https://github.com/jason-weddington/agent-gtd/commit/f0ee73e69cdfac79b99fe138f873f49f6ad17896))
+
+### Features
+
+- **cli**: Set required_labels and host capability_labels from the CLI and MCP tools
+  ([`b73e7e6`](https://github.com/jason-weddington/agent-gtd/commit/b73e7e61a649fa5c303e1ca1690a6331eec35536))
+
+- **cli**: The CLI and stdio MCP server read the board URL and API key from
+  ~/.config/agent-gtd/agent-gtd.env, falling back to the environment
+  ([`7678403`](https://github.com/jason-weddington/agent-gtd/commit/7678403e5290cc6b01426fccec5cae3deb09f5e4))
+
+- **examples**: Reference dispatch steering and the groom-to-ready and review-against-intent
+  workflows
+  ([`7523777`](https://github.com/jason-weddington/agent-gtd/commit/7523777be94bd35c68734406110849a6eb3b9bdc))
+
+
 ## v2.3.2 (2026-10-12)
 
 ### Bug Fixes
