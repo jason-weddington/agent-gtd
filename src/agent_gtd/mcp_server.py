@@ -2013,6 +2013,54 @@ async def halt_rollout(
         raise ToolError(e.detail) from None
 
 
+@_tool(
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False),
+)
+async def resume_rollout(
+    rollout_id: str,
+    ctx: Context,
+    answer: str = "",
+    relaunch: bool = True,
+) -> dict[str, Any]:
+    """Resume a halted rollout and relaunch its rollout loop.
+
+    Resumes a halted rollout (posts ``answer`` as a project comment — required
+    for a halted rollout — moves halted items back to ready/pending, re-locks
+    them and sets the rollout to running) and relaunches the rollout loop on
+    the dispatch host that last drove it.  The loop is never moved to a
+    different host: if that host is gone or draining, the resume is refused
+    and the rollout stays halted.
+
+    On a running rollout it only relaunches a missing loop (e.g. one that
+    crashed); there is no state change.  It refuses a duplicate loop: if a
+    loop is still live, the dispatch host rejects the second one and the new
+    run ends ``cancelled`` while the live loop keeps driving.  A rollout that
+    never had a loop (lead-driven) resumes with ``loop_run_id`` null.
+
+    Args:
+        rollout_id: ID of the rollout to resume.
+        ctx: MCP context (injected automatically).
+        answer: The lead's answer or instruction, posted as a comment.
+        relaunch: Also relaunch the rollout loop (default True).
+
+    Returns:
+        The updated rollout dict plus ``total_count``, ``done_count`` and
+        ``loop_run_id`` (the relaunched loop's run id, or null).
+    """
+    call = await _resolve_call(ctx)
+    try:
+        result = await call.backend.resume_rollout(
+            call.user_id, rollout_id, answer=answer, relaunch=relaunch
+        )
+    except NotFoundError as e:
+        raise ToolError(e.detail) from None
+    except ValidationError as e:
+        raise ToolError(e.detail) from None
+    if result.get("loop_run_id"):
+        _enqueue_if_local(call, {"id": result["loop_run_id"]}, "resume_rollout")
+    return result
+
+
 @_tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True))
 async def cancel_rollout(
     rollout_id: str,

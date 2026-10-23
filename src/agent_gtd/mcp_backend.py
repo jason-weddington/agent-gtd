@@ -488,6 +488,15 @@ class McpBackend(Protocol):
         item_id: str | None = None,
     ) -> dict[str, Any]: ...
 
+    async def resume_rollout(
+        self,
+        user_id: str,
+        rollout_id: str,
+        *,
+        answer: str = "",
+        relaunch: bool = True,
+    ) -> dict[str, Any]: ...
+
     async def cancel_rollout(
         self,
         user_id: str,
@@ -1441,6 +1450,22 @@ class LocalBackend:
             reason,
             comment=comment,
             item_id=item_id,
+        )
+
+    async def resume_rollout(
+        self,
+        user_id: str,
+        rollout_id: str,
+        *,
+        answer: str = "",
+        relaunch: bool = True,
+    ) -> dict[str, Any]:
+        from agent_gtd.database import get_db
+        from agent_gtd.services import rollout_service
+
+        db = await get_db()
+        return await rollout_service.resume_rollout(
+            db, rollout_id, answer, user_id, relaunch=relaunch
         )
 
     async def start_rollout(
@@ -2539,6 +2564,23 @@ class HttpBackend:
         resp = await self._client.post(
             f"/api/rollouts/{rollout_id}/halt",
             json=body,
+            headers=self._headers(),
+        )
+        self._check(resp)
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def resume_rollout(
+        self,
+        user_id: str,
+        rollout_id: str,
+        *,
+        answer: str = "",
+        relaunch: bool = True,
+    ) -> dict[str, Any]:
+        resp = await self._client.post(
+            f"/api/rollouts/{rollout_id}/resume",
+            json={"answer": answer, "relaunch": relaunch},
             headers=self._headers(),
         )
         self._check(resp)

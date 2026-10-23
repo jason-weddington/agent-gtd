@@ -507,33 +507,57 @@ async def resume_rollout(
     body: ResumeRolloutRequest,
     user: Annotated[User, Depends(get_current_user)],
 ) -> dict[str, Any]:
-    """Resume a halted wave by providing an answer or instruction.
+    """Resume a halted rollout and relaunch its loop on the owning host.
 
-    AC-24: Validates wave is halted, posts answer as comment, re-locks items,
-    transitions halted plan items back to ready/pending, sets wave to running,
-    emits SSE.
+    Halted rollout: posts ``answer`` (required) as a project comment, re-locks
+    items, moves halted plan items back to ready/pending, sets the rollout to
+    running and emits ``wave_resumed``.  With ``relaunch`` (default true) it
+    also creates a manage run pinned to the rollout's owning dispatch host
+    (its pinned host, else the host of its latest manage run), emits
+    ``manage_relaunched`` and enqueues the run; ``loop_run_id`` in the
+    response is that run's id (null when the rollout never had a loop, e.g.
+    a lead-driven rollout).
+
+    Running rollout with ``relaunch``: no state change; only relaunches a
+    missing loop (one that crashed).  If a loop is in fact live, the dispatch
+    host refuses the duplicate and the run ends ``cancelled``.
 
     Args:
-        rollout_id: The halted wave run to resume.
-        body: The answer string to post as a comment.
+        rollout_id: The rollout to resume.
+        body: ``answer`` (comment text) and ``relaunch`` flag.
         user: Injected authenticated user.
 
     Returns:
-        Updated RolloutResponse dict.
+        Updated rollout dict plus ``total_count``, ``done_count`` and
+        ``loop_run_id``.
 
     Raises:
-        404 if wave not found or caller doesn't own it.
-        409 if wave is not halted.
+        404 if the rollout is not found or the caller doesn't own it.
+        409 if the rollout is neither halted nor running; a halted rollout
+        has a blank answer; a running rollout has nothing to relaunch
+        (``relaunch`` false, or it never had a loop); or a relaunch
+        precondition fails (owning host unresolvable or draining, or a
+        manage run is still pending).  A 409 leaves the rollout untouched.
     """
     db = await get_db()
     try:
-        return await rollout_service.resume_rollout(
-            db, rollout_id, body.answer, user.id
+        result = await rollout_service.resume_rollout(
+            db, rollout_id, body.answer, user.id, relaunch=body.relaunch
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=exc.detail) from exc
     except ValidationError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
+
+    loop_run_id = result.get("loop_run_id")
+    if loop_run_id:
+        try:
+            from agent_gtd.dispatch_worker import enqueue_run
+
+            enqueue_run(str(loop_run_id))
+        except AssertionError:
+            pass  # Worker not started (e.g. in tests)
+    return result
 
 
 @router.get("")

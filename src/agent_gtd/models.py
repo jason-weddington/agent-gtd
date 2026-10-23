@@ -317,9 +317,9 @@ class RolloutEventKind(StrEnum):
     WAVE_COMPLETED = "wave_completed"
     COMMENT_POSTED = "comment_posted"
     WAVE_HALTED = "wave_halted"
-    # Historical only: emitted by the retired resident-manager relaunch path
-    # (removed in item 7baf77d0).  Nothing emits it any more; it is kept so
-    # existing rollout_events rows still deserialise.
+    # Emitted by a lead's ``resume_rollout`` when it relaunches the rollout
+    # loop on the owning dispatch host.  (Older rows came from the retired
+    # resident-manager relaunch path, removed in item 7baf77d0.)
     MANAGE_RELAUNCHED = "manage_relaunched"
     WAVE_CANCELLED = "wave_cancelled"
     WAVE_STARTED = "wave_started"
@@ -1215,9 +1215,16 @@ class RolloutEventResponse(BaseModel):
 
 
 class ResumeRolloutRequest(BaseModel):
-    """Request body for POST /api/rollouts/{id}/resume."""
+    """Request body for POST /api/rollouts/{id}/resume.
 
-    answer: str
+    ``answer`` is required (non-blank) to resume a halted rollout; it may be
+    empty when only relaunching a missing loop on a running rollout.
+    ``relaunch`` (default True) also starts the rollout loop again on the
+    rollout's owning dispatch host.
+    """
+
+    answer: str = ""
+    relaunch: bool = True
 
 
 class ActivityEvent(BaseModel):

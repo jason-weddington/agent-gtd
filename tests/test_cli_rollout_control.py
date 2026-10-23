@@ -62,6 +62,7 @@ class _FakeBackend:
                 "newly_ready": [],
             },
             "halt_rollout": {"id": "r-1", "status": "halted"},
+            "resume_rollout": {"id": "r-1", "status": "running", "loop_run_id": "lr"},
             "cancel_rollout": {"id": "r-1", "status": "cancelled"},
             "update_rollout_state": {
                 "rollout_id": "r-1",
@@ -127,6 +128,25 @@ class _FakeBackend:
         )
         return self._responses["halt_rollout"]
 
+    async def resume_rollout(
+        self,
+        user_id: str,
+        rollout_id: str,
+        *,
+        answer: str = "",
+        relaunch: bool = True,
+    ) -> dict[str, Any]:
+        self.calls.append(
+            {
+                "method": "resume_rollout",
+                "user_id": user_id,
+                "rollout_id": rollout_id,
+                "answer": answer,
+                "relaunch": relaunch,
+            }
+        )
+        return self._responses["resume_rollout"]
+
     async def cancel_rollout(
         self, user_id: str, rollout_id: str, reason: str
     ) -> dict[str, Any]:
@@ -183,6 +203,9 @@ class _ErrorBackend:
         raise RuntimeError("backend exploded")
 
     async def halt_rollout(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("backend exploded")
+
+    async def resume_rollout(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("backend exploded")
 
     async def cancel_rollout(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -837,3 +860,81 @@ def test_advance_rollout_http_mode_missing_api_key(
     captured = capsys.readouterr()
     assert "Error:" in captured.err
     assert "AGENT_GTD_API_KEY" in captured.err
+
+
+class TestResumeRolloutParsing:
+    def test_defaults(self) -> None:
+        p, _ = _make_parser()
+        rid = _ruid()
+        args = p.parse_args(["resume-rollout", rid])
+        assert args.rollout_id == rid
+        assert args.answer == ""
+        assert args.relaunch is True
+
+    def test_flags(self) -> None:
+        p, _ = _make_parser()
+        args = p.parse_args(
+            ["resume-rollout", _ruid(), "--answer", "merged by hand", "--no-relaunch"]
+        )
+        assert args.answer == "merged by hand"
+        assert args.relaunch is False
+
+
+def test_resume_rollout_success(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake = _FakeBackend()
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+
+    rid = _ruid()
+    p, _ = _make_parser()
+    args = p.parse_args(["resume-rollout", rid, "--answer", "merged by hand"])
+    args.func(args)
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert json.loads(captured.out)["loop_run_id"] == "lr"
+    assert fake.calls == [
+        {
+            "method": "resume_rollout",
+            "user_id": fake.calls[0]["user_id"],
+            "rollout_id": rid,
+            "answer": "merged by hand",
+            "relaunch": True,
+        }
+    ]
+    assert fake.closed is True
+
+
+def test_resume_rollout_no_relaunch_passed_through(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake = _FakeBackend()
+    monkeypatch.setattr("agent_gtd.cli_commands._shared.create_backend", lambda: fake)
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+
+    p, _ = _make_parser()
+    args = p.parse_args(["resume-rollout", _ruid(), "--answer", "x", "--no-relaunch"])
+    args.func(args)
+    capsys.readouterr()
+    assert fake.calls[0]["relaunch"] is False
+
+
+def test_resume_rollout_error_path(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        "agent_gtd.cli_commands._shared.create_backend",
+        lambda: _ErrorBackend(),
+    )
+    monkeypatch.delenv("AGENT_GTD_URL", raising=False)
+
+    p, _ = _make_parser()
+    args = p.parse_args(["resume-rollout", _ruid(), "--answer", "x"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+
+    assert exc_info.value.code == 1
+    assert "Error:" in capsys.readouterr().err

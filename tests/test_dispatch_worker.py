@@ -2131,3 +2131,87 @@ async def test_execute_run_cancelled_during_routing_cancels_remote() -> None:
     assert all("status" not in c for c in update_calls)
     assert update_calls and update_calls[-1]["remote_run_id"] == "remote-xyz"
     publish.assert_not_called()
+
+
+def _http_status_error(code: int) -> Exception:
+    import httpx
+
+    req = httpx.Request("POST", "http://host/dispatch")
+    return httpx.HTTPStatusError(
+        f"{code}", request=req, response=httpx.Response(code, request=req)
+    )
+
+
+async def _execute_with_remote_error(mode: str, code: int) -> list[dict[str, object]]:
+    from agent_gtd.dispatch_worker import execute_run
+
+    run = {
+        "id": "run-409",
+        "item_id": None if mode == "manage" else "item-1",
+        "user_id": "user-1",
+        "project_id": "proj-1",
+        "max_turns": 50,
+        "mode": mode,
+        "rollout_id": "rollout-1",
+        "dispatch_host_id": "h1",
+    }
+    db = _make_db_mock(project_owner_id="user-1")
+    update_calls: list[dict[str, object]] = []
+
+    async def fake_update_run(
+        db_arg: object, run_id_arg: str, **fields: object
+    ) -> None:
+        update_calls.append(fields)
+
+    with (
+        patch(
+            "agent_gtd.dispatch_worker._run_status",
+            new=AsyncMock(return_value="pending"),
+        ),
+        patch(
+            "agent_gtd.services.settings_service.get_setting",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "agent_gtd.services.settings_service.get_dispatch_hosts",
+            new=AsyncMock(
+                return_value=[
+                    {"id": "h1", "url": "http://host", "api_key": "key", "label": "a"}
+                ]
+            ),
+        ),
+        patch(
+            "agent_gtd.services.dispatch_router.pick_dispatch_host",
+            new=AsyncMock(
+                return_value={"url": "http://host", "api_key": "key", "label": "a"}
+            ),
+        ),
+        patch(
+            "agent_gtd.dispatch_worker._dispatch_to_remote",
+            new=AsyncMock(side_effect=_http_status_error(code)),
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=fake_update_run),
+        patch("agent_gtd.dispatch_worker._publish_run_event"),
+        patch("agent_gtd.services.rollout_service.halt_rollout") as halt,
+    ):
+        await execute_run(db, run, {}, {})
+    halt.assert_not_called()
+    return update_calls
+
+
+@pytest.mark.asyncio
+async def test_execute_run_manage_409_marks_run_cancelled() -> None:
+    """A host refusing a second loop (409) cancels the manage run, not fails it."""
+    calls = await _execute_with_remote_error("manage", 409)
+    terminal = [c for c in calls if "status" in c]
+    assert len(terminal) == 1
+    assert terminal[0]["status"] == "cancelled"
+    assert "already driven by a live loop" in str(terminal[0]["error_msg"])
+    assert "rollout-1" in str(terminal[0]["error_msg"])
+
+
+@pytest.mark.asyncio
+async def test_execute_run_manage_other_http_error_still_fails() -> None:
+    calls = await _execute_with_remote_error("manage", 500)
+    terminal = [c for c in calls if "status" in c]
+    assert terminal and terminal[-1]["status"] == "failed"

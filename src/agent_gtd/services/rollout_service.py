@@ -2027,40 +2027,126 @@ async def resume_rollout(
     rollout_id: str,
     answer: str,
     user_id: str,
+    *,
+    relaunch: bool = True,
 ) -> dict[str, Any]:
-    """Resume a halted wave by providing an answer to the blocking question.
+    """Resume a halted rollout and relaunch its loop on the owning host.
 
-    Steps:
-    1. Validates wave status is 'halted'.
+    Halted rollout:
+    1. When ``relaunch``: preflight the loop relaunch (owning host resolves,
+       is not draining, no pending manage run) BEFORE any state change.
     2. Posts the answer text as a comment on the project.
     3. Re-locks items that were released during halt.
     4. Transitions halted rollout_items back to 'ready' (if predecessors are
        terminal) or 'pending' (if predecessors are still non-terminal).
     5. Sets rollout.status = 'running'.
     6. Appends a 'wave_resumed' wave_event and emits SSE.
+    7. When ``relaunch`` and the rollout has ever had a loop: creates a
+       pending manage run pinned to the owning host and appends a
+       'manage_relaunched' event.  The caller enqueues ``loop_run_id``.
+
+    Running rollout (``relaunch`` only): no state transition; the answer is
+    posted only if non-empty; the same preflight runs and a pinned manage run
+    is created.  This covers a loop that crashed (a crash fails its own run
+    without halting).  It is safe while a loop is live: the dispatch host
+    refuses a second loop for the same rollout (HTTP 409), and the board
+    records that run as cancelled.
 
     Args:
         db: Database pool.
         rollout_id: ID of the rollout to resume.
         answer: The human's answer or instruction (posted as a comment).
+            Required (non-blank) for a halted rollout.
         user_id: The calling user's ID — must be the wave's lead_user_id.
+        relaunch: Also relaunch the rollout loop (default True).
 
     Returns:
-        Dict with rollout fields plus total_count and done_count.
+        Dict with rollout fields plus total_count, done_count and
+        ``loop_run_id`` (str | None — None when no loop was relaunched).
 
     Raises:
         NotFoundError: If wave not found or caller doesn't own it.
-        ValidationError: If wave status is not 'halted'.
+        ValidationError: If the status is neither halted nor running, a
+            halted rollout has a blank answer, a running rollout has nothing
+            to do (relaunch=False, or it never had a loop), or a relaunch
+            precondition fails.  The rollout is left untouched.
     """
+    from agent_gtd.models import RolloutStatus
+    from agent_gtd.services import dispatch_service
+
     wave = await _get_rollout(db, user_id, rollout_id)
-    if wave["status"] != "halted":
+    status = wave["status"]
+    if status not in (RolloutStatus.HALTED, RolloutStatus.RUNNING):
+        raise ValidationError(f"Wave {rollout_id} is not halted (status={status})")
+    if status == RolloutStatus.RUNNING and not relaunch:
         raise ValidationError(
-            f"Wave {rollout_id} is not halted (status={wave['status']})"
+            f"Rollout {rollout_id} is already running and relaunch=False: nothing to do"
+        )
+    if status == RolloutStatus.HALTED and not answer.strip():
+        raise ValidationError("An answer is required to resume a halted rollout")
+
+    # Preflight BEFORE any state change: a refusal leaves the rollout as it
+    # was (still halted, no comment, no run row).
+    target = (
+        await dispatch_service.resolve_loop_relaunch(db, user_id, wave)
+        if relaunch
+        else None
+    )
+    if status == RolloutStatus.RUNNING and target is None:
+        raise ValidationError(
+            f"Rollout {rollout_id} is running but has never had a rollout "
+            "loop; there is no loop to relaunch"
         )
 
     project_id = str(wave["project_id"])
-    now = datetime.now(UTC).isoformat()
 
+    if status == RolloutStatus.HALTED:
+        await _resume_halted_rollout(db, wave, answer, user_id)
+    elif answer.strip():
+        await _post_resume_answer(db, rollout_id, project_id, answer, user_id)
+
+    loop_run_id: str | None = None
+    if target is not None:
+        loop_run_id = await dispatch_service.relaunch_rollout_loop(
+            db, user_id, rollout_id, target
+        )
+        relaunch_event = await _append_rollout_event(
+            db,
+            rollout_id,
+            kind=RolloutEventKind.MANAGE_RELAUNCHED,
+            actor="human",
+            payload={
+                "loop_run_id": loop_run_id,
+                "dispatch_host_id": str(target["host"]["id"]),
+                "prior_run_id": target["prior_run_id"],
+            },
+        )
+        _publish_rollout_event(db, user_id, relaunch_event, project_id)
+
+    row = await db.fetchrow(
+        "SELECT * FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert row is not None  # noqa: S101
+    wave_data = row_to_dict(row)
+
+    count_rows = await db.fetch(
+        "SELECT status FROM rollout_items WHERE rollout_id = $1",
+        rollout_id,
+    )
+    total_count = len(count_rows)
+    done_count = sum(1 for r in count_rows if r["status"] in ("completed", "skipped"))
+    return {
+        **wave_data,
+        "total_count": total_count,
+        "done_count": done_count,
+        "loop_run_id": loop_run_id,
+    }
+
+
+async def _post_resume_answer(
+    db: DbPool, rollout_id: str, project_id: str, answer: str, user_id: str
+) -> None:
+    """Post the lead's resume answer as a project comment and emit its event."""
     from agent_gtd.services.comment_service import create_comment
 
     resume_comment_result = await create_comment(
@@ -2084,6 +2170,17 @@ async def resume_rollout(
         },
     )
     _publish_rollout_event(db, user_id, resume_comment_event, project_id)
+
+
+async def _resume_halted_rollout(
+    db: DbPool, wave: dict[str, Any], answer: str, user_id: str
+) -> None:
+    """Move a halted rollout back to running (items, locks, status, event)."""
+    rollout_id = str(wave["id"])
+    project_id = str(wave["project_id"])
+    now = datetime.now(UTC).isoformat()
+
+    await _post_resume_answer(db, rollout_id, project_id, answer, user_id)
 
     item_rows = await db.fetch(
         "SELECT item_id, status FROM rollout_items WHERE rollout_id = $1",
@@ -2154,20 +2251,6 @@ async def resume_rollout(
         },
     )
     _publish_rollout_event(db, user_id, wave_event, project_id)
-
-    row = await db.fetchrow(
-        "SELECT * FROM autonomous_rollouts WHERE id = $1", rollout_id
-    )
-    assert row is not None  # noqa: S101
-    wave_data = row_to_dict(row)
-
-    count_rows = await db.fetch(
-        "SELECT status FROM rollout_items WHERE rollout_id = $1",
-        rollout_id,
-    )
-    total_count = len(count_rows)
-    done_count = sum(1 for r in count_rows if r["status"] in ("completed", "skipped"))
-    return {**wave_data, "total_count": total_count, "done_count": done_count}
 
 
 async def get_rollout_activity(

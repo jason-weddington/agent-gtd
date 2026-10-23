@@ -1,11 +1,12 @@
 """CLI subcommand module: rollout control commands.
 
-Exposes a :func:`register` function that adds five subparsers for the
+Exposes a :func:`register` function that adds six subparsers for the
 ``agent-gtd`` CLI:
 
 - ``advance-rollout``
 - ``complete-item-in-rollout``
 - ``halt-rollout``
+- ``resume-rollout``
 - ``cancel-rollout``
 - ``update-rollout-state``
 
@@ -111,6 +112,31 @@ def _cmd_halt_rollout(args: argparse.Namespace) -> None:
                 reason,
                 comment=comment,
                 item_id=item_id,
+            )
+
+    try:
+        result: Any = asyncio.run(_run())
+    except Exception as e:
+        fail(e)
+
+    emit_json(result)
+
+
+# ---------------------------------------------------------------------------
+# resume-rollout
+# ---------------------------------------------------------------------------
+
+
+def _cmd_resume_rollout(args: argparse.Namespace) -> None:
+    """Synchronous handler for resume-rollout."""
+    rollout_id: str = args.rollout_id
+    answer: str = args.answer
+    relaunch: bool = args.relaunch
+
+    async def _run() -> Any:
+        async with backend_session() as (backend, user_id):
+            return await backend.resume_rollout(
+                user_id, rollout_id, answer=answer, relaunch=relaunch
             )
 
     try:
@@ -261,6 +287,29 @@ def register(subparsers: argparse._SubParsersAction[Any]) -> None:
         help="Optional item ID associated with the halt.",
     )
     p_halt.set_defaults(func=_cmd_halt_rollout)
+
+    # -- resume-rollout --------------------------------------------------------
+    p_resume = subparsers.add_parser(
+        "resume-rollout",
+        help=(
+            "Resume a halted rollout and relaunch its rollout loop on the host"
+            " that last drove it. On a running rollout, only relaunches a"
+            " missing loop; a duplicate loop is refused."
+        ),
+    )
+    p_resume.add_argument("rollout_id", help="ID of the rollout to resume.")
+    p_resume.add_argument(
+        "--answer",
+        default="",
+        help="Answer or instruction posted as a comment (required when halted).",
+    )
+    p_resume.add_argument(
+        "--no-relaunch",
+        dest="relaunch",
+        action="store_false",
+        help="Resume without relaunching the rollout loop.",
+    )
+    p_resume.set_defaults(func=_cmd_resume_rollout)
 
     # -- cancel-rollout --------------------------------------------------------
     p_cancel = subparsers.add_parser(

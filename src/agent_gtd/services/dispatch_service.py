@@ -506,23 +506,12 @@ async def dispatch_rollout_run(
                 f"Project '{project['name']}' has no git_origin configured",
             )
 
-    from agent_gtd.dispatch_worker import (
-        DEFAULT_MAX_TURNS,
-        resolve_max_turns,
-        resolve_reviewer_engine,
-    )
     from agent_gtd.services import settings_service
 
-    raw_project_reviewer_engine = project.get("reviewer_engine")
-    try:
-        effective_reviewer_engine = resolve_reviewer_engine(
-            reviewer_engine,
-            str(raw_project_reviewer_engine)
-            if raw_project_reviewer_engine is not None
-            else None,
-        )
-    except ValueError as exc:
-        raise ValidationError(str(exc)) from exc
+    # Resolve (and validate) the reviewer engine before any write.
+    effective_reviewer_engine = _resolve_rollout_reviewer_engine(
+        project, reviewer_engine
+    )
 
     # Host pin validation: existence check only (owner-scoped, like the
     # dispatch_item route). Capacity/engine compatibility is enforced by
@@ -534,55 +523,12 @@ async def dispatch_rollout_run(
         # Refuse a pin to a draining host: the rollout row stays pending and
         # the caller is told to wait, not to re-route (docs/host-drain.md).
         pinned = next(h for h in hosts if h["id"] == dispatch_host_id)
-        pinned_drain_reason = pinned.get("drain_reason")
-        if pinned_drain_reason is not None:
-            host_label = pinned.get("label") or pinned.get("url", "unknown")
-            logger.warning(
-                "Refused rollout dispatch to draining host %s (reason=%r) rollout=%s",
-                host_label,
-                pinned_drain_reason,
-                rollout_id,
-            )
-            raise ValidationError(
-                f"Dispatch host '{host_label}' is draining: "
-                f"{pinned_drain_reason}. "
-                "Dispatch refused; retry when the host returns to rotation."
-            )
+        _refuse_draining_host(pinned, rollout_id)
 
-    stored = await settings_service.get_setting(db, "dispatch.default_max_turns")
-    global_default = int(stored) if stored is not None else DEFAULT_MAX_TURNS
-    raw_project_turns = project.get("dispatch_max_turns")
-    project_dispatch_max_turns = (
-        int(raw_project_turns) if raw_project_turns is not None else None
+    run_id = await _create_manage_run(
+        db, user_id, rollout_id, project, dispatch_host_id=dispatch_host_id
     )
-    # This is the manage-mode launch path — mode is manage by construction.
-    effective_max_turns = resolve_max_turns(
-        project_dispatch_max_turns, global_default, "manage"
-    )
-
     now = datetime.now(UTC).isoformat()
-    run_id = str(uuid.uuid4())
-    branch = make_branch_name(rollout_id, "manage")
-
-    await db.execute(
-        "INSERT INTO claude_runs"
-        " (id, item_id, project_id, user_id, status, feature_branch,"
-        "  max_turns, mode, rollout_id, created_at, updated_at,"
-        "  dispatch_host_id)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
-        run_id,
-        None,  # item_id is NULL for manage-mode rollout runs
-        project_id,
-        user_id,
-        "pending",
-        branch,
-        effective_max_turns,
-        "manage",
-        rollout_id,
-        now,
-        now,
-        dispatch_host_id,
-    )
 
     # Persist the pin at rollout level so child build runs inherit it.
     if dispatch_host_id is not None:
@@ -616,6 +562,206 @@ async def dispatch_rollout_run(
     row = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
     assert row is not None  # noqa: S101
     return row_to_dict(row)
+
+
+def _resolve_rollout_reviewer_engine(
+    project: dict[str, Any], reviewer_engine: str | None
+) -> str:
+    """Resolve a rollout's reviewer engine (override -> project -> default).
+
+    Raises:
+        ValidationError: If the resolved engine name is unknown.
+    """
+    from agent_gtd.dispatch_worker import resolve_reviewer_engine
+
+    raw_project_reviewer_engine = project.get("reviewer_engine")
+    try:
+        return resolve_reviewer_engine(
+            reviewer_engine,
+            str(raw_project_reviewer_engine)
+            if raw_project_reviewer_engine is not None
+            else None,
+        )
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+
+
+def _refuse_draining_host(host: dict[str, Any], rollout_id: str) -> None:
+    """Raise ValidationError if ``host`` is draining (out of rotation)."""
+    drain_reason = host.get("drain_reason")
+    if drain_reason is None:
+        return
+    host_label = host.get("label") or host.get("url", "unknown")
+    logger.warning(
+        "Refused rollout dispatch to draining host %s (reason=%r) rollout=%s",
+        host_label,
+        drain_reason,
+        rollout_id,
+    )
+    raise ValidationError(
+        f"Dispatch host '{host_label}' is draining: "
+        f"{drain_reason}. "
+        "Dispatch refused; retry when the host returns to rotation."
+    )
+
+
+async def _create_manage_run(
+    db: DbPool,
+    user_id: str,
+    rollout_id: str,
+    project: dict[str, Any],
+    *,
+    dispatch_host_id: str | None,
+) -> str:
+    """Insert a pending manage-mode ``claude_runs`` row for a rollout.
+
+    Shared by the first launch (:func:`dispatch_rollout_run`) and the lead's
+    resume-relaunch (:func:`relaunch_rollout_loop`).  Resolves the manage-mode
+    max-turns budget and writes the row (item_id NULL, mode 'manage') pinned
+    to ``dispatch_host_id``.  It does NOT touch the rollout row.
+
+    Returns:
+        The new run id.
+    """
+    from agent_gtd.dispatch_worker import DEFAULT_MAX_TURNS, resolve_max_turns
+    from agent_gtd.services import settings_service
+
+    stored = await settings_service.get_setting(db, "dispatch.default_max_turns")
+    global_default = int(stored) if stored is not None else DEFAULT_MAX_TURNS
+    raw_project_turns = project.get("dispatch_max_turns")
+    project_dispatch_max_turns = (
+        int(raw_project_turns) if raw_project_turns is not None else None
+    )
+    # This is the manage-mode launch path — mode is manage by construction.
+    effective_max_turns = resolve_max_turns(
+        project_dispatch_max_turns, global_default, "manage"
+    )
+
+    now = datetime.now(UTC).isoformat()
+    run_id = str(uuid.uuid4())
+    branch = make_branch_name(rollout_id, "manage")
+
+    await db.execute(
+        "INSERT INTO claude_runs"
+        " (id, item_id, project_id, user_id, status, feature_branch,"
+        "  max_turns, mode, rollout_id, created_at, updated_at,"
+        "  dispatch_host_id)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+        run_id,
+        None,  # item_id is NULL for manage-mode rollout runs
+        str(project["id"]),
+        user_id,
+        "pending",
+        branch,
+        effective_max_turns,
+        "manage",
+        rollout_id,
+        now,
+        now,
+        dispatch_host_id,
+    )
+    return run_id
+
+
+async def resolve_loop_relaunch(
+    db: DbPool,
+    user_id: str,
+    rollout: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Preflight a rollout-loop relaunch; resolve the rollout's OWNING host.
+
+    The owning host is ``autonomous_rollouts.dispatch_host_id`` when set,
+    otherwise the project owner's dispatch host whose ``url`` equals the
+    ``dispatch_host_url`` of the rollout's most recent manage-mode run.
+
+    Why pin to the owning host: a dispatch host re-adopts on restart only the
+    rollouts it holds a local MANAGE row for.  Keeping every loop for a
+    rollout on ONE host means re-adoption can never put a second loop on a
+    different host, which is what makes the host's per-process
+    one-loop-per-rollout guard sufficient (no cross-host lock needed).
+
+    Performs no writes.  Call BEFORE any state change.
+
+    Returns:
+        None when the rollout has never had a manage-mode run (lead-driven:
+        there is no loop to relaunch).  Otherwise a dict with ``host`` (the
+        host dict), ``prior_run_id`` and ``project``.
+
+    Raises:
+        ValidationError: If the owning host cannot be resolved, is draining,
+            or a manage-mode run for this rollout is still pending (a
+            relaunch not yet routed).
+    """
+    from agent_gtd.services import settings_service
+
+    rollout_id = str(rollout["id"])
+    manage_rows = await db.fetch(
+        "SELECT id, status, dispatch_host_url FROM claude_runs"
+        " WHERE rollout_id = $1 AND mode = 'manage'"
+        " ORDER BY created_at DESC",
+        rollout_id,
+    )
+    if not manage_rows:
+        return None
+    latest = dict(manage_rows[0])
+    pending = [str(r["id"]) for r in manage_rows if r["status"] == "pending"]
+    if pending:
+        raise ValidationError(
+            f"Rollout {rollout_id} already has a pending loop run "
+            f"({pending[0]}) not yet routed to a dispatch host; "
+            "wait for it before relaunching."
+        )
+
+    project = await get_project(db, user_id, str(rollout["project_id"]))
+    hosts = await settings_service.get_dispatch_hosts(db, str(project["user_id"]))
+    pinned_id = rollout.get("dispatch_host_id")
+    host: dict[str, Any] | None
+    if pinned_id:
+        host = next((h for h in hosts if h["id"] == pinned_id), None)
+        missing = f"pinned dispatch host {pinned_id} is not registered"
+    else:
+        prior_url = str(latest.get("dispatch_host_url") or "")
+        host = (
+            next((h for h in hosts if h["url"] == prior_url), None)
+            if prior_url
+            else None
+        )
+        missing = (
+            f"the host that last drove it ({prior_url}) is not registered"
+            if prior_url
+            else "its last loop run was never routed to a dispatch host"
+        )
+    if host is None:
+        raise ValidationError(
+            f"Cannot relaunch the loop for rollout {rollout_id}: {missing}. "
+            "The loop is not moved to another host; resolve the host first."
+        )
+    _refuse_draining_host(host, rollout_id)
+    return {"host": host, "prior_run_id": str(latest["id"]), "project": project}
+
+
+async def relaunch_rollout_loop(
+    db: DbPool,
+    user_id: str,
+    rollout_id: str,
+    target: dict[str, Any],
+) -> str:
+    """Create the manage run that relaunches a rollout's loop on its owner.
+
+    ``target`` is the result of :func:`resolve_loop_relaunch`.  Does NOT
+    write ``autonomous_rollouts.dispatch_host_id`` (child builds keep routing
+    as before) nor re-resolve the rollout's settled reviewer engine.
+
+    Returns:
+        The new run id (status 'pending'; the caller enqueues it).
+    """
+    return await _create_manage_run(
+        db,
+        user_id,
+        rollout_id,
+        target["project"],
+        dispatch_host_id=str(target["host"]["id"]),
+    )
 
 
 async def get_run(

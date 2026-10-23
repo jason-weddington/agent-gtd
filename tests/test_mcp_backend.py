@@ -1314,3 +1314,131 @@ async def test_http_cancel_run_force_sends_force_query_param():
     await backend.cancel_run("u", "r1")
     _, kwargs = mock_client.post.await_args
     assert not kwargs.get("params")
+
+
+# --- resume_rollout (loop relaunch) ---
+
+
+async def _seed_halted_rollout_with_loop(db, user_id: str, project_id: str) -> str:
+    import uuid
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
+    rollout_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO autonomous_rollouts"
+        " (id, project_id, lead_user_id, status, halt_reason, created_at,"
+        "  updated_at) VALUES ($1, $2, $3, 'halted', 'x', $4, $5)",
+        rollout_id,
+        project_id,
+        user_id,
+        now,
+        now,
+    )
+    await db.execute(
+        "INSERT INTO dispatch_hosts (id, user_id, label, url, api_key,"
+        " created_at, updated_at) VALUES ($1, $2, 'h', $3, 'k', $4, $5)",
+        f"host-{rollout_id[:8]}",
+        user_id,
+        f"http://loop-host-{rollout_id[:8]}:9000",
+        now,
+        now,
+    )
+    await db.execute(
+        "INSERT INTO claude_runs (id, item_id, project_id, user_id, status,"
+        " feature_branch, max_turns, mode, rollout_id, dispatch_host_url,"
+        " created_at, updated_at)"
+        " VALUES ($1, NULL, $2, $3, 'failed', 'b', 10, 'manage', $4, $5, $6, $7)",
+        str(uuid.uuid4()),
+        project_id,
+        user_id,
+        rollout_id,
+        f"http://loop-host-{rollout_id[:8]}:9000",
+        now,
+        now,
+    )
+    return rollout_id
+
+
+async def test_http_backend_resume_rollout_relaunches(
+    authed_backend: HttpBackend, project_id: str
+):
+    from agent_gtd.database import get_db
+
+    db = await get_db()
+    row = await db.fetchrow("SELECT user_id FROM projects WHERE id = $1", project_id)
+    rollout_id = await _seed_halted_rollout_with_loop(db, row["user_id"], project_id)
+
+    result = await authed_backend.resume_rollout(
+        "", rollout_id, answer="merged by hand"
+    )
+    assert result["status"] == "running"
+    assert result["loop_run_id"]
+
+    # A second resume is refused: the relaunch is still pending.
+    with pytest.raises(ToolError, match="pending"):
+        await authed_backend.resume_rollout("", rollout_id)
+
+
+async def test_http_backend_resume_rollout_sends_relaunch_flag():
+    from unittest.mock import AsyncMock, MagicMock
+
+    backend = HttpBackend("http://test")
+    backend._api_key = "sk-test"
+    resp = MagicMock()
+    resp.is_success = True
+    resp.json.return_value = {"id": "r1", "loop_run_id": None}
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(return_value=resp)
+    backend._client = mock_client
+
+    await backend.resume_rollout("u", "r1", answer="a", relaunch=False)
+    args, kwargs = mock_client.post.await_args
+    assert args[0] == "/api/rollouts/r1/resume"
+    assert kwargs["json"] == {"answer": "a", "relaunch": False}
+
+
+async def test_local_backend_resume_rollout_relaunches():
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.mcp_backend import LocalBackend
+
+    backend = LocalBackend()
+    db = await get_db()
+    project = await backend.create_project(LOCAL_USER_ID, name="resume-local")
+    rollout_id = await _seed_halted_rollout_with_loop(db, LOCAL_USER_ID, project["id"])
+
+    result = await backend.resume_rollout(LOCAL_USER_ID, rollout_id, answer="go")
+    assert result["status"] == "running"
+    run = await db.fetchrow(
+        "SELECT mode, status, dispatch_host_id FROM claude_runs WHERE id = $1",
+        result["loop_run_id"],
+    )
+    assert run["mode"] == "manage"
+    assert run["status"] == "pending"
+    assert run["dispatch_host_id"] == f"host-{rollout_id[:8]}"
+
+
+async def test_mcp_resume_rollout_tool_enqueues_and_maps_errors():
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from agent_gtd import mcp_server
+    from agent_gtd.exceptions import ValidationError
+
+    backend = MagicMock()
+    backend.resume_rollout = AsyncMock(return_value={"id": "r", "loop_run_id": "lr"})
+    call = MagicMock(backend=backend, user_id="u")
+    with (
+        patch.object(mcp_server, "_resolve_call", AsyncMock(return_value=call)),
+        patch.object(mcp_server, "_enqueue_if_local") as enqueue,
+    ):
+        tool = getattr(mcp_server.resume_rollout, "fn", mcp_server.resume_rollout)
+        out = await tool("r", MagicMock(), answer="a")
+        assert out["loop_run_id"] == "lr"
+        backend.resume_rollout.assert_awaited_once_with(
+            "u", "r", answer="a", relaunch=True
+        )
+        enqueue.assert_called_once_with(call, {"id": "lr"}, "resume_rollout")
+
+        backend.resume_rollout = AsyncMock(side_effect=ValidationError("nope"))
+        with pytest.raises(ToolError, match="nope"):
+            await tool("r", MagicMock())

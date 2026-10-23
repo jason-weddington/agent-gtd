@@ -939,3 +939,89 @@ async def test_dispatch_rollout_to_drained_host_returns_409(
     )
     assert row is not None
     assert row["status"] == "pending"
+
+
+# ---------------------------------------------------------------------------
+# resolve_loop_relaunch — owning-host resolution for a resume relaunch
+# ---------------------------------------------------------------------------
+
+
+async def test_resolve_loop_relaunch_none_without_manage_runs(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import resolve_loop_relaunch
+    from agent_gtd.services.rollout_service import _get_rollout
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    rollout_id = await _insert_rollout(db, user_id, project_id, "halted")
+    rollout = await _get_rollout(db, user_id, rollout_id)
+    assert await resolve_loop_relaunch(db, user_id, rollout) is None
+
+
+async def test_resolve_loop_relaunch_refuses_a_never_routed_loop(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    from agent_gtd.database import get_db
+    from agent_gtd.exceptions import ValidationError
+    from agent_gtd.services.dispatch_service import resolve_loop_relaunch
+    from agent_gtd.services.rollout_service import _get_rollout
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    rollout_id = await _insert_pending_rollout(db, user_id, project_id)
+    res = await client.post(
+        f"/api/rollouts/{rollout_id}/dispatch", headers=auth_headers
+    )
+    assert res.status_code == 201, res.text
+    # The first launch failed before reaching any host.
+    await db.execute(
+        "UPDATE claude_runs SET status = 'failed' WHERE id = $1", res.json()["id"]
+    )
+    rollout = await _get_rollout(db, user_id, rollout_id)
+    with pytest.raises(ValidationError, match="never routed"):
+        await resolve_loop_relaunch(db, user_id, rollout)
+
+
+async def test_resolve_loop_relaunch_uses_the_first_launch_pin(
+    client: AsyncClient, auth_headers: dict[str, str], user_id: str
+) -> None:
+    from agent_gtd.database import get_db
+    from agent_gtd.services.dispatch_service import (
+        relaunch_rollout_loop,
+        resolve_loop_relaunch,
+    )
+    from agent_gtd.services.rollout_service import _get_rollout
+
+    db = await get_db()
+    project_id = await _create_project_with_origin(client, auth_headers)
+    await _insert_dispatch_host(db, user_id, "pin-host")
+    rollout_id = await _insert_pending_rollout(db, user_id, project_id)
+    res = await client.post(
+        f"/api/rollouts/{rollout_id}/dispatch",
+        json={"dispatch_host_id": "pin-host"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201, res.text
+    await db.execute(
+        "UPDATE claude_runs SET status = 'failed' WHERE id = $1", res.json()["id"]
+    )
+
+    rollout = await _get_rollout(db, user_id, rollout_id)
+    target = await resolve_loop_relaunch(db, user_id, rollout)
+    assert target is not None
+    assert target["host"]["id"] == "pin-host"
+    assert target["prior_run_id"] == res.json()["id"]
+
+    run_id = await relaunch_rollout_loop(db, user_id, rollout_id, target)
+    first = await db.fetchrow(
+        "SELECT max_turns, feature_branch FROM claude_runs WHERE id = $1",
+        res.json()["id"],
+    )
+    new = await db.fetchrow("SELECT * FROM claude_runs WHERE id = $1", run_id)
+    # Same shared helper: same budget and branch shape as the first launch.
+    assert new["max_turns"] == first["max_turns"]
+    assert new["feature_branch"] == first["feature_branch"]
+    assert new["dispatch_host_id"] == "pin-host"
+    assert new["status"] == "pending"

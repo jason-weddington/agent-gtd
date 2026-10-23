@@ -1012,6 +1012,29 @@ async def execute_run(
                     )
                     excluded_urls.add(dispatch_url)
                     continue
+                if exc.response.status_code == 409 and mode == "manage":
+                    # The host refuses a second loop for a rollout it already
+                    # drives (one loop per rollout per host). The live loop
+                    # keeps driving: cancel this run, leave the rollout alone.
+                    logger.info(
+                        "Run %s: host %s already drives rollout %s; cancelling",
+                        run_id,
+                        dispatch_url,
+                        run.get("rollout_id"),
+                    )
+                    await _update_run(
+                        db,
+                        run_id,
+                        status="cancelled",
+                        finished_at=datetime.now(UTC).isoformat(),
+                        dispatch_host_url=dispatch_url,
+                        error_msg=(
+                            f"Rollout {run.get('rollout_id')} is already driven "
+                            f"by a live loop on {host_label}; nothing started"
+                        )[:ERROR_MSG_MAX_CHARS],
+                    )
+                    _publish_run_event(db, user_id, run_id, item_id, run, "run_failed")
+                    return
                 # Other HTTP error or targeted-dispatch 503: fail immediately
                 logger.exception("Failed to dispatch run %s to remote service", run_id)
                 await _fail_run(f"Dispatch service error: {exc}"[:500])

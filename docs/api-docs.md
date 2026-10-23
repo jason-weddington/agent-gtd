@@ -483,9 +483,32 @@ Update the manager's semantic phase for the real-time dashboard.
 - **Response:** `{"rollout_id", "ts", "phase", "current_item_id", "current_step"}`
 
 #### `POST /api/rollouts/{rollout_id}/resume`
-Resume a halted rollout with a human answer.
-- **Request body:** `{"answer": str}`
-- **Response:** Updated rollout dict.
+Resume a halted rollout with a human answer, and relaunch its rollout loop on
+the dispatch host that owns it.
+- **Request body:** `{"answer"?: str = "", "relaunch"?: bool = true}`. `answer`
+  is required (non-blank) when the rollout is halted.
+- **Halted rollout:** posts `answer` as a project comment, moves halted items
+  back to ready/pending, re-locks them, sets status `running` and emits
+  `wave_resumed`. With `relaunch` it also creates a pending manage run pinned
+  to the rollout's **owning host** — `autonomous_rollouts.dispatch_host_id`
+  when set, else the host whose URL matches the latest manage run's
+  `dispatch_host_url` — enqueues it, and emits `manage_relaunched`
+  (`{loop_run_id, dispatch_host_id, prior_run_id}`). The rollout's own
+  `dispatch_host_id` and `reviewer_engine` are not changed. A rollout that never
+  had a manage run (lead-driven) resumes with `loop_run_id: null`.
+- **Running rollout** (`relaunch` only): no state change; the answer is posted
+  only if non-empty; a pinned manage run is created to replace a loop that
+  crashed. If a loop is in fact still live, the dispatch host refuses the
+  duplicate (HTTP 409 on its `/dispatch`) and the run ends `cancelled`; the
+  live loop keeps driving.
+- **Response:** Updated rollout dict plus `total_count`, `done_count` and
+  `loop_run_id` (`str | null`).
+- **409** (rollout left untouched — still halted, no comment, no run): status is
+  neither halted nor running; halted with a blank answer; running with
+  `relaunch: false` ("nothing to do") or with no prior loop; the owning host
+  cannot be resolved or is draining; or a manage run for the rollout is still
+  `pending` (a relaunch not yet routed). The loop is never moved to another
+  host.
 
 #### `GET /api/rollouts/{rollout_id}/events`
 List rollout audit events in sequence order.
@@ -734,6 +757,11 @@ halt_rollout(rollout_id: str, reason: str, comment: str | None = None, item_id: 
 # Transitions in-flight items to halted, releases locks, posts comment.
 # Leaves running child builds alone (returns in_flight_run_ids); cancels only
 # not-yet-routed child runs (returns cancelled_run_ids).
+
+resume_rollout(rollout_id: str, answer: str = "", relaunch: bool = True) → dict
+# Resumes a halted rollout and relaunches the rollout loop on the host that last
+# drove it (returns loop_run_id). On a running rollout it only relaunches a
+# missing loop; a duplicate loop is refused by the host. CLI: resume-rollout.
 
 cancel_rollout(rollout_id: str, reason: str) → dict
 # Destructive. Idempotent for already-cancelled rollouts. Cancels every active

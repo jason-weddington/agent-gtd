@@ -903,3 +903,374 @@ class TestDismissRollout:
             headers=auth_headers,
         )
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# POST /api/rollouts/{id}/resume — loop relaunch on the owning host
+# ---------------------------------------------------------------------------
+
+
+async def _make_host(
+    db: Any,
+    user_id: str,
+    url: str,
+    *,
+    drain_reason: str | None = None,
+) -> str:
+    host_id = str(uuid.uuid4())
+    now = _now()
+    await db.execute(
+        "INSERT INTO dispatch_hosts"
+        " (id, user_id, label, url, api_key, drain_reason, created_at, updated_at)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        host_id,
+        user_id,
+        f"host-{url[-4:]}",
+        url,
+        "sk-test",
+        drain_reason,
+        now,
+        now,
+    )
+    return host_id
+
+
+async def _make_manage_run(
+    db: Any,
+    user_id: str,
+    project_id: str,
+    rollout_id: str,
+    *,
+    status: str = "failed",
+    host_url: str = "",
+    created_at: str | None = None,
+) -> str:
+    run_id = str(uuid.uuid4())
+    ts = created_at or _now()
+    await db.execute(
+        "INSERT INTO claude_runs"
+        " (id, item_id, project_id, user_id, status, feature_branch, max_turns,"
+        "  mode, rollout_id, dispatch_host_url, created_at, updated_at)"
+        " VALUES ($1, NULL, $2, $3, $4, 'b', 10, 'manage', $5, $6, $7, $8)",
+        run_id,
+        project_id,
+        user_id,
+        status,
+        rollout_id,
+        host_url,
+        ts,
+        ts,
+    )
+    return run_id
+
+
+class TestResumeRelaunch:
+    @pytest.fixture
+    async def setup(
+        self, client: AsyncClient, auth_headers: dict[str, str]
+    ) -> dict[str, Any]:
+        """A halted rollout whose loop last ran on host A."""
+        from agent_gtd.database import get_db
+
+        db = await get_db()
+        user_id = (await client.get("/api/auth/me", headers=auth_headers)).json()["id"]
+        proj_id = await _make_project(db, user_id, "Relaunch Project")
+        item_id = await _make_item(db, user_id, proj_id)
+        rollout_id = await _make_rollout(
+            db, user_id, proj_id, status="halted", halt_reason="merge failure"
+        )
+        await _make_wave_item(db, rollout_id, item_id, status="halted")
+        await _make_wave_plan(db, rollout_id, [item_id], [])
+        host_a = await _make_host(db, user_id, "http://host-a:9000")
+        host_b = await _make_host(db, user_id, "http://host-b:9000")
+        prior = await _make_manage_run(
+            db,
+            user_id,
+            proj_id,
+            rollout_id,
+            host_url="http://host-a:9000",
+            created_at="2026-01-02T00:00:00+00:00",
+        )
+        # An older run on host B must not win: latest by created_at decides.
+        await _make_manage_run(
+            db,
+            user_id,
+            proj_id,
+            rollout_id,
+            host_url="http://host-b:9000",
+            created_at="2026-01-01T00:00:00+00:00",
+        )
+        return {
+            "db": db,
+            "user_id": user_id,
+            "project_id": proj_id,
+            "rollout_id": rollout_id,
+            "host_a": host_a,
+            "host_b": host_b,
+            "prior": prior,
+            "headers": auth_headers,
+        }
+
+    @staticmethod
+    async def _manage_runs(db: Any, rollout_id: str) -> list[dict[str, Any]]:
+        rows = await db.fetch(
+            "SELECT * FROM claude_runs WHERE rollout_id = $1 AND mode = 'manage'",
+            rollout_id,
+        )
+        return [dict(r) for r in rows]
+
+    @staticmethod
+    async def _assert_untouched(
+        db: Any, s: dict[str, Any], client: AsyncClient
+    ) -> None:
+        row = await db.fetchrow(
+            "SELECT status FROM autonomous_rollouts WHERE id = $1", s["rollout_id"]
+        )
+        assert row["status"] == "halted"
+        assert len(await TestResumeRelaunch._manage_runs(db, s["rollout_id"])) == 2
+        comments = (
+            await client.get(
+                f"/api/projects/{s['project_id']}/comments", headers=s["headers"]
+            )
+        ).json()
+        assert comments == []
+
+    async def test_halted_resume_relaunches_pinned_to_prior_host(
+        self, client: AsyncClient, setup: dict[str, Any]
+    ) -> None:
+        from unittest.mock import patch
+
+        s = setup
+        with patch("agent_gtd.dispatch_worker.enqueue_run") as enqueue:
+            resp = await client.post(
+                f"/api/rollouts/{s['rollout_id']}/resume",
+                json={"answer": "merged by hand"},
+                headers=s["headers"],
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "running"
+        loop_run_id = data["loop_run_id"]
+        assert loop_run_id
+        enqueue.assert_called_once_with(loop_run_id)
+
+        runs = await self._manage_runs(s["db"], s["rollout_id"])
+        new = [r for r in runs if r["id"] == loop_run_id]
+        assert len(runs) == 3 and len(new) == 1
+        assert new[0]["status"] == "pending"
+        assert new[0]["item_id"] is None
+        assert new[0]["dispatch_host_id"] == s["host_a"]
+
+        rollout = await s["db"].fetchrow(
+            "SELECT dispatch_host_id FROM autonomous_rollouts WHERE id = $1",
+            s["rollout_id"],
+        )
+        assert rollout["dispatch_host_id"] is None
+
+        ev = await s["db"].fetch(
+            "SELECT actor, payload FROM rollout_events"
+            " WHERE rollout_id = $1 AND kind = 'manage_relaunched'",
+            s["rollout_id"],
+        )
+        assert len(ev) == 1
+        assert ev[0]["actor"] == "human"
+        assert json.loads(ev[0]["payload"]) == {
+            "loop_run_id": loop_run_id,
+            "dispatch_host_id": s["host_a"],
+            "prior_run_id": s["prior"],
+        }
+
+    async def test_rollout_pin_wins_over_prior_run_host(
+        self, client: AsyncClient, setup: dict[str, Any]
+    ) -> None:
+        s = setup
+        await s["db"].execute(
+            "UPDATE autonomous_rollouts SET dispatch_host_id = $1 WHERE id = $2",
+            s["host_b"],
+            s["rollout_id"],
+        )
+        resp = await client.post(
+            f"/api/rollouts/{s['rollout_id']}/resume",
+            json={"answer": "go"},
+            headers=s["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        run = await s["db"].fetchrow(
+            "SELECT dispatch_host_id FROM claude_runs WHERE id = $1",
+            resp.json()["loop_run_id"],
+        )
+        assert run["dispatch_host_id"] == s["host_b"]
+
+    async def test_unresolvable_host_refuses_and_leaves_rollout_halted(
+        self, client: AsyncClient, setup: dict[str, Any]
+    ) -> None:
+        s = setup
+        await s["db"].execute("DELETE FROM dispatch_hosts WHERE id = $1", s["host_a"])
+        resp = await client.post(
+            f"/api/rollouts/{s['rollout_id']}/resume",
+            json={"answer": "go"},
+            headers=s["headers"],
+        )
+        assert resp.status_code == 409
+        assert "http://host-a:9000" in resp.json()["detail"]
+        await self._assert_untouched(s["db"], s, client)
+
+    async def test_draining_host_refuses_and_leaves_rollout_halted(
+        self, client: AsyncClient, setup: dict[str, Any]
+    ) -> None:
+        s = setup
+        await s["db"].execute(
+            "UPDATE dispatch_hosts SET drain_reason = 'kernel upgrade' WHERE id = $1",
+            s["host_a"],
+        )
+        resp = await client.post(
+            f"/api/rollouts/{s['rollout_id']}/resume",
+            json={"answer": "go"},
+            headers=s["headers"],
+        )
+        assert resp.status_code == 409
+        assert "draining: kernel upgrade" in resp.json()["detail"]
+        await self._assert_untouched(s["db"], s, client)
+
+    async def test_pending_manage_run_refuses_and_leaves_rollout_halted(
+        self, client: AsyncClient, setup: dict[str, Any]
+    ) -> None:
+        s = setup
+        await s["db"].execute(
+            "UPDATE claude_runs SET status = 'pending' WHERE id = $1", s["prior"]
+        )
+        resp = await client.post(
+            f"/api/rollouts/{s['rollout_id']}/resume",
+            json={"answer": "go"},
+            headers=s["headers"],
+        )
+        assert resp.status_code == 409
+        assert "pending" in resp.json()["detail"]
+        await self._assert_untouched(s["db"], s, client)
+
+    async def test_never_dispatched_rollout_resumes_with_null_loop_run(
+        self, client: AsyncClient, setup: dict[str, Any]
+    ) -> None:
+        s = setup
+        await s["db"].execute(
+            "DELETE FROM claude_runs WHERE rollout_id = $1", s["rollout_id"]
+        )
+        resp = await client.post(
+            f"/api/rollouts/{s['rollout_id']}/resume",
+            json={"answer": "go"},
+            headers=s["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "running"
+        assert resp.json()["loop_run_id"] is None
+        assert await self._manage_runs(s["db"], s["rollout_id"]) == []
+
+    async def test_running_rollout_relaunch_creates_run_without_state_change(
+        self, client: AsyncClient, setup: dict[str, Any]
+    ) -> None:
+        s = setup
+        await s["db"].execute(
+            "UPDATE autonomous_rollouts SET status = 'running' WHERE id = $1",
+            s["rollout_id"],
+        )
+        resp = await client.post(
+            f"/api/rollouts/{s['rollout_id']}/resume",
+            json={},
+            headers=s["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["loop_run_id"]
+        item = await s["db"].fetchrow(
+            "SELECT status FROM rollout_items WHERE rollout_id = $1",
+            s["rollout_id"],
+        )
+        assert item["status"] == "halted"  # untouched: no resume transition
+        comments = (
+            await client.get(
+                f"/api/projects/{s['project_id']}/comments", headers=s["headers"]
+            )
+        ).json()
+        assert comments == []
+        kinds = [
+            r["kind"]
+            for r in await s["db"].fetch(
+                "SELECT kind FROM rollout_events WHERE rollout_id = $1",
+                s["rollout_id"],
+            )
+        ]
+        assert "wave_resumed" not in kinds
+        assert "manage_relaunched" in kinds
+
+    async def test_running_rollout_without_loop_or_relaunch_is_refused(
+        self, client: AsyncClient, setup: dict[str, Any]
+    ) -> None:
+        s = setup
+        await s["db"].execute(
+            "UPDATE autonomous_rollouts SET status = 'running' WHERE id = $1",
+            s["rollout_id"],
+        )
+        resp = await client.post(
+            f"/api/rollouts/{s['rollout_id']}/resume",
+            json={"relaunch": False},
+            headers=s["headers"],
+        )
+        assert resp.status_code == 409
+        assert "nothing to do" in resp.json()["detail"]
+
+        await s["db"].execute(
+            "DELETE FROM claude_runs WHERE rollout_id = $1", s["rollout_id"]
+        )
+        resp = await client.post(
+            f"/api/rollouts/{s['rollout_id']}/resume",
+            json={},
+            headers=s["headers"],
+        )
+        assert resp.status_code == 409
+        assert "never had a rollout loop" in resp.json()["detail"]
+
+    async def test_relaunch_false_on_halted_behaves_as_before(
+        self, client: AsyncClient, setup: dict[str, Any]
+    ) -> None:
+        s = setup
+        resp = await client.post(
+            f"/api/rollouts/{s['rollout_id']}/resume",
+            json={"answer": "go", "relaunch": False},
+            headers=s["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "running"
+        assert resp.json()["loop_run_id"] is None
+        assert len(await self._manage_runs(s["db"], s["rollout_id"])) == 2
+
+    async def test_halted_resume_requires_an_answer(
+        self, client: AsyncClient, setup: dict[str, Any]
+    ) -> None:
+        s = setup
+        resp = await client.post(
+            f"/api/rollouts/{s['rollout_id']}/resume",
+            json={"answer": "   "},
+            headers=s["headers"],
+        )
+        assert resp.status_code == 409
+        await self._assert_untouched(s["db"], s, client)
+
+    async def test_relaunch_keeps_the_settled_reviewer_engine(
+        self, client: AsyncClient, setup: dict[str, Any]
+    ) -> None:
+        s = setup
+        await s["db"].execute(
+            "UPDATE autonomous_rollouts SET reviewer_engine = 'claude-code-opus'"
+            " WHERE id = $1",
+            s["rollout_id"],
+        )
+        resp = await client.post(
+            f"/api/rollouts/{s['rollout_id']}/resume",
+            json={"answer": "go"},
+            headers=s["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        row = await s["db"].fetchrow(
+            "SELECT reviewer_engine FROM autonomous_rollouts WHERE id = $1",
+            s["rollout_id"],
+        )
+        assert row["reviewer_engine"] == "claude-code-opus"
