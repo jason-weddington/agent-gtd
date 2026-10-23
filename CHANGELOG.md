@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v2.5.0 (2026-10-23)
+
+### Features
+
+- **2e656b68**: Export BuildEngine as the shared engine-identifier enum; guard the dispatch engine
+  registry and agent_gtd's engine-name copies with parity tests (agent_gtd's import switch is a
+  follow-up after the dispatch release)
+  ([`0c9b590`](https://github.com/jason-weddington/agent-gtd/commit/0c9b590c05a950c2a2e8474a0f11dd3ca8a14a7d))
+
+- **e6abaa09**: Rollouts: resume relaunches the rollout loop on its owning host after a halt, and a
+  host refuses a second loop for the same rollout
+  ([`9fcd901`](https://github.com/jason-weddington/agent-gtd/commit/9fcd901a2117f6e5e48e84364d39617b4f4f1e7b))
+
+
 ## v2.4.0 (2026-10-22)
 
 ### Bug Fixes
