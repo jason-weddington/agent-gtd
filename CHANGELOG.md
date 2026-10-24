@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v2.5.2 (2026-10-24)
+
+### Bug Fixes
+
+- **4efc510e**: Rollouts: recording a hand-landed item on a halted rollout does not count the other
+  halted items as finished and close the rollout
+  ([`9c2737a`](https://github.com/jason-weddington/agent-gtd/commit/9c2737aaee7ce650ef26195d3e7ae3df892073b0))
+
+- **a9875bc6**: Resume reviews a halted item's finished build instead of rebuilding it
+  ([`d9474a3`](https://github.com/jason-weddington/agent-gtd/commit/d9474a3dd0635a78a172a5cc8baa5196f69c35ee))
+
+
 ## v2.5.1 (2026-10-24)
 
 ### Bug Fixes
