@@ -2324,7 +2324,25 @@ async def _post_resume_answer(
 async def _resume_halted_rollout(
     db: DbPool, wave: dict[str, Any], answer: str, user_id: str
 ) -> None:
-    """Move a halted rollout back to running (items, locks, status, event)."""
+    """Move a halted rollout back to running (items, locks, status, event).
+
+    Steps:
+
+    1. Post the lead's answer as a comment.
+    2. Read the rollout items and the plan's predecessor map.
+    3. Restore each ``halted`` item whose latest build run (``mode='build'``,
+       this rollout, newest ``created_at``) is ``success`` or still in flight
+       (``pending``/``running``/...) to ``dispatched``.  A finished build then
+       surfaces to the loop as a completed build to review and land, and an
+       in-flight one is waited on, rather than being rebuilt.
+    4. Every other halted item (latest build failed/cancelled/timeout/error,
+       or no build run at all) goes to ``ready`` when its predecessors are all
+       terminal, else ``pending``.  Then lock the non-terminal items and set
+       the rollout ``running``.
+
+    The caller's done-item sweep runs afterwards and takes precedence: a
+    restored item whose GTD item is already done is recorded completed.
+    """
     rollout_id = str(wave["id"])
     project_id = str(wave["project_id"])
     now = datetime.now(UTC).isoformat()
@@ -2343,8 +2361,22 @@ async def _resume_halted_rollout(
 
     newly_ready: list[str] = []
     newly_pending: list[str] = []
+    newly_dispatched: list[str] = []
     for item_id, status in item_statuses.items():
         if status == "halted":
+            latest = await db.fetchrow(
+                "SELECT status FROM claude_runs"
+                " WHERE rollout_id = $1 AND item_id = $2 AND mode = 'build'"
+                " ORDER BY created_at DESC LIMIT 1",
+                rollout_id,
+                item_id,
+            )
+            if latest is not None and (
+                latest["status"] == "success"
+                or latest["status"] not in _TERMINAL_RUN_STATUSES | {"error"}
+            ):
+                newly_dispatched.append(item_id)
+                continue
             item_preds = preds.get(item_id, [])
             all_done = all(
                 item_statuses.get(p, "pending") in _TERMINAL_STATUSES
@@ -2355,6 +2387,13 @@ async def _resume_halted_rollout(
             else:
                 newly_pending.append(item_id)
 
+    for item_id in newly_dispatched:
+        await db.execute(
+            "UPDATE rollout_items SET status = 'dispatched'"
+            " WHERE rollout_id = $1 AND item_id = $2",
+            rollout_id,
+            item_id,
+        )
     for item_id in newly_ready:
         await db.execute(
             "UPDATE rollout_items SET status = 'ready'"
@@ -2397,6 +2436,7 @@ async def _resume_halted_rollout(
         payload={
             "newly_ready": newly_ready,
             "newly_pending": newly_pending,
+            "newly_dispatched": newly_dispatched,
         },
     )
     _publish_rollout_event(db, user_id, wave_event, project_id)

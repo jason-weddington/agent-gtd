@@ -12,6 +12,7 @@ from agent_gtd.exceptions import LegalityContractError, NotFoundError, Validatio
 from agent_gtd.services.rollout_service import (
     MERGE_NOTE_EVENT_KIND,
     MERGE_NOTE_MAX_CHARS,
+    advance_rollout,
     cancel_rollout,
     complete_item_in_rollout,
     get_recent_merge_notes,
@@ -1718,6 +1719,76 @@ async def test_resume_leaves_not_done_item_untouched(db):
         result = await resume_rollout(db, rollout_id, "ok", user_id, relaunch=False)
     assert result["done_count"] == 0
     assert await _get_wave_item_status(db, rollout_id, item_id) == "ready"
+
+
+async def _resume_with_build(db, run_status):
+    """Halted single-item rollout, optionally with a latest build run."""
+    user_id, project_id, rollout_id, item_id = await _halted_item_setup(db)
+    if run_status is not None:
+        run_id = await _make_child_run(
+            db, user_id, project_id, rollout_id, status=run_status
+        )
+        await db.execute(
+            "UPDATE claude_runs SET item_id = $1 WHERE id = $2", item_id, run_id
+        )
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        await resume_rollout(db, rollout_id, "ok", user_id, relaunch=False)
+    return user_id, rollout_id, item_id
+
+
+async def test_resume_successful_build_becomes_dispatched(db):
+    user_id, rollout_id, item_id = await _resume_with_build(db, "success")
+    assert await _get_wave_item_status(db, rollout_id, item_id) == "dispatched"
+    adv = await advance_rollout(db, user_id, rollout_id)
+    assert item_id not in [str(i) for i in adv["next_ready"]]
+    assert item_id in [str(i) for i in adv["in_progress"]]
+
+
+@pytest.mark.parametrize("run_status", ["failed", "cancelled", "timeout", "error"])
+async def test_resume_failed_build_becomes_ready(db, run_status):
+    _, rollout_id, item_id = await _resume_with_build(db, run_status)
+    assert await _get_wave_item_status(db, rollout_id, item_id) == "ready"
+
+
+async def test_resume_no_build_run_becomes_ready(db):
+    _, rollout_id, item_id = await _resume_with_build(db, None)
+    assert await _get_wave_item_status(db, rollout_id, item_id) == "ready"
+
+
+async def test_resume_no_build_run_pending_when_predecessor_open(db):
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    a = await _make_item(db, user_id, project_id, status="active")
+    b = await _make_item(db, user_id, project_id, status="active")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="halted")
+    await _make_wave_plan_item(db, rollout_id, a, status="dispatched")
+    await _make_wave_plan_item(db, rollout_id, b, status="halted")
+    await _make_rollout_plan(
+        db, rollout_id, [a, b], [{"from_item_id": a, "to_item_id": b}]
+    )
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        await resume_rollout(db, rollout_id, "ok", user_id, relaunch=False)
+    assert await _get_wave_item_status(db, rollout_id, b) == "pending"
+
+
+@pytest.mark.parametrize("run_status", ["running", "pending"])
+async def test_resume_in_flight_build_becomes_dispatched(db, run_status):
+    _, rollout_id, item_id = await _resume_with_build(db, run_status)
+    assert await _get_wave_item_status(db, rollout_id, item_id) == "dispatched"
+
+
+async def test_resume_sweep_precedes_successful_build_restore(db):
+    user_id, project_id, rollout_id, item_id = await _halted_item_setup(db)
+    run_id = await _make_child_run(
+        db, user_id, project_id, rollout_id, status="success"
+    )
+    await db.execute(
+        "UPDATE claude_runs SET item_id = $1 WHERE id = $2", item_id, run_id
+    )
+    await db.execute("UPDATE items SET status = 'done' WHERE id = $1", item_id)
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        await resume_rollout(db, rollout_id, "ok", user_id, relaunch=False)
+    assert await _get_wave_item_status(db, rollout_id, item_id) == "completed"
 
 
 # ---------------------------------------------------------------------------
