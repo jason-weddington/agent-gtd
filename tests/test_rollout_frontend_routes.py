@@ -1080,6 +1080,58 @@ class TestResumeRelaunch:
             "prior_run_id": s["prior"],
         }
 
+    async def _seed_stale_step(self, s: dict[str, Any]) -> None:
+        await s["db"].execute(
+            "UPDATE autonomous_rollouts SET manager_current_step = 'stale step',"
+            " manager_state_updated_at = '2020-01-01T00:00:00+00:00' WHERE id = $1",
+            s["rollout_id"],
+        )
+
+    async def _step_row(self, s: dict[str, Any]) -> Any:
+        return await s["db"].fetchrow(
+            "SELECT manager_current_step, manager_state_updated_at"
+            " FROM autonomous_rollouts WHERE id = $1",
+            s["rollout_id"],
+        )
+
+    async def test_halted_resume_with_relaunch_resets_stale_step(
+        self, client: AsyncClient, setup: dict[str, Any]
+    ) -> None:
+        from unittest.mock import patch
+
+        from agent_gtd.services.rollout_service import RESUMED_MANAGER_STEP
+
+        s = setup
+        await self._seed_stale_step(s)
+        before = await self._step_row(s)
+        with patch("agent_gtd.dispatch_worker.enqueue_run"):
+            resp = await client.post(
+                f"/api/rollouts/{s['rollout_id']}/resume",
+                json={"answer": "go"},
+                headers=s["headers"],
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["manager_current_step"] == RESUMED_MANAGER_STEP
+        after = await self._step_row(s)
+        assert after["manager_current_step"] == "Resumed; relaunching the rollout loop"
+        assert after["manager_state_updated_at"] > before["manager_state_updated_at"]
+
+    async def test_relaunch_false_leaves_stale_step(
+        self, client: AsyncClient, setup: dict[str, Any]
+    ) -> None:
+        s = setup
+        await self._seed_stale_step(s)
+        before = await self._step_row(s)
+        resp = await client.post(
+            f"/api/rollouts/{s['rollout_id']}/resume",
+            json={"answer": "go", "relaunch": False},
+            headers=s["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        after = await self._step_row(s)
+        assert after["manager_current_step"] == "stale step"
+        assert after["manager_state_updated_at"] == before["manager_state_updated_at"]
+
     async def test_rollout_pin_wins_over_prior_run_host(
         self, client: AsyncClient, setup: dict[str, Any]
     ) -> None:
@@ -1252,6 +1304,8 @@ class TestResumeRelaunch:
             headers=s["headers"],
         )
         assert resp.status_code == 409
+        assert "--answer" in resp.text
+        assert "`answer`" in resp.text
         await self._assert_untouched(s["db"], s, client)
 
     async def test_relaunch_keeps_the_settled_reviewer_engine(

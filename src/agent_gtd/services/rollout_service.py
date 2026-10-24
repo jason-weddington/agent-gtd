@@ -49,6 +49,10 @@ TERMINAL_ROLLOUT_STATUSES = frozenset(
 # rollout, forcing an N-query fan-out to reconstruct the same list.
 MERGE_NOTE_EVENT_KIND = "merge_note"
 
+# Neutral manager step written when a resume relaunches the rollout loop, so a
+# stale pre-halt step is not shown.
+RESUMED_MANAGER_STEP = "Resumed; relaunching the rollout loop"
+
 # Hard cap on a single stored merge note.  A note is a list of changed
 # signatures/renames/config keys, not a prose summary of the diff — the commit
 # message is for that.  The cap keeps a rambling note from crowding out the
@@ -2083,7 +2087,10 @@ async def resume_rollout(
             f"Rollout {rollout_id} is already running and relaunch=False: nothing to do"
         )
     if status == RolloutStatus.HALTED and not answer.strip():
-        raise ValidationError("An answer is required to resume a halted rollout")
+        raise ValidationError(
+            "An answer is required to resume a halted rollout: pass --answer "
+            "on the CLI or the `answer` argument on the MCP tool"
+        )
 
     # Preflight BEFORE any state change: a refusal leaves the rollout as it
     # was (still halted, no comment, no run row).
@@ -2109,6 +2116,20 @@ async def resume_rollout(
     if target is not None:
         loop_run_id = await dispatch_service.relaunch_rollout_loop(
             db, user_id, rollout_id, target
+        )
+        resumed_at = datetime.now(UTC).isoformat()
+        await db.execute(
+            """
+            UPDATE autonomous_rollouts
+            SET manager_current_step = $1,
+                manager_state_updated_at = $2,
+                updated_at = $3
+            WHERE id = $4
+            """,
+            RESUMED_MANAGER_STEP,
+            resumed_at,
+            resumed_at,
+            rollout_id,
         )
         relaunch_event = await _append_rollout_event(
             db,

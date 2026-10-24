@@ -2041,6 +2041,8 @@ async def resume_rollout(
         rollout_id: ID of the rollout to resume.
         ctx: MCP context (injected automatically).
         answer: The lead's answer or instruction, posted as a comment.
+            Required for a halted rollout; pass it via the ``answer``
+            argument (CLI: ``--answer``).
         relaunch: Also relaunch the rollout loop (default True).
 
     Returns:
