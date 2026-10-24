@@ -1678,6 +1678,87 @@ async def test_completed_to_skipped_still_refused(db):
         )
 
 
+async def _two_halted_independent(db):
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    a = await _make_item(db, user_id, project_id, status="active")
+    b = await _make_item(db, user_id, project_id, status="ready")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="halted")
+    await _make_wave_plan_item(db, rollout_id, a, status="halted")
+    await _make_wave_plan_item(db, rollout_id, b, status="halted")
+    await _make_rollout_plan(db, rollout_id, [a, b], [])
+    return user_id, rollout_id, a, b
+
+
+async def _wave_completed_count(db, rollout_id: str) -> int:
+    row = await db.fetchrow(
+        "SELECT COUNT(*) AS n FROM rollout_events"
+        " WHERE rollout_id = $1 AND kind = 'wave_completed'",
+        rollout_id,
+    )
+    return int(row["n"])
+
+
+async def test_halted_override_with_other_halted_item_does_not_close(db):
+    user_id, rollout_id, a, b = await _two_halted_independent(db)
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        result = await complete_item_in_rollout(
+            db, user_id, rollout_id, a, outcome="completed"
+        )
+    assert result["graph_complete"] is False
+    row = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert row["status"] == "halted"
+    assert await _wave_completed_count(db, rollout_id) == 0
+    assert await _get_wave_item_status(db, rollout_id, b) == "halted"
+    gtd = await db.fetchrow("SELECT status FROM items WHERE id = $1", a)
+    assert gtd["status"] == "done"
+
+
+async def test_resume_after_partial_override_makes_other_item_ready(db):
+    user_id, rollout_id, a, b = await _two_halted_independent(db)
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        await complete_item_in_rollout(db, user_id, rollout_id, a, outcome="completed")
+        await resume_rollout(db, rollout_id, "ok", user_id, relaunch=False)
+    assert await _get_wave_item_status(db, rollout_id, a) == "completed"
+    assert await _get_wave_item_status(db, rollout_id, b) == "ready"
+
+
+async def test_halted_override_of_last_unfinished_item_closes(db):
+    user_id, rollout_id, a, b = await _two_halted_independent(db)
+    await db.execute(
+        "UPDATE rollout_items SET status = 'skipped'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
+        b,
+    )
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        result = await complete_item_in_rollout(
+            db, user_id, rollout_id, a, outcome="completed"
+        )
+    assert result["graph_complete"] is True
+    row = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    assert row["status"] == "completed"
+
+
+async def test_advance_halted_mix_is_not_graph_complete(db):
+    user_id, rollout_id, a, _b = await _two_halted_independent(db)
+    await db.execute(
+        "UPDATE rollout_items SET status = 'completed'"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
+        a,
+    )
+    await db.execute(
+        "UPDATE autonomous_rollouts SET status = 'running' WHERE id = $1", rollout_id
+    )
+    result = await advance_rollout(db, user_id, rollout_id)
+    assert result["graph_complete"] is False
+
+
 async def test_resume_sweeps_done_item_and_unblocks_successor(db):
     user_id = await _make_user(db)
     project_id = await _make_project(db, user_id)

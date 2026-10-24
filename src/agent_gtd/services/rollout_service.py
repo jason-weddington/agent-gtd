@@ -19,6 +19,7 @@ from agent_gtd.util.tasks import supervise_task
 logger = logging.getLogger(__name__)
 
 _TERMINAL_STATUSES = frozenset(("completed", "halted", "skipped"))
+_FINISHED_STATUSES = frozenset(("completed", "skipped"))
 
 #: merge_actor recorded when an operator overrides a halted item by hand.
 MERGE_ACTOR_LEAD = "lead"
@@ -880,7 +881,7 @@ async def _heal_repeat_completion(
         rollout_row is not None
         and not rollout_completed
         and item_statuses
-        and all(s in _TERMINAL_STATUSES for s in item_statuses.values())
+        and all(s in _FINISHED_STATUSES for s in item_statuses.values())
     ):
         now = datetime.now(UTC).isoformat()
         await _close_rollout(db, rollout_id, now)
@@ -973,7 +974,7 @@ async def advance_rollout(
                 blocked.append(item_id)
         # Terminal items (completed, halted, skipped) are omitted from all lists.
 
-    graph_complete = all(s in _TERMINAL_STATUSES for s in items.values())
+    graph_complete = all(s in _FINISHED_STATUSES for s in items.values())
 
     return {
         "next_ready": next_ready,
@@ -1146,7 +1147,7 @@ async def complete_item_in_rollout(
     newly_ready = await _unblock_successors(db, rollout_id, item_id, item_statuses)
 
     # Close the wave if every item is now terminal
-    graph_complete = all(s in _TERMINAL_STATUSES for s in item_statuses.values())
+    graph_complete = all(s in _FINISHED_STATUSES for s in item_statuses.values())
     if graph_complete:
         await _close_rollout(db, rollout_id, now)
 
