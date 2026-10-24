@@ -601,7 +601,9 @@ async def test_get_dispatch_hosts_returns_drained_host_with_api_key_intact(
     alpha = await add_dispatch_host(
         db, user_id, "alpha", "http://alpha:8100", "key-alpha"
     )
-    beta = await add_dispatch_host(db, user_id, "beta", "http://beta:8100", "key-beta")
+    beta = await add_dispatch_host(
+        db, user_id, "beta", "http://beta:8100", "key-beta", start_drained=False
+    )
     await db.execute(
         "UPDATE dispatch_hosts SET drain_reason = $1 WHERE id = $2",
         "rolling deploy 2.0.2",
@@ -621,3 +623,54 @@ async def test_get_dispatch_hosts_returns_drained_host_with_api_key_intact(
     undrained = next(h for h in hosts if h["id"] == beta["id"])
     assert undrained["drain_reason"] is None
     assert undrained["api_key"] == "key-beta"
+
+
+@pytest.mark.asyncio
+async def test_add_host_defaults_to_drained(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """A newly registered host starts drained with the constant reason."""
+    from agent_gtd.services.settings_service import NEW_HOST_DRAIN_REASON
+
+    assert NEW_HOST_DRAIN_REASON == "new host: awaiting smoke test"
+    res = await client.post(
+        "/api/settings/dispatch/hosts",
+        json={"label": "n", "url": "http://new:8001", "api_key": "k-1234"},
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["drain_reason"] == "new host: awaiting smoke test"
+
+
+@pytest.mark.asyncio
+async def test_add_host_start_drained_false_stores_null(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """start_drained=false registers the host straight into rotation."""
+    res = await client.post(
+        "/api/settings/dispatch/hosts",
+        json={
+            "label": "n",
+            "url": "http://new:8001",
+            "api_key": "k-1234",
+            "start_drained": False,
+        },
+        headers=auth_headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["drain_reason"] is None
+
+
+@pytest.mark.asyncio
+async def test_service_add_host_default_and_opt_out() -> None:
+    """Service-level default is drained; start_drained=False stores NULL."""
+    from agent_gtd.database import LOCAL_USER_ID, get_db
+    from agent_gtd.services.settings_service import add_dispatch_host
+
+    db = await get_db()
+    a = await add_dispatch_host(db, LOCAL_USER_ID, "a", "http://a:1", "k")
+    b = await add_dispatch_host(
+        db, LOCAL_USER_ID, "b", "http://b:1", "k", start_drained=False
+    )
+    assert a["drain_reason"] == "new host: awaiting smoke test"
+    assert b["drain_reason"] is None

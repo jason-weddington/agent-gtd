@@ -577,3 +577,146 @@ async def test_dispatch_targeted_drained_host_409_before_capacity_probe(
     )
     assert row is not None
     assert row["c"] == 0
+
+
+# ---------------------------------------------------------------------------
+# allow_drained_host: deliberate smoke test of a drained (new) host
+# ---------------------------------------------------------------------------
+
+
+async def _smoke_setup(client, auth_headers, project_id):
+    """Create an item + a freshly registered (drained) host; return ids."""
+    item_res = await client.post(
+        "/api/items",
+        json={"title": "Smoke", "project_id": project_id, "status": "next_action"},
+        headers=auth_headers,
+    )
+    item_id = item_res.json()["id"]
+    await client.patch(
+        f"/api/projects/{project_id}",
+        json={"git_origin": "https://github.com/example/repo.git"},
+        headers=auth_headers,
+    )
+    with patch(
+        "agent_gtd.routes.settings_routes.probe_dispatch_host",
+        new_callable=AsyncMock,
+    ):
+        host_res = await client.post(
+            "/api/settings/dispatch/hosts",
+            json={"label": "fresh", "url": "http://fresh:8100", "api_key": "k-1234"},
+            headers=auth_headers,
+        )
+    assert host_res.json()["drain_reason"] == "new host: awaiting smoke test"
+    return item_id, host_res.json()["id"]
+
+
+_OPEN_INFO = {
+    "engines": ["claude-code"],
+    "agents": [],
+    "max_concurrent_runs": 4,
+    "active_runs": 0,
+}
+
+
+@pytest.mark.asyncio
+async def test_pinned_drained_host_refused_without_flag_with_hint(
+    client, auth_headers, project_id
+):
+    item_id, host_id = await _smoke_setup(client, auth_headers, project_id)
+    with (
+        patch(
+            "agent_gtd.routes.dispatch_routes._check_dispatch_service",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+            new_callable=AsyncMock,
+            return_value=_OPEN_INFO,
+        ),
+    ):
+        res = await client.post(
+            f"/api/items/{item_id}/dispatch",
+            json={"mode": "build", "dispatch_host_id": host_id},
+            headers=auth_headers,
+        )
+    assert res.status_code == 409
+    assert "is draining" in res.json()["detail"]
+    assert "--allow-drained-host" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_pinned_drained_host_accepted_with_flag(client, auth_headers, project_id):
+    from agent_gtd.database import get_db
+
+    item_id, host_id = await _smoke_setup(client, auth_headers, project_id)
+    with (
+        patch(
+            "agent_gtd.routes.dispatch_routes._check_dispatch_service",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+            new_callable=AsyncMock,
+            return_value=_OPEN_INFO,
+        ),
+    ):
+        res = await client.post(
+            f"/api/items/{item_id}/dispatch",
+            json={
+                "mode": "build",
+                "dispatch_host_id": host_id,
+                "allow_drained_host": True,
+            },
+            headers=auth_headers,
+        )
+    assert res.status_code == 201
+    db = await get_db()
+    row = await db.fetchrow(
+        "SELECT dispatch_host_id, allow_drained_host FROM claude_runs"
+        " WHERE item_id = $1",
+        item_id,
+    )
+    assert row["dispatch_host_id"] == host_id
+    assert row["allow_drained_host"] == 1
+
+
+@pytest.mark.asyncio
+async def test_pinned_drained_host_flag_still_checks_capacity(
+    client, auth_headers, project_id
+):
+    item_id, host_id = await _smoke_setup(client, auth_headers, project_id)
+    full = {**_OPEN_INFO, "active_runs": 4}
+    with (
+        patch(
+            "agent_gtd.routes.dispatch_routes._check_dispatch_service",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "agent_gtd.routes.dispatch_routes._fetch_host_capabilities",
+            new_callable=AsyncMock,
+            return_value=full,
+        ),
+    ):
+        res = await client.post(
+            f"/api/items/{item_id}/dispatch",
+            json={
+                "mode": "build",
+                "dispatch_host_id": host_id,
+                "allow_drained_host": True,
+            },
+            headers=auth_headers,
+        )
+    assert res.status_code == 409
+    assert "capacity" in res.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_allow_drained_host_without_pin_is_422(client, auth_headers, project_id):
+    item_id, _ = await _smoke_setup(client, auth_headers, project_id)
+    res = await client.post(
+        f"/api/items/{item_id}/dispatch",
+        json={"mode": "build", "allow_drained_host": True},
+        headers=auth_headers,
+    )
+    assert res.status_code == 422
+    assert "pinned host" in res.json()["detail"]

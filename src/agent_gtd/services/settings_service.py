@@ -171,6 +171,9 @@ async def get_dispatch_hosts(db: Any, user_id: str) -> list[dict[str, Any]]:
     return []
 
 
+NEW_HOST_DRAIN_REASON = "new host: awaiting smoke test"
+
+
 async def add_dispatch_host(
     db: Any,
     user_id: str,
@@ -178,6 +181,7 @@ async def add_dispatch_host(
     url: str,
     api_key: str,
     capability_labels: list[str] | None = None,
+    start_drained: bool = True,
 ) -> dict[str, Any]:
     """Add a new dispatch host for a user.
 
@@ -190,6 +194,9 @@ async def add_dispatch_host(
         capability_labels: Operator-set capability labels (e.g.
             'camera-data', 'tauri-linux'). Normalized (lowercase, stripped,
             deduped) on write. Never self-reported by the host.
+        start_drained: When true (default) the host is stored with
+            ``NEW_HOST_DRAIN_REASON`` so it receives no work until an
+            operator undrains it.
 
     Returns:
         Dict with keys: id, user_id, label, url, api_key, capability_labels
@@ -207,14 +214,15 @@ async def add_dispatch_host(
         await db.execute(
             "INSERT INTO dispatch_hosts "
             "(id, user_id, label, url, api_key, capability_labels,"
-            " created_at, updated_at) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            " drain_reason, created_at, updated_at) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
             host_id,
             user_id,
             label,
             url,
             api_key,
             encode_json_list(normalize_labels(capability_labels or [])),
+            NEW_HOST_DRAIN_REASON if start_drained else None,
             now,
             now,
         )

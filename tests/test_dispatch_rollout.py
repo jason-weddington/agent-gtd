@@ -416,6 +416,7 @@ def _make_settings_mock() -> tuple[Any, Any, Any]:
         target_host_id: str | None = None,
         exclude_urls: frozenset[str] | None = None,
         required_labels: frozenset[str] | None = None,
+        allow_drained_host: bool = False,
     ) -> dict[str, Any]:
         return {"url": "http://fake:8100", "api_key": "test-key"}
 

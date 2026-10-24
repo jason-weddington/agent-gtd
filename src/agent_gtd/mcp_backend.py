@@ -344,6 +344,7 @@ class McpBackend(Protocol):
         mode: str = "build",
         rollout_id: str | None = None,
         dispatch_host_id: str | None = None,
+        allow_drained_host: bool = False,
     ) -> dict[str, Any]: ...
 
     async def dispatch_rollout(
@@ -1151,6 +1152,7 @@ class LocalBackend:
         mode: str = "build",
         rollout_id: str | None = None,
         dispatch_host_id: str | None = None,
+        allow_drained_host: bool = False,
     ) -> dict[str, Any]:
         from agent_gtd.database import get_db
         from agent_gtd.services.dispatch_service import create_run
@@ -1164,6 +1166,7 @@ class LocalBackend:
             mode=mode,
             rollout_id=rollout_id,
             dispatch_host_id=dispatch_host_id,
+            allow_drained_host=allow_drained_host,
         )
 
     async def dispatch_rollout(
@@ -2197,6 +2200,7 @@ class HttpBackend:
         mode: str = "build",
         rollout_id: str | None = None,
         dispatch_host_id: str | None = None,
+        allow_drained_host: bool = False,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"mode": mode}
         if max_turns is not None:
@@ -2205,6 +2209,8 @@ class HttpBackend:
             body["rollout_id"] = rollout_id
         if dispatch_host_id is not None:
             body["dispatch_host_id"] = dispatch_host_id
+        if allow_drained_host:
+            body["allow_drained_host"] = True
         resp = await self._client.post(
             f"/api/items/{item_id}/dispatch", json=body, headers=self._headers()
         )

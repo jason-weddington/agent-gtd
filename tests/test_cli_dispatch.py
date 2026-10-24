@@ -67,6 +67,7 @@ def _dispatch_item_args(**overrides: Any) -> argparse.Namespace:
         "max_turns": None,
         "dispatch_host_id": None,
         "rollout_id": None,
+        "allow_drained_host": False,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -129,6 +130,7 @@ class _FakeBackend:
         mode: str = "build",
         rollout_id: str | None = None,
         dispatch_host_id: str | None = None,
+        allow_drained_host: bool = False,
     ) -> dict[str, Any]:
         self.dispatch_item_calls.append(
             {
@@ -138,6 +140,7 @@ class _FakeBackend:
                 "mode": mode,
                 "rollout_id": rollout_id,
                 "dispatch_host_id": dispatch_host_id,
+                "allow_drained_host": allow_drained_host,
             }
         )
         return self._dispatch_item_result
@@ -916,3 +919,15 @@ def test_set_host_labels_replaces_and_clears(monkeypatch, capsys):
         _cmd_set_host_labels(
             parser.parse_args(["set-host-labels", "host-a", "gpu", "--clear"])
         )
+
+
+def test_dispatch_item_allow_drained_host_flag_parsed():
+    """--allow-drained-host defaults False and parses to True."""
+    parser = build_parser()
+    item_id = str(uuid.uuid4())
+    off = parser.parse_args(["dispatch-item", item_id])
+    on = parser.parse_args(
+        ["dispatch-item", item_id, "--dispatch-host-id", "h", "--allow-drained-host"]
+    )
+    assert off.allow_drained_host is False
+    assert on.allow_drained_host is True

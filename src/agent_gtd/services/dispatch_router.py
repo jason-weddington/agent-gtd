@@ -273,11 +273,14 @@ async def pick_dispatch_host(
     target_host_id: str | None = None,
     exclude_urls: frozenset[str] | None = None,
     required_labels: frozenset[str] | None = None,
+    allow_drained_host: bool = False,
 ) -> dict[str, Any]:
     """Select the best dispatch host for the given engine and agent.
 
     When ``target_host_id`` is set, the host with that ID is used directly
-    (after validation), bypassing capacity ranking.
+    (after validation), bypassing capacity ranking. ``allow_drained_host``
+    is honoured ONLY with ``target_host_id``: it lets an operator smoke-test
+    a drained host on purpose. Auto-routing never selects a drained host.
 
     Algorithm (auto mode, target_host_id=None):
     0. Partition out hosts with a non-NULL ``drain_reason`` (checked before
@@ -325,6 +328,8 @@ async def pick_dispatch_host(
             item's required labels). A pin that lacks a required label
             fails the same way an auto-routed dispatch would — pinning
             names which host, not that the requirement no longer applies.
+        allow_drained_host: Operator smoke-test override. Honoured only
+            together with ``target_host_id``; ignored in auto mode.
 
     Returns:
         The winning host dict (with a transient ``_routing_rationale`` key).
@@ -335,7 +340,8 @@ async def pick_dispatch_host(
             in the pool is draining, or if the label filter empties the
             pool while a label-qualified drained host exists. Checked
             before capability labels and before any network call; there is
-            no override.
+            the only
+            override is ``allow_drained_host`` on a pinned dispatch.
         UnmetCapabilityError: If no host (or the pinned host) satisfies
             ``required_labels``. Raised before any engine/agent/capacity
             check — a labels failure is a distinct, more specific failure
@@ -367,7 +373,7 @@ async def pick_dispatch_host(
                 host_label,
             )
         target_drain_reason = target.get("drain_reason")
-        if target_drain_reason is not None:
+        if target_drain_reason is not None and not allow_drained_host:
             raise HostDrainingError(
                 hosts_checked=[{"host": host_label, "reason": str(target_drain_reason)}]
             )

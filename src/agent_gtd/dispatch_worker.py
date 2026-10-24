@@ -995,6 +995,10 @@ async def execute_run(
         str(run["dispatch_host_id"]) if run.get("dispatch_host_id") else None
     )
 
+    allow_drained_host = bool(run.get("allow_drained_host")) and (
+        dispatch_host_id is not None
+    )
+
     # Retry loop: pick a host and dispatch, retrying on 503 (at capacity) by
     # excluding the full host and trying the next-best candidate.
     # Targeted dispatch (dispatch_host_id set) does not retry on 503.
@@ -1017,6 +1021,7 @@ async def execute_run(
                     target_host_id=dispatch_host_id,
                     exclude_urls=frozenset(excluded_urls),
                     required_labels=required_labels,
+                    allow_drained_host=allow_drained_host,
                 )
             except (
                 NoCompatibleHostError,

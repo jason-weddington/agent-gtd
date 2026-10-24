@@ -941,6 +941,9 @@ class CreateRunRequest(BaseModel):
     mode: DispatchMode = DispatchMode.BUILD
     rollout_id: str | None = None
     dispatch_host_id: str | None = None
+    # Operator override for a deliberate smoke test: honour a pin to a drained
+    # host. Requires dispatch_host_id.
+    allow_drained_host: bool = False
 
 
 class DispatchSettingsResponse(BaseModel):
@@ -1082,6 +1085,10 @@ class AddDispatchHostRequest(BaseModel):
     # or places the data, so they are the one who knows. Normalized
     # (lowercase, stripped, deduped) on write.
     capability_labels: list[str] = []
+    # A newly registered host starts drained (docs/host-drain.md) so unpinned
+    # routing never sends it work until an operator smoke-tests and undrains
+    # it. Set false to register straight into rotation.
+    start_drained: bool = True
 
 
 class UpdateDispatchHostRequest(BaseModel):

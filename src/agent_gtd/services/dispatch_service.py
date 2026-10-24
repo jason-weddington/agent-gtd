@@ -120,6 +120,12 @@ def make_branch_name(item_id: str, title: str) -> str:
     return f"feat/{short_id}-{slug}"
 
 
+DRAIN_SMOKE_TEST_HINT = (
+    "To smoke-test a drained host deliberately, pin the host and pass "
+    "--allow-drained-host."
+)
+
+
 async def create_run(
     db: DbPool,
     user_id: str,
@@ -129,6 +135,7 @@ async def create_run(
     mode: str = "build",
     rollout_id: str | None = None,
     dispatch_host_id: str | None = None,
+    allow_drained_host: bool = False,
 ) -> dict[str, Any]:
     """Create a new dispatch run for an item.
 
@@ -308,7 +315,11 @@ async def create_run(
     if dispatch_host_id is not None:
         hosts = await settings_service.get_dispatch_hosts(db, str(project["user_id"]))
         host = next((h for h in hosts if h["id"] == dispatch_host_id), None)
-        if host is not None and host.get("drain_reason") is not None:
+        if (
+            host is not None
+            and host.get("drain_reason") is not None
+            and not allow_drained_host
+        ):
             host_label = host.get("label") or host.get("url", "unknown")
             drain_reason = str(host["drain_reason"])
             logger.warning(
@@ -319,7 +330,8 @@ async def create_run(
             )
             raise ValidationError(
                 f"Dispatch host '{host_label}' is draining: {drain_reason}. "
-                "Dispatch refused; retry when the host returns to rotation."
+                "Dispatch refused; retry when the host returns to rotation. "
+                + DRAIN_SMOKE_TEST_HINT
             )
 
     if max_turns is None:
@@ -343,8 +355,9 @@ async def create_run(
     await db.execute(
         "INSERT INTO claude_runs"
         " (id, item_id, project_id, user_id, status, feature_branch,"
-        "  max_turns, mode, rollout_id, created_at, updated_at, dispatch_host_id)"
-        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+        "  max_turns, mode, rollout_id, created_at, updated_at, dispatch_host_id,"
+        "  allow_drained_host)"
+        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         run_id,
         item_id,
         project_id,
@@ -357,6 +370,7 @@ async def create_run(
         now,
         now,
         dispatch_host_id,
+        1 if (allow_drained_host and dispatch_host_id is not None) else 0,
     )
 
     try:

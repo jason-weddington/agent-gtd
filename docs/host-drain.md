@@ -155,6 +155,14 @@ Hosts should be addressable by **label**, not UUID — operators think in `host-
 
 Refuse to restart a host whose `active_runs > 0`, and **skip-and-continue rather than `exit 1`** — `set -euo pipefail` at `deploy.sh:2` would otherwise strand the rest of the fleet behind one busy host. This is independent of drain and worth shipping in the same wave: without it, an operator who forgets to wait still destroys an afternoon.
 
+## Bringing a new host into rotation
+
+A newly registered host starts drained with the reason `new host: awaiting smoke test`, so unpinned routing never sends it work. A half-provisioned host can pass the registration health probe and still fail every real run, so prove it with one run first. Register with `start_drained: false` only to skip this.
+
+Register the host, then dispatch one smoke-test item pinned to it with the explicit override: `agent-gtd dispatch-item <id> --dispatch-host-id <host> --allow-drained-host`. The override is honoured only together with a pin, and only for that one dispatch; the capacity check still applies, and a drained pin without the flag is refused as before.
+
+Check the run with `agent-gtd run-status <run_id> --wait`. If it succeeded, return the host to rotation with `agent-gtd undrain-host <host>`. If it failed, leave the host drained and fix it.
+
 ## Rejected: host-owned sentinel file
 
 The competing design had the host own its drain state in a file and advertise it on `/info`, with no schema change at all. Its fail-safe argument is genuinely stronger — a host that knows it is mid-upgrade cannot be handed work by a board that has forgotten.

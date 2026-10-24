@@ -1413,6 +1413,7 @@ async def dispatch_item(
     mode: Literal["build", "plan", "manage"] = "build",
     rollout_id: str | None = None,
     dispatch_host_id: str | None = None,
+    allow_drained_host: bool = False,
 ) -> dict[str, Any]:
     """Dispatch a headless Claude Code agent to work on an item.
 
@@ -1436,6 +1437,9 @@ async def dispatch_item(
             Set to pin this dispatch to a specific host (use for verification,
             debugging, or cache affinity). Omit to let the router pick
             automatically based on engine + agent availability and capacity.
+        allow_drained_host: Operator override for a deliberate smoke test of a
+            newly registered (drained) host. Requires dispatch_host_id; the
+            drain refusal is skipped for this one dispatch. Default: false.
 
     Returns:
         The created run dict with status and branch name.
@@ -1460,6 +1464,7 @@ async def dispatch_item(
             mode=mode,
             rollout_id=rollout_id,
             dispatch_host_id=dispatch_host_id,
+            allow_drained_host=allow_drained_host,
         )
     except HTTPException as exc:
         # Only the board's BoardBackend raises this (REST dispatch pre-flight).

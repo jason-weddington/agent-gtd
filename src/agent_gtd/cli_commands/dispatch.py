@@ -51,6 +51,7 @@ def _cmd_dispatch_item(args: argparse.Namespace) -> None:
                 mode=args.mode,
                 rollout_id=args.rollout_id,
                 dispatch_host_id=args.dispatch_host_id,
+                allow_drained_host=args.allow_drained_host,
             )
 
     try:
@@ -274,6 +275,15 @@ def register(
         default=None,
         dest="dispatch_host_id",
         help="Pin execution to a specific dispatch host by ID.",
+    )
+    di.add_argument(
+        "--allow-drained-host",
+        action="store_true",
+        dest="allow_drained_host",
+        help=(
+            "Smoke-test a drained host on purpose: skip the drain refusal for"
+            " this one dispatch. Requires --dispatch-host-id."
+        ),
     )
     di.add_argument(
         "--rollout-id",

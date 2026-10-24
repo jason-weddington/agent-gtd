@@ -513,6 +513,8 @@ _MIGRATIONS: list[str] = [
     "ALTER TABLE claude_runs ADD COLUMN dispatch_host_url TEXT NOT NULL DEFAULT ''",
     # Allow pinning a dispatch to a specific host by its UUID.
     "ALTER TABLE claude_runs ADD COLUMN dispatch_host_id TEXT",
+    # Operator smoke-test override: honour a pin to a drained host for this run.
+    "ALTER TABLE claude_runs ADD COLUMN allow_drained_host INTEGER NOT NULL DEFAULT 0",
     # Workspace project support: repo_mode and ordered list of clone URLs.
     "ALTER TABLE projects ADD COLUMN repo_mode TEXT NOT NULL DEFAULT 'monorepo'",
     "ALTER TABLE projects ADD COLUMN workspace_repos TEXT NOT NULL DEFAULT '[]'",

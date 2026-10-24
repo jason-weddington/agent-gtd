@@ -2659,7 +2659,9 @@ async def _make_manage_run(
 async def _add_host(db, user_id: str, url: str, label: str = "h1") -> str:
     from agent_gtd.services import settings_service
 
-    host = await settings_service.add_dispatch_host(db, user_id, label, url, "key")
+    host = await settings_service.add_dispatch_host(
+        db, user_id, label, url, "key", start_drained=False
+    )
     return str(host["id"])
 
 

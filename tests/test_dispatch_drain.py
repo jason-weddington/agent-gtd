@@ -15,7 +15,9 @@ from agent_gtd.exceptions import NotFoundError, ValidationError
 from agent_gtd.main import app
 from agent_gtd.mcp_backend import HttpBackend, LocalBackend
 from agent_gtd.services.settings_service import (
-    add_dispatch_host,
+    add_dispatch_host as _service_add_dispatch_host,
+)
+from agent_gtd.services.settings_service import (
     clear_dispatch_host_drain,
     drain_dispatch_host,
     get_dispatch_hosts,
@@ -46,6 +48,12 @@ LEGACY_CREATE = """
         UNIQUE (user_id, url)
     )
 """
+
+
+async def add_dispatch_host(*args, **kwargs):
+    """Service add_dispatch_host, defaulting to in-rotation (not drained)."""
+    kwargs.setdefault("start_drained", False)
+    return await _service_add_dispatch_host(*args, **kwargs)
 
 
 async def _add_host(

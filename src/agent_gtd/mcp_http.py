@@ -104,12 +104,19 @@ class BoardBackend(LocalBackend):
         mode: str = "build",
         rollout_id: str | None = None,
         dispatch_host_id: str | None = None,
+        allow_drained_host: bool = False,
     ) -> dict[str, Any]:
         """Run the REST dispatch pre-flight, then create the run."""
         from agent_gtd.routes.dispatch_routes import dispatch_preflight
 
         db = await database.get_db()
-        await dispatch_preflight(db, user_id, item_id, dispatch_host_id)
+        await dispatch_preflight(
+            db,
+            user_id,
+            item_id,
+            dispatch_host_id,
+            allow_drained_host=allow_drained_host,
+        )
         return await super().dispatch_item(
             user_id,
             item_id,
@@ -117,6 +124,7 @@ class BoardBackend(LocalBackend):
             mode=mode,
             rollout_id=rollout_id,
             dispatch_host_id=dispatch_host_id,
+            allow_drained_host=allow_drained_host,
         )
 
     async def delete_item(self, user_id: str, item_id: str) -> dict[str, Any]:

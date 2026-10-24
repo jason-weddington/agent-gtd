@@ -32,6 +32,7 @@ from agent_gtd.models import (
     User,
 )
 from agent_gtd.services import dispatch_service, project_service
+from agent_gtd.services.dispatch_service import DRAIN_SMOKE_TEST_HINT
 from agent_gtd.services.settings_service import get_dispatch_hosts
 
 logger = logging.getLogger(__name__)
@@ -340,7 +341,11 @@ async def get_dispatch_capabilities(
 
 
 async def dispatch_preflight(
-    db: Any, user_id: str, item_id: str, dispatch_host_id: str | None
+    db: Any,
+    user_id: str,
+    item_id: str,
+    dispatch_host_id: str | None,
+    allow_drained_host: bool = False,
 ) -> None:
     """Run the REST dispatch pre-flight checks for *item_id*.
 
@@ -355,6 +360,12 @@ async def dispatch_preflight(
             an unknown ``dispatch_host_id``, 409 when that host is draining or
             at capacity.
     """
+    if allow_drained_host and dispatch_host_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="allow_drained_host requires a pinned host (dispatch_host_id)",
+        )
+
     # --- Access check + owner discovery ---
     # Fetch the item's project_id without an access filter (we need the raw
     # project_id to check membership, even for items whose project the caller
@@ -396,14 +407,15 @@ async def dispatch_preflight(
         # Drain is absolute: refuse BEFORE the capacity pre-flight, else a
         # drained host at capacity (the NORMAL drain window) would report
         # 'at capacity' and shadow the drain reason (docs/host-drain.md).
-        if host_match.get("drain_reason") is not None:
+        if host_match.get("drain_reason") is not None and not allow_drained_host:
             host_label = host_match.get("label") or host_match.get("url", "unknown")
             raise HTTPException(
                 status_code=409,
                 detail=(
                     f"Dispatch host '{host_label}' is draining: "
                     f"{host_match['drain_reason']}. "
-                    "Dispatch refused; retry when the host returns to rotation."
+                    "Dispatch refused; retry when the host returns to rotation. "
+                    + DRAIN_SMOKE_TEST_HINT
                 ),
             )
         # Check capacity via /info
@@ -447,7 +459,13 @@ async def dispatch_item(
     """
     db = await get_db()
 
-    await dispatch_preflight(db, user.id, item_id, body.dispatch_host_id)
+    await dispatch_preflight(
+        db,
+        user.id,
+        item_id,
+        body.dispatch_host_id,
+        allow_drained_host=body.allow_drained_host,
+    )
 
     try:
         row = await dispatch_service.create_run(
@@ -458,6 +476,7 @@ async def dispatch_item(
             mode=body.mode,
             rollout_id=body.rollout_id,
             dispatch_host_id=body.dispatch_host_id,
+            allow_drained_host=body.allow_drained_host,
         )
     except RolloutItemLockedError as e:
         raise HTTPException(status_code=409, detail=e.detail) from None

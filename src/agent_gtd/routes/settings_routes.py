@@ -246,7 +246,13 @@ async def add_dispatch_host(
     db = await get_db()
     try:
         host = await settings_service.add_dispatch_host(
-            db, user.id, body.label, url, body.api_key, body.capability_labels
+            db,
+            user.id,
+            body.label,
+            url,
+            body.api_key,
+            body.capability_labels,
+            start_drained=body.start_drained,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

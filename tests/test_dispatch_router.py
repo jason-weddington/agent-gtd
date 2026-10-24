@@ -1207,3 +1207,67 @@ async def test_drain_partition_emits_info_log(
         and "rolling deploy 2.0.2" in r.getMessage()
     ]
     assert len(infos) == 1
+
+
+@pytest.mark.asyncio
+async def test_unpinned_routing_skips_drained_even_with_override() -> None:
+    """allow_drained_host never makes auto-routing select a drained host."""
+    from agent_gtd.services.dispatch_router import HostDrainingError, pick_dispatch_host
+
+    drained = {
+        "id": "d",
+        "url": "http://d:8100",
+        "api_key": "k",
+        "label": "d",
+        "drain_reason": "new host: awaiting smoke test",
+    }
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            new_callable=AsyncMock,
+            side_effect=AssertionError("must not probe a drained pool"),
+        ),
+        pytest.raises(HostDrainingError),
+    ):
+        await pick_dispatch_host(
+            [drained],
+            engine="claude-code",
+            agent_name=None,
+            allow_drained_host=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_pinned_drained_host_honoured_only_with_override() -> None:
+    from agent_gtd.services.dispatch_router import HostDrainingError, pick_dispatch_host
+
+    drained = {
+        "id": "d",
+        "url": "http://d:8100",
+        "api_key": "k",
+        "label": "d",
+        "drain_reason": "new host: awaiting smoke test",
+    }
+    info = {
+        "engines": ["claude-code"],
+        "agents": [],
+        "max_concurrent_runs": 2,
+        "active_runs": 0,
+    }
+    with patch(
+        "agent_gtd.services.dispatch_router._fetch_host_info",
+        new_callable=AsyncMock,
+        return_value=info,
+    ):
+        with pytest.raises(HostDrainingError):
+            await pick_dispatch_host(
+                [drained], engine="claude-code", agent_name=None, target_host_id="d"
+            )
+        picked = await pick_dispatch_host(
+            [drained],
+            engine="claude-code",
+            agent_name=None,
+            target_host_id="d",
+            allow_drained_host=True,
+        )
+    assert picked["id"] == "d"
