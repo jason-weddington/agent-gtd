@@ -228,7 +228,12 @@ def register(subparsers: argparse._SubParsersAction[Any]) -> None:
     # -- complete-item-in-rollout ----------------------------------------------
     p_complete = subparsers.add_parser(
         "complete-item-in-rollout",
-        help="Mark an item in a rollout as completed, halted, or skipped.",
+        help=(
+            "Mark an item in a rollout as completed, halted, or skipped. A"
+            " halted item may be overridden to completed or skipped (merge_actor"
+            " defaults to 'lead') when the work landed outside the loop; then"
+            " run resume-rollout."
+        ),
     )
     p_complete.add_argument("rollout_id", help="ID of the rollout.")
     p_complete.add_argument("item_id", help="ID of the item to complete.")
@@ -294,7 +299,10 @@ def register(subparsers: argparse._SubParsersAction[Any]) -> None:
         help=(
             "Resume a halted rollout and relaunch its rollout loop on the host"
             " that last drove it. On a running rollout, only relaunches a"
-            " missing loop; a duplicate loop is refused."
+            " missing loop; a duplicate loop is refused. If a halted item landed"
+            " outside the loop: land it, run complete-item-in-rollout --outcome"
+            " completed, then resume (items already done are recorded with"
+            " merge_actor 'external' and not re-reviewed)."
         ),
     )
     p_resume.add_argument("rollout_id", help="ID of the rollout to resume.")

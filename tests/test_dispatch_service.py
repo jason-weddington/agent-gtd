@@ -1285,3 +1285,46 @@ async def test_create_run_reraises_original_when_cleanup_fails(
     assert any(
         "dispatch_setup_cleanup_failed" in r.getMessage() for r in caplog.records
     )
+
+
+@pytest.mark.asyncio
+async def test_create_run_refuses_rollout_build_of_done_item(
+    client: Any,
+    auth_headers: dict[str, str],
+    user_id: str,
+) -> None:
+    """AC-10: a rollout build dispatch of a done item is refused; item stays done."""
+    import uuid
+    from datetime import UTC, datetime
+
+    from agent_gtd.exceptions import ValidationError
+    from agent_gtd.services.dispatch_service import create_run
+
+    db, project_id, item_id, _host_id = await _create_drained_host_setup(
+        client, auth_headers, user_id
+    )
+    rollout_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        "INSERT INTO autonomous_rollouts"
+        " (id, project_id, lead_user_id, status, created_at, updated_at)"
+        " VALUES ($1, $2, $3, 'running', $4, $5)",
+        rollout_id,
+        project_id,
+        user_id,
+        now,
+        now,
+    )
+    await db.execute("UPDATE items SET status = 'done' WHERE id = $1", item_id)
+
+    with pytest.raises(ValidationError, match="already done"):
+        await create_run(db, user_id, item_id, mode="build", rollout_id=rollout_id)
+
+    row = await db.fetchrow("SELECT status FROM items WHERE id = $1", item_id)
+    assert row is not None
+    assert row["status"] == "done"
+    runs = await db.fetchrow(
+        "SELECT COUNT(*) AS c FROM claude_runs WHERE item_id = $1", item_id
+    )
+    assert runs is not None
+    assert runs["c"] == 0

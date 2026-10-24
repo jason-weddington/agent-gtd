@@ -19,6 +19,11 @@ from agent_gtd.util.tasks import supervise_task
 logger = logging.getLogger(__name__)
 
 _TERMINAL_STATUSES = frozenset(("completed", "halted", "skipped"))
+
+#: merge_actor recorded when an operator overrides a halted item by hand.
+MERGE_ACTOR_LEAD = "lead"
+#: merge_actor recorded when resume finds the GTD item already done.
+MERGE_ACTOR_EXTERNAL = "external"
 _ACTIVE_ITEM_STATUSES = frozenset(("pending", "ready", "dispatched"))
 _HALTED_FROM_STATUSES = ("pending", "ready", "dispatched")
 
@@ -1002,8 +1007,9 @@ async def complete_item_in_rollout(
         item_id: ID of the rollout_items row to complete.
         outcome: One of ``"completed"``, ``"halted"``, ``"skipped"``.
         merge_actor: Who merged the PR (``"human"``,
-            ``"manager-allowlist"``, ``"manager+human-fixup"``, or empty).
-            Stored on the rollout_items row.
+            ``"manager-allowlist"``, ``"manager+human-fixup"``, ``"lead"``,
+            ``"external"``, or empty).  Stored on the rollout_items row.
+            Defaults to ``"lead"`` for the halted override.
         decision_rule: Allowlist rule name that triggered auto-approval
             (from the executor classifier). Stored in the event payload.
         merge_note: Short structured note describing what the merged work
@@ -1040,6 +1046,11 @@ async def complete_item_in_rollout(
           partially-failed call left undone (GTD item cascade to ``done``,
           downstream unblock, rollout close + ``wave_completed``, missing
           ``merge_note`` event) and is otherwise write-free.
+        - Halted override: ``halted → completed | skipped`` is an explicit
+          operator override (the work landed outside the loop).  Allowed only
+          while the rollout is ``halted`` or ``running``; ``merge_actor``
+          defaults to ``"lead"``.  Runs the normal completion cascade.
+          Every other terminal → different-terminal transition is refused.
     """
     wave = await _get_rollout(db, user_id, rollout_id)
     project_id = str(wave["project_id"])
@@ -1067,11 +1078,18 @@ async def complete_item_in_rollout(
                 project_id,
                 item_row,
             )
-        raise ValidationError(
-            f"Item {item_id} already has terminal status '{current_status}' — "
-            f"cannot record a different outcome '{outcome_str}'"
+        halted_override = (
+            current_status == "halted"
+            and outcome_str in ("completed", "skipped")
+            and str(wave["status"]) in ("halted", "running")
         )
-    if current_status not in ("ready", "dispatched"):
+        if not halted_override:
+            raise ValidationError(
+                f"Item {item_id} already has terminal status '{current_status}' — "
+                f"cannot record a different outcome '{outcome_str}'"
+            )
+        merge_actor = merge_actor or MERGE_ACTOR_LEAD
+    elif current_status not in ("ready", "dispatched"):
         raise ValidationError(
             f"Item {item_id} has status '{item_row['status']}' — "
             "only 'ready' or 'dispatched' items can be completed in a rollout"
@@ -2138,7 +2156,11 @@ async def resume_rollout(
     wave = await _get_rollout(db, user_id, rollout_id)
     status = wave["status"]
     if status not in (RolloutStatus.HALTED, RolloutStatus.RUNNING):
-        raise ValidationError(f"Wave {rollout_id} is not halted (status={status})")
+        raise ValidationError(
+            f"Wave {rollout_id} is not halted (status={status}). If a halted "
+            "item landed outside the loop: land it, run complete-item-in-rollout "
+            "--outcome completed (allowed for a halted item), then resume"
+        )
     if status == RolloutStatus.RUNNING and not relaunch:
         raise ValidationError(
             f"Rollout {rollout_id} is already running and relaunch=False: nothing to do"
@@ -2146,7 +2168,10 @@ async def resume_rollout(
     if status == RolloutStatus.HALTED and not answer.strip():
         raise ValidationError(
             "An answer is required to resume a halted rollout: pass --answer "
-            "on the CLI or the `answer` argument on the MCP tool"
+            "on the CLI or the `answer` argument on the MCP tool. If a halted "
+            "item landed outside the loop: land the work, run "
+            "complete-item-in-rollout --outcome completed (allowed for a "
+            "halted item), then resume"
         )
 
     # Preflight BEFORE any state change: a refusal leaves the rollout as it
@@ -2168,6 +2193,10 @@ async def resume_rollout(
         await _resume_halted_rollout(db, wave, answer, user_id)
     elif answer.strip():
         await _post_resume_answer(db, rollout_id, project_id, answer, user_id)
+
+    swept_closed = await _sweep_done_items(db, user_id, rollout_id)
+    if swept_closed:
+        target = None
 
     loop_run_id: str | None = None
     if target is not None:
@@ -2219,6 +2248,48 @@ async def resume_rollout(
         "done_count": done_count,
         "loop_run_id": loop_run_id,
     }
+
+
+async def _sweep_done_items(db: DbPool, user_id: str, rollout_id: str) -> bool:
+    """Record ready/dispatched rollout items whose GTD item is already done.
+
+    Board-side only: the dispatch loop tick is deliberately NOT changed, so an
+    item is never recorded twice.  Each is recorded through
+    ``complete_item_in_rollout(outcome='completed', merge_actor='external')``,
+    which is idempotent by item id; the sweep only touches non-terminal rows,
+    so a repeat resume records nothing.  Repeats until no newly-ready item is
+    done (cascade fixpoint).
+
+    Returns:
+        True when the sweep closed the rollout (graph complete).
+    """
+    while True:
+        rows = await db.fetch(
+            "SELECT ri.item_id FROM rollout_items ri"
+            " JOIN items i ON i.id = ri.item_id"
+            " WHERE ri.rollout_id = $1 AND ri.status IN ('ready', 'dispatched')"
+            " AND i.status = 'done'",
+            rollout_id,
+        )
+        if not rows:
+            break
+        graph_complete = False
+        for r in rows:
+            result = await complete_item_in_rollout(
+                db,
+                user_id,
+                rollout_id,
+                str(r["item_id"]),
+                "completed",
+                merge_actor=MERGE_ACTOR_EXTERNAL,
+            )
+            graph_complete = bool(result["graph_complete"])
+        if graph_complete:
+            return True
+    row = await db.fetchrow(
+        "SELECT status FROM autonomous_rollouts WHERE id = $1", rollout_id
+    )
+    return row is not None and str(row["status"]) == "completed"
 
 
 async def _post_resume_answer(

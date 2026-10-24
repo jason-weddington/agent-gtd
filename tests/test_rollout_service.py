@@ -15,6 +15,7 @@ from agent_gtd.services.rollout_service import (
     cancel_rollout,
     complete_item_in_rollout,
     get_recent_merge_notes,
+    resume_rollout,
     start_rollout,
     validate_legality_contract,
 )
@@ -1604,6 +1605,119 @@ async def test_complete_item_in_rollout_different_terminal_outcome_rejected(db):
             await complete_item_in_rollout(
                 db, user_id, rollout_id, item_id, outcome="skipped"
             )
+
+
+async def _halted_item_setup(db, rollout_status: str = "halted"):
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    item_id = await _make_item(db, user_id, project_id, status="active")
+    rollout_id = await _make_rollout(db, user_id, project_id, status=rollout_status)
+    await _make_wave_plan_item(db, rollout_id, item_id, status="halted")
+    return user_id, project_id, rollout_id, item_id
+
+
+async def test_halted_item_override_to_completed(db):
+    user_id, _, rollout_id, item_id = await _halted_item_setup(db)
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        result = await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="completed"
+        )
+    assert result["already_recorded"] is False
+    assert result["graph_complete"] is True
+    row = await db.fetchrow(
+        "SELECT status, merge_actor FROM rollout_items"
+        " WHERE rollout_id = $1 AND item_id = $2",
+        rollout_id,
+        item_id,
+    )
+    assert row["status"] == "completed"
+    assert row["merge_actor"] == "lead"
+    gtd = await db.fetchrow("SELECT status FROM items WHERE id = $1", item_id)
+    assert gtd["status"] == "done"
+
+
+async def test_halted_item_override_keeps_supplied_merge_actor(db):
+    user_id, _, rollout_id, item_id = await _halted_item_setup(db, "running")
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, "completed", merge_actor="human"
+        )
+    row = await db.fetchrow(
+        "SELECT merge_actor FROM rollout_items WHERE item_id = $1", item_id
+    )
+    assert row["merge_actor"] == "human"
+
+
+async def test_halted_item_override_to_skipped(db):
+    user_id, _, rollout_id, item_id = await _halted_item_setup(db)
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="skipped"
+        )
+    assert await _get_wave_item_status(db, rollout_id, item_id) == "skipped"
+
+
+async def test_halted_item_override_refused_when_rollout_cancelled(db):
+    user_id, _, rollout_id, item_id = await _halted_item_setup(db, "cancelled")
+    with pytest.raises(ValidationError, match="already has terminal status"):
+        await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="completed"
+        )
+    assert await _get_wave_item_status(db, rollout_id, item_id) == "halted"
+
+
+async def test_completed_to_skipped_still_refused(db):
+    user_id, _, rollout_id, item_id = await _halted_item_setup(db)
+    await db.execute(
+        "UPDATE rollout_items SET status = 'completed' WHERE item_id = $1", item_id
+    )
+    with pytest.raises(ValidationError, match="cannot record a different outcome"):
+        await complete_item_in_rollout(
+            db, user_id, rollout_id, item_id, outcome="skipped"
+        )
+
+
+async def test_resume_sweeps_done_item_and_unblocks_successor(db):
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    a = await _make_item(db, user_id, project_id, status="done")
+    b = await _make_item(db, user_id, project_id, status="ready")
+    rollout_id = await _make_rollout(db, user_id, project_id, status="halted")
+    await _make_wave_plan_item(db, rollout_id, a, status="halted")
+    await _make_wave_plan_item(db, rollout_id, b, status="pending")
+    await _make_rollout_plan(
+        db, rollout_id, [a, b], [{"from_item_id": a, "to_item_id": b}]
+    )
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        result = await resume_rollout(
+            db, rollout_id, "landed by hand", user_id, relaunch=False
+        )
+    assert await _get_wave_item_status(db, rollout_id, a) == "completed"
+    assert await _get_wave_item_status(db, rollout_id, b) == "ready"
+    row = await db.fetchrow(
+        "SELECT merge_actor FROM rollout_items WHERE item_id = $1", a
+    )
+    assert row["merge_actor"] == "external"
+    assert result["done_count"] == 1
+    assert result["loop_run_id"] is None
+
+
+async def test_resume_closes_rollout_when_all_items_done(db):
+    user_id, _, rollout_id, item_id = await _halted_item_setup(db)
+    await db.execute("UPDATE items SET status = 'done' WHERE id = $1", item_id)
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        result = await resume_rollout(db, rollout_id, "ok", user_id, relaunch=False)
+    assert result["status"] == "completed"
+    assert result["done_count"] == 1
+    assert result["loop_run_id"] is None
+
+
+async def test_resume_leaves_not_done_item_untouched(db):
+    user_id, _, rollout_id, item_id = await _halted_item_setup(db)
+    with patch("agent_gtd.services.rollout_service._publish_rollout_event"):
+        result = await resume_rollout(db, rollout_id, "ok", user_id, relaunch=False)
+    assert result["done_count"] == 0
+    assert await _get_wave_item_status(db, rollout_id, item_id) == "ready"
 
 
 # ---------------------------------------------------------------------------

@@ -752,6 +752,10 @@ complete_item_in_rollout(
 ) → {"rollout_item": dict, "newly_ready": list[str]}
 # Marks item terminal, releases lock, unblocks downstream items.
 # Closes rollout if all items are terminal.
+# Halted override: a 'halted' item may be recorded 'completed' or 'skipped'
+# while the rollout is halted/running (work landed outside the loop);
+# merge_actor defaults to 'lead'. Other terminal->different-terminal
+# transitions are refused.
 
 halt_rollout(rollout_id: str, reason: str, comment: str | None = None, item_id: str | None = None) → dict
 # Transitions in-flight items to halted, releases locks, posts comment.
@@ -762,6 +766,10 @@ resume_rollout(rollout_id: str, answer: str = "", relaunch: bool = True) → dic
 # Resumes a halted rollout and relaunches the rollout loop on the host that last
 # drove it (returns loop_run_id). On a running rollout it only relaunches a
 # missing loop; a duplicate loop is refused by the host. CLI: resume-rollout.
+# Path for hand-landed work: land it, complete_item_in_rollout(outcome=completed)
+# on the halted item, then resume. Resume also sweeps ready/dispatched items whose
+# GTD item is already done, recording them completed with merge_actor 'external';
+# if the graph completes, no loop is relaunched (loop_run_id null).
 
 cancel_rollout(rollout_id: str, reason: str) → dict
 # Destructive. Idempotent for already-cancelled rollouts. Cancels every active

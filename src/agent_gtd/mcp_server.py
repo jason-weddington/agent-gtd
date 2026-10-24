@@ -1923,6 +1923,12 @@ async def complete_item_in_rollout(
     remaining blocking predecessor was this one is transitioned to 'ready'.
     If all items in the rollout are now terminal the rollout is closed.
 
+    Halted override: an item recorded ``halted`` may be moved to ``completed``
+    or ``skipped`` while the rollout is halted or running (the operator landed
+    the work outside the loop).  ``merge_actor`` then defaults to ``"lead"``.
+    Then call resume_rollout.  Every other terminal-to-different-terminal
+    transition is refused.
+
     Args:
         rollout_id: ID of the rollout.
         item_id: ID of the rollout_items row to complete.
@@ -2036,6 +2042,12 @@ async def resume_rollout(
     loop is still live, the dispatch host rejects the second one and the new
     run ends ``cancelled`` while the live loop keeps driving.  A rollout that
     never had a loop (lead-driven) resumes with ``loop_run_id`` null.
+
+    If a halted item landed outside the loop: land it, run
+    complete_item_in_rollout with outcome=completed (allowed for a halted
+    item), then resume.  Resume also records any ready/dispatched item whose
+    GTD item is already done as completed (merge_actor ``"external"``) instead
+    of re-reviewing it; if that completes the graph no loop is relaunched.
 
     Args:
         rollout_id: ID of the rollout to resume.

@@ -157,6 +157,15 @@ async def create_run(
 
     item = await get_item(db, user_id, item_id)
 
+    # Done-item guard: a rollout build must never move a finished item out of
+    # 'done' (e.g. work landed by hand).  Refuse before any write.
+    if mode == "build" and rollout_id is not None and item.get("status") == "done":
+        raise ValidationError(
+            f"Item {item_id} is already done; refusing to dispatch a rollout "
+            f"build for it (rollout {rollout_id}). Record it with "
+            "complete-item-in-rollout instead."
+        )
+
     # Wave lock guard: items in an active wave cannot be re-dispatched
     if item.get("locked_by_rollout_id"):
         raise RolloutItemLockedError(item_id, str(item["locked_by_rollout_id"]))
