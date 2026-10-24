@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v2.6.0 (2026-10-24)
+
+### Features
+
+- **abe4ad44**: Dispatch hosts: a newly registered host starts drained, and an operator can pin a
+  smoke-test dispatch to a drained host on purpose
+  ([`9868457`](https://github.com/jason-weddington/agent-gtd/commit/98684579c528fe85aa2c36a908bc9d6f2fefaa70))
+
+
 ## v2.5.2 (2026-10-24)
 
 ### Bug Fixes
