@@ -58,3 +58,11 @@ def test_frontend_build_engine_options_match_enum() -> None:
     assert len(vals) == 12
     assert len(set(vals)) == 12
     assert set(vals) == _expected()
+
+
+def test_build_engine_is_shared_protocol_enum() -> None:
+    import agent_gtd_dispatch_protocol
+
+    from agent_gtd import models
+
+    assert models.BuildEngine is agent_gtd_dispatch_protocol.BuildEngine

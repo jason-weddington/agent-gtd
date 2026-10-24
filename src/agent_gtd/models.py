@@ -5,6 +5,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal, assert_never
 
+from agent_gtd_dispatch_protocol import BuildEngine as BuildEngine
 from agent_gtd_dispatch_protocol import DispatchMode as DispatchMode
 from agent_gtd_dispatch_protocol import RunStatus as RemoteRunStatus
 from pydantic import BaseModel, Field, field_validator
@@ -167,33 +168,6 @@ class MergeActor(StrEnum):
     # completion 422'd — the merge had already landed and only the bookkeeping
     # failed, which halted the whole rollout and stopped two unrelated items.
     REVIEWER_AUTONOMOUS = "reviewer-autonomous"
-
-
-class BuildEngine(StrEnum):
-    """Dispatch build engine identifier.
-
-    Union of all currently registered engines across item.build_engine and
-    settings.engine use-cases.
-    """
-
-    CLAUDE_CODE = "claude-code"
-    CLAUDE_CODE_OLLAMA = "claude-code-ollama"
-    CLAUDE_CODE_GLM = "claude-code-glm"
-    CLAUDE_CODE_SONNET = "claude-code-sonnet"
-    CLAUDE_CODE_HAIKU = "claude-code-haiku"
-    KIRO = "kiro"
-    # Talos engine family (dispatched via the agent-gtd-dispatch talos.py
-    # subprocess path; see kb-* + item 2f79463d). BUILD-mode only: talos has no
-    # GTD/MCP access, so a plan dispatch on an item with a talos build_engine
-    # falls back to the global dispatch engine at the dispatch worker instead of
-    # attempting to run talos in plan mode. Manage-mode stays pinned to
-    # MANAGE_ENGINE regardless of item build_engine.
-    TALOS_HAIKU = "talos-haiku"
-    TALOS_SONNET = "talos-sonnet"
-    TALOS_OPUS = "talos-opus"
-    TALOS_QWEN = "talos-qwen"
-    TALOS_GLM = "talos-glm"
-    TALOS_GLM_FLASH = "talos-glm-flash"
 
 
 class CommitType(StrEnum):
