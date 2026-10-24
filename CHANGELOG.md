@@ -2,6 +2,33 @@
 
 <!-- version list -->
 
+## v2.5.1 (2026-10-24)
+
+### Bug Fixes
+
+- **2183ffb1**: Resume polish: the halted-rollout error names the --answer flag, and resume clears
+  the stale manager step
+  ([`4b597cc`](https://github.com/jason-weddington/agent-gtd/commit/4b597ccb70619f581ff4a53c33eeeed7318b6f30))
+
+- **32e20e22**: Rollout loops park in place while their host drains: stop starting new work at a
+  tick boundary, drop out of active_runs, resume when the host returns
+  ([`81e6319`](https://github.com/jason-weddington/agent-gtd/commit/81e6319907131bf7e74872f89481326dba9cce0b))
+
+- **ccf3cf46**: Plan runs: the prompt always sets build_engine explicitly, and a plan run that
+  writes no acceptance criteria does not report success
+  ([`adae3e6`](https://github.com/jason-weddington/agent-gtd/commit/adae3e668cebb0b00e769cd22588d383b668d981))
+
+- **f6e25452**: Rollouts: an operator can record that a halted item landed outside the loop, and
+  resume does not re-review an item that is already done
+  ([`8206f00`](https://github.com/jason-weddington/agent-gtd/commit/8206f006b9566a63572227b0ff668316427235e4))
+
+### Refactoring
+
+- **4d648301**: Agent_gtd imports BuildEngine from the shared protocol package instead of defining
+  its own
+  ([`2bf74a8`](https://github.com/jason-weddington/agent-gtd/commit/2bf74a83aa34e704008eb27d07dc610756f04842))
+
+
 ## v2.5.0 (2026-10-23)
 
 ### Features
