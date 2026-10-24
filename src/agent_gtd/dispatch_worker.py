@@ -518,6 +518,62 @@ async def _cancel_remote_run(
 # ---------------------------------------------------------------------------
 
 
+PLAN_NO_AC_ERROR = "Plan run wrote no acceptance criteria"
+
+
+async def _plan_success_gate(
+    db: Any,
+    run: dict[str, Any],
+    local_status: Any,
+    error_msg: str,
+) -> tuple[Any, str]:
+    """Downgrade a plan-mode SUCCESS whose item still has no acceptance criteria.
+
+    A plan run that finishes without writing acceptance criteria (a malformed
+    tool call, or a clarifying question instead) leaves the item not ready, so
+    a bare success would mislead the lead. The item is re-read fresh; missing
+    items, lookup errors and non-plan runs are never downgraded.
+
+    Returns:
+        ``(status, error_msg)`` — unchanged unless the run is downgraded.
+    """
+    if (
+        str(run.get("mode", "build")) != "plan"
+        or local_status != LocalRunStatus.SUCCESS
+        or not run.get("item_id")
+    ):
+        return local_status, error_msg
+
+    from agent_gtd.services.comment_service import list_comments
+    from agent_gtd.services.item_service import get_item as svc_get_item
+
+    user_id = str(run["user_id"])
+    item_id = str(run["item_id"])
+    try:
+        fresh = await svc_get_item(db, user_id, item_id)
+    except Exception:
+        logger.warning("Plan-run AC check could not read item %s", item_id)
+        return local_status, error_msg
+    if fresh.get("acceptance_criteria"):
+        return local_status, error_msg
+
+    detail = ""
+    try:
+        comments = await list_comments(db, user_id, item_id=item_id)
+        if comments:
+            last = comments[-1]
+            excerpt = " ".join(str(last.get("content_markdown", "")).split())[:300]
+            detail = (
+                f" Agent's last comment ({last.get('created_by', 'unknown')}): "
+                f'"{excerpt}"'
+            )
+    except Exception:
+        logger.warning("Plan-run AC check could not read comments for %s", item_id)
+    if not detail:
+        detail = " The item has no comments; check the run transcript."
+    return LocalRunStatus.FAILED, f"{PLAN_NO_AC_ERROR}.{detail}"[:ERROR_MSG_MAX_CHARS]
+
+
 async def reconcile_active_runs() -> int:
     """Reconcile runs that were active when the server last stopped.
 
@@ -651,6 +707,9 @@ async def reconcile_active_runs() -> int:
             # Already finished — sync local status
             local_status = LocalRunStatus.from_remote(remote.status)
             error_msg = remote.error or ""
+            local_status, error_msg = await _plan_success_gate(
+                db, run, local_status, error_msg
+            )
             # Truthful forwarding: record the engine the remote actually used.
             # getattr keeps this working against the currently-pinned protocol
             # (which lacks the field -> None). Never mirror the requested engine.
@@ -747,6 +806,9 @@ async def _resume_polling(
         finished = datetime.now(UTC).isoformat()
         local_status = LocalRunStatus.from_remote(remote.status)
         error_msg = remote.error or ""
+        local_status, error_msg = await _plan_success_gate(
+            db, run, local_status, error_msg
+        )
         # Truthful forwarding: capture the actual engine used (remote may differ
         # from requested on fallback). getattr keeps this working against the
         # currently-pinned protocol (None). Never mirror the requested engine.
@@ -1142,6 +1204,9 @@ async def execute_run(
         finished = datetime.now(UTC).isoformat()
         local_status = LocalRunStatus.from_remote(remote.status)
         error_msg = remote.error or ""
+        local_status, error_msg = await _plan_success_gate(
+            db, run, local_status, error_msg
+        )
         # Truthful forwarding: capture the actual engine used (remote may differ
         # from requested on fallback). getattr keeps this working against the
         # currently-pinned protocol (None). Never mirror the requested engine.

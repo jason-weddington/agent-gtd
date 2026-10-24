@@ -2215,3 +2215,145 @@ async def test_execute_run_manage_other_http_error_still_fails() -> None:
     calls = await _execute_with_remote_error("manage", 500)
     terminal = [c for c in calls if "status" in c]
     assert terminal and terminal[-1]["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Plan-run acceptance-criteria outcome gate
+# ---------------------------------------------------------------------------
+
+
+def _plan_run(mode: str = "plan", item_id: str | None = "item-p") -> dict:
+    return {
+        "id": "run-p",
+        "item_id": item_id,
+        "user_id": "user-p",
+        "project_id": "proj-p",
+        "engine": "claude-code",
+        "mode": mode,
+    }
+
+
+def _gate_patches(item: dict | Exception, comments: list[dict] | None = None):
+    get_item = (
+        AsyncMock(side_effect=item)
+        if isinstance(item, Exception)
+        else AsyncMock(return_value=item)
+    )
+    return (
+        patch("agent_gtd.services.item_service.get_item", new=get_item),
+        patch(
+            "agent_gtd.services.comment_service.list_comments",
+            new=AsyncMock(return_value=comments or []),
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_plan_success_with_empty_acs_is_failed() -> None:
+    from agent_gtd.dispatch_worker import _plan_success_gate
+    from agent_gtd.models import LocalRunStatus
+
+    p1, p2 = _gate_patches(
+        {"acceptance_criteria": []},
+        [{"created_by": "claude-plan-abc", "content_markdown": "Which API?"}],
+    )
+    with p1, p2:
+        status, err = await _plan_success_gate(
+            MagicMock(), _plan_run(), LocalRunStatus.SUCCESS, ""
+        )
+    assert status == LocalRunStatus.FAILED
+    assert "wrote no acceptance criteria" in err
+    assert "claude-plan-abc" in err
+    assert "Which API?" in err
+
+
+@pytest.mark.asyncio
+async def test_plan_success_with_acs_stays_success() -> None:
+    from agent_gtd.dispatch_worker import _plan_success_gate
+    from agent_gtd.models import LocalRunStatus
+
+    p1, p2 = _gate_patches({"acceptance_criteria": ["AC-1: x"]})
+    with p1, p2:
+        status, err = await _plan_success_gate(
+            MagicMock(), _plan_run(), LocalRunStatus.SUCCESS, ""
+        )
+    assert status == LocalRunStatus.SUCCESS
+    assert err == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["build", "manage", "review"])
+async def test_non_plan_run_with_empty_acs_unaffected(mode: str) -> None:
+    from agent_gtd.dispatch_worker import _plan_success_gate
+    from agent_gtd.models import LocalRunStatus
+
+    p1, p2 = _gate_patches({"acceptance_criteria": []})
+    with p1, p2:
+        status, _ = await _plan_success_gate(
+            MagicMock(), _plan_run(mode), LocalRunStatus.SUCCESS, ""
+        )
+    assert status == LocalRunStatus.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_plan_remote_failure_keeps_original_error() -> None:
+    from agent_gtd.dispatch_worker import _plan_success_gate
+    from agent_gtd.models import LocalRunStatus
+
+    p1, p2 = _gate_patches({"acceptance_criteria": []})
+    with p1, p2:
+        status, err = await _plan_success_gate(
+            MagicMock(), _plan_run(), LocalRunStatus.FAILED, "boom"
+        )
+    assert (status, err) == (LocalRunStatus.FAILED, "boom")
+
+
+@pytest.mark.asyncio
+async def test_plan_run_without_item_or_missing_item_not_downgraded() -> None:
+    from agent_gtd.dispatch_worker import _plan_success_gate
+    from agent_gtd.models import LocalRunStatus
+
+    p1, p2 = _gate_patches({"acceptance_criteria": []})
+    with p1, p2:
+        status, _ = await _plan_success_gate(
+            MagicMock(), _plan_run(item_id=None), LocalRunStatus.SUCCESS, ""
+        )
+    assert status == LocalRunStatus.SUCCESS
+
+    p1, p2 = _gate_patches(RuntimeError("not found"))
+    with p1, p2:
+        status, _ = await _plan_success_gate(
+            MagicMock(), _plan_run(), LocalRunStatus.SUCCESS, ""
+        )
+    assert status == LocalRunStatus.SUCCESS
+
+
+@pytest.mark.asyncio
+async def test_resume_polling_plan_run_empty_acs_recorded_failed() -> None:
+    from agent_gtd.dispatch_worker import _resume_polling
+
+    db = MagicMock()
+    update_mock = AsyncMock()
+    publish = MagicMock()
+    p1, p2 = _gate_patches({"acceptance_criteria": []})
+    with (
+        p1,
+        p2,
+        patch("agent_gtd.dispatch_worker.asyncio.sleep", new=AsyncMock()),
+        patch(
+            "agent_gtd.dispatch_worker._poll_remote_run",
+            new=AsyncMock(
+                return_value=_make_remote_run_response(RemoteRunStatus.succeeded)
+            ),
+        ),
+        patch("agent_gtd.dispatch_worker._update_run", new=update_mock),
+        patch("agent_gtd.dispatch_worker._publish_run_event", new=publish),
+        patch("agent_gtd.dispatch_worker.httpx.AsyncClient") as mock_cls,
+    ):
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        await _resume_polling(db, _plan_run(), "remote-p", url="http://t", api_key="k")
+
+    assert update_mock.call_args.kwargs["status"] == "failed"
+    assert "no acceptance criteria" in update_mock.call_args.kwargs["error_msg"]
+    assert publish.call_args.args[-1] == "run_failed"
