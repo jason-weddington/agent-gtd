@@ -324,6 +324,7 @@ class ManagerPhase(StrEnum):
     REVIEWING = "reviewing"
     MERGING = "merging"
     RECONCILING_AC = "reconciling_ac"
+    PARKED = "parked"
     HALTED = "halted"
 
 

@@ -412,7 +412,11 @@ async def dispatch_preflight(
         except Exception:
             info = None
         if info is not None:
-            available = info.get("max_concurrent_runs", 0) - info.get("active_runs", 0)
+            available = (
+                info.get("max_concurrent_runs", 0)
+                - info.get("active_runs", 0)
+                - info.get("parked_rollout_loops", 0)
+            )
             if available <= 0:
                 host_label = host_match.get("label", host_match["url"])
                 raise HTTPException(

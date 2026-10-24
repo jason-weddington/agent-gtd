@@ -316,6 +316,57 @@ async def test_targeted_host_full() -> None:
     assert "host-a" in exc.host_label
 
 
+@pytest.mark.asyncio
+async def test_parked_rollout_loops_reduce_available_slots() -> None:
+    """max=4, active=1, parked=1 → 2 available slots in candidate ranking."""
+    from agent_gtd.services import dispatch_router
+
+    info = {
+        **INFO_ALL_UP_A,
+        "max_concurrent_runs": 4,
+        "active_runs": 1,
+        "parked_rollout_loops": 1,
+    }
+    with patch(
+        "agent_gtd.services.dispatch_router._gather_host_info",
+        AsyncMock(return_value=[info]),
+    ):
+        selected = await dispatch_router.pick_dispatch_host(
+            [{**HOST_A, "drain_reason": None}],
+            engine="claude-code",
+            agent_name=None,
+        )
+    assert selected["id"] == "a"
+    assert "(2 available)" in selected["_routing_rationale"]
+
+
+@pytest.mark.asyncio
+async def test_targeted_host_full_counts_parked_rollout_loops() -> None:
+    """Targeted: max=1, active=0, parked=1 → HostFullError."""
+    from agent_gtd.exceptions import HostFullError
+    from agent_gtd.services.dispatch_router import pick_dispatch_host
+
+    info = {
+        **INFO_ALL_UP_A,
+        "max_concurrent_runs": 1,
+        "active_runs": 0,
+        "parked_rollout_loops": 1,
+    }
+    with (
+        patch(
+            "agent_gtd.services.dispatch_router._fetch_host_info",
+            return_value=info,
+        ),
+        pytest.raises(HostFullError),
+    ):
+        await pick_dispatch_host(
+            [HOST_A, HOST_B],
+            engine="claude-code",
+            agent_name=None,
+            target_host_id="a",
+        )
+
+
 # ---------------------------------------------------------------------------
 # exclude_urls tests
 # ---------------------------------------------------------------------------

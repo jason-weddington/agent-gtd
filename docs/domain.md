@@ -274,7 +274,7 @@ Coordinates a wave of related items dispatched in dependency order.
 | `lead_user_id` | TEXT FK | Who initiated the rollout |
 | `status` | TEXT | `pending`, `planning`, `running`, `completed`, `halted`, `failed`, `cancelled` |
 | `halt_reason` | TEXT | Why the rollout was halted |
-| `manager_phase` | TEXT | Current phase for UI display: `warm_up`, `dispatching`, `polling`, `reviewing`, `merging`, `reconciling_ac`, `halted` |
+| `manager_phase` | TEXT | Current phase for UI display: `warm_up`, `dispatching`, `polling`, `reviewing`, `merging`, `reconciling_ac`, `parked`, `halted` |
 | `manager_current_item_id` | TEXT | Item the manager is currently focused on |
 | `started_at` / `ended_at` | TEXT | Lifecycle timestamps |
 | `dispatch_host_id` | TEXT | Pinned target host inherited by child build runs (NULL = auto-routed) |

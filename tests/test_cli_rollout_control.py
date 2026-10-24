@@ -424,6 +424,7 @@ class TestUpdateRolloutStateParsing:
             "reviewing",
             "merging",
             "reconciling_ac",
+            "parked",
             "halted",
         ):
             args = p.parse_args(["update-rollout-state", _ruid(), "--phase", phase])

@@ -2109,6 +2109,7 @@ async def update_rollout_state(
         "reviewing",
         "merging",
         "reconciling_ac",
+        "parked",
         "halted",
     ],
     ctx: Context,
@@ -2122,7 +2123,8 @@ async def update_rollout_state(
     2 min ago" instead of just elapsed time.
 
     Valid ``phase`` values: ``"warm_up"``, ``"dispatching"``, ``"polling"``,
-    ``"reviewing"``, ``"merging"``, ``"reconciling_ac"``, ``"halted"``.
+    ``"reviewing"``, ``"merging"``, ``"reconciling_ac"``, ``"parked"``,
+    ``"halted"``.
 
     Args:
         rollout_id: ID of the rollout to update.

@@ -18,7 +18,7 @@ Worth stating because they shrink the work considerably.
 
 **`deploy.sh` is already serial and already per-host.** `deploy.sh:250-252` is a plain `for host in ${HOSTS}` loop that blocks on each host's health probe, and `deploy.sh:34-38` already honours `DISPATCH_HOST=<one>` to target a single host. The per-host deploy primitive exists. What is missing is any way to stop the *other* hosts taking new work while you use it.
 
-**`active_runs` is an honest idle signal.** `_start_rollout_loop` registers its task in `_active_processes` (`agent-gtd-dispatch/main.py:2961-2964`), so a host driving a rollout counts as busy even when it is only waiting between waves. `active_runs == 0` genuinely means idle, including no rollout loop.
+**`active_runs` is an honest idle signal.** `_start_rollout_loop` registers its task in `_active_processes`, so a host driving a rollout counts as busy even when it is only waiting between waves. `active_runs == 0` means no build, plan or review work and no unparked rollout loop. A rollout loop parked behind a drain is left out of `active_runs` and reported separately as `parked_rollout_loops` on `/info`.
 
 **The re-adoption bug is narrower than it looked.** 2.0.2 is already live on host-d, and the bug is startup-only. The residual exposure is an unattended `Restart=on-failure` bounce of a host still on 2.0.1 — which drain does **not** cover, because nobody is there to drain first.
 
@@ -90,13 +90,19 @@ This design should be read as the interim: refuse-and-explain now, and expect pi
 
 **Peer visibility has to land on all three projections**, not just the local one: `DispatchHostResponse`, and both `mcp_backend` projections (`:1176` and `:2145`). Other sessions dispatch to this fleet concurrently and need to see that a host is parked and why. Test it in HTTP mode, not only local.
 
-### Pinned rollouts need a decision, not a caveat
+### Rollout loops park while their host drains
 
-A rollout pinned to a host keeps dispatching its children there (`dispatch_service.py:129-134`). With pinned dispatch now refused, those child dispatches would start failing mid-wave — and a failed child currently halts the rollout, which is the blast-radius problem filed as `9f00b5f1`.
+A rollout loop whose owning host is draining parks at its next tick boundary. It never parks mid-review, mid-land or mid-push: a tick that has started a review runs the review, the land and the verdict to completion, and parks on the following tick. The board reports the drain to the loop through `get_rollout`, which returns `loop_host_url` and `loop_host_drain_reason` (matched by URL across every user's host rows, because drain belongs to the physical machine).
 
-That is not acceptable as a side effect of draining. The rollout loop must treat "host is draining" as a reason to **wait**, not to fail and not to halt: hold the wave, publish the drain reason as the manager's current step so it is visible on the board, and resume when the host returns.
+A parked loop stays alive and re-checks every `ROLLOUT_LOOP_POLL_SECONDS`. It is excluded from `/info` and `/health` `active_runs` and counted in `/info` `parked_rollout_loops`, so the host goes idle while the loop waits. It keeps its slot in the host's own admission count, and the board router adds `parked_rollout_loops` back when it computes free slots. The rollout stays `running` with `manager_phase` `parked` and a step naming the drain reason, refreshed on every parked tick.
 
-This is the one place drain needs real logic rather than a filter, and it is dispatch-side, so it ships in the same wave as the column. Until it exists, **do not drain a host that owns a running rollout** — the operator procedure must check, and `drain-host` should warn when the host has one.
+The loop resumes by itself when the host is undrained. A deploy restart while it is parked is covered by the startup re-adoption sweep, because the rollout stays `running` and the host keeps its local MANAGE row; if the host is still drained, the re-adopted loop parks again on its first tick. An operator halt sets the rollout to `halted`, and a halted rollout is never auto-resumed.
+
+A pinned child dispatch refused because the host is draining parks the loop instead of halting the rollout, and a child run that the board failed with a drain refusal is re-dispatched once the host returns rather than sent to the reviewer.
+
+`drain-host` gives no warning for a host driving a rollout loop, because parking makes the drain safe.
+
+**Deploy the board (agent_gtd) before the dispatch fleet.** An older board reports no drain to the loop, and loops then behave as before (they never park).
 
 ### What drain does not cover
 
@@ -141,7 +147,7 @@ Repeat per host. The fleet never drops below one host accepting work.
 
 **Cutting the release and deploying the first host together.** `release.sh` ends by calling `deploy.sh`, which honours `DISPATCH_HOST`, so `DISPATCH_HOST=<idle-host> ./release.sh` publishes the wheels and deploys only that host. Drain it first. Once it is verified and undrained, drain every host still on the old version so the upgraded host takes all new work, then deploy each one with `DISPATCH_HOST=<host> EXPECT_VERSION=<ver> ./deploy.sh` as it goes idle.
 
-**A host driving a rollout loop can be drained when the rollout is not pinned** (`dispatch_host_id` null on the rollout). Its child builds auto-route to other hosts. The loop itself counts in `active_runs`, so that host only goes idle when the rollout finishes.
+**Any host driving a rollout loop can be drained, pinned or not.** It goes idle once its loop parks and its in-flight child builds finish.
 
 Hosts should be addressable by **label**, not UUID — operators think in `host-a`, the registry thinks in `c941111f-…`. A ~20-line resolver (exact id → unique label → unique URL substring → error listing candidates) removes a lookup from every command.
 

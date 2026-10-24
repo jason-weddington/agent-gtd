@@ -431,8 +431,10 @@ async def pick_dispatch_host(
             )
 
         # Check capacity
-        target_available = target_info.get("max_concurrent_runs", 0) - target_info.get(
-            "active_runs", 0
+        target_available = (
+            target_info.get("max_concurrent_runs", 0)
+            - target_info.get("active_runs", 0)
+            - target_info.get("parked_rollout_loops", 0)
         )
         if target_available <= 0:
             raise HostFullError(
@@ -571,7 +573,11 @@ async def pick_dispatch_host(
                 }
             )
             continue
-        available = info.get("max_concurrent_runs", 0) - info.get("active_runs", 0)
+        available = (
+            info.get("max_concurrent_runs", 0)
+            - info.get("active_runs", 0)
+            - info.get("parked_rollout_loops", 0)
+        )
         entry = dict(info)
         entry["_host"] = host
         entry["_available"] = available

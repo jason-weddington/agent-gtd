@@ -179,7 +179,7 @@ def _cmd_update_rollout_state(args: argparse.Namespace) -> None:
     rollout_id: str = args.rollout_id
     # argparse validates choices; cast narrows str → Literal for the typed backend.
     phase = cast(
-        "Literal['warm_up', 'dispatching', 'polling', 'reviewing', 'merging', 'reconciling_ac', 'halted']",  # noqa: E501
+        "Literal['warm_up', 'dispatching', 'polling', 'reviewing', 'merging', 'reconciling_ac', 'parked', 'halted']",  # noqa: E501
         args.phase,
     )
     current_item_id: str | None = args.current_item_id
@@ -339,6 +339,7 @@ def register(subparsers: argparse._SubParsersAction[Any]) -> None:
             "reviewing",
             "merging",
             "reconciling_ac",
+            "parked",
             "halted",
         ],
         help="New phase for the rollout.",

@@ -2357,3 +2357,158 @@ async def test_cancel_run_of_child_after_halt_is_allowed(db):
     assert client_mock.post.await_args.args[0] == (
         "https://host-b/runs/remote-1/cancel"
     )
+
+
+# ---------------------------------------------------------------------------
+# get_rollout: loop_host_url / loop_host_drain_reason (drain-park signal)
+# ---------------------------------------------------------------------------
+
+
+async def _make_manage_run(
+    db,
+    user_id: str,
+    project_id: str,
+    rollout_id: str,
+    host_url: str,
+    *,
+    created_at: str = NOW,
+) -> str:
+    run_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO claude_runs"
+        " (id, project_id, user_id, status, mode, rollout_id,"
+        " dispatch_host_url, created_at, updated_at)"
+        " VALUES ($1, $2, $3, 'running', 'manage', $4, $5, $6, $7)",
+        run_id,
+        project_id,
+        user_id,
+        rollout_id,
+        host_url,
+        created_at,
+        created_at,
+    )
+    return run_id
+
+
+async def _add_host(db, user_id: str, url: str, label: str = "h1") -> str:
+    from agent_gtd.services import settings_service
+
+    host = await settings_service.add_dispatch_host(db, user_id, label, url, "key")
+    return str(host["id"])
+
+
+async def test_get_rollout_loop_host_none_without_manage_run(db):
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+
+    result = await get_rollout(db, user_id, rollout_id)
+
+    assert result["loop_host_url"] is None
+    assert result["loop_host_drain_reason"] is None
+
+
+async def test_get_rollout_loop_host_undrained(db):
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _add_host(db, user_id, "http://h1:8100")
+    await _make_manage_run(db, user_id, project_id, rollout_id, "http://h1:8100/")
+
+    result = await get_rollout(db, user_id, rollout_id)
+
+    assert result["loop_host_url"] == "http://h1:8100"
+    assert result["loop_host_drain_reason"] is None
+
+
+async def test_get_rollout_loop_host_drained_reports_reason(db):
+    from agent_gtd.services import settings_service
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    host_id = await _add_host(db, user_id, "http://h1:8100")
+    await _make_manage_run(db, user_id, project_id, rollout_id, "http://h1:8100")
+    await settings_service.drain_dispatch_host(db, user_id, host_id, "rolling deploy")
+
+    result = await get_rollout(db, user_id, rollout_id)
+
+    assert result["loop_host_url"] == "http://h1:8100"
+    assert result["loop_host_drain_reason"] == "rolling deploy"
+
+
+async def test_get_rollout_loop_host_pinned_wins_over_manage_run(db):
+    from agent_gtd.services import settings_service
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    pinned_id = await _add_host(db, user_id, "http://pinned:8100", label="p")
+    await _add_host(db, user_id, "http://other:8100", label="o")
+    await db.execute(
+        "UPDATE autonomous_rollouts SET dispatch_host_id = $1 WHERE id = $2",
+        pinned_id,
+        rollout_id,
+    )
+    await _make_manage_run(db, user_id, project_id, rollout_id, "http://other:8100")
+    await settings_service.drain_dispatch_host(db, user_id, pinned_id, "pin drain")
+
+    result = await get_rollout(db, user_id, rollout_id)
+
+    assert result["loop_host_url"] == "http://pinned:8100"
+    assert result["loop_host_drain_reason"] == "pin drain"
+
+
+async def test_get_rollout_loop_host_drain_matches_across_users(db):
+    from agent_gtd.services import settings_service
+
+    user_id = await _make_user(db)
+    other_user = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    await _add_host(db, user_id, "http://h1:8100")
+    other_host = await _add_host(db, other_user, "http://h1:8100")
+    await _make_manage_run(db, user_id, project_id, rollout_id, "http://h1:8100")
+    await settings_service.drain_dispatch_host(
+        db, other_user, other_host, "other user drain"
+    )
+
+    result = await get_rollout(db, user_id, rollout_id)
+
+    assert result["loop_host_drain_reason"] == "other user drain"
+
+
+async def test_get_rollout_loop_host_trailing_slash_matches(db):
+    from agent_gtd.services import settings_service
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    host_id = await _add_host(db, user_id, "http://h1:8100")
+    await _make_manage_run(db, user_id, project_id, rollout_id, "http://h1:8100/")
+    await settings_service.drain_dispatch_host(db, user_id, host_id, "slash")
+
+    result = await get_rollout(db, user_id, rollout_id)
+
+    assert result["loop_host_url"] == "http://h1:8100"
+    assert result["loop_host_drain_reason"] == "slash"
+
+
+async def test_get_rollout_loop_host_reason_clears_after_undrain(db):
+    from agent_gtd.services import settings_service
+
+    user_id = await _make_user(db)
+    project_id = await _make_project(db, user_id)
+    rollout_id = await _make_rollout(db, user_id, project_id, status="running")
+    host_id = await _add_host(db, user_id, "http://h1:8100")
+    await _make_manage_run(db, user_id, project_id, rollout_id, "http://h1:8100")
+    await settings_service.drain_dispatch_host(db, user_id, host_id, "deploy")
+    assert (await get_rollout(db, user_id, rollout_id))[
+        "loop_host_drain_reason"
+    ] == "deploy"
+
+    await settings_service.undrain_dispatch_host(db, user_id, host_id)
+
+    result = await get_rollout(db, user_id, rollout_id)
+    assert result["loop_host_drain_reason"] is None
+    assert result["loop_host_url"] == "http://h1:8100"

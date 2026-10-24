@@ -1340,6 +1340,7 @@ async def test_update_rollout_state_all_phases(
         "reviewing",
         "merging",
         "reconciling_ac",
+        "parked",
         "halted",
     ]
     for phase in valid_phases:

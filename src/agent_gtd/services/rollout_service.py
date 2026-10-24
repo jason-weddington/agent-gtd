@@ -1355,7 +1355,64 @@ async def get_rollout(
     """
     wave = await _get_rollout(db, user_id, rollout_id)
     in_flight = await _fetch_in_flight_build_runs(db, rollout_id)
-    return {**wave, "inFlightBuildRuns": in_flight}
+    loop_host_url, drain_reason = await _loop_host_drain_reason(db, wave)
+    return {
+        **wave,
+        "inFlightBuildRuns": in_flight,
+        "loop_host_url": loop_host_url,
+        "loop_host_drain_reason": drain_reason,
+    }
+
+
+async def _loop_host_drain_reason(
+    db: DbPool,
+    rollout: dict[str, Any],
+) -> tuple[str | None, str | None]:
+    """Resolve the rollout loop's owning host URL and its drain reason.
+
+    The owning host follows the same precedence as
+    ``dispatch_service.resolve_loop_relaunch``: the pinned
+    ``autonomous_rollouts.dispatch_host_id`` when set, otherwise the
+    ``dispatch_host_url`` of the rollout's most recent manage-mode run.
+
+    The drain lookup matches ``dispatch_hosts.url`` by URL across ALL
+    users' rows (one trailing ``/`` stripped on both sides): drain belongs
+    to the physical machine, and another user's rollout can run its loop
+    there.
+
+    Never raises for an unresolvable host.
+
+    Returns:
+        ``(loop_host_url, loop_host_drain_reason)``.  The URL is ``None``
+        when it cannot be resolved; the reason is ``None`` when the URL is
+        unresolvable/unregistered or no row with that URL is drained.
+    """
+    pinned_id = rollout.get("dispatch_host_id")
+    if pinned_id:
+        row = await db.fetchrow(
+            "SELECT url FROM dispatch_hosts WHERE id = $1", str(pinned_id)
+        )
+        raw_url = row["url"] if row is not None else None
+    else:
+        row = await db.fetchrow(
+            "SELECT dispatch_host_url FROM claude_runs"
+            " WHERE rollout_id = $1 AND mode = 'manage'"
+            " ORDER BY created_at DESC LIMIT 1",
+            str(rollout["id"]),
+        )
+        raw_url = row["dispatch_host_url"] if row is not None else None
+    url = str(raw_url or "").rstrip("/")
+    if not url:
+        return None, None
+    drained = await db.fetchrow(
+        "SELECT drain_reason FROM dispatch_hosts"
+        " WHERE rtrim(url, '/') = $1 AND drain_reason IS NOT NULL"
+        " ORDER BY updated_at DESC LIMIT 1",
+        url,
+    )
+    if drained is None:
+        return url, None
+    return url, str(drained["drain_reason"])
 
 
 async def list_rollouts(
@@ -1782,7 +1839,7 @@ async def update_rollout_state(
         rollout_id: ID of the rollout to update.
         phase: Current execution phase. Must be one of
             ``warm_up | dispatching | polling | reviewing | merging |
-            reconciling_ac | halted``.
+            reconciling_ac | parked | halted``.
         current_item_id: The item ID the manager is currently acting on,
             or ``None`` if not item-specific.
         current_step: Short free-form description of the current step,

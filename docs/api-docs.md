@@ -769,7 +769,7 @@ cancel_rollout(rollout_id: str, reason: str) → dict
 
 update_rollout_state(
     rollout_id: str,
-    phase: Literal["warm_up", "dispatching", "polling", "reviewing", "merging", "reconciling_ac", "halted"],
+    phase: Literal["warm_up", "dispatching", "polling", "reviewing", "merging", "reconciling_ac", "parked", "halted"],
     current_item_id: str | None = None,
     current_step: str | None = None,
 ) → {"rollout_id": str, "ts": str, "phase": str, "current_item_id": str, "current_step": str}
